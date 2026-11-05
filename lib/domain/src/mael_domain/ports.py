@@ -134,7 +134,7 @@ def rename_project_allocations(old_path: Path, new_path: Path) -> None:
     """Move a project's whole allocation entry from one project path to another.
 
     Allocations are keyed by absolute project path, so renaming a project must
-    carry its port bases across or ``mael doctor`` will treat every worktree as
+    carry its port bases across or ``mael project check`` will treat every worktree as
     orphaned and prune it. Runs as a single locked transaction, like the other
     mutators here.
 

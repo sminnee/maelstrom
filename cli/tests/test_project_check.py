@@ -1,13 +1,21 @@
-"""Tests for mael doctor functionality."""
+"""Tests for mael project check functionality."""
 
+import os
+import stat
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from git_helpers import create_commit, run_git, setup_git_repo
 
-from mael_cli.doctor import CheckStatus, _check_port_allocations, run_doctor
+from mael_cli.project_check import (
+    CheckStatus,
+    _check_port_allocations,
+    _check_secret_file_perms,
+    run_project_check,
+)
 from mael_domain.ports import load_port_allocations, record_port_allocation
 from mael_domain.worktree import WorktreeInfo, update_local_main
 
@@ -166,8 +174,8 @@ class TestUpdateLocalMain:
             run_git(project_path, "worktree", "remove", str(wt_path))
 
 
-class TestDoctor:
-    """Tests for run_doctor()."""
+class TestProjectCheck:
+    """Tests for run_project_check()."""
 
     @pytest.fixture(autouse=True)
     def _isolate_home(self, tmp_path, monkeypatch):
@@ -179,7 +187,7 @@ class TestDoctor:
         """All checks pass on a healthy project."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
             assert result.issues_found == 0
             assert all(c.status == CheckStatus.OK for c in result.checks)
 
@@ -187,7 +195,7 @@ class TestDoctor:
         """Callers select a result by name, so no result may go unnamed."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             names = [c.name for c in result.checks]
             assert all(names)
@@ -201,7 +209,7 @@ class TestDoctor:
             # Break core.bare
             run_git(project_path, "config", "core.bare", "false")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             core_bare_check = [c for c in result.checks if "core.bare" in c.message][0]
             assert core_bare_check.status == CheckStatus.FIXED
@@ -215,7 +223,7 @@ class TestDoctor:
             alpha = project_path / "test-repo-alpha"
             run_git(project_path, "worktree", "add", str(alpha), "main")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
             assert check.status == CheckStatus.WARNING
@@ -227,7 +235,7 @@ class TestDoctor:
         with tmpdir:
             run_git(project_path, "worktree", "remove", str(project_path / "_main"))
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = [c for c in result.checks if "No _main" in c.message][0]
             assert check.status == CheckStatus.WARNING
@@ -238,7 +246,7 @@ class TestDoctor:
         with tmpdir:
             run_git(project_path / "_main", "checkout", "--detach", "HEAD")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = [c for c in result.checks if "does not hold main" in c.message][0]
             assert check.status == CheckStatus.WARNING
@@ -251,7 +259,7 @@ class TestDoctor:
             alpha = project_path / "test-repo-alpha"
             run_git(project_path, "worktree", "add", str(alpha), "main")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = [c for c in result.checks if "test-repo-alpha" in c.message][0]
             assert "checkout --detach" in check.message
@@ -262,7 +270,7 @@ class TestDoctor:
         with tmpdir:
             (project_path / ".mael").unlink()
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
             assert len(result.checks) == 1
             assert result.checks[0].status == CheckStatus.ERROR
             assert ".mael" in result.checks[0].message
@@ -292,7 +300,7 @@ class TestDoctor:
             run_git(project_path, "config", "--unset", "branch.main.remote")
             run_git(project_path, "config", "--unset", "branch.main.merge")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.FIXED
@@ -306,7 +314,7 @@ class TestDoctor:
             run_git(project_path, "config", "branch.main.remote", "upstream")
             run_git(project_path, "config", "branch.main.merge", "refs/heads/trunk")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.FIXED
@@ -322,7 +330,7 @@ class TestDoctor:
             run_git(project_path, "config", "--unset", "branch.main.merge")
             run_git(project_path, "update-ref", "-d", "refs/remotes/origin/main")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.ERROR
@@ -334,7 +342,7 @@ class TestDoctor:
             run_git(project_path, "config", "--unset", "branch.develop.remote")
             run_git(project_path, "config", "--unset", "branch.develop.merge")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.FIXED
@@ -348,7 +356,7 @@ class TestDoctor:
         """A develop-default project must not report spurious issues."""
         tmpdir, project_path = _create_project_repo(default_branch="develop")
         with tmpdir:
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             assert result.issues_found == 0, [
                 (c.name, c.message) for c in result.checks if c.status != CheckStatus.OK
@@ -358,7 +366,7 @@ class TestDoctor:
         """Already tracking origin/main: report OK, rewrite nothing."""
         tmpdir, project_path = _create_project_repo()
         with tmpdir:
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             check = self._upstream_check(result)
             assert check.status == CheckStatus.OK
@@ -374,7 +382,7 @@ class TestDoctor:
             create_commit(wt_path, "local.txt", "local", "Local commit")
             run_git(wt_path, "checkout", "--detach", "HEAD")
 
-            result = run_doctor(project_path)
+            result = run_project_check(project_path)
 
             main_check = [c for c in result.checks if "ahead" in c.message]
             assert len(main_check) == 1
@@ -399,7 +407,7 @@ class TestCheckEditableInstall:
         return project_path
 
     def test_ok_when_it_points_into_main(self, tmp_path):
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = self._setup(tmp_path, tmp_path / "proj" / "_main" / "src")
 
@@ -407,7 +415,7 @@ class TestCheckEditableInstall:
         assert result.status == CheckStatus.OK
 
     def test_warns_when_it_points_at_a_worktree(self, tmp_path):
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = self._setup(tmp_path, tmp_path / "proj" / "proj-lima" / "src")
 
@@ -422,7 +430,7 @@ class TestCheckEditableInstall:
         """`uv sync` writes one `.pth` per workspace member. The CLI's is named
         after its distribution and lists one path per line: its own `src/`
         and each bundled library's."""
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = self._setup(tmp_path, target=None)
         main = project_path / "_main"
@@ -443,7 +451,7 @@ class TestCheckEditableInstall:
 
     def test_a_path_outside_the_project_is_not_a_stray(self, tmp_path):
         """Another package's `.pth` in the same venv names its own source."""
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = self._setup(tmp_path, tmp_path / "elsewhere" / "src")
 
@@ -452,7 +460,7 @@ class TestCheckEditableInstall:
 
     def test_ok_when_there_is_no_venv(self, tmp_path):
         """Not every project is installed this way."""
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = tmp_path / "proj"
         project_path.mkdir()
@@ -461,7 +469,7 @@ class TestCheckEditableInstall:
         assert result.status == CheckStatus.OK
 
     def test_ok_when_the_venv_holds_no_editable_install(self, tmp_path):
-        from mael_cli.doctor import _check_editable_install
+        from mael_cli.project_check import _check_editable_install
 
         project_path = self._setup(tmp_path, target=None)
 
@@ -470,7 +478,7 @@ class TestCheckEditableInstall:
 
 
 class TestCheckSecretFilePerms:
-    """Tests for the _check_secret_file_perms doctor check."""
+    """Tests for the _check_secret_file_perms project check."""
 
     @staticmethod
     def _mode(path) -> int:
@@ -483,7 +491,7 @@ class TestCheckSecretFilePerms:
         """Wire up a fake home + a single worktree under project_path."""
         from types import SimpleNamespace
 
-        import mael_cli.doctor as doctor
+        import mael_cli.project_check as project_check
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         mael_dir = tmp_path / ".maelstrom"
@@ -505,13 +513,13 @@ class TestCheckSecretFilePerms:
             SimpleNamespace(path=project_path),
             SimpleNamespace(path=wt_path),
         ]
-        monkeypatch.setattr(doctor, "list_worktrees", lambda _p: worktrees)
+        monkeypatch.setattr(project_check, "list_worktrees", lambda _p: worktrees)
         return project_path, mael_dir, config, allocations, env_file
 
     def test_ok_when_all_tight(self, tmp_path, monkeypatch):
         import os
 
-        from mael_cli.doctor import _check_secret_file_perms
+        from mael_cli.project_check import _check_secret_file_perms
 
         project_path, mael_dir, config, allocations, env_file = self._setup(
             tmp_path, monkeypatch
@@ -527,7 +535,7 @@ class TestCheckSecretFilePerms:
     def test_fixes_loose_files_and_names_them(self, tmp_path, monkeypatch):
         import os
 
-        from mael_cli.doctor import _check_secret_file_perms
+        from mael_cli.project_check import _check_secret_file_perms
 
         project_path, mael_dir, config, allocations, env_file = self._setup(
             tmp_path, monkeypatch
@@ -550,7 +558,7 @@ class TestCheckSecretFilePerms:
         """A record holds the env its agent was started with, allowlist-free."""
         import os
 
-        from mael_cli.doctor import _check_secret_file_perms
+        from mael_cli.project_check import _check_secret_file_perms
 
         project_path, mael_dir, config, allocations, env_file = self._setup(
             tmp_path, monkeypatch
@@ -574,7 +582,7 @@ class TestCheckSecretFilePerms:
     def test_rerun_after_fix_reports_ok(self, tmp_path, monkeypatch):
         import os
 
-        from mael_cli.doctor import _check_secret_file_perms
+        from mael_cli.project_check import _check_secret_file_perms
 
         project_path, mael_dir, config, allocations, env_file = self._setup(
             tmp_path, monkeypatch
@@ -600,7 +608,7 @@ class TestCheckPortAllocations:
             record_port_allocation(project_path, name, base)
 
         monkeypatch.setattr(
-            "mael_cli.doctor.list_worktrees",
+            "mael_cli.project_check.list_worktrees",
             lambda _p: [
                 WorktreeInfo(path=project_path / f, branch="main", commit="abc")
                 for f in folders
@@ -670,7 +678,7 @@ class TestCheckChecksReadable:
         stderr="",
         raises=None,
     ):
-        from mael_cli import doctor
+        from mael_cli import project_check
 
         def _run_cmd(cmd, cwd=None, quiet=False, check=True, **kwargs):
             if cmd[:2] == ["git", "remote"]:
@@ -681,8 +689,8 @@ class TestCheckChecksReadable:
                 cmd, returncode, stdout="", stderr=stderr
             )
 
-        monkeypatch.setattr(doctor, "run_cmd", _run_cmd)
-        return doctor._check_checks_readable(Path("/proj"))
+        monkeypatch.setattr(project_check, "run_cmd", _run_cmd)
+        return project_check._check_checks_readable(Path("/proj"))
 
     def test_ok_when_the_runs_can_be_read(self, monkeypatch):
         assert self._run(monkeypatch, returncode=0).status == CheckStatus.OK
@@ -701,14 +709,14 @@ class TestCheckChecksReadable:
 
     def test_a_machine_without_gh_does_not_lose_the_rest_of_the_run(self, monkeypatch):
         """`gh` is optional everywhere else. Raised from here it aborts the
-        whole command, so every check after this one is lost — and doctor is
+        whole command, so every check after this one is lost — and the project check is
         what a user runs when something is already wrong."""
         result = self._run(monkeypatch, raises=FileNotFoundError(2, "no gh", "gh"))
         assert result.status == CheckStatus.OK
         assert "gh" in result.message
 
     def test_a_read_that_never_answers_does_not_hang_the_run(self, monkeypatch):
-        """Waiting forever on a captive portal leaves doctor printing nothing.
+        """Waiting forever on a captive portal leaves the project check printing nothing.
         A timeout is not a refused permission, so it must not advise one."""
         result = self._run(monkeypatch, raises=subprocess.TimeoutExpired(["gh"], 5.0))
         assert result.status == CheckStatus.OK

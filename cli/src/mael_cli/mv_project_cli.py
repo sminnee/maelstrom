@@ -5,7 +5,7 @@ model needs, renders or applies the resulting :class:`~mael_domain.mv_project.Mo
 and is the only layer here that touches the filesystem, git, or the terminal.
 
 A plain ``mv`` of a project directory is not safe. Two failures are silent:
-``mael doctor`` prunes port allocations whose worktree folders it can no longer
+``mael project check`` prunes port allocations whose worktree folders it can no longer
 find, and every task's Claude session id is derived from the project name, so a
 rename orphans existing sessions. This command handles the first and warns
 loudly about the second.
@@ -270,7 +270,7 @@ def apply_dir_moves(plan: MovePlan) -> None:
                 detail = (
                     f"\nAlready renamed inside {plan.old_project_path}: {renamed}. "
                     f"Rename them back, or re-run the move and then "
-                    f"`mael doctor {plan.new_name}`."
+                    f"`mael project check {plan.new_name}`."
                 )
             raise click.ClickException(
                 f"Could not move {move.src} -> {move.dst}: {e}{detail}"
@@ -300,7 +300,7 @@ def migrate_port_allocations(plan: MovePlan) -> None:
     """Carry the project's port bases across to the new path key.
 
     Allocations are keyed by absolute project path. Skipping this is the
-    destructive trap: the next ``mael doctor`` would find no worktrees under the
+    destructive trap: the next ``mael project check`` would find no worktrees under the
     old key and prune every base.
     """
     try:
@@ -520,7 +520,7 @@ def _unfinished_message(plan: MovePlan, reason: str) -> str:
     return (
         f"The project directory moved to {plan.new_project_path}, but the "
         f"migration did not finish: {reason}\n"
-        f"Recover with: mael doctor {plan.new_name}"
+        f"Recover with: mael project check {plan.new_name}"
     )
 
 
@@ -658,4 +658,4 @@ async def cmd_mv_project(
             "remote.origin.url is unchanged. Pass --git-url to point it somewhere else."
         )
     click.echo("")
-    click.echo(f"Next: mael doctor {plan.new_name}")
+    click.echo(f"Next: mael project check {plan.new_name}")

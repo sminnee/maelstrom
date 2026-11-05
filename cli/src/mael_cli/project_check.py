@@ -36,14 +36,14 @@ class CheckResult:
     status: CheckStatus
     message: str
     #: Stable identifier for the check that produced this result, e.g.
-    #: ``main_upstream``. ``run_doctor`` fills it from the check function's own
+    #: ``main_upstream``. ``run_project_check`` fills it from the check function's own
     #: name, so callers can select a result without matching on ``message``,
     #: which is prose and free to change. Empty on a hand-built result.
     name: str = ""
 
 
 @dataclass
-class DoctorResult:
+class ProjectCheckResult:
     project_name: str
     checks: list[CheckResult] = field(default_factory=list)
 
@@ -98,7 +98,7 @@ def _default_branch(project_path: Path) -> str:
     missing, which is the case for a project cloned before maelstrom fetched.
 
     Most of maelstrom still assumes ``main`` — see ``MAIN_BRANCH`` in
-    ``worktree_model``. This function is deliberately local to doctor, whose
+    ``worktree_model``. This function is deliberately local to the project check, whose
     repairs would otherwise report a project on ``develop`` as broken.
     """
     result = run_cmd(
@@ -202,7 +202,7 @@ def _check_checks_readable(project_path: Path) -> CheckResult:
     The read goes through the same argv the fallback itself uses, so the two
     cannot drift into the check passing on a page the fallback never asks for.
 
-    This is the one check that reaches the network, and doctor is what a user
+    This is the one check that reaches the network, and the project check is what a user
     runs when something is already wrong. So every way the read can fail short
     of a refusal — no ``gh``, no network, a read that never answers — reports
     OK and says it could not find out. Naming a permission on those would be
@@ -243,7 +243,7 @@ def _check_checks_readable(project_path: Path) -> CheckResult:
     )
 
 
-#: How long the one network check waits. Short: doctor prints its results in
+#: How long the one network check waits. Short: the project check prints its results in
 #: order, so a read that hangs leaves the user watching a blank terminal.
 CHECKS_READ_TIMEOUT_SECS = 5.0
 
@@ -580,17 +580,17 @@ def _check_editable_install(project_path: Path) -> CheckResult:
     )
 
 
-def run_doctor(project_path: Path) -> DoctorResult:
+def run_project_check(project_path: Path) -> ProjectCheckResult:
     """Run all health checks on a project.
 
     Args:
         project_path: Path to the project root.
 
     Returns:
-        DoctorResult with all check results.
+        ProjectCheckResult with all check results.
     """
     project_name = project_path.name
-    result = DoctorResult(project_name=project_name)
+    result = ProjectCheckResult(project_name=project_name)
 
     checks = [
         _check_mael_marker,
