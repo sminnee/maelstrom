@@ -179,7 +179,7 @@ missing file, bad frontmatter, no title — every file is left untouched and no 
 ## Bulk chains with load-many
 
 `mael task load-many` creates a whole chain from one marked plan file — the bulk form used
-by `/review-project-hygiene`, which emits many similar blocks at once.
+by `/setup-project`, which emits many similar blocks at once.
 
 ```bash
 mael task load-many plan.md            # create the chain

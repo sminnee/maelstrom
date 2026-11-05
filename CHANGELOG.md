@@ -10,6 +10,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Changed
+
+- **`/review-project-hygiene` is now `/setup-project`.** It first makes the dev env start: it
+  writes `services:` in `.maelstrom.yaml` and proves each service with `mael env start`. Then it
+  audits the project against a shorter checklist. The task runs in normal mode, and the skill
+  enters plan mode for the audit. `mael self setup` removes the old skill link.
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

@@ -268,29 +268,37 @@ after:   A → P → N1 → N2 → C
 
 `C` now waits for `N2`, so the chain keeps its order and no task forks off its end.
 
-## Auditing an existing project
+## Setting up a project
 
-`/review-project-hygiene` is a second way into a chain. It does not start from a brief. It
-reads a project that already exists, usually after its first minimum viable product (MVP).
-The skill turns the gaps it finds into a batch of tasks, written as a
-[`load-many`](tasks.md) plan file — the bulk form suited to many similar blocks.
+`/setup-project` is a second way into a chain. It does not start from a brief. It reads a
+project that already exists, usually one you have just added. It does two things, in order.
+
+First it makes the dev env work. It writes the `services:` block in `.maelstrom.yaml`, runs
+`mael env reset` and `mael env start` for each service, and commits the config when every
+service answers. It pushes that commit as a pull request before the audit starts. This phase
+edits files, so the task starts in normal mode.
+
+Then it enters plan mode and audits the project. It turns the gaps it finds into a batch of
+tasks, written as a [`load-many`](tasks.md) plan file — the bulk form suited to many similar
+blocks.
+
+The **Set up** button in a project's detail dialog, in the orchestrator UI's **Projects** tab,
+creates and launches this task. From the shell:
 
 ```bash
-mael task add "Hygiene audit: forecastel" --run
+mael task add "Set up forecastel" --command setup-project --mode normal --run
 ```
 
-Then run `/review-project-hygiene` in the planning session.
-
-The skill audits tooling, CI/CD, tests and specs, docs, agent config, security and
-dependencies, dead code, and architecture fences. It looks
-hardest for **gates that report success but cannot fail**. A CI step named "Lint" that runs
-the write variant of a formatter. A deploy that never checks whether the build passed. A
-dead-code config no job invokes. An absent gate is visible. A broken one is not.
+The audit covers gates, CI, tests, dead code, security and dependencies, docs, and agent
+config. It looks hardest for **gates that report success but cannot fail**. A CI step named
+"Lint" that runs the write variant of a formatter. A deploy that never checks whether the
+build passed. A dead-code config no job invokes. An absent gate is visible. A broken one is
+not.
 
 Two things it deliberately does not do:
 
-- **It never edits the project.** Every agreed fix becomes a task. The audit reads and
-  reports; the chain it emits does the work.
+- **The audit never edits the project.** The dev env config is the one edit the skill makes.
+  Every agreed fix becomes a task. The chain it emits does the work.
 - **It checks that code conventions are *documented*, not whether the code follows them.**
   Reviewing code against a standard is [`/code-review`](pull-requests.md)'s job.
 
@@ -303,7 +311,7 @@ recommendation, and an S/M/L effort:
 |---|---|---|---|
 | Lint gate | ✗ runs `npm run format` (writes, always exits 0) | switch to `format:check` | S |
 | Dead code | ✗ none configured | add knip + CI gate | M |
-| Arch fence | n/a — 2 crates, below threshold | none | — |
+| Deploys declarative | n/a — the project does not deploy | none | — |
 
 **The plan file is written after you confirm this table, from the confirmed rows only.** A row
 you decline is dropped. Nothing that was not in the table reaches the plan.
@@ -347,8 +355,8 @@ planning session does, and promotes them when you approve.
 ## Testing a running app for security
 
 `/security-test` is a fourth way into a chain. It is a dynamic application security test
-(DAST): it scans the running app with OWASP ZAP, the Zed Attack Proxy, in Docker. The hygiene
-audit reads the project. This skill attacks the app.
+(DAST): it scans the running app with OWASP ZAP, the Zed Attack Proxy, in Docker. The
+`/setup-project` audit reads the project. This skill attacks the app.
 
 ```bash
 mael task add "Security test: forecastel" --mode normal --run
