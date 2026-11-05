@@ -27,6 +27,25 @@
   font-family: var(--mono);
   max-width: 24rem;
 }
+.row {
+  cursor: pointer;
+}
+.row:hover {
+  background: var(--bg-hover);
+}
+/* The name reads as text. The row's hover says it opens. */
+.open {
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+  cursor: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .tip {
   font-family: var(--mono);
   color: var(--fg-muted);

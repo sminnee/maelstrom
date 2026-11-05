@@ -10,6 +10,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+### Added
+
+- **A project row opens a detail dialog.** The dialog shows the project's open worktrees, its
+  stack tip and its Linear link. The URL holds it as `?detail=<project>`, so a reload reopens
+  it.
+- **Set up a project from the UI.** The detail dialog's **Set up** button creates and launches a
+  task that runs `/setup-project`.
+
 ### Changed
 
 - **`/review-project-hygiene` is now `/setup-project`.** It first makes the dev env start: it

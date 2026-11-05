@@ -1,0 +1,39 @@
+/* `Dialog` sizes its box for 100 columns. The detail dialog will grow tabs, so it takes the
+   screen now, as a rendered file does. Not on the narrow layout: there `Dialog` is the whole
+   screen already. */
+@media (--not-narrow) {
+  .box {
+    width: min(1200px, 100%);
+    height: calc(100% - 40px);
+  }
+}
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--u) var(--u-2);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.facts dt {
+  color: var(--fg-faint);
+  text-transform: uppercase;
+}
+.facts dd {
+  margin: 0;
+  min-width: 0;
+}
+/* Mono Means Literal: a branch is a name on disk. */
+.mono {
+  font-family: var(--mono);
+}
+.faint {
+  color: var(--fg-faint);
+}
+.error {
+  composes: error from '../newwork/NewWork.module.css';
+}
