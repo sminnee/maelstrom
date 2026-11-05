@@ -8,6 +8,7 @@ import {
 import { useCallback } from 'react';
 import type {
   ChangeComment,
+  Definition,
   FileDiff,
   FileExcerpt,
   FileGroup,
@@ -151,6 +152,34 @@ export function worktreeFileUrl(
   const query = new URLSearchParams({ rev, path, side });
   if (oldPath) query.set('oldPath', oldPath);
   return `${base(worktreeId)}/raw?${query}`;
+}
+
+/** A name to follow: 1-based `line` on the new side of `rev`, and the UTF-16 `character` it starts at. */
+export interface DefinitionQuery {
+  worktreeId: WorktreeId;
+  rev: string;
+  path: string;
+  line: number;
+  character: number;
+}
+
+/**
+ * Where a name is defined, asked of the worktree's **Language server**. A
+ * mutation, not a query: each click asks once, and nothing else reads the answer.
+ */
+export function useDefinition() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: ({ worktreeId, rev, path, line, character }: DefinitionQuery) => {
+      const query = new URLSearchParams({
+        rev,
+        path,
+        line: String(line),
+        character: String(character),
+      });
+      return api.get<Definition>(`${base(worktreeId)}/definition?${query}`);
+    },
+  });
 }
 
 /** What a post of change comments answers: who took the message, and who refused it. */

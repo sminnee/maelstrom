@@ -215,6 +215,8 @@ export interface FileDiff {
   truncated: boolean;
   /** The file's `#!` line, read only for a name with no extension, else `null`. */
   shebang: string | null;
+  /** A **Language server** reads the file, so a name in it can be followed. */
+  navigable: boolean;
   hunks: DiffHunk[];
 }
 
@@ -230,12 +232,31 @@ export interface FileGroup {
 export interface FileExcerpt {
   rev: string;
   path: string;
+  /** A **Language server** reads the file, so a name in it can be followed. */
+  navigable: boolean;
   /** The file's line count: 0 for a binary file, or one past the size cap. */
   total: number;
   /** The range passed the line cap, so `span` holds its first lines only. */
   truncated: boolean;
   /** Every line `context`, with `oldLine` equal to `newLine`. */
   span: LineSpan;
+}
+
+/** One place a name is defined. */
+export interface DefinitionTarget {
+  /** Relative to the worktree; absolute for a file outside it, such as typeshed. */
+  path: string;
+  range: LineRange;
+  /** The rev holds `path`. A file outside the worktree, or one the rev does not track, is in no rev. */
+  inRev: boolean;
+}
+
+/** `GET /api/worktrees/{id}/definition`: where the name at a position is defined. */
+export interface Definition {
+  rev: string;
+  targets: DefinitionTarget[];
+  /** `no_server`: no **Language server** reads the file. `no_definition`: the server found none. */
+  reason: 'ok' | 'no_server' | 'no_definition';
 }
 
 /** `GET /api/worktrees/{id}/tree`: every file path on the new side of a rev. */

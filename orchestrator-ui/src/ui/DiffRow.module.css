@@ -88,3 +88,27 @@
     gap: var(--u-half);
   }
 }
+/* A name a click follows to its definition. */
+.name {
+  cursor: pointer;
+}
+.name:hover {
+  text-decoration: underline;
+}
+.name[aria-busy='true'] {
+  cursor: progress;
+}
+/* The row a followed name landed on, once. */
+.row[data-flash] {
+  animation: flash 1.2s ease-out;
+}
+@keyframes flash {
+  from {
+    box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .row[data-flash] {
+    animation-duration: 1ms;
+  }
+}

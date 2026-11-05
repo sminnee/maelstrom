@@ -27,6 +27,7 @@ const file = (path: string, hunks: DiffHunk[], over: Partial<FileDiff> = {}): Fi
   deletions: 0,
   truncated: false,
   shebang: null,
+  navigable: false,
   hunks,
   ...over,
 });
@@ -47,6 +48,7 @@ const pin = (id: string, path: string, start: number | null, end = start): Pin =
 const excerpt = (path: string, start: number, end: number, total = 100): FileExcerpt => ({
   rev: 'branch',
   path,
+  navigable: false,
   total,
   truncated: false,
   span: {
