@@ -147,7 +147,7 @@ def main() -> int:
     """Migrate the notebook root's state database, and return the exit code.
 
     A missing root skips with exit 0, so a fresh install still completes. A
-    database from a newer build fails, and ``self-update`` reports it.
+    database from a newer build fails, and ``mael self setup`` reports it.
     """
     try:
         root = _pick_root()

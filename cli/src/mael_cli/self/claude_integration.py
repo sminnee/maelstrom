@@ -5,6 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
+from mael_common.util import read_json
 from mael_domain.shared_dir import get_shared_dir
 
 
@@ -52,21 +53,6 @@ def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
             messages.append(f"Removed stale link {entry.name}")
 
     return messages
-
-
-def read_json(path: Path) -> dict:
-    """Read a JSON object, returning ``{}`` if it is missing or unreadable.
-
-    Public because other modules read the same third-party files (notably
-    ``~/.claude.json``); a second private reader would drift from this one.
-    """
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -226,11 +212,5 @@ def install_claude_integration() -> list[str]:
 
     messages.extend(remove_session_hooks())
     messages.extend(remove_session_channel())
-
-    # Keep an opted-in scheduled-task agent in sync (self-heals its `mael` path
-    # after a self-update). A no-op when the opt-in marker is absent or off-mac.
-    from .schedule_launchd import ensure_schedule_agent
-
-    messages.extend(ensure_schedule_agent())
 
     return messages or ["Nothing to install"]

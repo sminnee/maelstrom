@@ -32,7 +32,7 @@ NOTEBOOK_ROOT_UNSET_MESSAGE = (
     f"{NOTEBOOK_ROOT_ENV} is not set, so there is no notebook to read or "
     f"write. Add {NOTEBOOK_ROOT_ENV}=~/.maelstrom/notebooks/${{WORKTREE}} to "
     "the project root's `.env` and run `mael env reset`, or set it for one "
-    f"command: {NOTEBOOK_ROOT_ENV}=~/.maelstrom mael …"
+    f"command: {NOTEBOOK_ROOT_ENV}=~/.maelstrom/state mael …"
 )
 
 

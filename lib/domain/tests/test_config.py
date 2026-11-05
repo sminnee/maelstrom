@@ -607,7 +607,7 @@ class TestBoolKeyParsing:
 class TestAgentDaemonService:
     """The daemon as an env service — the only way one is started.
 
-    A worktree testing a protocol change must not drive the everyday daemon:
+    A worktree testing a protocol change must not drive the production daemon:
     its agents run different code. Every environment declares the service, and
     its root comes from `MAEL_AGENT_ROOT` in the worktree's `.env`, so the
     daemon a worktree starts is its own.

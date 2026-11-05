@@ -96,7 +96,7 @@ async def test_a_large_reply_round_trips_through_the_cli_client(connected_pair):
 class TestNothingStartsADaemon:
     """No client ever spawns a daemon.
 
-    The everyday daemon was replaced four times by a worktree's test code,
+    The production daemon was replaced four times by a worktree's test code,
     because the worktree's orchestrator noticed the socket was gone first and
     started one. The starting command chose the code, so whoever noticed first
     won. Now a missing daemon is an error that names the root and the command
@@ -110,7 +110,7 @@ class TestNothingStartsADaemon:
         reply = asyncio.run(request_over_socket(missing, {"cmd": "list"}))
         assert "No agent daemon on" in reply["error"]
         assert str(tmp_path / "gone") in reply["error"]
-        assert "mael self-env start" in reply["error"]
+        assert "mael self restart" in reply["error"]
         assert "mael env start" in reply["error"]
 
 
@@ -235,14 +235,15 @@ class TestTheReplyCarriesTheKind:
         assert "kind" not in reply
 
 
-def test_every_root_is_the_base_and_each_daemon_under_it(tmp_path):
-    """An environment's daemon lives under ``<base>/daemons/<worktree>``."""
+def test_every_root_is_production_the_base_and_each_daemon_under_it(tmp_path):
+    """The production daemon is under ``<base>/state``; an environment's under ``daemons``."""
     from mael_agent.agent_transport import DaemonPaths, all_roots
 
     (tmp_path / "daemons" / "bravo").mkdir(parents=True)
     (tmp_path / "daemons" / "alpha").mkdir()
     (tmp_path / "daemons" / "stray.log").write_text("")
     assert all_roots(tmp_path) == [
+        DaemonPaths(tmp_path / "state" / "daemon"),
         DaemonPaths(tmp_path),
         DaemonPaths(tmp_path / "daemons" / "alpha"),
         DaemonPaths(tmp_path / "daemons" / "bravo"),

@@ -695,7 +695,7 @@ class TestResolveRootHasNoFallback:
     """No fallback: an unset root is an error, never a guessed directory.
 
     `~/.maelstrom` used to be the fallback, so a command with no root reached
-    the everyday daemon. Every environment now names its own root, and a
+    the production daemon. Every environment now names its own root, and a
     command that finds none must say so rather than reach for someone else's
     agents.
     """
@@ -729,7 +729,7 @@ def test_an_unreachable_daemon_is_named_with_the_command_that_starts_one(
     )
     assert result.exit_code == 1
     assert f"No agent daemon on {root}" in result.output
-    assert "mael self-env start" in result.output
+    assert "mael self restart" in result.output
 
 
 class TestTailRaw:

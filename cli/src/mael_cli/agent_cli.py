@@ -8,8 +8,8 @@ The daemon builds each row; this module draws it, and joins each stopped row
 to its task. The daemon's own commands are ``mael-agent-daemon``, a separate
 CLI root.
 
-No command starts a daemon. The environment manager does: `mael self-env
-start` runs the everyday daemon and `mael env start` runs this worktree's.
+No command starts a daemon. A supervisor does: the OS runs the production
+daemon as a host service, and `mael env start` runs this worktree's.
 A command that finds none says so, naming the root — see
 ``docs/dev/agent-daemon.md``.
 """

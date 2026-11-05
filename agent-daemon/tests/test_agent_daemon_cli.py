@@ -62,7 +62,7 @@ def test_daemon_status_explains_a_daemon_too_old_to_answer():
     assert "older than this code" in result.output
     # Names a command that exists: `mael-agent-daemon restart` does not exist, and the
     # environment manager owns the daemon's lifetime.
-    assert "mael self-env restart agent-daemon" in result.output
+    assert "mael self restart agent-daemon" in result.output
 
 
 def test_daemon_status_renders_a_timestamp_without_a_zone():
@@ -274,7 +274,7 @@ class TestServeRequiresARoot:
     """`serve` runs only on a root its environment names.
 
     A daemon on the wrong root is the failure this prevents. It served a
-    worktree's test code as the everyday daemon for four restarts, because the
+    worktree's test code as the production daemon for four restarts, because the
     root came from a flag that the starting command chose. The environment
     manager now writes the root into `.env`, and `serve` reads it there.
     """
@@ -284,7 +284,7 @@ class TestServeRequiresARoot:
         result, _ = run_cli(["serve"])
         assert result.exit_code == 2
         assert "MAEL_AGENT_ROOT is not set" in result.output
-        assert "mael self-env start" in result.output
+        assert "production daemon" in result.output
         assert "mael env start" in result.output
 
     def test_serve_without_a_root_builds_no_daemon(self, monkeypatch):
@@ -351,9 +351,9 @@ class TestOnlyTheEnvironmentManagerStartsADaemon:
     """`daemon start|stop|restart` are gone.
 
     Seven things used to bring a daemon into being, so no one owned any root.
-    Two do now: `mael self-env start` for the everyday daemon, and
-    `mael env start` for a worktree's. Both run `serve` as a service, so the
-    daemon's lifetime is its environment's.
+    Two do now: the OS supervisor for the production daemon, and
+    `mael env start` for a worktree's. Both run `serve`, so the daemon's
+    lifetime is its supervisor's.
     """
 
     @pytest.mark.parametrize("verb", ["start", "stop", "restart"])
@@ -364,7 +364,7 @@ class TestOnlyTheEnvironmentManagerStartsADaemon:
 
     def test_the_group_names_the_environment_manager(self):
         result, _ = run_cli(["--help"])
-        assert "self-env" in result.output
+        assert "host service" in result.output
         assert "env start" in result.output
 
 

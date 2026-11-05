@@ -233,6 +233,22 @@ type = "forbidden"
 source_modules = ["mael_cli"]
 forbidden_modules = ["mael_daemon", "mael_orchestrator"]
 
+# `mael self` is fenced so that a later change can make it a binary of its
+# own: it imports only the libraries, and only `mael_cli.cli` registers it.
+[[tool.importlinter.contracts]]
+name = "mael self imports only the libraries"
+type = "forbidden"
+source_modules = ["mael_cli.self"]
+forbidden_modules = ["mael_cli.*"]
+ignore_imports = ["mael_cli.self.** -> mael_cli.self.**"]
+
+[[tool.importlinter.contracts]]
+name = "Only the CLI root imports mael self"
+type = "forbidden"
+source_modules = ["mael_cli.*"]
+forbidden_modules = ["mael_cli.self"]
+ignore_imports = ["mael_cli.cli -> mael_cli.self.self_cli", "mael_cli.self.** -> mael_cli.self.**"]
+
 # The domain is click-free, so the CLI and the orchestrator server can share it.
 # The async click group is the one library module allowed to import click.
 [[tool.importlinter.contracts]]

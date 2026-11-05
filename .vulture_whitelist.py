@@ -121,7 +121,6 @@ _.side_effect  # unused attribute (tests/)
 # use, but vulture sees only a parameter nothing reads. Each name below is a
 # fixture defined with @pytest.fixture in cli/tests/.
 darwin  # unused variable (cli/tests/test_schedule_launchd.py)
-no_power_commands  # unused variable (cli/tests/test_schedule_launchd.py)
 quiet_finalize  # unused variable (cli/tests/test_sync_flags.py)
 process_cleanup  # unused variable (cli/tests/e2e/conftest.py)
 
