@@ -331,7 +331,8 @@ first `--changed` restart records one. At start, a missing `tangier` or a failed
 version, and the start still succeeds. The same failure stops `--changed` with an error, so it
 never reads as "nothing changed".
 
-`mael self-update` uses this to restart only the `_main` services that its pull changed.
+`mael self-update --channel main` uses this to restart only the `_main` services that its pull
+changed.
 
 ## The `.env` file
 

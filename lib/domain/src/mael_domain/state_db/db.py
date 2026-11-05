@@ -44,7 +44,8 @@ T = TypeVar("T")
 
 #: What every ordinary open tells a user whose database is behind this build.
 _MIGRATE_COMMAND = (
-    "`bin/install`, or `python -m mael_domain.state_db.migrate` for a PyPI install"
+    "`bin/install`, or `python -m mael_domain.state_db.migrate` "
+    "for an installed release"
 )
 
 #: How long a nested write may wait for the transaction lock before it is

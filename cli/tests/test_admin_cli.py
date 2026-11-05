@@ -1,42 +1,25 @@
-"""Tests for self-management CLI commands (focus: self-update dep sync)."""
+"""Tests for self-management CLI commands."""
 
 import asyncio
-import pathlib
+import os
 import subprocess
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
 import click
 import pytest
 from click.testing import CliRunner, Result
 
-from mael_cli.admin_cli import (
-    cmd_export_queue,
-    cmd_self_update,
-    resolve_install_root,
-)
+from mael_cli.admin_cli import cmd_export_queue, cmd_self_update
 from mael_domain import task as task_model
-from mael_domain.env import EnvRefresh, EnvState, ServiceVersionError, VersionChange
+from mael_domain.env import EnvRefresh, EnvState, VersionChange
+from mael_domain.release_bundle.install import InstallReport, Manifest
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_export import SqliteExportQueue
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree_model import CopyBackResult
-
-
-@pytest.fixture(autouse=True)
-def _no_live_update_steps():
-    """Keep self-update off the real `_main`: no tangier, install or restart.
-
-    With no versions the update fails open and reinstalls, as it did before
-    service versions existed.
-    """
-    with (
-        patch("mael_cli.admin_cli.service_versions", return_value={}),
-        patch("mael_cli.admin_cli.run_install_cmd"),
-        patch("mael_cli.admin_cli.restart_changed", return_value=[]),
-    ):
-        yield
 
 
 def _ok(stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess:
@@ -49,203 +32,236 @@ def _fail(stderr: str = "boom") -> subprocess.CompletedProcess:
     return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr=stderr)
 
 
-ROOT = pathlib.Path("/checkout/_main")
+COMMIT = "abcdef1234567890"
 
 
 @dataclass
-class SelfUpdateRun:
-    result: Result
-    run: MagicMock
-    install: MagicMock
-    restart: MagicMock
+class Runner:
+    """A fake ``subprocess.run``: a reply per command prefix, else success."""
+
+    replies: dict[str, subprocess.CompletedProcess] = field(default_factory=dict)
+    calls: list[tuple[list[str], dict]] = field(default_factory=list)
+
+    def __call__(self, cmd, **kwargs):
+        cmd = [str(c) for c in cmd]
+        self.calls.append((cmd, kwargs))
+        line = " ".join(cmd)
+        reply = next(
+            (r for prefix, r in self.replies.items() if line.startswith(prefix)),
+            _ok(),
+        )
+        if kwargs.get("check") and reply.returncode != 0:
+            raise subprocess.CalledProcessError(
+                reply.returncode, cmd, reply.stdout, reply.stderr
+            )
+        return reply
+
+    def commands(self) -> list[str]:
+        return [" ".join(cmd) for cmd, _ in self.calls]
 
 
-def _run_self_update(
-    *,
-    run_results,
-    which_uv="/usr/bin/uv",
-    which_pnpm="/usr/bin/pnpm",
-    cli_versions=None,
-    jig_versions=None,
-    changes=(),
-    install_error=None,
-    restart_error=None,
-) -> SelfUpdateRun:
-    """Invoke self-update on ``ROOT`` with every outside effect stubbed.
+class Host:
+    """A home directory with a config, a `_main` checkout and an install root.
 
-    ``run_results`` feeds the patched ``subprocess.run``: ``git pull`` first,
-    then the ``uv tool install`` sync when it runs. ``cli_versions`` is the
-    `cli` SHA bucket's hash before and after the pull, or an exception for a
-    failed hash. Without it there is no hash, so the reinstall fails open.
-    ``jig_versions`` is the same for the `jig` bucket. Without it the jig
-    link does not run, and adds nothing to ``run_results``.
+    Every outside effect is a fake: the commands, the installer, the Claude
+    integration, the restart and tangier.
     """
 
-    def hashes(cli, jig):
-        if isinstance(cli, Exception):
-            return cli
-        return {k: v for k, v in (("cli", cli), ("jig", jig)) if v is not None}
-
-    versions = (
-        {"return_value": {}}
-        if cli_versions is None and jig_versions is None
-        else {
-            "side_effect": [
-                hashes(cli, jig)
-                for cli, jig in zip(
-                    cli_versions or [None, None], jig_versions or [None, None]
-                )
-            ]
-        }
-    )
-    tools = {"uv": which_uv, "pnpm": which_pnpm}
-    with (
-        patch("mael_cli.admin_cli.resolve_install_root", return_value=ROOT),
-        patch("mael_cli.admin_cli.Path.exists", return_value=True),
-        patch("mael_cli.admin_cli.shutil.which", side_effect=tools.get),
-        patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
-        patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
-        patch("mael_cli.admin_cli._write_daemon_root_shim", return_value=""),
-        patch("mael_cli.admin_cli.service_versions", **versions),
-        patch(
-            "mael_cli.admin_cli.run_install_cmd", side_effect=install_error
-        ) as install,
-        patch(
-            "mael_cli.admin_cli.restart_changed",
-            return_value=list(changes),
-            side_effect=restart_error,
-        ) as restart,
-        patch("mael_cli.admin_cli.subprocess.run", side_effect=run_results) as run,
-    ):
-        result = CliRunner().invoke(cmd_self_update)
-    return SelfUpdateRun(result, run, install, restart)
-
-
-class TestSelfUpdateDependencySync:
-    """self-update must re-resolve dependencies after pulling new source.
-
-    A `git pull` that introduces a new pyproject dependency leaves the installed
-    environment missing the package until uv re-resolves it, so commands that
-    import the new dep crash post-update. These tests pin the sync step.
-    """
-
-    def test_reinstalls_editable_tool_when_uv_present(self):
-        update = _run_self_update(
-            run_results=[
-                _ok(stdout="Already up to date.\n"),
-                _ok(stderr="Installed.\n"),
-            ]
+    def __init__(self, home: Path) -> None:
+        self.home = home
+        self.maelstrom = home / ".maelstrom"
+        self.maelstrom.mkdir()
+        self.config = self.maelstrom / "config.yaml"
+        self.config.write_text(f"# mine\nprojects_dir: {home / 'Projects'}\n")
+        self.main = home / "Projects" / "maelstrom" / "_main"
+        (self.main / ".git").mkdir(parents=True)
+        self.root = self.maelstrom / "install"
+        self.shim = home / ".local" / "bin" / "mael"
+        self.runner = Runner(
+            {
+                "gh release view": _ok("v0.3.0\n"),
+                "git rev-parse HEAD": _ok(COMMIT + "\n"),
+            }
         )
+        self.report = InstallReport("v0.3.0", changed=["orchestrator"], unchanged=[])
+        self.install = MagicMock()
+        self.run_install = MagicMock()
+        self.restart = MagicMock(return_value=[])
+        self.jig = [None, None]
+        self.pnpm: str | None = "/usr/bin/pnpm"
 
-        assert update.result.exit_code == 0, update.result.output
-        # Second subprocess call is the dependency sync.
-        sync_cmd = update.run.call_args_list[1].args[0]
-        assert sync_cmd[:3] == ["/usr/bin/uv", "tool", "install"]
-        # The CLI member, not the workspace root, which builds no package.
-        assert sync_cmd[sync_cmd.index("--editable") + 1] == str(ROOT / "cli")
-        assert "--reinstall" in sync_cmd
-        # --force overwrites the live `mael` entrypoint; without it uv aborts.
-        assert "--force" in sync_cmd
-        assert "Update complete." in update.result.output
+    def running(self, tag: str) -> None:
+        """Make ``tag`` the release that runs now."""
+        release = self.root / "releases" / tag
+        release.mkdir(parents=True)
+        Manifest(tag=tag, commit="c", dirty=False).write(release / "manifest.toml")
+        (self.root / "current").symlink_to(release)
 
-    def test_warns_and_skips_sync_when_uv_missing(self):
-        # Only git pull runs; no sync call to make.
-        update = _run_self_update(which_uv=None, run_results=[_ok()])
+    def update(self, *args: str) -> Result:
+        self.install.return_value = self.report
+        jig = iter(self.jig)
+        with (
+            patch("mael_cli.admin_cli.subprocess.run", side_effect=self.runner),
+            patch("mael_cli.admin_cli.install_bundle", self.install),
+            patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
+            patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
+            patch("mael_cli.admin_cli.run_install_cmd", self.run_install),
+            patch("mael_cli.admin_cli.restart_changed", self.restart),
+            patch(
+                "mael_cli.admin_cli.service_versions",
+                side_effect=lambda *_: {"jig": v} if (v := next(jig)) else {},
+            ),
+            patch("mael_cli.admin_cli.shutil.which", return_value=self.pnpm),
+        ):
+            return CliRunner().invoke(cmd_self_update, list(args))
 
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 1  # git pull only
-        assert "skipping dependency sync" in update.result.output
 
-    def test_warns_but_succeeds_when_sync_fails(self):
-        # The pull already landed, so a failed sync must not abort the command.
-        update = _run_self_update(
-            run_results=[_ok(), _fail(stderr="resolution failed")]
+@pytest.fixture
+def host(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return Host(tmp_path)
+
+
+class TestSelfUpdateStable:
+    """The stable channel installs the latest GitHub Release."""
+
+    def test_it_downloads_the_latest_release_and_installs_it(self, host):
+        result = host.update()
+
+        assert result.exit_code == 0, result.output
+        commands = host.runner.commands()
+        assert commands[0].startswith("gh release view --repo sminnee/maelstrom")
+        assert commands[1].startswith(
+            "gh release download v0.3.0 --repo sminnee/maelstrom "
+            "--pattern maelstrom.tar.gz --dir "
         )
+        bundle, root = host.install.call_args.args
+        assert bundle.name == "maelstrom.tar.gz"
+        assert root == host.root
+        assert "Installed v0.3.0. Changed: orchestrator." in result.output
+        assert not [c for c in commands if c.startswith("git ")]
+        host.restart.assert_not_called()
+        assert "Update complete." in result.output
 
-        assert update.result.exit_code == 0, update.result.output
-        assert "dependency sync failed" in update.result.output
-        assert "Update complete." in update.result.output
+    def test_the_release_that_runs_already_installs_nothing(self, host):
+        host.running("v0.3.0")
 
-    def test_aborts_when_not_a_git_checkout(self):
-        with patch("mael_cli.admin_cli.Path.exists", return_value=False):
-            result = CliRunner().invoke(cmd_self_update)
+        result = host.update()
+
+        assert result.exit_code == 0, result.output
+        assert "v0.3.0 is installed already." in result.output
+        assert not [c for c in host.runner.commands() if "download" in c]
+        host.install.assert_not_called()
+        assert "Update complete." in result.output
+
+    def test_a_tag_installs_that_release(self, host):
+        host.running("v0.3.0")
+
+        result = host.update("--tag", "v0.2.0rc1")
+
+        assert result.exit_code == 0, result.output
+        [download] = host.runner.commands()
+        assert download.startswith("gh release download v0.2.0rc1 ")
+        host.install.assert_called_once()
+
+    def test_a_tag_needs_the_stable_channel(self, host):
+        result = host.update("--channel", "main", "--tag", "v0.2.0")
 
         assert result.exit_code != 0
-        assert "not installed from a git checkout" in result.output
+        assert "--channel stable" in result.output
+        host.install.assert_not_called()
+
+    def test_a_failed_download_names_gh_s_reason(self, host):
+        host.runner.replies["gh release download"] = _fail("HTTP 404: Not Found")
+
+        result = host.update()
+
+        assert result.exit_code != 0
+        assert "HTTP 404: Not Found" in result.output
+        host.install.assert_not_called()
 
 
-class TestSelfUpdateRestartsOnlyWhatChanged:
-    """An update reinstalls and restarts only what its pull moved."""
+class TestSelfUpdateMain:
+    """The main channel builds a bundle from `_main` with `_main`'s own script."""
 
-    def test_an_unmoved_cli_is_not_reinstalled(self):
-        update = _run_self_update(cli_versions=["c1", "c1"], run_results=[_ok()])
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 1  # git pull only
-        assert "CLI unchanged" in update.result.output
+    def test_it_pulls_builds_installs_and_restarts_main(self, host):
+        host.restart.return_value = [VersionChange("agent-daemon", "a1", "a2")]
 
-    def test_a_moved_cli_is_reinstalled(self):
-        update = _run_self_update(cli_versions=["c1", "c2"], run_results=[_ok(), _ok()])
-        assert update.result.exit_code == 0, update.result.output
-        sync_cmd = update.run.call_args_list[1].args[0]
-        assert sync_cmd[:3] == ["/usr/bin/uv", "tool", "install"]
+        result = host.update("--channel", "main")
 
-    def test_a_failed_hash_reinstalls(self):
-        """Fail open: without a version, the CLI may have moved."""
-        update = _run_self_update(
-            cli_versions=[ServiceVersionError("tangier is not on PATH")] * 2,
-            run_results=[_ok(), _ok()],
+        assert result.exit_code == 0, result.output
+        commands = host.runner.commands()
+        assert "git pull" in commands
+        pull = host.runner.calls[commands.index("git pull")]
+        assert pull[1]["cwd"] == host.main
+        host.run_install.assert_called_once_with(host.main)
+        build = next(c for c in commands if "build-bundle" in c)
+        assert build.startswith(
+            f"{host.main / 'bin' / 'build-bundle'} --tag main-abcdef123456 --out "
         )
-        assert update.result.exit_code == 0, update.result.output
-        sync_cmd = update.run.call_args_list[1].args[0]
-        assert sync_cmd[:3] == ["/usr/bin/uv", "tool", "install"]
+        host.install.assert_called_once()
+        host.restart.assert_called_once_with(ANY, "maelstrom", "_main", host.main)
+        assert "agent-daemon: a1 → a2" in result.output
+        assert "The agent daemon restarted. Mid-turn agents resume." in result.output
 
-    def test_a_failed_install_command_skips_the_restart(self):
-        """The install migrates the state database, so new code could refuse it."""
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            run_results=[_ok()],
-            install_error=subprocess.CalledProcessError(1, "sh"),
-        )
-        assert update.result.exit_code == 0, update.result.output
-        assert "install_cmd failed" in update.result.output
-        assert "mael self-env restart --install" in update.result.output
-        update.restart.assert_not_called()
-        assert "Update complete." in update.result.output
+    def test_the_channel_is_stored(self, host):
+        result = host.update("--channel", "main")
 
-    def test_a_failed_restart_names_what_may_be_down(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            run_results=[_ok()],
-            restart_error=TimeoutError("no address"),
-        )
-        assert update.result.exit_code == 0, update.result.output
-        assert "mael self-env start" in update.result.output
-        assert "Update complete." in update.result.output
+        assert result.exit_code == 0, result.output
+        assert "update_channel: main\n" in host.config.read_text()
 
-    def test_the_install_command_runs_in_main(self):
-        update = _run_self_update(cli_versions=["c1", "c1"], run_results=[_ok()])
-        update.install.assert_called_once_with(ROOT)
+    def test_a_refused_tag_stores_no_channel(self, host):
+        result = host.update("--channel", "main", "--tag", "v0.3.0")
 
-    def test_the_changed_services_of_maelstrom_main_restart(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            run_results=[_ok()],
-            changes=[VersionChange("agent-daemon", "a1", "a2")],
-        )
-        assert update.result.exit_code == 0, update.result.output
-        update.restart.assert_called_once_with(ANY, "maelstrom", "_main", ROOT)
-        output = update.result.output
-        assert "agent-daemon: a1 → a2" in output
-        assert "The agent daemon restarted. Mid-turn agents resume." in output
+        assert result.exit_code != 0
+        assert "update_channel" not in host.config.read_text()
 
-    def test_a_restart_without_the_daemon_says_nothing_of_agents(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            run_results=[_ok()],
-            changes=[VersionChange("web", "w1", "w2")],
-        )
-        assert "web: w1 → w2" in update.result.output
-        assert "agent daemon" not in update.result.output
+    def test_the_stored_channel_is_used(self, host):
+        host.config.write_text(host.config.read_text() + "update_channel: main\n")
+
+        result = host.update()
+
+        assert result.exit_code == 0, result.output
+        assert "git pull" in host.runner.commands()
+        assert not [c for c in host.runner.commands() if c.startswith("gh ")]
+
+    def test_the_commit_that_runs_already_is_not_built(self, host):
+        host.running("main-abcdef123456")
+
+        result = host.update("--channel", "main")
+
+        assert result.exit_code == 0, result.output
+        assert not [c for c in host.runner.commands() if "build-bundle" in c]
+        host.install.assert_not_called()
+
+    def test_a_failed_install_command_builds_nothing(self, host):
+        """The install migrates the state database, which new code refuses unmigrated."""
+        host.run_install.side_effect = subprocess.CalledProcessError(1, "sh")
+
+        result = host.update("--channel", "main")
+
+        assert result.exit_code != 0
+        assert "install_cmd failed" in result.output
+        assert not [c for c in host.runner.commands() if "build-bundle" in c]
+        host.install.assert_not_called()
+        host.restart.assert_not_called()
+
+    def test_a_failed_restart_names_what_may_be_down(self, host):
+        host.restart.side_effect = TimeoutError("no address")
+
+        result = host.update("--channel", "main")
+
+        assert result.exit_code == 0, result.output
+        assert "mael self-env start" in result.output
+        assert "Update complete." in result.output
+
+    def test_without_a_main_checkout_it_refuses(self, host):
+        (host.main / ".git").rmdir()
+
+        result = host.update("--channel", "main")
+
+        assert result.exit_code != 0
+        assert "not a checkout" in result.output
 
 
 class TestSelfUpdateLinksTheJig:
@@ -255,106 +271,121 @@ class TestSelfUpdateLinksTheJig:
     place of the npm release.
     """
 
-    def test_a_moved_jig_is_built_and_linked(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            jig_versions=["j1", "j2"],
-            run_results=[_ok(), _ok(), _ok(), _ok()],
-        )
+    def _pnpm(self, host) -> list[tuple[list[str], dict]]:
+        return [c for c in host.runner.calls if c[0][0] == "/usr/bin/pnpm"]
 
-        assert update.result.exit_code == 0, update.result.output
-        steps = update.run.call_args_list[1:]
-        assert [c.args[0] for c in steps] == [
+    def test_a_moved_jig_is_built_and_linked(self, host):
+        host.jig = ["j1", "j2"]
+
+        result = host.update("--channel", "main")
+
+        assert result.exit_code == 0, result.output
+        steps = self._pnpm(host)
+        assert [cmd for cmd, _ in steps] == [
             ["/usr/bin/pnpm", "install", "--frozen-lockfile"],
             ["/usr/bin/pnpm", "run", "build"],
             ["/usr/bin/pnpm", "link", "--global"],
         ]
-        assert {c.kwargs["cwd"] for c in steps} == {ROOT / "vite-plugin-mael-jig"}
+        assert {kw["cwd"] for _, kw in steps} == {host.main / "vite-plugin-mael-jig"}
 
-    def test_a_new_jig_bucket_is_linked(self):
-        """The first update after `[jig]` lands has no hash before the pull."""
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            jig_versions=[None, "j2"],
-            run_results=[_ok(), _ok(), _ok(), _ok()],
-        )
+    @pytest.mark.parametrize("jig", [["j1", "j1"], ["j1", None]])
+    def test_an_unmoved_or_unhashed_jig_is_not_linked(self, host, jig):
+        host.jig = jig
 
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 4  # pull, install, build, link
+        host.update("--channel", "main")
 
-    def test_no_hash_after_the_pull_skips_the_link(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"], jig_versions=["j1", None], run_results=[_ok()]
-        )
+        assert self._pnpm(host) == []
 
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 1  # git pull only
+    def test_a_failed_build_warns_and_does_not_link(self, host):
+        host.jig = ["j1", "j2"]
+        host.runner.replies["/usr/bin/pnpm run build"] = _fail("tsc error")
 
-    def test_an_unmoved_jig_is_not_linked(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"], jig_versions=["j1", "j1"], run_results=[_ok()]
-        )
+        result = host.update("--channel", "main")
 
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 1  # git pull only
+        assert result.exit_code == 0, result.output
+        assert len(self._pnpm(host)) == 2
+        assert "tsc error" in result.output
+        assert "the jig plugin is not linked" in result.output
 
-    def test_warns_and_skips_the_link_when_pnpm_is_missing(self):
-        update = _run_self_update(
-            which_pnpm=None,
-            cli_versions=["c1", "c1"],
-            jig_versions=["j1", "j2"],
-            run_results=[_ok()],
-        )
+    def test_warns_and_skips_the_link_when_pnpm_is_missing(self, host):
+        host.jig = ["j1", "j2"]
+        host.pnpm = None
 
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 1
-        assert "'pnpm' not found" in update.result.output
-        assert "Update complete." in update.result.output
+        result = host.update("--channel", "main")
 
-    def test_a_failed_build_warns_and_does_not_link(self):
-        update = _run_self_update(
-            cli_versions=["c1", "c1"],
-            jig_versions=["j1", "j2"],
-            run_results=[_ok(), _ok(), _fail(stderr="tsc error")],
-        )
-
-        assert update.result.exit_code == 0, update.result.output
-        assert update.run.call_count == 3  # pull, install, build: no link
-        assert "tsc error" in update.result.output
-        assert "the jig plugin is not linked" in update.result.output
-        assert "Update complete." in update.result.output
+        assert result.exit_code == 0, result.output
+        assert "'pnpm' not found" in result.output
 
 
-class TestResolveInstallRoot:
-    """The shared editable install points at `_main`, whoever runs the update.
+class TestSelfUpdateWritesTheShim:
+    """The `mael` on PATH runs the `current` release, with the everyday roots.
 
-    `self-update` used to derive its target from the running source, so running
-    it from a worktree repointed the install at that worktree's half-written
-    code — and every bare `mael` on the machine ran it.
+    A worktree's `.env` and the root a daemon gives its children both still
+    win: each arrives with a root already set.
     """
 
-    def _checkout(self, tmp_path, name):
-        """A checkout named `name`, returning the `mael_cli/` package dir."""
-        module_dir = tmp_path / name / "cli" / "src" / "mael_cli"
-        module_dir.mkdir(parents=True)
-        return module_dir
+    @staticmethod
+    def _run_shim(host: Host, **env: str) -> list[str]:
+        """Run the shim against a `mael` that prints its roots and arguments."""
+        mael = host.root / "current" / "venv" / "bin" / "mael"
+        mael.parent.mkdir(parents=True, exist_ok=True)
+        mael.write_text(
+            '#!/bin/sh\necho "$MAEL_AGENT_ROOT|$MAEL_NOTEBOOK_ROOT|'
+            '$MAEL_PRODUCTION|$*"\n'
+        )
+        mael.chmod(0o755)
+        printed = subprocess.run(
+            [str(host.shim), "task", "list"],
+            env={"PATH": os.environ["PATH"], **env},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        return printed.strip().split("|")
 
-    def test_a_worktree_resolves_to_its_sibling_main(self, tmp_path):
-        module_dir = self._checkout(tmp_path, "maelstrom-lima")
-        (tmp_path / "_main").mkdir()
+    def test_the_shim_runs_the_current_release_with_the_everyday_roots(self, host):
+        result = host.update()
 
-        assert resolve_install_root(module_dir) == tmp_path / "_main"
+        assert result.exit_code == 0, result.output
+        assert self._run_shim(host) == [
+            str(host.maelstrom / "daemons" / "_main"),
+            str(host.maelstrom),
+            "1",
+            "task list",
+        ]
 
-    def test_main_resolves_to_itself(self, tmp_path):
-        module_dir = self._checkout(tmp_path, "_main")
+    def test_a_root_already_set_wins(self, host):
+        host.update()
 
-        assert resolve_install_root(module_dir) == tmp_path / "_main"
+        roots = self._run_shim(host, MAEL_AGENT_ROOT="/w", MAEL_NOTEBOOK_ROOT="/n")
 
-    def test_a_standalone_checkout_resolves_to_itself(self, tmp_path):
-        # No `_main` beside it: an ordinary clone, which updates in place.
-        module_dir = self._checkout(tmp_path, "maelstrom")
+        assert roots[:2] == ["/w", "/n"]
 
-        assert resolve_install_root(module_dir) == tmp_path / "maelstrom"
+    def test_a_symlinked_mael_is_replaced_not_written_through(self, host):
+        """uv's tool entry point can be a symlink into the tool's venv."""
+        target = host.home / "uv-tool-mael"
+        target.write_text("#!/bin/sh\nexec real\n")
+        host.shim.parent.mkdir(parents=True)
+        host.shim.symlink_to(target)
+
+        host.update()
+
+        assert not host.shim.is_symlink()
+        assert target.read_text() == "#!/bin/sh\nexec real\n"
+
+    def test_an_unwritable_bin_warns_rather_than_aborting(self, host):
+        """The release is installed by this point."""
+        host.shim.parent.mkdir(parents=True)
+        host.shim.parent.chmod(0o500)
+        try:
+            result = host.update()
+        finally:
+            host.shim.parent.chmod(0o700)
+
+        assert result.exit_code == 0, result.output
+        assert "could not write" in result.output
+        assert "Update complete." in result.output
+        assert os.listdir(host.shim.parent) == []
 
 
 class TestSelfEnv:
@@ -473,150 +504,6 @@ class TestSelfEnv:
         assert result.exit_code != 0
         assert "typo" in result.output
         assert "maelstrom._main" not in result.output
-
-
-class TestSelfUpdateWritesTheDaemonRootShim:
-    """The `mael` on PATH must know the everyday daemon's root.
-
-    That `mael` is a uv entrypoint. It reads no `.env`, and `UV_ENV_FILE` only
-    applies to `uv run` in a directory that has one. So a bare `mael agent
-    list` in any other directory has no root and no daemon to reach. The shim
-    supplies `_main`'s root, and only when nothing else already did — a
-    worktree's `.env` and the root a daemon gives its children both still win.
-    """
-
-    def _update(
-        self, tmp_path, entrypoint_body="#!/bin/sh\nexec real\n", entrypoint=None
-    ):
-        from mael_cli.admin_cli import cmd_self_update
-
-        if entrypoint is None:
-            bin_dir = tmp_path / "bin"
-            bin_dir.mkdir()
-            entrypoint = bin_dir / "mael"
-            entrypoint.write_text(entrypoint_body)
-        entrypoint.chmod(0o755)
-        with (
-            patch("mael_cli.admin_cli.Path.exists", return_value=True),
-            patch("mael_cli.admin_cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
-            patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
-            patch(
-                "mael_cli.admin_cli.subprocess.run",
-                side_effect=[_ok(), _ok()],
-            ),
-            patch("mael_cli.admin_cli.mael_path", return_value=str(entrypoint)),
-        ):
-            result = CliRunner().invoke(cmd_self_update)
-        return result, entrypoint
-
-    def test_the_shim_names_the_main_worktrees_root(self, tmp_path):
-        result, entrypoint = self._update(tmp_path)
-        assert result.exit_code == 0, result.output
-        assert "MAEL_AGENT_ROOT" in entrypoint.read_text()
-        assert ".maelstrom/daemons/_main" in entrypoint.read_text()
-
-    def test_the_shim_names_the_notebook_root(self, tmp_path):
-        result, entrypoint = self._update(tmp_path)
-        assert result.exit_code == 0, result.output
-        assert (
-            f'export MAEL_NOTEBOOK_ROOT="${{MAEL_NOTEBOOK_ROOT:-{pathlib.Path.home() / ".maelstrom"}}}"'
-            in entrypoint.read_text()
-        )
-        assert "export MAEL_PRODUCTION=1" in entrypoint.read_text()
-
-    def test_the_shim_defers_to_a_root_already_set(self, tmp_path):
-        """A worktree's `uv run mael`, and a command inside a driven session,
-        both arrive with a root already set. Overriding either would send them
-        to the wrong daemon."""
-        _, entrypoint = self._update(tmp_path)
-        assert "${MAEL_AGENT_ROOT:-" in entrypoint.read_text()
-
-    def test_the_shim_execs_the_real_entrypoint(self, tmp_path):
-        _, entrypoint = self._update(tmp_path)
-        text = entrypoint.read_text()
-        assert "exec " in text
-        assert '"$@"' in text
-
-    def test_the_shim_stays_executable(self, tmp_path):
-        _, entrypoint = self._update(tmp_path)
-        assert entrypoint.stat().st_mode & 0o111
-
-    def test_an_unwritable_entrypoint_warns_rather_than_aborting(self, tmp_path):
-        """The pull and the dependency sync have already landed by this point,
-        so a `mael` this command cannot rewrite must not fail the update."""
-        result, _ = self._update(tmp_path)
-        assert result.exit_code == 0
-
-        missing = tmp_path / "bin" / "absent"
-        with (
-            patch("mael_cli.admin_cli.Path.exists", return_value=True),
-            patch("mael_cli.admin_cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
-            patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
-            patch("mael_cli.admin_cli.subprocess.run", side_effect=[_ok(), _ok()]),
-            patch("mael_cli.admin_cli.mael_path", return_value=str(missing)),
-        ):
-            result = CliRunner().invoke(cmd_self_update)
-        assert result.exit_code == 0, result.output
-        assert "could not point `mael`" in result.output
-        assert "MAEL_AGENT_ROOT" in result.output
-        assert "Update complete." in result.output
-
-    def test_a_venv_entrypoint_is_left_alone(self, tmp_path):
-        """`uv run mael self-update` inside a worktree resolves `mael` to that
-        worktree's .venv. Shimming there would corrupt the venv and pin its
-        `uv run mael` to _main's root — the very PATH-resolution bug this whole
-        change exists to stop."""
-        venv_bin = tmp_path / "wt" / ".venv" / "bin"
-        venv_bin.mkdir(parents=True)
-        entrypoint = venv_bin / "mael"
-        entrypoint.write_text("#!/bin/sh\nexec real\n")
-        result, _ = self._update(tmp_path, entrypoint=entrypoint)
-
-        assert result.exit_code == 0, result.output
-        assert entrypoint.read_text() == "#!/bin/sh\nexec real\n"
-        assert not (venv_bin / "mael-real").exists()
-        assert "not the `mael` on your PATH" in result.output
-
-    def test_a_failed_write_puts_the_entrypoint_back(self, tmp_path, monkeypatch):
-        """The rename happens before the write. A failure between them would
-        leave the user with no `mael` at all, and a warning they cannot act on
-        because the command it names is gone."""
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        entrypoint = bin_dir / "mael"
-        entrypoint.write_text("#!/bin/sh\nexec real\n")
-
-        real_write = pathlib.Path.write_text
-
-        def explode(self, *args, **kwargs):
-            if self.name == "mael":
-                raise OSError("disk full")
-            return real_write(self, *args, **kwargs)
-
-        monkeypatch.setattr(pathlib.Path, "write_text", explode)
-        result, _ = self._update(tmp_path, entrypoint=entrypoint)
-
-        assert result.exit_code == 0, result.output
-        assert entrypoint.exists(), "self-update must not remove the user's mael"
-        assert entrypoint.read_text() == "#!/bin/sh\nexec real\n"
-
-    def test_a_second_update_does_not_nest_the_shim(self, tmp_path):
-        """self-update runs repeatedly. A shim wrapping a shim would grow one
-        exec deeper every time."""
-        _, entrypoint = self._update(tmp_path)
-        first = entrypoint.read_text()
-        with (
-            patch("mael_cli.admin_cli.Path.exists", return_value=True),
-            patch("mael_cli.admin_cli.shutil.which", return_value="/usr/bin/uv"),
-            patch("mael_cli.admin_cli.install_claude_integration", return_value=[]),
-            patch("mael_cli.admin_cli.harden_global_config", return_value=[]),
-            patch("mael_cli.admin_cli.subprocess.run", side_effect=[_ok(), _ok()]),
-            patch("mael_cli.admin_cli.mael_path", return_value=str(entrypoint)),
-        ):
-            CliRunner().invoke(cmd_self_update)
-        assert entrypoint.read_text() == first
 
 
 class TestExportQueue:
