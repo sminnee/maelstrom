@@ -303,6 +303,48 @@ async def read_file_bytes(
     return await _blob_bytes(path, f"{refs.new}:{file}")
 
 
+async def new_commit(path: Path, rev: str) -> str | None:
+    """The sha of ``rev``'s new side; ``None`` for the working tree. Raises :class:`UnknownRev`."""
+    refs = await _refs(path, rev)
+    if refs.new is None:
+        return None
+    result = await run_git_async(
+        [*_GIT_OPTIONS, "rev-parse", "--verify", f"{refs.new}^{{commit}}"],
+        cwd=path,
+        quiet=True,
+    )
+    return result.stdout.strip()
+
+
+async def differing_paths(path: Path, commit: str | None) -> set[str]:
+    """The files whose working-tree text differs from ``commit``; none for the working tree."""
+    if commit is None:
+        return set()
+    return await _names(path, "diff", "--name-only", "--no-relative", "-z", commit)
+
+
+async def rev_text(path: Path, commit: str | None, file: str) -> str | None:
+    """``file`` at ``commit``, or in the working tree; ``None`` when missing, binary or too large."""
+    check_paths(file)
+    if commit is None:
+        return (await asyncio.to_thread(_worktree_file, path, file)).text
+    return (await _blob(path, f"{commit}:{file}")).text
+
+
+async def in_rev(path: Path, commit: str | None, file: str) -> bool:
+    """Whether ``commit``, or the working tree, holds ``file``.
+
+    The working tree holds what ``list_files`` lists: an ignored file, such as
+    one in ``.venv``, is on the disk but in no rev.
+    """
+    check_paths(file)
+    if commit is None and not await _names(
+        path, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", file
+    ):
+        return False
+    return await _exists(path, _Refs("HEAD", commit), file)
+
+
 def check_paths(*names: str) -> None:
     for name in names:
         parts = PurePosixPath(name).parts

@@ -8,6 +8,7 @@ replies.
 
 import asyncio
 import json
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -57,6 +58,7 @@ from mael_domain.landing import (
     tracked_tasks,
 )
 from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
+from mael_domain.language_servers import LanguageServer
 from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
@@ -69,6 +71,7 @@ from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
 from mael_orchestrator.gate_source import GateSourceError
+from mael_orchestrator.language_servers import LanguageServers
 from mael_orchestrator.live_feedback import LiveFeedbackHub
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
@@ -9328,6 +9331,7 @@ def test_the_excerpt_route_serves_lines_of_the_new_side(harness, tmp_path):
     assert excerpt == {
         "rev": "uncommitted",
         "path": "readme.md",
+        "navigable": False,
         "total": 1,
         "truncated": False,
         "span": {
@@ -9340,6 +9344,369 @@ def test_the_excerpt_route_serves_lines_of_the_new_side(harness, tmp_path):
     ] == [(404, "unknown_id"), (404, "unknown_id"), (400, "invalid")]
 
 
+FAKE_LSP_SERVER = Path(__file__).parent / "fixtures" / "fake_lsp_server.py"
+
+
+class FakeLanguageServer:
+    """A language server list that names the fake, and what the fake logged.
+
+    ``sleep`` is the idle timer: each call waits until :meth:`go_idle` fires.
+    """
+
+    def __init__(
+        self, folder: Path, definition=None, command=None, crash_on=None
+    ) -> None:
+        folder.mkdir()
+        self.log = folder / "log.jsonl"
+        replies = folder / "replies.json"
+        replies.write_text(
+            json.dumps({"definition": definition or [], "crash_on": crash_on})
+        )
+        self.command = command or (
+            sys.executable,
+            str(FAKE_LSP_SERVER),
+            str(self.log),
+            str(replies),
+        )
+        self.idle = asyncio.Event()
+        self.servers = LanguageServers(
+            [LanguageServer("fake", self.command, ("**/*.py",))], sleep=self._sleep
+        )
+
+    async def _sleep(self, _secs: float) -> None:
+        await self.idle.wait()
+
+    def messages(self) -> list[dict]:
+        if not self.log.exists():
+            return []
+        return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def methods(self) -> list[str]:
+        return [m.get("method", "") for m in self.messages()]
+
+    def documents(self) -> list[tuple[str, str, str | None]]:
+        """Each didOpen and didClose: the method, the file name, and the text opened."""
+        return [
+            (
+                m["method"].removeprefix("textDocument/"),
+                Path(m["params"]["textDocument"]["uri"]).name,
+                m["params"]["textDocument"].get("text"),
+            )
+            for m in self.messages()
+            if m.get("method") in ("textDocument/didOpen", "textDocument/didClose")
+        ]
+
+    async def stopped(self, timeout: float = 5.0) -> None:
+        deadline = asyncio.get_running_loop().time() + timeout
+        while "exit" not in self.methods():
+            assert asyncio.get_running_loop().time() < deadline, self.methods()
+            await asyncio.sleep(0.02)
+
+
+def _repo_dir(tmp_path: Path) -> Path:
+    """A folder for the repo, beside the fake's own files."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    return repo
+
+
+def _definition_query(rev: str, path: str, line: int = 1, character: int = 0) -> str:
+    return (
+        f"/api/worktrees/northwind-alpha/definition?rev={rev}&path={path}"
+        f"&line={line}&character={character}"
+    )
+
+
+def _fake_range(line: int) -> dict:
+    """An LSP range on one 0-based line."""
+    return {
+        "start": {"line": line, "character": 0},
+        "end": {"line": line, "character": 3},
+    }
+
+
+def test_the_definition_route_maps_each_target_to_a_path_in_the_worktree(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition=[
+            {"uri": "{root}/models.py", "range": _fake_range(2)},
+            {
+                "targetUri": "file:///opt/typeshed/builtins.pyi",
+                "targetRange": _fake_range(9),
+                "targetSelectionRange": _fake_range(10),
+            },
+        ],
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    create_commit(repo, "models.py", "\n\nclass Order: ...\n", "feat: models")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "orders.py", 1, 6))
+
+    assert run(scenario()) == {
+        "rev": "branch",
+        "reason": "ok",
+        "targets": [
+            {"path": "models.py", "range": {"start": 3, "end": 3}, "inRev": True},
+            {
+                "path": "/opt/typeshed/builtins.pyi",
+                "range": {"start": 11, "end": 11},
+                "inRev": False,
+            },
+        ],
+    }
+    asked = next(
+        m for m in fake.messages() if m.get("method") == "textDocument/definition"
+    )
+    assert asked["params"] == {
+        "textDocument": {"uri": (repo / "orders.py").as_uri()},
+        "position": {"line": 0, "character": 6},
+    }
+
+
+def test_the_definition_route_puts_a_file_the_rev_does_not_track_outside_the_rev(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/.venv/lib/site.py", "range": _fake_range(0)},
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    (repo / ".venv/lib").mkdir(parents=True)
+    (repo / ".venv/lib/site.py").write_text("x = 1\n")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "orders.py"))
+
+    assert run(scenario()) == {
+        "rev": "branch",
+        "reason": "ok",
+        "targets": [
+            {
+                "path": ".venv/lib/site.py",
+                "range": {"start": 1, "end": 1},
+                "inRev": False,
+            }
+        ],
+    }
+
+
+def test_the_definition_route_keeps_the_rev_overlay_in_step(harness_factory, tmp_path):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    first = create_commit(repo, "models.py", "A = 1\n", "feat: models")
+    (repo / "models.py").write_text("B = 2\n")
+    (repo / "orders.py").write_text("print(2)\n")
+
+    async def scenario():
+        steps = []
+
+        async def ask(rev, file):
+            seen = len(fake.documents())
+            await api.get_json(_definition_query(rev, file))
+            steps.append(fake.documents()[seen:])
+
+        async with harness.client() as api:
+            await ask(first, "orders.py")
+            await ask(first, "models.py")
+            (repo / "models.py").write_text("A = 1\n")
+            await ask(first, "orders.py")
+            create_commit(repo, "models.py", "C = 3\n", "feat: more models")
+            await ask("branch", "orders.py")
+            await ask("uncommitted", "orders.py")
+        return steps
+
+    at_sha, again, one_stops, new_commit, switched = run(scenario())
+    # Each differing Python file at the sha's text, and the clicked file;
+    # readme.md differs too, but no server reads it.
+    assert sorted(at_sha) == [
+        ("didOpen", "models.py", "A = 1\n"),
+        ("didOpen", "orders.py", "print(1)\n"),
+    ]
+    # The same sha needs the same files: nothing reopens.
+    assert again == []
+    # models.py matches the sha again, so the server reads it from disk.
+    assert one_stops == [("didClose", "models.py", None)]
+    # `branch` now resolves to a new commit: the set closes and reopens.
+    assert new_commit == [
+        ("didClose", "orders.py", None),
+        ("didOpen", "orders.py", "print(1)\n"),
+    ]
+    # The working tree: only the clicked file, at its disk text.
+    assert switched == [
+        ("didClose", "orders.py", None),
+        ("didOpen", "orders.py", "print(2)\n"),
+    ]
+
+
+def test_the_definition_route_says_no_server_for_a_file_no_server_reads(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "readme.md"))
+
+    assert run(scenario()) == {"rev": "branch", "reason": "no_server", "targets": []}
+    assert fake.messages() == []
+
+
+def test_the_definition_route_reports_a_server_that_does_not_start(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        command=(
+            sys.executable,
+            "-c",
+            "import sys; sys.stderr.write('no node runtime'); sys.exit(1)",
+        ),
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(_definition_query("branch", "orders.py"))
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (
+        502,
+        "language_server_failed",
+    )
+    assert "no node runtime" in reply.body["error"]["message"]
+
+
+def test_a_crashed_language_server_starts_again_and_reopens_the_overlay(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp", crash_on=2)
+    harness = harness_factory(language_servers=fake.servers)
+    sha = _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json(_definition_query(sha, "orders.py"))
+            crashed = await api.get(_definition_query(sha, "orders.py"))
+            seen = len(fake.documents())
+            again = await api.get_json(_definition_query(sha, "orders.py"))
+            return crashed, again, fake.documents()[seen:]
+
+    crashed, again, reopened = run(scenario())
+    assert (crashed.status, crashed.body["error"]["code"]) == (
+        502,
+        "language_server_failed",
+    )
+    assert "the fake server fell over" in crashed.body["error"]["message"]
+    assert again["reason"] == "no_definition"
+    # The new process knows no open file, so the overlay opens again.
+    assert reopened == [("didOpen", "orders.py", "print(1)\n")]
+
+
+@pytest.mark.parametrize("change", ["closes", "goes"])
+def test_a_worktree_row_that_closes_or_goes_stops_its_language_server(
+    harness_factory, tmp_path, change
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json(_definition_query("branch", "orders.py"))
+            assert "exit" not in fake.methods()
+            if change == "closes":
+                harness.worktrees.worktrees[0] = {
+                    **harness.worktrees.worktrees[0],
+                    "isClosed": True,
+                }
+            else:
+                del harness.worktrees.worktrees[0]
+            assert (await api.post("/api/worktrees/refresh")).status < 300
+            await fake.stopped()
+
+    run(scenario())
+
+
+def test_stopping_the_orchestrator_stops_its_language_servers(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json(_definition_query("branch", "orders.py"))
+            assert "exit" not in fake.methods()
+        await fake.stopped()
+
+    run(scenario())
+
+
+def test_an_idle_language_server_stops_and_the_next_request_starts_it_again(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json(_definition_query("branch", "orders.py"))
+            fake.idle.set()
+            await fake.stopped()
+            fake.idle.clear()
+            return await api.get_json(_definition_query("branch", "orders.py"))
+
+    assert run(scenario())["reason"] == "no_definition"
+    assert fake.methods().count("initialize") == 2
+
+
+def test_the_diff_and_excerpt_routes_mark_the_files_a_server_reads(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            base = "/api/worktrees/northwind-alpha/"
+            uncommitted = await api.get_json(base + "diff?rev=uncommitted")
+            branch = await api.get_json(base + "diff?rev=branch")
+            excerpts = [
+                await api.get_json(f"{base}excerpt?rev=branch&path={file}")
+                for file in ("orders.py", "readme.md")
+            ]
+            return uncommitted, branch, excerpts
+
+    uncommitted, branch, excerpts = run(scenario())
+    assert [(f["path"], f["navigable"]) for f in uncommitted["files"]] == [
+        ("readme.md", False)
+    ]
+    assert [(f["path"], f["navigable"]) for f in branch["files"]] == [
+        ("orders.py", True)
+    ]
+    assert [(e["path"], e["navigable"]) for e in excerpts] == [
+        ("orders.py", True),
+        ("readme.md", False),
+    ]
+
+
 @pytest.mark.parametrize(
     "query",
     [
@@ -9347,7 +9714,19 @@ def test_the_excerpt_route_serves_lines_of_the_new_side(harness, tmp_path):
         for route in ("file", "excerpt")
         for query in ("path=readme.md", "rev=branch", "rev=branch&path=../escape")
     ]
-    + ["tree"],
+    + ["tree"]
+    + [
+        f"definition?{query}"
+        for query in (
+            "path=orders.py&line=1&character=0",
+            "rev=branch&line=1&character=0",
+            "rev=branch&path=../escape.py&line=1&character=0",
+            "rev=branch&path=orders.py&line=x&character=0",
+            "rev=branch&path=orders.py&line=1",
+            "rev=branch&path=orders.py&line=0&character=0",
+            "rev=branch&path=orders.py&line=1&character=-1",
+        )
+    ],
 )
 def test_the_file_routes_refuse_a_query_without_a_rev_or_a_safe_path(
     harness, tmp_path, query
@@ -9450,13 +9829,14 @@ def test_the_changes_routes_refuse_an_unknown_or_closed_worktree(harness, tmp_pa
                     "raw?rev=branch&path=a&side=new",
                     "tree?rev=branch",
                     "excerpt?rev=branch&path=a",
+                    "definition?rev=branch&path=a.py&line=1&character=0",
                 )
             ]
 
     replies = run(scenario())
     assert [(r.status, r.body["error"]["code"]) for r in replies] == [
         (404, "unknown_id")
-    ] * 12
+    ] * 14
 
 
 def test_the_diff_route_refuses_a_request_that_names_no_rev(harness, tmp_path):
@@ -9470,7 +9850,10 @@ def test_the_diff_route_refuses_a_request_that_names_no_rev(harness, tmp_path):
     assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
 
 
-@pytest.mark.parametrize("route", ["diff?", "file?path=readme.md&"])
+@pytest.mark.parametrize(
+    "route",
+    ["diff?", "file?path=readme.md&", "definition?path=orders.py&line=1&character=0&"],
+)
 def test_the_diff_and_file_routes_refuse_a_sha_outside_the_branch(
     harness, tmp_path, route
 ):

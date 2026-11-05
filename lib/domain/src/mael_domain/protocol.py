@@ -256,6 +256,30 @@ class FileExcerpt(TypedDict):
     span: LineSpan
 
 
+class DefinitionTarget(TypedDict):
+    """One place a name is defined."""
+
+    #: Relative to the worktree; absolute for a file outside it, such as typeshed.
+    path: str
+    range: LineRange
+    #: The rev holds ``path``. A file outside the worktree, or one the rev does
+    #: not track, such as one in ``.venv``, is in no rev.
+    inRev: bool
+
+
+DefinitionReason = Literal["ok", "no_server", "no_definition"]
+
+
+class Definition(TypedDict):
+    """``GET /api/worktrees/{id}/definition``: where the name at a position is defined."""
+
+    rev: str
+    targets: list[DefinitionTarget]
+    #: ``no_server``: no **Language server** reads the file. ``no_definition``:
+    #: the server found none.
+    reason: DefinitionReason
+
+
 class FileList(TypedDict):
     """``GET /api/worktrees/{id}/tree``: every file path on the new side of a rev."""
 

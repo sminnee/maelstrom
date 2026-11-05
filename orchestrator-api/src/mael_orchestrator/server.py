@@ -143,6 +143,7 @@ from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
 from .gate_table import GateTable
 from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
+from .language_servers import LanguageServers
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
 from .notices import notices_for
@@ -534,6 +535,7 @@ class Orchestrator:
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
         child_detach: float = CHILD_DETACH_SECS,
+        language_servers: LanguageServers | None = None,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -598,6 +600,13 @@ class Orchestrator:
         #: needs a thread — see ``cli.build_orchestrator``.
         self.worktree_executor = worktree_executor or executor
         self.state = WorldState()
+        #: Each worktree's **Language servers**, for the definition route. The
+        #: default knows none; ``cli.build_orchestrator`` passes the real list.
+        self.language_servers = (
+            language_servers if language_servers is not None else LanguageServers()
+        )
+        #: The stops of a closed worktree's servers, kept so a stop can await them.
+        self._server_stops: set[asyncio.Task[None]] = set()
         #: The operations — see ``CONTEXT.md``, "Operation". Loaded at start;
         #: each one is a background task this runner owns.
         self.operations = OperationRunner(
@@ -747,6 +756,8 @@ class Orchestrator:
         self._catch_up = None
         self._event_read = None
         await self.operations.stop()
+        await asyncio.gather(*self._server_stops, return_exceptions=True)
+        await self.language_servers.stop_all()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
@@ -938,6 +949,7 @@ class Orchestrator:
             self.state.apply(relinked)
             events = [*events, *relinked]
         self._record_transcripts(events)
+        self._stop_language_servers(events)
         notices = notices_for(events)
         if "task" in notices or "agent" in notices:
             self._watch_new_prs()
@@ -946,6 +958,23 @@ class Orchestrator:
         if "comm" in notices:
             self.comm_revision += 1
         self.notices.notify(notices)
+
+    def _stop_language_servers(self, events: list[ServerEvent]) -> None:
+        """Stop the servers of each worktree ``events`` close or remove."""
+        for event in events:
+            if event.get("kind") != "worktree":
+                continue
+            if event["type"] == "remove":
+                worktree_id = event["id"]
+            elif event["type"] == "upsert" and event["entity"].get("isClosed"):
+                worktree_id = event["entity"]["id"]
+            else:
+                continue
+            task = asyncio.create_task(
+                self.language_servers.close_worktree(worktree_id)
+            )
+            self._server_stops.add(task)
+            task.add_done_callback(self._server_stops.discard)
 
     def _comms_touched(self, events: list[ServerEvent]) -> set[str]:
         """The comms whose task links ``events`` change: old and new values both.
