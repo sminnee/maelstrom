@@ -1,6 +1,6 @@
 [project]
 name = "mael-domain"
-version = "0.1.2"
+version = "0.2.0"
 description = "Maelstrom's domain model: tasks, worktrees, environments and the state database"
 requires-python = ">=3.11"
 license = { text = "MIT" }

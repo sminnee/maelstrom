@@ -1,6 +1,6 @@
 [project]
 name = "sminnee-maelstrom"
-version = "0.1.2"
+version = "0.2.0"
 description = "Parallel development environment manager using git worktrees"
 # A link to the repository's README. Hatch reads no readme outside the member.
 readme = "README.md"

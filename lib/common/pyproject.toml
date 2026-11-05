@@ -1,6 +1,6 @@
 [project]
 name = "mael-common"
-version = "0.1.2"
+version = "0.2.0"
 description = "Maelstrom's shared utilities: shell, tables, paths and the async click group"
 requires-python = ">=3.11"
 license = { text = "MIT" }

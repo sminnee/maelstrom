@@ -1,6 +1,6 @@
 [project]
 name = "mael-orchestrator"
-version = "0.1.2"
+version = "0.2.0"
 description = "Maelstrom's orchestrator server: serves the world to the orchestrator UI"
 requires-python = ">=3.11"
 license = { text = "MIT" }

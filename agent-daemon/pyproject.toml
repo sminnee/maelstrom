@@ -1,6 +1,6 @@
 [project]
 name = "mael-agent-daemon"
-version = "0.1.2"
+version = "0.2.0"
 description = "Maelstrom's agent daemon: drives agents over a stream-json pipe"
 requires-python = ">=3.11"
 license = { text = "MIT" }

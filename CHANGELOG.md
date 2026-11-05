@@ -10,6 +10,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-06
+
 ### Added
 
 - **Maelstrom installs as a release bundle, apart from any checkout.** A release is
