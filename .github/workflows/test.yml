@@ -105,8 +105,29 @@ jobs:
       - name: Set up Python
         run: uv python install
 
+      # tests/test_release_bundle.py builds a bundle: the UI, and the
+      # versions `tangier` gives it.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          package_json_file: orchestrator-ui/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            orchestrator-ui/pnpm-lock.yaml
+            vite-plugin-mael-jig/pnpm-lock.yaml
+
       - name: Install dependencies
-        run: uv sync --locked --extra dev
+        run: |
+          uv sync --locked --extra dev
+          pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+          pnpm --dir orchestrator-ui install --frozen-lockfile
+          uv tool install tangier
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
       - name: Run e2e tests
         run: uvx tangier gate run e2e --accept ci
