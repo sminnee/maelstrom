@@ -12,6 +12,12 @@ ids and session ids all derive from it. The `mael project` group holds the comma
 rename (`mv`) and list projects.
 _Avoid_: Repo, codebase
 
+**Project setup**:
+The `setup-project` skill's run on a project. First it makes the dev env start. Then it audits
+the project and turns the agreed gaps into a chain of tasks. The **Set up** button in the
+Projects tab launches it as a task. See `docs/guide/planning.md`.
+_Avoid_: Hygiene audit, onboarding.
+
 **Worktree**:
 A git worktree under a project. Twenty-six are named from the NATO phonetic alphabet — alpha
 to zulu — and sit at `<project>/<project>-<nato>`. The twenty-seventh is `_main`. A worktree is
@@ -43,7 +49,7 @@ reuse the one that already holds the branch, then rebase the branch onto its bas
 session starts. A reused worktree keeps the setup it has, except its `.env`, and its rebase
 does not push. A recycled or reused worktree gets its `.env` rebuilt from the project root's
 `.env`.
-_Avoid_: Set up, provision
+_Avoid_: Set up (a worktree), provision. "Set up" names **Project setup**.
 
 **Base**:
 The branch a branch's work is stacked on. Every rebase maelstrom runs targets the base, and
