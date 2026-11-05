@@ -2311,7 +2311,17 @@ def get_next_worktree_name(project_path: Path) -> str:
     raise WorktreeNamesExhaustedError("All worktree names are in use (max 26)")
 
 
-def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
+#: What a clone with no one at the terminal runs under: git fails rather than
+#: asking for a password or a host key.
+BATCH_GIT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_SSH_COMMAND": "ssh -o BatchMode=yes"}
+
+#: How long such a clone may take before it is given up.
+BATCH_CLONE_TIMEOUT_SECS = 600.0
+
+
+def add_project(
+    git_url: str, projects_dir: Path | None = None, *, batch: bool = False
+) -> Path:
     """Clone a git repository in bare format for use with maelstrom.
 
     Creates the structure:
@@ -2322,6 +2332,8 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     Args:
         git_url: Git URL to clone.
         projects_dir: Base directory for projects (default: ~/Projects).
+        batch: No one is at the terminal: git may not prompt, and the clone
+            times out after ``BATCH_CLONE_TIMEOUT_SECS``.
 
     Returns:
         Path to the project directory.
@@ -2344,9 +2356,26 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
     # Create project directory
     project_path.mkdir()
 
-    # Clone as bare into .git subdirectory
+    # A step that fails leaves no folder behind, so the same URL can be added again.
+    try:
+        _lay_out_project(git_url, project_path, project_name, batch=batch)
+    except Exception:
+        shutil.rmtree(project_path, ignore_errors=True)
+        raise
+    return project_path
+
+
+def _lay_out_project(
+    git_url: str, project_path: Path, project_name: str, *, batch: bool
+) -> None:
+    """Clone ``git_url`` into ``project_path`` and lay out ``_main`` and alpha."""
+    # Clone as bare into .git subdirectory. `--` keeps a URL from reading as an option.
     git_dir = project_path / ".git"
-    run_cmd(["git", "clone", "--bare", git_url, str(git_dir)])
+    run_cmd(
+        ["git", "clone", "--bare", "--", git_url, str(git_dir)],
+        env=BATCH_GIT_ENV if batch else None,
+        timeout=BATCH_CLONE_TIMEOUT_SECS if batch else None,
+    )
 
     # Set up fetch refspec to create origin/* remote tracking refs
     # (core.bare stays true from the bare clone — worktrees work fine with it)
@@ -2415,8 +2444,6 @@ def add_project(git_url: str, projects_dir: Path | None = None) -> Path:
 
     # Create .mael marker file to identify this as a Maelstrom project
     (project_path / ".mael").touch()
-
-    return project_path
 
 
 def _build_env_file(

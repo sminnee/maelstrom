@@ -2604,6 +2604,13 @@ class TestAddProjectLayout:
         project = add_project(str(self._remote(tmp_path)), tmp_path / "Projects")
         assert read_env_file(project / "demo-alpha")["DEV_HOST"] == "localhost"
 
+    def test_a_failed_clone_leaves_no_folder(self, tmp_path):
+        """The folder would refuse a second try at the same URL."""
+        projects = tmp_path / "Projects"
+        with pytest.raises(subprocess.CalledProcessError):
+            add_project(str(tmp_path / "missing.git"), projects)
+        assert not (projects / "missing").exists()
+
     @pytest.fixture
     def project(self, tmp_path):
         """A project laid out by add_project. Shared: the clone is not cheap."""
