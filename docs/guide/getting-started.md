@@ -101,6 +101,11 @@ The orchestrator UI does the same from its **Projects** tab. Press **Add project
 the git URL. The clone runs as an operation, and the new row shows when it ends. A failed
 clone shows git's reason in the dialog.
 
+Click a project's row to open its detail dialog. It shows the project's open worktrees, its
+stack tip and its Linear link. Its **Set up** button creates and launches a task that runs
+`/setup-project`. That skill makes the dev env start, then audits the project. See
+[Setting up a project](planning.md#setting-up-a-project).
+
 Both paths clone the repository into a bare-like layout, check main out into `_main`, and
 create the first worktree, **alpha**:
 
