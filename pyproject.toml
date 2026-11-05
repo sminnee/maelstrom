@@ -233,6 +233,23 @@ type = "forbidden"
 source_modules = ["mael_cli"]
 forbidden_modules = ["mael_daemon", "mael_orchestrator"]
 
+# A new host runs the installer from the bundle before any venv exists.
+[[tool.importlinter.contracts]]
+name = "The release bundle installer imports the standard library only"
+type = "forbidden"
+source_modules = ["mael_domain.release_bundle.install"]
+forbidden_modules = [
+    "mael_common",
+    "mael_agent",
+    "mael_domain",
+    "mael_daemon",
+    "mael_orchestrator",
+    "mael_cli",
+    "click",
+    "yaml",
+    "pydantic",
+]
+
 # The domain is click-free, so the CLI and the orchestrator server can share it.
 # The async click group is the one library module allowed to import click.
 [[tool.importlinter.contracts]]
