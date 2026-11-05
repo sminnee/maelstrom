@@ -106,9 +106,9 @@ class MvProjectHarness:
             )
             mock("mael_cli.mv_project_cli.setup_claude_memory_symlink")
             mock("mael_cli.mv_project_cli.update_claude_local_md")
-            # The trap this command exists to avoid: doctor prunes port
+            # The trap this command exists to avoid: the project check prunes port
             # allocations keyed by a path that no longer exists.
-            mock("mael_cli.doctor.run_doctor")
+            mock("mael_cli.project_check.run_project_check")
 
             result = CliRunner().invoke(cli, ["project", "mv"] + args)
         return result
@@ -333,22 +333,22 @@ class TestMigration:
         commands = [c[0][0] for c in harness.mocks["run_git"].call_args_list]
         assert ["worktree", "prune"] in commands
 
-    def test_never_runs_doctor_during_migration(self, tmp_path):
-        """`doctor` prunes port allocations — running it mid-flight loses data."""
+    def test_never_runs_project_check_during_migration(self, tmp_path):
+        """`project check` prunes port allocations — running it mid-flight loses data."""
         _make_project(tmp_path)
         harness = MvProjectHarness(tmp_path)
 
         result = harness.run(["old", "new"])
 
         assert result.exit_code == 0, result.output
-        harness.mocks["run_doctor"].assert_not_called()
+        harness.mocks["run_project_check"].assert_not_called()
 
-    def test_suggests_doctor_afterwards(self, tmp_path):
+    def test_suggests_project_check_afterwards(self, tmp_path):
         _make_project(tmp_path)
 
         result = MvProjectHarness(tmp_path).run(["old", "new"])
 
-        assert "mael doctor new" in result.output
+        assert "mael project check new" in result.output
 
     def test_sets_the_git_remote_when_asked(self, tmp_path):
         _make_project(tmp_path)
@@ -379,7 +379,7 @@ class TestMigration:
 
         assert result.exit_code != 0
         assert str(tmp_path / "new") in result.output
-        assert "mael doctor new" in result.output
+        assert "mael project check new" in result.output
 
     def test_a_non_click_failure_after_the_move_still_names_the_recovery(
         self, tmp_path
@@ -392,7 +392,7 @@ class TestMigration:
         result = harness.run(["old", "new"])
 
         assert result.exit_code != 0
-        assert "mael doctor new" in result.output
+        assert "mael project check new" in result.output
 
 
 class TestRewritePathString:

@@ -1659,58 +1659,6 @@ def cmd_tidy_branches(project):
             click.echo(f"    - {r.branch}: {r.message}", err=True)
 
 
-@cli.command("doctor")
-@click.argument("project", required=False)
-def cmd_doctor(project):
-    """Check project health and auto-fix issues."""
-    from .doctor import CheckStatus, run_doctor
-
-    try:
-        ctx = resolve_context(
-            project,
-            require_project=True,
-            require_worktree=False,
-            arg_is_project=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    project_path = ctx.project_path
-    if not project_path or not project_path.exists():
-        raise click.ClickException(f"Project '{ctx.project}' not found")
-
-    click.echo(f"Checking project: {ctx.project}")
-    result = run_doctor(project_path)
-
-    status_icons = {
-        CheckStatus.OK: click.style("✓", fg="green"),
-        CheckStatus.FIXED: click.style("✗", fg="yellow"),
-        CheckStatus.WARNING: click.style("⚠", fg="yellow"),
-        CheckStatus.ERROR: click.style("✗", fg="red"),
-    }
-
-    for check in result.checks:
-        icon = status_icons[check.status]
-        suffix = ""
-        if check.status == CheckStatus.FIXED:
-            suffix = " → fixed"
-        click.echo(f"  {icon} {check.message}{suffix}")
-
-    click.echo()
-    if result.issues_found == 0:
-        click.echo("All checks passed.")
-    else:
-        parts = []
-        if result.fixed_count:
-            parts.append(f"{result.fixed_count} fixed")
-        if result.attention_count:
-            parts.append(f"{result.attention_count} require(s) attention")
-        click.echo(f"{result.issues_found} issue(s) found: {', '.join(parts)}")
-
-    if result.attention_count > 0:
-        raise SystemExit(1)
-
-
 # --- Subcommand groups ---
 
 

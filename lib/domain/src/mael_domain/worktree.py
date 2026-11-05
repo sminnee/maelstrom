@@ -2408,7 +2408,7 @@ def _lay_out_project(
     run_git(["worktree", "add", str(main_path), default_branch], cwd=project_path)
 
     # A bare clone sets no upstream; without this a human in _main gets no
-    # ahead/behind count and a bare `git pull` fails. mael doctor repairs
+    # ahead/behind count and a bare `git pull` fails. mael project check repairs
     # projects created before this line.
     run_git(
         ["branch", "--set-upstream-to", f"origin/{default_branch}", default_branch],

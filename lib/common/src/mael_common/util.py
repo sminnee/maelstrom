@@ -148,7 +148,7 @@ def harden_path(path: Path, mode: int) -> bool:
 
     Raises:
         OSError: If the path cannot be stat-ed or chmod-ed (caller decides how
-            to surface this; load paths swallow it, doctor reports it).
+            to surface this; load paths swallow it, `mael project check` reports it).
     """
     current = stat.S_IMODE(os.stat(path).st_mode)
     if current & ~mode:

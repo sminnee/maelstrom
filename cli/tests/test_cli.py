@@ -1638,7 +1638,7 @@ class TestMvProjectIntegration:
             capture_output=True,
         )
         # A bare clone has no remote-tracking refs; fetch them so the project
-        # looks like one `mael project add` made (and `mael doctor` accepts).
+        # looks like one `mael project add` made (and `mael project check` accepts).
         for cmd in (
             [
                 "git",
@@ -1650,7 +1650,7 @@ class TestMvProjectIntegration:
         ):
             subprocess.run(cmd, cwd=project, check=True, capture_output=True)
         # Detach the repo's own HEAD so `_main` can hold `main`, which is the
-        # layout `mael project add` produces and `mael doctor` checks for.
+        # layout `mael project add` produces and `mael project check` checks for.
         subprocess.run(
             ["git", "checkout", "--detach", "main"],
             cwd=project,
@@ -1822,9 +1822,9 @@ class TestMvProjectIntegration:
         data = json.loads(allocations.read_text())
         assert data == {str(projects / "new"): {"alpha": 310}}
 
-    def test_doctor_afterwards_prunes_nothing(self, tmp_path):
-        """The whole point: doctor must not garbage-collect the port bases."""
-        from mael_cli.doctor import run_doctor
+    def test_project_check_afterwards_prunes_nothing(self, tmp_path):
+        """The whole point: the project check must not garbage-collect the port bases."""
+        from mael_cli.project_check import run_project_check
 
         projects, project = self._build(tmp_path)
         home = tmp_path / "home"
@@ -1844,12 +1844,12 @@ class TestMvProjectIntegration:
             patch("mael_domain.context.load_global_config", return_value=config),
             patch("pathlib.Path.home", return_value=home),
         ):
-            doctor_result = run_doctor(projects / "new")
+            check_result = run_project_check(projects / "new")
 
         assert json.loads(allocations.read_text()) == {
             str(projects / "new"): {"alpha": 310}
         }
-        bad = [c for c in doctor_result.checks if c.status.name in ("WARNING", "ERROR")]
+        bad = [c for c in check_result.checks if c.status.name in ("WARNING", "ERROR")]
         assert not bad, [(c.status, c.message) for c in bad]
 
 
@@ -2094,3 +2094,22 @@ class TestMainExitCodes:
         err = capsys.readouterr().err
         assert "MAEL_NOTEBOOK_ROOT is not set" in err
         assert "Traceback" not in err
+
+
+def test_doctor_is_now_project_check():
+    assert "No such command" in CliRunner().invoke(cli, ["doctor"]).output
+
+
+def test_project_check_names_an_unknown_project(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    (tmp_path / ".maelstrom").mkdir()
+    (tmp_path / ".maelstrom" / "config.yaml").write_text(
+        f"projects_dir: {tmp_path / 'Projects'}\n"
+    )
+    monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
+
+    result = CliRunner().invoke(cli, ["project", "check", "nosuch"])
+
+    assert result.exit_code == 1
+    assert "nosuch" in result.output
+    assert "Traceback" not in result.output
