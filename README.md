@@ -12,19 +12,28 @@ ports. It is a highly opinionated Swiss-army knife.
 
 ## Installation
 
+A release is a release bundle, `maelstrom.tar.gz`, on a
+[GitHub Release](https://github.com/sminnee/maelstrom/releases). Its installer puts maelstrom in
+`~/.maelstrom/install/`, apart from any checkout:
+
 ```bash
-# From PyPI (recommended)
-uv tool install sminnee-maelstrom
+gh release download --repo sminnee/maelstrom --pattern maelstrom.tar.gz
+tar xzf maelstrom.tar.gz
+uv run --no-project --python 3.13 maelstrom/install.py
+~/.maelstrom/install/current/venv/bin/mael self-update   # writes ~/.local/bin/mael
+```
 
-# Or run without installing
-uvx sminnee-maelstrom <command>
+`mael self-update` installs the next release the same way. See
+[Getting started](docs/guide/getting-started.md).
 
-# Or for local development
+For local development:
+
+```bash
 git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
-uv sync
-uv tool install --editable ./cli
+uv sync --extra dev
 uv tool install "tangier>=0.3.1"   # for the gates, the gate watch and service versions
+uv run mael --help
 ```
 
 Then install the Claude Code skills and hooks:
@@ -145,43 +154,41 @@ the gates to run before you commit, and the commit and changelog conventions.
 
 ## Release
 
-The `mael` CLI is published as `sminnee-maelstrom`. Its wheel bundles the three libraries and
-`shared/`. The agent daemon and the orchestrator server are not published: they run from a
-checkout. A release is one command, run by hand from a clean checkout of the branch you want to
-release:
+A release is a [release bundle](CONTEXT.md) on a GitHub Release. See
+[the ADR](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md). To make one, run this from
+a clean checkout of the branch you want to release:
 
 ```bash
-./bin/publish --dry-run   # rehearse: gates and build, then revert the bump
+./bin/publish --dry-run   # rehearse: gates and the bundle build, then revert the bump
 ./bin/publish             # patch bump (0.1.1 → 0.1.2)
 ./bin/publish --minor
 ./bin/publish --major
 ```
 
-`bin/publish` does the whole release, in this order: rebase onto `origin/main` and run the three
-gates CI runs. Write the new version to every `pyproject.toml`, each member's `__init__.py`, and
-`uv.lock`. Build the CLI's wheel, retitle the changelog's `Unreleased` section to the new version,
-and commit. Upload to PyPI, then tag `vX.Y.Z` and push the commit and the tag.
+`bin/publish` runs these steps in order:
 
-The order is deliberate. The rebase runs first so the commit that gets tagged is already in its
-final form — a tag written before a rebase ends up on a commit the rebase then rewrites. The
-commit is written before the upload so a published version always has a commit behind it; if the
-upload fails, the commit is rolled back and the version is not spent. The tag comes last, and
-records a release that has already happened rather than triggering one.
+1. Rebase onto `origin/main`.
+2. Run the three gates CI runs.
+3. Write the new version to every `pyproject.toml`, each member's `__init__.py`, and `uv.lock`.
+4. Retitle the changelog's `Unreleased` section to the new version, and commit.
+5. Tag `vX.Y.Z`, and push the commit and the tag.
 
-Past a successful upload there is no rollback, because PyPI will not accept a re-upload of a
-version it has already seen. If the push fails after that point, the script says so and prints
-the commands to finish by hand.
+The rebase runs first, so the tagged commit is already in its final form. A tag written before a
+rebase ends up on a commit the rebase then rewrites.
 
-It requires:
+The tag push runs `.github/workflows/release.yml`, which builds and publishes the bundle. See
+[The release workflow](docs/dev/ci.md#the-release-workflow).
 
-- `UV_PUBLISH_TOKEN` in the environment or in `.env` (gitignored).
-- A clean working tree — the release commit stages only the version files and the changelog, and
-  the failed-upload rollback is a hard reset.
+`bin/publish` requires:
+
+- A clean working tree. The release commit stages only the version files and the changelog.
 - A non-empty `## [Unreleased]` section in `CHANGELOG.md`.
 - `mael` on `PATH`, for the rebase.
 
-`--dry-run` runs the gates and the build, then reverts the bump. It skips the rebase, the token
-check, the commit, the upload and the tag, so it needs no PyPI credentials.
+If the push fails, the script prints the commands to finish by hand.
+
+`--dry-run` runs the gates and builds the bundle into `dist/`, then reverts the bump. It skips
+the rebase, the commit and the tag.
 
 Afterwards, `mael linear release` promotes the Linear issues sitting in "Unreleased" to "Done".
 It touches no versions or tags — it is only the Linear-side bookkeeping for a release that has

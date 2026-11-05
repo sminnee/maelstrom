@@ -20,9 +20,18 @@ agent sessions, and `gh` for pull requests.
 
 ## 1. Install maelstrom
 
+Download the latest release bundle, run its installer, then let `mael self-update` write the
+`mael` on your PATH:
+
 ```bash
-uv tool install sminnee-maelstrom
+gh release download --repo sminnee/maelstrom --pattern maelstrom.tar.gz
+tar xzf maelstrom.tar.gz
+uv run --no-project --python 3.13 maelstrom/install.py
+~/.maelstrom/install/current/venv/bin/mael self-update
 ```
+
+The installer writes to `~/.maelstrom/install/`. `self-update` writes `~/.local/bin/mael`, which
+runs the current release. Put `~/.local/bin` on your PATH if it is not there already.
 
 Then install the Claude Code skills and hooks:
 
