@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useAddProject } from '../api/projects';
 import { useWorld } from '../api/useWorld';
 import type { OperationId } from '../protocol/ids';
@@ -7,31 +7,50 @@ import { AppButton } from '../ui/AppButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import fieldStyles from '../ui/Dialog.module.css';
 import { Spinner } from '../ui/Spinner';
+import { useSetUpProject } from './useSetUpProject';
 import styles from './AddProject.module.css';
 
 /**
  * Clone a git URL as a new project. The dialog follows the clone to its end: it closes when the
  * project is added, and shows the reason when the server refuses the URL or the clone fails.
+ * With "Set up after adding" on, it creates the set-up task before it closes. A failed create
+ * keeps the dialog open with its reason, and Add becomes a retry of the set-up alone.
+ * The dialog holds the set-up: closing it during the clone skips the set-up, and says so.
  */
 export function AddProject({ onClose }: { onClose: () => void }) {
   const add = useAddProject();
   const { world } = useWorld();
   const [gitUrl, setGitUrl] = useState('');
   const [operationId, setOperationId] = useState<OperationId | null>(null);
+  const [setUpAfter, setSetUpAfter] = useState(true);
+  const setUp = useSetUpProject();
+  // The operation whose end was acted on: the world re-renders a done operation many times.
+  const finished = useRef<OperationId | null>(null);
   const urlId = useId();
   const operation = operationId ? world.operations?.[operationId] : undefined;
   // The operation list may not hold the new id yet: until it does, the clone is still running.
   const ended = operation !== undefined && operation.state !== 'running';
-  const running = add.isPending || (operationId !== null && !ended);
+  const running = add.isPending || (operationId !== null && !ended) || setUp.isPending;
   const failure =
-    add.error?.message ?? (ended && operation.state !== 'done' ? operation.words : null);
+    add.error?.message ??
+    setUp.error?.message ??
+    (ended && operation.state !== 'done' ? operation.words : null);
 
+  const { setUp: createSetUp } = setUp;
+  // The clone is done and only the set-up failed: a second clone would be refused.
+  const setUpFailed = operation?.state === 'done' && setUp.isError;
+  const retrySetUp = () => createSetUp(operation!.project).then(onClose, () => {});
   useEffect(() => {
-    if (operation?.state === 'done') onClose();
-  }, [operation?.state, onClose]);
+    if (operation?.state !== 'done' || finished.current === operation.id) return;
+    finished.current = operation.id;
+    if (!setUpAfter) return onClose();
+    // The create is awaited: a close first would unmount the dialog that shows its failure.
+    createSetUp(operation.project).then(onClose, () => {});
+  }, [operation, setUpAfter, onClose, createSetUp]);
 
   const submit = async () => {
     setOperationId(null);
+    setUp.reset();
     const { operationId: id } = await add.mutateAsync({ gitUrl: gitUrl.trim() });
     setOperationId(id);
   };
@@ -56,9 +75,19 @@ export function AddProject({ onClose }: { onClose: () => void }) {
           }}
         />
       </div>
+      <label className={styles.check}>
+        <input
+          type="checkbox"
+          checked={setUpAfter}
+          disabled={running}
+          onChange={(e) => setSetUpAfter(e.target.checked)}
+        />
+        <span>Set up after adding</span>
+      </label>
       {running && operation && (
         <p className={styles.status} aria-live="polite">
           <Spinner /> {operation.words}
+          {setUpAfter && operation.state === 'running' && ' Closing now skips the set-up.'}
         </p>
       )}
       {failure && !running && (
@@ -74,14 +103,20 @@ export function AddProject({ onClose }: { onClose: () => void }) {
           </AppButton>
         }
       >
-        <AppButton
-          variant="primary"
-          icon={actionIcon('new')}
-          disabled={!gitUrl.trim() || running}
-          onClick={() => submit().catch(() => {})}
-        >
-          Add
-        </AppButton>
+        {setUpFailed ? (
+          <AppButton variant="primary" icon={actionIcon('retry')} onClick={retrySetUp}>
+            Retry set-up
+          </AppButton>
+        ) : (
+          <AppButton
+            variant="primary"
+            icon={actionIcon('new')}
+            disabled={!gitUrl.trim() || running}
+            onClick={() => submit().catch(() => {})}
+          >
+            Add
+          </AppButton>
+        )}
       </DialogFooter>
     </Dialog>
   );

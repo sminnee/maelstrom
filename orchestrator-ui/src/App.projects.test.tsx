@@ -51,6 +51,63 @@ describe('the projects view', () => {
     expect(row(projects[0]!)).toHaveTextContent(`${open} open`);
   });
 
+  it('adds a project from its git URL, then sets it up before the dialog closes', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ url: '/projects' });
+    const dialog = await openAdd(user);
+
+    await user.type(dialog.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
+    await user.click(dialog.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(row('demo')).not.toBeNull());
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    expect(
+      server.requests.filter((r) => r.path === '/api/projects' && r.method === 'POST'),
+    ).toEqual([
+      { method: 'POST', path: '/api/projects', body: { gitUrl: 'git@github.com:acme/demo.git' } },
+    ]);
+    expect(taskPosts(server)).toEqual([setUpPost('demo')]);
+  });
+
+  it('keeps the dialog open on a failed set-up, and retries the set-up alone', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ url: '/projects' });
+    server.refuse(/POST \/api\/tasks$/, {
+      status: 500,
+      code: 'internal',
+      message: 'The notebook is locked',
+    });
+    const dialog = await openAdd(user);
+
+    await user.type(dialog.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
+    await user.click(dialog.getByRole('button', { name: 'Add' }));
+
+    expect(await dialog.findByRole('alert')).toHaveTextContent('The notebook is locked');
+    expect(row('demo')).not.toBeNull();
+    server.allow();
+    await user.click(dialog.getByRole('button', { name: 'Retry set-up' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    expect(
+      server.requests.filter((r) => r.path === '/api/projects' && r.method === 'POST'),
+    ).toHaveLength(1);
+    expect(taskPosts(server).at(-1)).toEqual(setUpPost('demo'));
+  });
+
+  it('adds a project and sets nothing up with the box off', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ url: '/projects' });
+    const dialog = await openAdd(user);
+
+    await user.click(dialog.getByLabelText('Set up after adding'));
+    await user.type(dialog.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
+    await user.click(dialog.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    expect(row('demo')).not.toBeNull();
+    expect(taskPosts(server)).toEqual([]);
+  });
+
   it('opens a project from its row, with its facts in the URL-held dialog', async () => {
     const user = userEvent.setup();
     const { server, router } = await renderApp({ url: '/projects' });
@@ -105,23 +162,6 @@ describe('the projects view', () => {
     await renderApp({ url: '/projects?detail=nope' });
     const dialog = within(await screen.findByRole('dialog', { name: 'nope' }));
     expect(await dialog.findByText('No project nope')).toBeInTheDocument();
-  });
-
-  it('adds a project from its git URL, and the new row shows once the clone ends', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp({ url: '/projects' });
-    const dialog = await openAdd(user);
-
-    await user.type(dialog.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
-    await user.click(dialog.getByRole('button', { name: 'Add' }));
-
-    await waitFor(() => expect(row('demo')).not.toBeNull());
-    expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull();
-    expect(
-      server.requests.filter((r) => r.path === '/api/projects' && r.method === 'POST'),
-    ).toEqual([
-      { method: 'POST', path: '/api/projects', body: { gitUrl: 'git@github.com:acme/demo.git' } },
-    ]);
   });
 
   it('shows the refusal of a project that exists, and keeps the dialog open', async () => {
