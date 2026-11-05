@@ -39,6 +39,28 @@ carries and nothing maps between a dataclass and the wire.
 `mael_domain.task_launch` holds the launch plan and its two guards, shared with
 `mael task run`. `mael_domain.list_all` holds the rows both `mael list-all` and the server read.
 
+## The built UI
+
+An installed release serves the UI and the API on one origin. `build_app(orch, web_root)` adds
+one GET route after every `/api` route. For each path it answers in this order:
+
+1. A path under `/api` that no route matched is a JSON 404.
+2. A path that resolves to a file inside `web_root` gets that file. A file under `/assets/` is
+   named by its content hash, so it gets `Cache-Control: immutable`.
+3. Any other path under `/assets/` is a 404. An open tab of an older release asks for its own
+   chunks, and `index.html` in place of a module breaks the load.
+4. Any other path gets `index.html`, with `Cache-Control: no-cache`.
+
+The router keeps the app path in history, so a reload asks the server for `/desk/...`. A task
+id can end in `.1`, so a suffix does not mark an asset: only a file that exists is one. The path
+is resolved before the containment check, so `..` cannot leave `web_root`.
+
+`mael-orchestrator serve --web-root PATH`, or `MAEL_WEB_ROOT`, names the directory. Without
+either, the server reads the manifest beside its own venv, `sys.prefix`, and serves that
+release's `web` component. A worktree's `.venv` has no manifest, so a worktree serves the API
+alone, and its Vite dev server serves the UI. See
+[the ADR](../adr/0001-maelstrom-installs-as-a-release-bundle.md).
+
 ## The normaliser and its goldens
 
 The Python normaliser is the one the wire carries. `lib/domain/tests/test_orchestrator_normalise.py`

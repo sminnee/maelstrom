@@ -36,6 +36,7 @@ from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStor
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
+from mael_domain.release_bundle.install import installed_web_root
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
@@ -447,10 +448,12 @@ def run_server(
     log_level: str = DEFAULT_LOG_LEVEL,
     *,
     ssl_context: ssl.SSLContext | None = None,
+    web_root: Path | None = None,
 ) -> None:
     """Build the orchestrator and serve it until interrupted.
 
     An ``ssl_context`` serves HTTPS, for a page that is a secure context.
+    A ``web_root`` serves the built UI beside the API.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
@@ -466,7 +469,12 @@ def run_server(
         # binds to and every later call has to come from the same one.
         await db.check()
         serving = asyncio.ensure_future(
-            serve_app(build_app(orchestrator), host, port, ssl_context=ssl_context)
+            serve_app(
+                build_app(orchestrator, web_root=web_root),
+                host,
+                port,
+                ssl_context=ssl_context,
+            )
         )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
@@ -539,8 +547,20 @@ def cli() -> None:
     type=click.Path(exists=True, dir_okay=False),
     help="Private key file for --tls-cert. [env: DEV_TLS_KEY]",
 )
+@click.option(
+    "--web-root",
+    envvar="MAEL_WEB_ROOT",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    help="The built UI to serve beside the API. Default: the installed "
+    "release's web component, if this runs from one. [env: MAEL_WEB_ROOT]",
+)
 def cmd_serve(
-    host: str, port: int, log_level: str, tls_cert: str | None, tls_key: str | None
+    host: str,
+    port: int,
+    log_level: str,
+    tls_cert: str | None,
+    tls_key: str | None,
+    web_root: Path | None,
 ) -> None:
     """Run the orchestrator server in the foreground.
 
@@ -548,6 +568,8 @@ def cmd_serve(
     orchestrator talks to that worktree's daemon. The TLS options default to
     the dev certificate a worktree ``.env`` names under ``dev_https:``.
     """
+    if web_root is None:
+        web_root = installed_web_root(sys.prefix)
     ssl_context = None
     if tls_cert or tls_key:
         if not (tls_cert and tls_key):
@@ -557,7 +579,7 @@ def cmd_serve(
     scheme = "https" if ssl_context else "http"
     click.echo(f"Serving on {scheme}://{host}:{port}", err=True)
     try:
-        run_server(host, port, log_level, ssl_context=ssl_context)
+        run_server(host, port, log_level, ssl_context=ssl_context, web_root=web_root)
     except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
         # bury it.

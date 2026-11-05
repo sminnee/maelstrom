@@ -76,11 +76,13 @@ CODE_FOR_STATUS = {404: "unknown_id", 501: "not_implemented"}
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
-def build_app(orch: Orchestrator) -> web.Application:
+def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
     The orchestrator starts with the app and stops with it, so anything that
     runs the app — the CLI, a test — gets a live world without wiring it.
+
+    ``web_root`` is the built UI, served beside the API on one origin.
     """
     app = web.Application(middlewares=[_json_errors])
     app[ORCH] = orch
@@ -178,7 +180,45 @@ def build_app(orch: Orchestrator) -> web.Application:
     app.router.add_post("/api/documents/{id}/request-changes", _request_changes)
     for method, path in _NOT_IMPLEMENTED:
         app.router.add_route(method, path, _not_implemented)
+    if web_root is not None:
+        # Last, so every /api route above matches first.
+        app.router.add_get("/{path:.*}", _web_handler(web_root.resolve()))
     return app
+
+
+#: Vite names each file under here by its content hash, so it never changes.
+ASSETS_DIR = "assets"
+
+
+def _web_handler(root: Path) -> Handler:
+    """Serve a file of the built UI, or ``index.html`` for any other path.
+
+    See docs/dev/orchestrator-server.md, "The built UI".
+    """
+    index = root / "index.html"
+
+    async def handler(request: web.Request) -> web.StreamResponse:
+        path = request.match_info["path"]
+        if path == "api" or path.startswith("api/"):
+            raise web.HTTPNotFound()
+        found = (root / path).resolve()
+        if found.is_file() and found.is_relative_to(root):
+            response = web.FileResponse(found)
+            if found.is_relative_to(root / ASSETS_DIR):
+                response.headers["Cache-Control"] = (
+                    "public, max-age=31536000, immutable"
+                )
+            return response
+        if path.startswith(f"{ASSETS_DIR}/"):
+            # An old release's chunk: HTML in its place breaks the module load.
+            raise web.HTTPNotFound()
+        # The index names the hashed assets of this release, so a browser must
+        # not keep it past an update.
+        response = web.FileResponse(index)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+    return handler
 
 
 #: Routes the UI has controls for and this server does not serve.

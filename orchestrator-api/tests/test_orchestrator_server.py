@@ -18,6 +18,7 @@ import pytest
 from agent_fixtures import make_change_comment, read_stamped_fixture
 from git_helpers import create_commit, setup_git_repo, setup_origin_main
 from git_helpers import run_git as git
+from yarl import URL
 
 from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_agent.agent_wire import (
@@ -179,14 +180,14 @@ class Harness:
         )
         self.version += 1
 
-    def serving(self):
+    def serving(self, web_root: Path | None = None):
         """Serve the orchestrator on a free port for the length of the block."""
-        return serving(build_app(self.orch), "127.0.0.1", 0)
+        return serving(build_app(self.orch, web_root=web_root), "127.0.0.1", 0)
 
     @asynccontextmanager
-    async def client(self):
+    async def client(self, web_root: Path | None = None):
         """Serve, and yield an :class:`Api` client on the bound port."""
-        async with self.serving() as port:
+        async with self.serving(web_root) as port:
             async with aiohttp.ClientSession(
                 base_url=f"http://127.0.0.1:{port}"
             ) as session:
@@ -11410,3 +11411,86 @@ def test_a_comm_written_elsewhere_reaches_the_world_on_the_poll(harness):
     ids, listed = run(scenario())
     assert ids == ["c1"]
     assert [c["title"] for c in listed["comms"]] == ["From the CLI"]
+
+
+# -- the built UI --
+
+
+@pytest.fixture
+def web_root(tmp_path):
+    """A built UI: its index, one asset, and a file beside the root."""
+    root = tmp_path / "web"
+    (root / "assets").mkdir(parents=True)
+    (root / "index.html").write_text("<div id=root></div>")
+    (root / "assets" / "x.js").write_text("console.log(1)")
+    (tmp_path / "secret.txt").write_text("outside the web root")
+    return root
+
+
+def test_the_ui_and_its_deep_links_are_served_beside_the_api(harness, web_root):
+    """The router keeps the path in history, so a reload asks for it by name."""
+
+    async def scenario():
+        async with harness.client(web_root) as api:
+            return [
+                await api.get("/"),
+                await api.get("/desk/maelstrom/2026-09-22.1"),
+                await api.get("/assets/x.js"),
+                await api.get("/api/projects"),
+            ]
+
+    index, deep, asset, projects = run(scenario())
+    assert (index.status, index.body) == (200, "<div id=root></div>")
+    assert (deep.status, deep.body) == (200, "<div id=root></div>")
+    assert "no-cache" in index.headers["Cache-Control"]
+    assert (asset.status, asset.body) == (200, "console.log(1)")
+    assert "immutable" in asset.headers["Cache-Control"]
+    assert projects.status == 200
+    assert isinstance(projects.body, dict)
+
+
+def test_an_unknown_api_path_stays_a_json_404(harness, web_root):
+    async def scenario():
+        async with harness.client(web_root) as api:
+            return await api.get("/api/nope")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
+
+
+def test_an_asset_of_another_release_is_a_404(harness, web_root):
+    """An open tab of the old release asks for its chunk: HTML would break it."""
+
+    async def scenario():
+        async with harness.client(web_root) as api:
+            return await api.get("/assets/old-chunk.js")
+
+    assert run(scenario()).status == 404
+
+
+def test_a_path_cannot_leave_the_web_root(harness, web_root):
+    paths = ("/../secret.txt", "/%2e%2e/secret.txt", "/assets/..%2f..%2fsecret.txt")
+
+    async def scenario():
+        bodies = []
+        async with harness.client(web_root) as api:
+            for path in paths:
+                async with api.session.get(URL(path, encoded=True)) as response:
+                    bodies.append((response.status, await response.text()))
+        return bodies
+
+    for path, (status, body) in zip(paths, run(scenario())):
+        assert status == 404 or (status, body) == (200, "<div id=root></div>"), path
+
+
+def test_without_a_web_root_no_ui_is_served(harness):
+    """A worktree runs the Vite dev server for its UI."""
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get("/")
+
+    reply = run(scenario())
+    assert reply.status == 404
+    assert reply.body["error"]["code"] == "unknown_id"
