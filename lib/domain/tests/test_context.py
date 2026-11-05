@@ -11,6 +11,7 @@ from mael_domain.context import (
     load_global_config,
     parse_target_arg,
     resolve_context,
+    set_update_channel,
     validate_project_name,
 )
 
@@ -727,3 +728,51 @@ class TestResolveContext:
         ctx = resolve_context("myproject.a")
         assert ctx.project == "myproject"
         assert ctx.worktree == "alpha"
+
+
+class TestUpdateChannel:
+    """`mael self-update --channel` writes one line of config.yaml.
+
+    The file holds comments and plaintext keys, so a YAML round-trip, which
+    drops the comments, is not used.
+    """
+
+    def test_the_channel_defaults_to_stable(self):
+        assert GlobalConfig.from_dict({}).update_channel == "stable"
+
+    def test_an_unknown_channel_reads_as_stable(self):
+        assert GlobalConfig.from_dict({"update_channel": "nightly"}).update_channel == (
+            "stable"
+        )
+
+    def test_an_existing_line_is_replaced_and_the_rest_kept(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text(
+            "# my projects\nprojects_dir: ~/Projects\nupdate_channel: stable\n"
+            "linear:\n  api_key: lin_x  # secret\n"
+        )
+        path.chmod(0o600)
+
+        set_update_channel(path, "main")
+
+        assert path.read_text() == (
+            "# my projects\nprojects_dir: ~/Projects\nupdate_channel: main\n"
+            "linear:\n  api_key: lin_x  # secret\n"
+        )
+        assert path.stat().st_mode & 0o777 == 0o600
+
+    def test_an_absent_line_is_appended(self, tmp_path):
+        path = tmp_path / "config.yaml"
+        path.write_text("projects_dir: ~/Projects")
+
+        set_update_channel(path, "main")
+
+        assert path.read_text() == "projects_dir: ~/Projects\nupdate_channel: main\n"
+
+    def test_a_missing_file_is_created_private(self, tmp_path):
+        path = tmp_path / "config.yaml"
+
+        set_update_channel(path, "main")
+
+        assert path.read_text() == "update_channel: main\n"
+        assert path.stat().st_mode & 0o777 == 0o600
