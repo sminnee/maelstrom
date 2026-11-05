@@ -12,8 +12,7 @@ from mael_agent.agent_transport import ROOT_ENV
 from mael_domain.context import GLOBAL_CONFIG_FILENAME, read_config_key, set_config_key
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 
-#: The PATH of the units, stored in the production notebook's config by the
-#: first setup. A setup from another shell then writes the same unit files,
+#: The PATH of the units, stored in the global config by the first setup. A setup from another shell then writes the same unit files,
 #: and restarts nothing.
 SERVICE_PATH_KEY = "service_path"
 
@@ -30,6 +29,11 @@ class Production:
     @property
     def maelstrom(self) -> Path:
         return self.home / ".maelstrom"
+
+    @property
+    def config(self) -> Path:
+        """The global config: production's own keys live here too."""
+        return self.maelstrom / GLOBAL_CONFIG_FILENAME
 
     @property
     def install_root(self) -> Path:
@@ -84,17 +88,16 @@ def _is_venv_bin(path: str) -> bool:
 
 def service_path(prod: Production, inherited: str) -> str:
     """The stored unit PATH, or the one :func:`agent_path` gives when none is stored."""
-    stored = read_config_key(prod.state / GLOBAL_CONFIG_FILENAME, SERVICE_PATH_KEY)
+    stored = read_config_key(prod.config, SERVICE_PATH_KEY)
     return stored if isinstance(stored, str) and stored else agent_path(prod, inherited)
 
 
 def store_service_path(prod: Production, inherited: str) -> str | None:
     """Store the unit PATH when none is stored. Returns the PATH it stored."""
-    config = prod.state / GLOBAL_CONFIG_FILENAME
-    if read_config_key(config, SERVICE_PATH_KEY):
+    if read_config_key(prod.config, SERVICE_PATH_KEY):
         return None
     path = agent_path(prod, inherited)
-    set_config_key(config, SERVICE_PATH_KEY, path)
+    set_config_key(prod.config, SERVICE_PATH_KEY, path)
     return path
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from mael_common.shell import run_cmd
 from mael_common.util import get_maelstrom_dir, harden_path
-from mael_domain.context import GLOBAL_CONFIG_FILENAME, GLOBAL_CONFIG_FILENAME_LEGACY
+from mael_domain.context import GLOBAL_CONFIG_FILENAME
 from mael_domain.github import run_states_argv
 from mael_domain.ports import (
     ALLOCATIONS_FILENAME,
@@ -474,8 +474,8 @@ def _check_env_markers(project_path: Path) -> CheckResult:
 def _check_secret_file_perms(project_path: Path) -> CheckResult:
     """Check (and auto-fix) that secret-bearing files are not group/other readable.
 
-    Tightens ``~/.maelstrom/`` to 0o700; ``config.yaml`` (and legacy
-    ``~/.maelstrom.yaml``) and ``port_allocations.json`` to 0o600; and every
+    Tightens ``~/.maelstrom/`` to 0o700; ``config.yaml`` and
+    ``port_allocations.json`` to 0o600; and every
     worktree ``.env`` to 0o600. Only narrows perms (via :func:`util.harden_path`),
     never widens. Returns OK when nothing was loose, FIXED listing what was
     tightened, or WARNING naming any path that could not be fixed.
@@ -486,7 +486,6 @@ def _check_secret_file_perms(project_path: Path) -> CheckResult:
     targets: list[tuple[Path, int, str]] = [
         (maelstrom_dir, 0o700, "~/.maelstrom"),
         (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "config.yaml"),
-        (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
         (maelstrom_dir / ALLOCATIONS_FILENAME, 0o600, ALLOCATIONS_FILENAME),
         (maelstrom_dir / "agents", 0o700, "~/.maelstrom/agents"),
     ]

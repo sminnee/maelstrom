@@ -161,22 +161,6 @@ class TestHardenGlobalConfig:
         assert any("config.yaml" in m for m in messages)
         assert any("~/.maelstrom" in m for m in messages)
 
-    def test_tightens_legacy_config_file(self, tmp_path, monkeypatch):
-        import os
-        import stat
-
-        from mael_domain.context import harden_global_config
-
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        legacy = tmp_path / ".maelstrom.yaml"
-        legacy.write_text("projects_dir: ~/Projects\n")
-        os.chmod(legacy, 0o644)
-
-        messages = harden_global_config()
-
-        assert stat.S_IMODE(os.stat(legacy).st_mode) == 0o600
-        assert any(".maelstrom.yaml" in m for m in messages)
-
     def test_noop_when_already_tight_returns_no_messages(self, tmp_path, monkeypatch):
         import os
 
@@ -449,30 +433,12 @@ class TestLoadGlobalConfig:
         config = load_global_config()
         assert config.projects_dir == Path("/new/path")
 
-    def test_falls_back_to_legacy(self, tmp_path, monkeypatch):
-        """Test fallback to ~/.maelstrom.yaml when new location doesn't exist."""
+    def test_the_old_home_file_is_not_read(self, tmp_path, monkeypatch):
+        """``~/.maelstrom.yaml`` was the config before ``~/.maelstrom/config.yaml``."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        legacy_file = tmp_path / ".maelstrom.yaml"
-        legacy_file.write_text("projects_dir: /legacy/path")
+        (tmp_path / ".maelstrom.yaml").write_text("projects_dir: /legacy/path")
 
-        config = load_global_config()
-        assert config.projects_dir == Path("/legacy/path")
-
-    def test_new_takes_precedence(self, tmp_path, monkeypatch):
-        """Test that ~/.maelstrom/config.yaml takes precedence over ~/.maelstrom.yaml."""
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-
-        # Create both files
-        legacy_file = tmp_path / ".maelstrom.yaml"
-        legacy_file.write_text("projects_dir: /legacy/path")
-
-        config_dir = tmp_path / ".maelstrom"
-        config_dir.mkdir()
-        config_file = config_dir / "config.yaml"
-        config_file.write_text("projects_dir: /new/path")
-
-        config = load_global_config()
-        assert config.projects_dir == Path("/new/path")
+        assert load_global_config().projects_dir == tmp_path / "Projects"
 
     def test_expands_tilde(self, tmp_path, monkeypatch):
         """Test that ~ in projects_dir is expanded."""
@@ -498,22 +464,13 @@ class TestLoadGlobalConfig:
         config = load_global_config()
         assert config.projects_dir == tmp_path / "Projects"
 
-    def test_invalid_legacy_yaml_returns_default(self, tmp_path, monkeypatch):
-        """Test that invalid legacy YAML returns default config."""
-        monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
-        config_file.write_text("invalid: yaml: content: [")
-
-        config = load_global_config()
-        assert config.projects_dir == tmp_path / "Projects"
-
 
 class TestNotebookRootConfig:
     """A dev environment's notebook root may hold a ``config.yaml`` of its own.
 
-    It overlays the global file key by key. ``orchestrator_url`` is read from
-    the notebook root alone, so a dev environment with no server of its own
-    never reaches the real one.
+    It overlays the global file key by key. Outside production,
+    ``orchestrator_url`` is read from the notebook root alone, so a dev
+    environment with no server of its own never reaches the real one.
     """
 
     @pytest.fixture
@@ -548,11 +505,19 @@ class TestNotebookRootConfig:
 
         assert load_global_config().orchestrator_url is None
 
-    def test_the_global_root_reads_its_own_server(self, home, monkeypatch):
-        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom"))
-        self.write(home / ".maelstrom", "orchestrator_url: https://real:3220\n")
+    def test_the_production_root_reads_only_the_global_file(self, home, monkeypatch):
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom" / "state"))
+        self.write(
+            home / ".maelstrom",
+            "projects_dir: /home/me/Projects\norchestrator_url: https://real:3220\n",
+        )
+        # A file an older setup left in the notebook root is not read.
+        self.write(home / ".maelstrom" / "state", "orchestrator_url: https://old:1\n")
 
-        assert load_global_config().orchestrator_url == "https://real:3220"
+        config = load_global_config()
+
+        assert config.orchestrator_url == "https://real:3220"
+        assert config.projects_dir == Path("/home/me/Projects")
 
     def test_no_notebook_root_names_no_server(self, home, monkeypatch):
         monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)
@@ -573,7 +538,8 @@ class TestResolveContext:
     def test_explicit_project_and_worktree(self, tmp_path, monkeypatch):
         """Test fully explicit project.worktree argument."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {tmp_path}/Projects")
 
         ctx = resolve_context("myproject.alpha")
@@ -588,7 +554,8 @@ class TestResolveContext:
     def test_explicit_project_only(self, tmp_path, monkeypatch):
         """Test project-only argument when not in project dir."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {tmp_path}/Projects")
         (tmp_path / "Projects").mkdir()
 
@@ -604,7 +571,8 @@ class TestResolveContext:
         project_dir = projects_dir / "detected-project"
         project_dir.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         # When inside a project dir, single arg is worktree
@@ -620,7 +588,8 @@ class TestResolveContext:
         worktree_dir = projects_dir / "myproject" / "myproject-alpha"
         worktree_dir.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         ctx = resolve_context(None, cwd=worktree_dir)
@@ -636,7 +605,8 @@ class TestResolveContext:
         other_dir = tmp_path / "other"
         other_dir.mkdir()
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         with pytest.raises(ValueError, match="Could not determine project"):
@@ -649,7 +619,8 @@ class TestResolveContext:
         project_dir = projects_dir / "myproject"
         project_dir.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         with pytest.raises(ValueError, match="Could not determine worktree"):
@@ -662,7 +633,8 @@ class TestResolveContext:
         worktree_dir = projects_dir / "detected-project" / "detected-worktree"
         worktree_dir.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         # Explicit project.worktree should override detected
@@ -680,7 +652,8 @@ class TestResolveContext:
         project_a.mkdir(parents=True)
         project_b.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         # When inside project-a, passing "project-b" with arg_is_project=True
@@ -696,7 +669,8 @@ class TestResolveContext:
         project_a = projects_dir / "project-a"
         project_a.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         # When inside project-a, passing "alpha" without arg_is_project
@@ -712,7 +686,8 @@ class TestResolveContext:
         project_dir = projects_dir / "myproject"
         project_dir.mkdir(parents=True)
 
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {projects_dir}")
 
         ctx = resolve_context("b", cwd=project_dir)
@@ -722,7 +697,8 @@ class TestResolveContext:
     def test_dotted_shortcode_resolves(self, tmp_path, monkeypatch):
         """Test that 'proj.a' resolves to project=proj, worktree=alpha."""
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        config_file = tmp_path / ".maelstrom.yaml"
+        config_file = tmp_path / ".maelstrom" / "config.yaml"
+        config_file.parent.mkdir(exist_ok=True)
         config_file.write_text(f"projects_dir: {tmp_path}/Projects")
 
         ctx = resolve_context("myproject.a")

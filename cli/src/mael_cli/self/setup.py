@@ -10,6 +10,7 @@ whose components changed. The step order matters: see
 import asyncio
 import json
 import os
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,7 +19,7 @@ from urllib.parse import urlsplit
 from mael_domain.context import (
     GLOBAL_CONFIG_FILENAME,
     harden_global_config,
-    load_config_at,
+    load_config_file,
     read_config_key,
     remove_config_key,
     set_config_key,
@@ -67,6 +68,21 @@ PENDING_CHANGED = "pending-changed"
 _OLD_SCHEDULE_MARKER = "schedule.enabled"
 
 Echo = Callable[[str], None]
+#: Asks the user ``text``, offering ``default``, and returns the answer.
+Prompt = Callable[[str, str], str]
+
+PROJECTS_DIR_KEY = "projects_dir"
+DEFAULT_PROJECTS_DIR = "~/Projects"
+
+#: The global config's name before ``~/.maelstrom/`` existed. No longer read.
+LEGACY_CONFIG_FILENAME = ".maelstrom.yaml"
+
+
+def _yaml_scalar(value: str) -> str:
+    """``value`` as one YAML scalar: plain when it is a simple path, else quoted."""
+    if re.fullmatch(r"[\w./~-]+", value):
+        return value
+    return json.dumps(value)
 
 
 class SetupError(RuntimeError):
@@ -141,7 +157,7 @@ def scheduler(prod: Production, inherited_path: str) -> HostService:
 
 
 def configured_services(prod: Production, inherited_path: str) -> list[HostService]:
-    """The host services, with the bind the notebook's config names."""
+    """The host services, with the bind the global config names."""
     bind = OrchestratorBind.from_url(orchestrator_url(prod) or "http://localhost")
     return host_services(prod, bind, inherited_path)
 
@@ -152,8 +168,8 @@ def all_units(prod: Production, inherited_path: str) -> list[HostService]:
 
 
 def orchestrator_url(prod: Production) -> str | None:
-    """The URL the production notebook's clients dial."""
-    return load_config_at(prod.state).orchestrator_url
+    """The URL the production notebook's clients dial, from the global config."""
+    return load_config_file(prod.config).orchestrator_url
 
 
 def restarts_for(changed: Sequence[str]) -> list[str]:
@@ -182,7 +198,7 @@ def default_orchestrator_url(prod: Production, run: Run) -> str:
     The host is ``dev_host:``, else the tailnet name, else ``localhost``. The
     scheme is ``https`` only when the dev certificate names that host.
     """
-    config = load_config_at(prod.state)
+    config = load_config_file(prod.config)
     host = config.dev_host or tailnet_name(run) or "localhost"
     scheme = "https" if config.tls_host == host else "http"
     return f"{scheme}://{host}:{ORCHESTRATOR_DEFAULT_PORT}"
@@ -224,10 +240,15 @@ class Setup:
     integrate: Callable[[], list[str]] = install_claude_integration
     harden: Callable[[], list[str]] = harden_global_config
     link_jig: Callable[[Path, Echo], None] = link_jig
+    #: Whether a user can answer a question, so setup may ask one.
+    interactive: bool = False
+    prompt: Prompt = lambda text, default: default
     #: The host services that did not load or restart.
     failed: list[str] = field(default_factory=list)
 
     def __call__(self) -> None:
+        self.move_old_config()
+        self.global_config()
         self.relocate()
         self.migrate()
         self.echo("Updating Claude Code integration...")
@@ -244,7 +265,7 @@ class Setup:
                 f"{', '.join(self.failed)} did not start. Fix the error above, "
                 "then run `mael self setup` again."
             )
-        self.echo("Setup complete.")
+        self.echo(f"Setup complete. Maelstrom runs at {orchestrator_url(self.prod)}.")
 
     def relocate(self) -> None:
         """Move the production state of an older install into ``state/``, once.
@@ -277,28 +298,78 @@ class Setup:
             src.rename(dst)
             self.echo(f"  {src} → {dst}")
 
+    def global_config(self) -> None:
+        """Make sure ``~/.maelstrom/config.yaml`` names the projects directory.
+
+        A fresh install has no global config. Setup asks for the directory
+        only when the key is unset and a user can answer, so only the first
+        setup that finds it unset asks.
+        """
+        config = self.prod.config
+        value = read_config_key(config, PROJECTS_DIR_KEY)
+        if isinstance(value, str) and value:
+            projects = value
+        else:
+            if self.interactive:
+                projects = self.prompt(
+                    "Where do your projects live?", DEFAULT_PROJECTS_DIR
+                )
+            else:
+                projects = DEFAULT_PROJECTS_DIR
+                self.echo(
+                    f"  {PROJECTS_DIR_KEY}: {projects}. To change it, edit {config}."
+                )
+            if not Path(projects).expanduser().is_absolute():
+                raise SetupError(
+                    f"{PROJECTS_DIR_KEY} {projects!r} is relative. Give a path "
+                    "that starts with / or ~."
+                )
+            set_config_key(config, PROJECTS_DIR_KEY, _yaml_scalar(projects))
+        Path(projects).expanduser().mkdir(parents=True, exist_ok=True)
+
     def migrate(self) -> None:
-        """Migrate ``state.db``, and give the notebook its orchestrator URL and unit PATH."""
+        """Migrate ``state.db``, and give the config its orchestrator URL and unit PATH."""
         self.echo("Migrating the state database...")
         asyncio.run(migrate_state_db(self.prod.state / "state.db"))
-        local = self.prod.state / GLOBAL_CONFIG_FILENAME
-        global_ = self.prod.maelstrom / GLOBAL_CONFIG_FILENAME
-        # The key names the notebook's server, so it lives with the notebook.
-        moved = read_config_key(global_, ORCHESTRATOR_URL_KEY)
-        if (
-            isinstance(moved, str)
-            and read_config_key(local, ORCHESTRATOR_URL_KEY) is None
-        ):
-            set_config_key(local, ORCHESTRATOR_URL_KEY, moved)
-            remove_config_key(global_, ORCHESTRATOR_URL_KEY)
-            self.echo(f"  Moved {ORCHESTRATOR_URL_KEY} to {local}")
         if orchestrator_url(self.prod) is None:
             url = default_orchestrator_url(self.prod, self.run)
-            set_config_key(local, ORCHESTRATOR_URL_KEY, url)
+            set_config_key(self.prod.config, ORCHESTRATOR_URL_KEY, url)
             self.echo(f"  {ORCHESTRATOR_URL_KEY}: {url}")
         stored = store_service_path(self.prod, self.inherited_path)
         if stored is not None:
             self.echo(f"  {SERVICE_PATH_KEY}: {stored}")
+
+    def move_old_config(self) -> None:
+        """Move the keys an older setup wrote to ``state/config.yaml`` up, once.
+
+        Production reads only the global file, so the old one goes when nothing
+        else is left in it. Anything else in it, and a ``~/.maelstrom.yaml``
+        from before ``~/.maelstrom/``, is named for the user to move.
+        """
+        legacy = self.prod.home / LEGACY_CONFIG_FILENAME
+        if legacy.is_file():
+            self.echo(
+                f"  Warning: {legacy} is no longer read. Move what it holds into "
+                f"{self.prod.config}, then delete it."
+            )
+        old = self.prod.state / GLOBAL_CONFIG_FILENAME
+        for key in (PROJECTS_DIR_KEY, ORCHESTRATOR_URL_KEY, SERVICE_PATH_KEY):
+            value = read_config_key(old, key)
+            if not isinstance(value, str):
+                continue
+            if read_config_key(self.prod.config, key) is None:
+                set_config_key(self.prod.config, key, value)
+                self.echo(f"  Moved {key} to {self.prod.config}")
+            remove_config_key(old, key)
+        if not old.is_file():
+            return
+        if not old.read_text().strip():
+            old.unlink()
+            return
+        self.echo(
+            f"  Warning: {old} is no longer read. Move what it holds into "
+            f"{self.prod.config}, then delete it."
+        )
 
     def services(self) -> None:
         """Write the host service units, load them, restart the changed ones.

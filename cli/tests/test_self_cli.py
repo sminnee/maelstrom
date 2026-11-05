@@ -5,39 +5,12 @@ launchd or systemd. ``tests/test_release_bundle.py`` installs a real bundle.
 """
 
 import subprocess
-from dataclasses import dataclass, field
 
 import pytest
 from click.testing import CliRunner, Result
+from self_cli_support import FakeSupervisor
 
 from mael_cli.cli import cli
-from mael_cli.self.host_service import Applied, ServiceStatus
-
-
-@dataclass
-class FakeSupervisor:
-    calls: list[str] = field(default_factory=list)
-
-    def _record(self, verb, specs):
-        self.calls.append(f"{verb} {' '.join(s.name for s in specs)}")
-
-    def apply(self, specs):
-        self._record("apply", specs)
-        return Applied(started=[s.name for s in specs])
-
-    def remove(self, specs):
-        self._record("remove", specs)
-        return []
-
-    def restart(self, specs):
-        self._record("restart", specs)
-        return Applied()
-
-    def status(self, specs):
-        return [ServiceStatus(s.name, loaded=True, pid=7) for s in specs]
-
-    def log_hint(self, spec):
-        return f"log of {spec.name}"
 
 
 @pytest.fixture
@@ -77,7 +50,9 @@ def test_setup(host):
     assert (home / ".maelstrom" / "state" / "state.db").exists()
     assert (home / ".local" / "bin" / "mael").exists()
     assert sup.calls == ["apply orchestrator agent-daemon", "apply schedule"]
-    assert "Setup complete." in result.output
+    assert result.output.rstrip().endswith(
+        "Setup complete. Maelstrom runs at http://localhost:2772."
+    )
 
 
 def test_update(host):

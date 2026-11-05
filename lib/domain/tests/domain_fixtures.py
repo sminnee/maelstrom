@@ -268,8 +268,7 @@ def project_with_worktree():
 
         maelstrom_dir = tmp / "maelstrom-home"
         maelstrom_dir.mkdir()
-        # The legacy ``~/.maelstrom.yaml`` is read from the home directory, so
-        # a developer's own ``dev_host:`` would otherwise reach the rows.
+        # A developer's own ``dev_host:`` must not reach the rows.
         with (
             patch("mael_domain.context.get_maelstrom_dir", return_value=maelstrom_dir),
             patch("pathlib.Path.home", return_value=tmp / "home"),

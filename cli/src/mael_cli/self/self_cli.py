@@ -7,6 +7,7 @@ See ``docs/dev/host-services.md``.
 import asyncio
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import click
@@ -33,7 +34,7 @@ from .update import UpdateError, main_checkout, update_main, update_stable
 
 
 def _units(prod: Production):
-    """Every unit, as the notebook's config names it."""
+    """Every unit, as the global config names it."""
     try:
         return all_units(prod, os.environ.get("PATH", ""))
     except SetupError as exc:
@@ -80,6 +81,8 @@ def cmd_setup(changed: str, source: Path | None, rebuild_export: bool) -> None:
         echo=click.echo,
         changed=[c for c in changed.split(",") if c],
         source=source,
+        interactive=sys.stdin.isatty(),
+        prompt=lambda text, default: click.prompt(text, default=default),
     )
     try:
         run()
