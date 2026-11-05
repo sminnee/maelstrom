@@ -29,7 +29,7 @@ To build on a different model than the one that plans, give the draft `--execute
 - Out of scope, and which later task holds it.
 - Pointers: files, the ADR or design doc.
 
-Leave out implementation steps and seams. The task's plan mode writes those.
+Leave out implementation steps and the test plan. The task's plan mode writes those.
 
 Present the complete chain as soon as drafts exist: list every draft in one `<doc-file kind="tasks">` tag, in chain order. Present the same tag again after each edit. Add `review="true"` once the chain is ready for approval.
 

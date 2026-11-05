@@ -49,20 +49,20 @@ Two things that look like a reason to make a new branch are not:
 Do not create new worktrees. The current worktree is set aside for your work.
 If you detect someone else changing files in your work, **stop** and ask the user what to do.
 
-## Build with TDD
+## Build, then test what matters
 
-**Load the `tdd` skill before you write implementation code** — a new feature, a bug fix, any
-change with a behavioural test, however the work arrived: a planned task, an ad-hoc request, or a
-follow-up in an open session. Red → green, one vertical slice at a time.
+**Load the `design-build-test` skill before you write implementation code** — a new feature, a
+bug fix, any change with behaviour to test, however the work arrived: a planned task, an ad-hoc
+request, or a follow-up in an open session. Break the work into modules, build it, then select
+tests by risk and write them at the layer that owns each contract.
 
-Tests go at **agreed seams** only — the public boundary you observe behaviour through, never
-internals. Where you get them depends on how the work arrived:
+Where the modules and owning layers come from depends on how the work arrived:
 
-- **Planned work** — the **Seams under test** section in your plan or task content settles them.
-  When it is missing, name the seam you used and why in the commit message and the PR. Do not
-  stop and wait.
-- **Unplanned or resumed work** — no plan agreed them, and the user is here. Agree the seams with
-  them before you write the first test, as the skill describes.
+- **Planned work** — the **Test plan** section in your plan or task content settles them. When it
+  is missing, name the layer you chose and why in the commit body and the PR. Do not stop and
+  wait.
+- **Unplanned or resumed work** — no plan agreed them, and the user is here. When the owning
+  layer is not clear from the project's test-ownership doc, agree it with them.
 
 Monotonically growing test suites are a maintainability problem, look for tests that can be adapted
 or deleted when changing behaviour.
@@ -70,8 +70,7 @@ or deleted when changing behaviour.
 Use `codebase-design` for the vocabulary when the boundary itself is the open question.
 
 Refactoring is not part of the loop — it belongs to `/code-review`, step 4 of the task-completion
-flow. Get to green first. Re-cutting existing tests is different: the `tdd` skill does that green,
-before red.
+flow.
 
 ## Finishing a task — run automatically, do not wait to be asked
 

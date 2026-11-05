@@ -15,7 +15,7 @@ Write the plan as an inverted pyramid. A reader who stops after any paragraph ha
 
 1. **The change.** The title and the first one or two paragraphs say how it works now, how it will work when the work is done, and the approach in one sentence. Write them as prose for a user or a new developer, with no heading before or inside them.
 2. **Why, and the decisions.** Each decision gets its reason, in one line if you can.
-3. **Detail.** Files, code to reuse, **Seams under test**, verification.
+3. **Detail.** Files, code to reuse, **Test plan** (the module breakdown, the owning layer for each test, what gets only an ephemeral check, and the risks to cover), verification.
 4. **Out of scope and open points.**
 
 Make the plan self-contained:

@@ -70,7 +70,7 @@ to see how the change arrived. Judge the tree, not that history.
 ### Judge the decisions `.drafts/pr.md` states
 
 `.drafts/pr.md` is the branch's own account of itself: the decisions taken, the rationale, the
-test seams. It becomes the PR body. **Those claims are under review too.** Read it against the
+test plan. It becomes the PR body. **Those claims are under review too.** Read it against the
 tree and report:
 
 - an account that **misdescribes the change** — it claims one thing and the tree does another, or
