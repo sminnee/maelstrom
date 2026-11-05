@@ -163,6 +163,7 @@ Comms lists what to tell people outside the team when work lands, and links task
 A comm has a category and a project. A new comm takes the project its category's comms use most.
 New task in a comm's editor writes a task linked to it. A task's editor links comms too. The Comm filter shows only the tasks
 linked to one comm, on Desk and Tasks.
+Projects lists each project, and adds one from a git URL, as `mael project add` does.
 Tick several rows to set their status, or to add them to the desk or take them off, in one action.
 On Desk, Shift-click several nodes to set their status, link or unlink a comm, or Dismiss them,
 in one action.

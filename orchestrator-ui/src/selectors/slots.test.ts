@@ -3,7 +3,14 @@ import { moveAnchor, showPane, togglePane, type SlotState } from './slots';
 
 /** The opening state: the desk on the left, the panel on the right. */
 const opening = (): SlotState => ({
-  anchors: { canvas: 'left', list: 'left', worktrees: 'left', comms: 'left', tabs: 'right' },
+  anchors: {
+    canvas: 'left',
+    list: 'left',
+    worktrees: 'left',
+    comms: 'left',
+    projects: 'left',
+    tabs: 'right',
+  },
   slots: { left: 'canvas', right: 'tabs' },
   paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
 });
@@ -36,6 +43,7 @@ describe('togglePane', () => {
         list: 'right',
         worktrees: 'right',
         comms: 'right',
+        projects: 'right',
         tabs: 'right',
       },
       slots: { left: null, right: 'tabs' },

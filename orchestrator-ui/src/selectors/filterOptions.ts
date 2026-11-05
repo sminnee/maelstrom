@@ -45,6 +45,9 @@ function originsOf(world: WorldView, view: View, worktreeFilters: WorktreeFilter
     case 'comms':
       // A comm belongs to no project.
       return [];
+    case 'projects':
+      // The view lists every project, filtered or not.
+      return [];
   }
 }
 
