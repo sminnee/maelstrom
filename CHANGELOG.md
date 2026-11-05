@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Maelstrom installs as a release bundle, apart from any checkout.** A release is
+  `maelstrom.tar.gz` on a GitHub Release, which CI builds from the `v*` tag. Its installer puts
+  each component in `~/.maelstrom/install/` once per version, and reports which changed. The
+  orchestrator serves the built UI beside its API. `mael self-update --channel stable|main`
+  installs the latest release, or a bundle built from `_main`; `--tag` installs one release.
+  See [the ADR](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md).
 - **The Changes tab pins code from outside the diff.** The file list has Changed | All and a
   search. A file picked from All pins whole, under Pinned. A "⋯ n lines" row between hunks pins
   the hidden lines into the diff card. A × unpins. Pins last per rev. See
@@ -279,6 +285,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **The PyPI package `sminnee-maelstrom`.** Install from a GitHub Release instead. See
+  [Getting started](docs/guide/getting-started.md).
 - **`mael session end` is removed.** A driven agent writes `<end-session>` instead.
 
 ### Fixed
