@@ -20,7 +20,7 @@ import click
 
 from mael_common.claude_paths import has_claude_transcript
 from mael_common.cli_async import AsyncCommand
-from mael_common.util import abbreviate_home, get_maelstrom_dir, locked_file
+from mael_common.util import abbreviate_home, get_maelstrom_dir, locked_file, read_json
 from mael_domain import task as task_model
 from mael_domain.context import load_global_config, validate_project_name
 from mael_domain.env import (
@@ -41,7 +41,6 @@ from mael_domain.worktree import (
 )
 from mael_domain.worktree_model import extract_worktree_name_from_folder
 
-from .claude_integration import read_json
 from .env_cli import make_store as make_env_store
 from .task_cli import open_task_table
 
