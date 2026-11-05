@@ -1025,6 +1025,17 @@ The rows are `ui/DiffRow.tsx`, which the Edit card also draws. The Changes tab a
 new line numbers. On the narrow layout, `HighlightedRows` draws one number column: the new
 number, or the old one on a removed row. The sign tells the two apart.
 
+A name in a card that a **Language server** reads (`navigable` on the `FileDiff` or the
+`FileExcerpt`) is a `name` span with a `data-col`: its UTF-16 start in the line. One `onClick`
+on the row text reads the span and calls `followName` in `Files`.
+
+`followName` asks `GET /definition`. A pin of a whole file sets `from` to the click, so `flow`
+puts that card after the card of the click.
+`Files` holds the goal line; the card that has it keeps the line's chunk mounted, scrolls the row
+to the centre and flashes it. A target outside the rev, no definition, or an error shows as a
+`role="status"` line that hangs from the card's sticky head. The next click clears it. The rules for a click and its target are in
+[code-navigation.md](code-navigation.md), "The click".
+
 #### Cards and pins
 
 `changes/flow.ts` turns the diff and the rev's pins into the flow, and each card into rows and

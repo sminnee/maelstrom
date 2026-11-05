@@ -153,7 +153,7 @@ correct the page they used if it turns out to be wrong. See
 `orchestrator-ui/` holds a web app that shows every agent as a node on one canvas, with edges for
 the work each node unblocks, and captures your checkpoints in the tool: plan approval, questions,
 permissions, document feedback. A worktree's Changes tab shows its changes. You can comment on
-lines there and post the comments to the agents in that worktree. The file list shows the changed files, or All files of the rev. A pick of a file outside the diff pins it below the diff, and a "⋯ n lines" row pins the lines it hides. A × unpins. The eye on a file's head or in the file list draws
+lines there and post the comments to the agents in that worktree. The file list shows the changed files, or All files of the rev. A pick of a file outside the diff pins it below the diff, and a "⋯ n lines" row pins the lines it hides. A × unpins. A click on a name in a Python file goes to its definition. The eye on a file's head or in the file list draws
 the whole file: Final shows the new file, Whole file marks the changes in it, and Changes only
 shows the changed parts. A `.feature` file draws as its scenarios, not as lines. A worktree's dev env
 opens in a tab too. A shift-click on a tab shows it beside the tab you have open. Desk shows the work on your
