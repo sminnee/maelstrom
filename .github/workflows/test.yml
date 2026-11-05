@@ -60,7 +60,7 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       # The command is `[gate.test]` in pipeline.toml. `--read-only`: CI records nothing.
       - name: Run tests
@@ -82,7 +82,7 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Run linting
         run: uvx tangier gate run lint --read-only --base HEAD^1
@@ -106,7 +106,7 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Run e2e tests
         run: uvx tangier gate run e2e --accept ci
