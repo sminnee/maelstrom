@@ -22,10 +22,11 @@ scope = ["python-gate-inputs", "ci-inputs"]
 cmd = "uv run pytest -m 'not e2e'"
 scope = ["python-gate-inputs", "ci-inputs"]
 
-# CI-only: too slow for the pre-PR gate. CI records its pass.
+# CI-only: too slow for the pre-PR gate. CI records its pass. The release
+# bundle test builds the UI, so the web inputs are in scope too.
 [gate.e2e]
 cmd = "uv run pytest -m e2e -v"
-scope = ["python-gate-inputs", "ci-inputs"]
+scope = ["python-gate-inputs", "web-gate-inputs", "ci-inputs"]
 
 # Each member keeps its own record.
 [gate.web]
