@@ -17,3 +17,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mael_domain"]
+
+# hatch_build.py puts `shared/` into the wheel.
+[tool.hatch.build.targets.wheel.hooks.custom]

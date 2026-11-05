@@ -53,12 +53,11 @@ The root `pyproject.toml` is not a member. It builds no package. It depends on
 every member, so `uv sync --extra dev` installs all six editable into one
 `.venv`, and it holds the one `dev` extra and the tool config for every gate.
 
-Only `cli/` publishes. Its wheel, `sminnee-maelstrom`, bundles the three
-libraries and `shared/`, because PyPI has no `mael-*` distribution to depend
-on. `cli/hatch_build.py` adds them to the published wheel alone. The editable
-install reaches the libraries in the checkout through `dev-mode-dirs` instead.
-The daemon and the orchestrator server do not publish: they run from a
-checkout.
+Each member builds its own wheel, and a release bundle carries all six. See
+[the ADR](../adr/0001-maelstrom-installs-as-a-release-bundle.md). The `mael-domain`
+wheel also carries `shared/`, as `mael_domain/shared`: `lib/domain/hatch_build.py`
+adds it to the built wheel alone, so an editable install reads the checkout's
+`shared/`.
 
 A member's `tests/` has no `__init__.py`. Fixtures that every suite needs are
 in the repo-root `conftest.py`, which imports no package. Keep each test file's
