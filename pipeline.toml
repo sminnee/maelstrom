@@ -120,7 +120,8 @@ paths = ["pipeline.toml", ".github/workflows/test.yml"]
 # restart a service.
 #
 # Each release bundle component (CONTEXT.md) is a SHA bucket of its name; see
-# COMPONENTS in lib/domain/src/mael_domain/release_bundle/install.py.
+# COMPONENTS in lib/domain/src/mael_domain/release_bundle/layout.py and
+# bin/install.sh.
 # --------------------------------------------------------------------------
 
 [web]
@@ -138,7 +139,7 @@ depends = "jig"
 sha = true
 
 # The jig's Vite plugin. Not a service: the web dev server loads its source,
-# and `mael self-update` rebuilds and relinks it when this moves.
+# and `mael self update --channel main` rebuilds and relinks it.
 [jig]
 paths = "vite-plugin-mael-jig/**"
 exclude = ["**/*.test.ts", "**/README.md", "vite-plugin-mael-jig/CHANGELOG.md"]

@@ -1,8 +1,8 @@
 name: Release
 
 # bin/publish pushes a `v*` tag. This builds the release bundle from that tag
-# and publishes it as a GitHub Release. See
-# docs/adr/0001-maelstrom-installs-as-a-release-bundle.md.
+# and publishes it, with the `install.sh` that installs it, as a GitHub
+# Release. See docs/adr/0002-one-installer-and-host-services.md.
 on:
   push:
     tags: ["v*"]
@@ -71,5 +71,5 @@ jobs:
           if echo "$version" | grep -Eq '(a|b|rc)[0-9]+$'; then
             flags="--prerelease"
           fi
-          gh release create "$GITHUB_REF_NAME" dist/maelstrom.tar.gz \
+          gh release create "$GITHUB_REF_NAME" dist/maelstrom.tar.gz bin/install.sh \
             --title "$GITHUB_REF_NAME" --notes-file notes.md $flags

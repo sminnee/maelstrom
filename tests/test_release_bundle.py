@@ -1,9 +1,11 @@
 """A release bundle of this checkout, installed and served.
 
-``bin/build-bundle`` builds it, the bundle's own ``install.py`` installs it
+``bin/build-bundle`` builds it, the bundle's own ``install.sh`` installs it
 into a temporary root with a real uv venv, and the installed orchestrator
-serves the UI and the API from one port. `lib/domain/tests/
-test_release_bundle_install.py` covers what a second install copies.
+serves the UI and the API from one port.
+
+The install runs with ``--no-setup``: setup loads units into the real launchd
+or systemd, whatever home it is given.
 """
 
 import json
@@ -37,7 +39,15 @@ def installed(tmp_path_factory) -> Path:
     root = tmp / "install"
     # As a new host runs it: the bundle's own copy, with no project around it.
     subprocess.run(
-        ["uv", "run", "--no-project", "python", "install.py", "--root", str(root)],
+        [
+            "sh",
+            "install.sh",
+            "--bundle",
+            str(tarball),
+            "--root",
+            str(root),
+            "--no-setup",
+        ],
         cwd=unpacked / "maelstrom",
         env={k: v for k, v in os.environ.items() if k != "UV_ENV_FILE"},
         check=True,
