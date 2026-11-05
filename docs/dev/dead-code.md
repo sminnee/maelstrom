@@ -44,9 +44,9 @@ symbol that lives in `tests/` reaches the first row alone, because the productio
 that directory.
 
 **Check the finding against its framework before you delete it.** A framework holds the only
-reference to the code it calls, so framework code and dead code look the same. `list_commands` in
-`admin_cli.py` is a `click.Group` override. Click calls it by name when it renders help. Deleting
-it breaks `mael self-env --help`, and no test fails.
+reference to the code it calls, so framework code and dead code look the same. A `list_commands`
+override on a `click.Group` is an example. Click calls it by name when it renders help. Deleting
+it breaks the group's `--help`, and no test fails.
 
 ## How to silence a false positive
 

@@ -1,6 +1,7 @@
 # Maelstrom installs as a release bundle
 
-Status: accepted, 2026-11-05.
+Status: accepted, 2026-11-05. [ADR 0002](0002-one-installer-and-host-services.md) replaces
+`install.py` with `install.sh` and `mael self-update` with `mael self update`.
 
 ## Context
 

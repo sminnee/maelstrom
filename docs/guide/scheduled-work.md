@@ -62,7 +62,7 @@ A launched run is a driven agent with no cmux pane. The orchestrator UI shows it
 node card and on the desk. Attach there, or with `mael agent attach <id>`. Use `--cli` to open
 a cmux workspace instead.
 
-The run starts on the everyday agent daemon, which `mael self-env start` runs. If that daemon
+The run starts on the production agent daemon, the `agent-daemon` host service. If that daemon
 is down, the run goes back to `todo`. The next hourly fire does not retry it. Launch it with
 `mael task run <id>`.
 
@@ -120,50 +120,43 @@ mael task add "Morning build triage" --template \
 - **One run per day.** A second listed run on the same day fires nothing, because its run id is
   taken. The watermark still moves past it.
 - **A failed read is unknown.** When `gh` cannot read the runs, nothing fires and the
-  watermark stays. The next tick reads again. `schedule.log` records a warning.
+  watermark stays. The next tick reads again. The scheduler's log records a warning.
 - **The run's content gains a "Build run" section.** It names the workflow, the branch, the
   conclusion, the run URL and the commit, and gives the `mael gh check-log` command for the
   failed jobs.
 
-## The scheduler is opt-in per machine
+## The scheduler is always on
 
-Maelstrom does **not** install a background scheduler for you. A launchd agent that quietly
-starts agent sessions is not something to impose on every checkout and CI box, so it is
-gated behind an explicit marker at `~/.maelstrom/schedule.enabled`.
+`mael self setup` installs the scheduler on every host, next to the host services. The
+installer runs setup, so an install or an update needs no extra step.
 
 ```bash
-mael schedule install            # opt in: write the marker, load the agent
-mael schedule uninstall          # opt out: remove the marker, unload
-mael schedule status             # diagnose
+mael self status                 # diagnose: the units, their state and their logs
+mael self uninstall              # remove the scheduler with the host services
 ```
-
-`install` needs no sudo and asks you nothing. `uninstall` asks for sudo only on a machine
-carrying a leftover wake — see below.
-
-Until you run `install`, the wiring in `mael install` and `mael self-update` is a deliberate
-no-op.
 
 ## When it fires
 
-The agent runs `mael task add-scheduled --all-projects --run` hourly.
+The scheduler runs `mael task add-scheduled --all-projects --run` hourly.
 
 | State | Behaviour |
 |---|---|
-| Awake | Fires hourly at `:00`, plus once when the agent loads. |
-| Asleep | Does not fire, and does not wake the Mac. The job runs on the next wake instead, as **one** coalesced catch-up. |
+| Awake | Fires hourly at `:00`. On macOS it also fires once when the agent loads. |
+| Asleep | Does not fire, and does not wake the machine. The job runs on the next wake instead, as **one** coalesced catch-up. |
 
-Maelstrom does not wake a sleeping Mac, and does not need to. launchd starts a missed job on
-the next wake and coalesces every missed interval into one event.
+Maelstrom does not wake a sleeping machine, and does not need to. launchd starts a missed job on
+the next wake and coalesces every missed interval into one event. The systemd timer has
+`OnCalendar=hourly` and `Persistent=true`, which does the same.
 
 **There is no backfill.** After a missed period you get exactly one run per due template,
 not one per missed boundary. A machine asleep for a week does not wake to seven runs of the
 same template.
 
-Older versions offered `mael schedule install --wake-at HH:MM`, which set a daily `pmset`
-wake. That option is gone. `mael schedule uninstall` clears a wake left over from it, and
-asks for **sudo** when it finds one. Machines that never used `--wake-at` see no prompt.
+Older versions on macOS could set a daily `pmset` wake. `mael self uninstall` clears a wake
+left over from it, and asks for **sudo** when it finds one. Machines that never set one see no
+prompt.
 
-To clear a leftover wake without opting out of the scheduler:
+To clear a leftover wake and keep the scheduler:
 
 ```bash
 pmset -g sched            # a line under "Repeating power events" is the leftover
@@ -175,11 +168,11 @@ set yourself as well.
 
 ## When a scheduled task did not fire
 
-Run `mael schedule status` first. See
+Run `mael self status` first. See
 [troubleshooting.md](troubleshooting.md#a-scheduled-task-did-not-fire) for what it reports
 and the common causes.
 
 ## See also
 
-- [Scheduled tasks](../dev/scheduled-tasks.md) — the launchd mechanics in full.
+- [Scheduled tasks](../dev/scheduled-tasks.md) — the launchd and systemd mechanics in full.
 - [Tasks](tasks.md) — templates, ids and chains.

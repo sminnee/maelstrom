@@ -562,24 +562,30 @@ uv run mael-agent-daemon gc                           # kill strays and duplicat
 
 ### Starting a daemon
 
-Two commands start one, and nothing else does:
+Two things start one, and nothing else does: the OS supervisor runs the production daemon, and
+`mael env start` runs a worktree's:
 
 ```bash
-mael self-env start                  # the everyday daemon, on ~/.maelstrom/daemons/_main
+mael self restart agent-daemon       # the production daemon, on ~/.maelstrom/state/daemon
 mael env start                       # this worktree's daemon
-mael self-env restart agent-daemon   # replace one holding stale code
+mael env restart agent-daemon        # replace a worktree's daemon holding stale code
 ```
 
-Both run `mael-agent-daemon serve` as a service, so a daemon's lifetime is its environment's, and
+The production daemon is the `agent-daemon` host service. The OS supervisor runs
+`mael-agent-daemon serve` from the current release, and starts it again when it exits. Its log is
+`~/.maelstrom/logs/service/agent-daemon.log` on macOS, and the journal on Linux. See
+[host services](host-services.md).
+
+A worktree's daemon is a service of its environment, so its lifetime is the environment's, and
 `mael env stop` takes the daemon and its agents with it. The service writes to
 `<root>/agent-daemon.log`.
 
 No `mael agent` command, session launch or orchestrator poll starts a daemon. Each reports the
-root it looked for and both of these commands:
+root it looked for and both ways to start one:
 
 ```
-No agent daemon on /Users/you/.maelstrom/daemons/_main. Run `mael self-env start`
-(everyday daemon) or `mael env start` (this worktree's).
+No agent daemon on /Users/you/.maelstrom/state/daemon. Run `mael self restart`
+(the production daemon) or `mael env start` (this worktree's).
 ```
 
 ### The daemon root
@@ -625,7 +631,7 @@ marker as "no daemon holds these agents", then falls back to the spawn records a
 strays it finds. Under a denial that reasoning is wrong: the daemon still holds those agents. So
 a denial never carries the marker.
 
-`mael admin install` adds `mael task:*` to `sandbox.excludedCommands` in
+`mael self setup` adds `mael task:*` to `sandbox.excludedCommands` in
 `~/.claude/settings.json`, so the launch verbs run outside the sandbox. Run it on a machine
 that still shows the denial.
 
@@ -639,12 +645,12 @@ record.
 `mael-agent-daemon status` answers it:
 
 ```
-root:     /Users/sminnee/.maelstrom
-socket:   /Users/sminnee/.maelstrom/agent-daemon.sock
+root:     /Users/sminnee/.maelstrom/state/daemon
+socket:   /Users/sminnee/.maelstrom/state/daemon/agent-daemon.sock
 pid:      59360
 version:  0.1.2
 source:   /Users/sminnee/Projects/maelstrom/_main
-specs:    /Users/sminnee/.maelstrom/agents
+specs:    /Users/sminnee/.maelstrom/state/daemon/agents
 started:  2026-09-05 14:47 (3h ago)
 agents:   5
 ```
@@ -652,7 +658,8 @@ agents:   5
 `source` is the field that matters: it names the worktree the serving code came from. A daemon
 holds the modules it imported at start, for days, so a command from a newer tree is served by it
 silently. That has produced a bug that looked like the feature under development.
-`mael self-env restart agent-daemon` replaces one holding stale code.
+`mael self restart agent-daemon` replaces the production daemon when it holds stale code, and
+`mael env restart agent-daemon` replaces a worktree's.
 
 A daemon too old to answer `ping` has no identity to print, so `status` fails with that same
 advice rather than reporting the daemon's own confusion. A daemon that does not know `ping`
@@ -686,8 +693,9 @@ mael env start                     # this worktree's services, the daemon among 
 mael env stop                      # takes the daemon and its agents with it
 ```
 
-`_main` is a worktree name like any other, so the same line gives it
-`~/.maelstrom/daemons/_main`. That is the everyday daemon, and `mael self-env start` runs it.
+`_main` is a worktree name like any other, so the same line gives `_main`'s environment
+`~/.maelstrom/daemons/_main`. That is not the production daemon: the `agent-daemon` host service
+runs that one, on `~/.maelstrom/state/daemon`.
 
 Each root holds its own spawn records, so one environment's daemon cannot restore the records
 another holds and start a second `claude` on each of its sessions.
@@ -1125,7 +1133,7 @@ daemon sends out. The `partial-*.jsonl` fixtures hold every kind of chunk, becau
 recorded with no filter.
 
 A daemon holds the argv it started each child with. After an upgrade the shared daemon needs
-`mael self-env restart agent-daemon`, and an agent that is already running sends no chunk until it
+`mael self restart agent-daemon`, and an agent that is already running sends no chunk until it
 is resumed.
 
 ### Subagents
@@ -1307,7 +1315,7 @@ no-allowlist contract above.
 ### The spawn record
 
 Claude stores none of the cwd, permission mode, model or environment a spawn needs. So the daemon
-writes one record per agent to `~/.maelstrom/agents/<agent-id>.json`, holding exactly that:
+writes one record per agent to `<root>/agents/<agent-id>.json`, holding exactly that:
 
 | Field | Why |
 |---|---|
@@ -1406,7 +1414,7 @@ A session belongs to one root. `unknown` is never killed from one root because t
 `claude` may be another root's `owned`: a task keeps its session id across roots, so a task
 relaunched under one environment's daemon runs on a session another environment's records also
 name. `--all-roots` reconciles every root under `~/.maelstrom` — the directory itself, where the
-everyday daemon used to live, and each `~/.maelstrom/daemons/*` — and kills only what none of
+production daemon used to live, and each `~/.maelstrom/daemons/*` — and kills only what none of
 them claims.
 
 A kill goes to the process group and escalates, SIGTERM then SIGKILL after 3 seconds, as "Ending

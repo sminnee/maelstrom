@@ -67,8 +67,8 @@ When the switch is on and the pill does not show, check that the page loads
 
 ## Use a local copy of the plugin
 
-`mael self-update --channel main` builds `_main`'s copy of the plugin when the pull changes it,
-and registers it with `pnpm link --global`. To use that copy in a project in place of the npm release:
+`mael self update --channel main` builds `_main`'s copy of the plugin on each update, and
+registers it with `pnpm link --global`. To use that copy in a project in place of the npm release:
 
 ```bash
 pnpm link --global vite-plugin-mael-jig

@@ -28,7 +28,7 @@ When the page has no client script, check that the config change loaded. When th
 
 ## Use `_main`'s copy of the plugin
 
-`mael self-update` builds `_main/vite-plugin-mael-jig` and runs `pnpm link --global` there. To test an unreleased plugin change in a project, run `pnpm link --global vite-plugin-mael-jig` in the project's frontend directory. The next `pnpm install` drops the link. Do not commit the linked state: `package.json` keeps the npm version.
+`mael self update --channel main` builds `_main/vite-plugin-mael-jig` and runs `pnpm link --global` there. To test an unreleased plugin change in a project, run `pnpm link --global vite-plugin-mael-jig` in the project's frontend directory. The next `pnpm install` drops the link. Do not commit the linked state: `package.json` keeps the npm version.
 
 ## The draft files
 

@@ -52,10 +52,12 @@ The `mael project` group adds, creates, renames and lists projects.
 | `mael project create NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael project mv OLD NEW` | Rename a project and everything derived from its name. |
 | `mael project list` | List every project under the projects directory, with its path and worktree count. Reads no git status, no ports and no sessions, so it stays fast where `mael list-all` does not. Supports `mael --json project list`. |
+| `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 
 ```bash
 mael project add https://github.com/org/repo.git  # clone into maelstrom's layout
 mael project list
+mael doctor myproject        # check project health, and fix what it can
 ```
 
 **`mael project add`**
@@ -657,7 +659,7 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 ## Wiki
 
 The cross-project development-pattern wiki. Pages live beside the task notebook in
-`~/.maelstrom/tasks`, so every change is committed. See
+`~/.maelstrom/state/tasks`, so every change is committed. See
 [concepts.md](../guide/concepts.md).
 
 | Command | Description |
@@ -747,17 +749,20 @@ mael agent cost 1761dcf6                        # one agent, stage by stage
 mael agent register 1761dcf6 --task-id NORT-42  # adopt a live agent with no record
 ```
 
-Two commands start a daemon, and nothing else does:
+Two things start a daemon, and nothing else does: the OS supervisor runs the production daemon,
+and `mael env start` runs a worktree's:
 
 ```bash
-mael self-env start                             # the everyday daemon, on ~/.maelstrom/daemons/_main
+mael self restart agent-daemon                  # the production daemon, on ~/.maelstrom/state/daemon
 mael env start                                  # this worktree's daemon
-mael self-env restart agent-daemon              # pick up code changed since it started
+mael env restart agent-daemon                   # pick up code changed since it started
 ```
 
-Both run [`mael-agent-daemon serve`](#the-agent-daemon) as a service of an environment, so a daemon's lifetime is its
-environment's. No `mael agent` command, session launch or orchestrator poll starts one. A command
-that finds no daemon names the root it looked for and both of these commands.
+Both run [`mael-agent-daemon serve`](#the-agent-daemon). The production daemon is the
+`agent-daemon` host service, which the OS supervisor runs from the current release. A worktree's
+daemon is a service of its environment, so its lifetime is the environment's. No `mael agent`
+command, session launch or orchestrator poll starts one. A command that finds no daemon names the
+root it looked for and both ways to start one.
 
 Everything a daemon owns lives under its root: its socket, lock, pid file, log and `agents/`
 spawn records. `MAEL_AGENT_ROOT` names that root, and the environment manager writes it into each
@@ -773,7 +778,7 @@ you. See [agent-daemon.md](../dev/agent-daemon.md#a-daemon-per-environment).
 A crashed child shows as `exited(N)` in `mael agent list`, and `mael agent resume` brings it back
 with the conversation it had. A daemon start resumes every agent that was running, under the same
 ids. Claude keeps the conversation in its own session transcript; the daemon keeps one spawn
-record per agent under `~/.maelstrom/agents/`.
+record per agent under `<root>/agents/`.
 
 `mael agent list --stopped` names every session `mael agent resume` can bring back. It reads
 Claude's transcripts for what each session was doing, and each session's spawn record for how to
@@ -787,12 +792,13 @@ The listing subtracts the sessions that are still running, because a resume of o
 ## The agent daemon
 
 `mael-agent-daemon` runs the agent daemon and reads its records. It is a separate command, not a
-`mael` group: the published `mael` package does not include the daemon. Run it with `uv run`
-from a maelstrom checkout.
+`mael` group: the published `mael` package does not include the daemon. A release bundle
+installs it, and runs it as the `agent-daemon` host service. In a maelstrom checkout, run it with
+`uv run`.
 
 | Command | Description |
 |---|---|
-| `mael-agent-daemon serve` | Run the agent daemon in the foreground, on the root `MAEL_AGENT_ROOT` names. Exits 2 when that variable is unset. `mael env start` runs it as a service; you rarely run it by hand. |
+| `mael-agent-daemon serve` | Run the agent daemon in the foreground, on the root `MAEL_AGENT_ROOT` names. Exits 2 when that variable is unset. The `agent-daemon` host service and `mael env start` run it; you rarely run it by hand. |
 | `mael-agent-daemon status` | Print which daemon serves this environment's root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
 | `mael-agent-daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
 | `mael-agent-daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
@@ -811,12 +817,13 @@ uv run mael-agent-daemon gc                     # after a daemon died: kill its 
 
 `mael-orchestrator` serves the world to the orchestrator UI: tasks from the notebook, worktrees
 from `list-all`, and agents from the agent host, over HTTP. It is a separate command, not a `mael`
-group: the published `mael` package does not include the server. Run it with `uv run` from a maelstrom checkout. See
+group: the published `mael` package does not include the server. A release bundle installs it, and
+runs it as the `orchestrator` host service. In a maelstrom checkout, run it with `uv run`. See
 [orchestrator-server.md](../dev/orchestrator-server.md) for the routes.
 
 | Command | Description |
 |---|---|
-| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag), `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 uv run mael-orchestrator serve                     # http://127.0.0.1:8765
@@ -824,8 +831,8 @@ uv run mael-orchestrator serve --port 3072         # what mael env start runs, o
 uv run mael-orchestrator serve --log-level warning # quieter: drop the per-command trace
 ```
 
-The first command that needs the agent host starts one, as `mael agent` does. Under maelstrom,
-`mael env start` runs the server and the web app together.
+The server never starts the agent host. Under maelstrom, `mael env start` runs the server and the
+web app together.
 
 ## Dev environments
 
@@ -1298,55 +1305,82 @@ With no monitors configured, these commands fall back to every monitor on the ac
 
 ---
 
-## Scheduled work
+## The installer (`install.sh`)
 
-See [scheduled-work.md](../guide/scheduled-work.md). The agent is opt-in per machine.
+`install.sh` installs or upgrades the release bundle in `~/.maelstrom/install/`, then runs the new
+release's `mael self setup`. See [host services](../dev/host-services.md#the-installer).
+
+```bash
+curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
+```
+
+| Option | Description |
+|---|---|
+| (none) | Download and install the latest GitHub Release. |
+| `--tag TAG` | Install the GitHub Release `TAG`, such as an older one to roll back to. |
+| `--bundle FILE` | Install a local `maelstrom.tar.gz`. |
+| `--source DIR` | Pull the git checkout `DIR`, build its bundle, tagged `main-<sha12>`, and install that. |
+| `--root DIR` | The install root. Default: `~/.maelstrom/install`. |
+| `--no-setup` | Do not run `mael self setup` after the switch. |
+
+Give at most one of `--tag`, `--bundle` and `--source`.
+
+## Host control (`mael self`)
+
+The `mael self` group installs, upgrades and looks after maelstrom on this host. A host runs
+two [host services](../dev/host-services.md), `orchestrator` and `agent-daemon`, and the hourly
+scheduler. The OS supervisor runs all three: launchd on macOS, systemd user units on Linux.
 
 | Command | Description |
 |---|---|
-| `mael schedule install` | Opt this machine in: write the marker and load the launchd agent. |
-| `mael schedule uninstall` | Opt this machine out: remove the marker and tear the agent down. Clears a repeating `pmset` wake left by the removed `--wake-at`, asking for sudo only if one is set. |
-| `mael schedule status` | Report the marker, plist, loaded job and log tail. |
+| `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
+| `mael self update` | Install the latest release, then run its setup. See below. |
+| `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the markdown export queue. |
+| `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
+| `mael self restart [orchestrator\|agent-daemon]...` | Restart host services through the supervisor. Default: both. A restart of the agent daemon stops its agents; they resume after it. |
 
 ```bash
-mael schedule install       # opt this machine in; no sudo, asks nothing
-mael schedule status        # run this first when a task did not fire
+mael self status                     # run this first when a host service or a scheduled task fails
+mael self update                     # install the latest release on the stored channel
+mael self update --channel main      # build and install _main
+mael self update --tag v0.2.0rc1     # install one GitHub Release
+mael self restart agent-daemon       # the production daemon picks up new code
+mael self setup --rebuild-export     # repair the host, and re-export every task
 ```
 
-A sleeping Mac runs the job on its next wake, as one coalesced catch-up. No command wakes it.
+**`mael self setup`**
 
-None of these take options beyond `--help`.
-
----
-
-## Maintenance
-
-| Command | Description |
+| Option | Description |
 |---|---|
-| `mael admin export-queue` | Report how many tasks the markdown export at `~/.maelstrom/tasks` still owes, and how long the oldest has waited. The orchestrator drains the queue, so a depth that does not fall means the server is not running. |
-| `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
-| `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
-| `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update [--channel stable\|main] [--tag TAG]` | Install the latest [release bundle](../../CONTEXT.md) into `~/.maelstrom/install/`, and move its `current` link. The `stable` channel downloads the latest GitHub Release with `gh`; `--tag` installs another one (stable channel only), such as a pre-release or an older version to roll back to. The `main` channel pulls `_main`, runs its `install_cmd`, which migrates the state database, and stops if that fails. Then it builds a bundle with `_main/bin/build-bundle`, tagged `main-<commit>`. A release that runs already is not fetched or built again. `--channel` stores the channel as `update_channel` in `config.yaml`; without it the stored channel is used, else `stable`. It reports which components changed, then writes `~/.local/bin/mael`, which runs the current release with the everyday daemon's root and the notebook root. On the `main` channel it then restarts the `_main` services whose [service version](../../CONTEXT.md) moved, and, when the `jig` SHA bucket moved, builds `_main`'s `vite-plugin-mael-jig` and registers it with `pnpm link --global` (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). On the `stable` channel the services still run from `_main`: restart them with `mael self-env restart`. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
-| `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
+| `--changed TEXT` | The components that changed, comma-separated. Their host services restart. Default: none, so nothing restarts. |
+| `--source DIRECTORY` | The checkout the release was built from. Links its jig plugin (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). |
+| `--rebuild-export` | Queue every task for the markdown export, whatever the queue holds. For a file that went missing without its row changing, which no ordinary write re-queues. |
 
-```bash
-mael admin export-queue      # what the markdown export still owes
-mael install                 # skills and hooks into ~/.claude/
-mael doctor myproject        # check project health, and fix what it can
-mael self-update             # install the latest release on the stored channel
-mael self-update --channel main      # build and install _main, then restart what moved
-mael self-update --tag v0.2.0rc1     # install one GitHub Release
-mael self-env start          # maelstrom's own orchestrator, web UI and the everyday daemon
-mael self-env status
-mael self-env restart agent-daemon   # the everyday daemon picks up new code
-mael self-env stop
-```
+Setup moves an older install's state into `~/.maelstrom/state` once, migrates `state.db`, writes
+`orchestrator_url:` when it is unset (see [configuration.md](configuration.md)), installs the
+Claude integration and the `mael` shim, then loads the host services and the scheduler. It
+restarts only the host services whose components or unit files changed. See
+[host services](../dev/host-services.md#setup) for each step and its order.
 
-`mael-orchestrator serve` refuses a state database written by a different build. The install
-script, `bin/install`, creates and upgrades the database. It runs as the project's `install_cmd`:
-on each worktree open, on `mael env start` and `mael env restart --install`, and in `_main` on
-`mael self-update --channel main`. On the `stable` channel nothing migrates the database: run
-`~/.maelstrom/install/current/venv/bin/python -m mael_domain.state_db.migrate`. A migration is
-forward-only and has no undo. See
+A migration is forward-only and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".
+
+**`mael self update`**
+
+| Option | Description |
+|---|---|
+| `--channel [stable\|main]` | Where to update from: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Stored as `update_channel` in `~/.maelstrom/config.yaml` for later updates. Default: the stored channel, else `stable`. |
+| `--tag TEXT` | Install this GitHub Release, such as a pre-release or an older version to roll back to. Stable channel only. |
+
+The `stable` channel downloads that release's `install.sh` and runs it. The `main` channel runs
+`_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install`, builds a
+bundle tagged `main-<commit>` and installs it. A tag that runs already is not built again. Add the project first with
+`mael project add sminnee/maelstrom`. Either way the installer then runs the new release's
+`mael self setup`.
+
+Run it from a shell, not from an agent of the production daemon. The daemon restart stops
+that agent.
+
+A worktree's own database is not production's. `bin/install` creates and upgrades it as the
+project's `install_cmd`: on each worktree open, on `mael env start` and on
+`mael env restart --install`.

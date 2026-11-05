@@ -1,7 +1,7 @@
 # Scheduled (template) tasks
 
 A *template* task is parked in `template/` status carrying a `schedule` cron
-expression, a `trigger`, or both. Hourly, a launchd LaunchAgent runs `mael task
+expression, a `trigger`, or both. Hourly, the scheduler runs `mael task
 add-scheduled --all-projects --run`. `schedule.fire_due` makes one run per
 template that is due, and the command launches each run. A cron template is due when its most recent
 fire boundary is newer than its `last_run` watermark. A trigger-only template is
@@ -15,37 +15,40 @@ triggered template makes no `gh` call. For a failed read, see
 Each run starts on the agent daemon with no cmux pane (`attach=False`). The
 orchestrator's next `list` adopts the agent, so the UI shows it. Unlike `task
 run`, `add-scheduled` ignores `MAEL_HARNESS_TYPE`, so a hand run fires the same
-way as the launchd job. `--cli` opens a cmux workspace instead.
+way as the scheduler. `--cli` opens a cmux workspace instead.
 
-## The launchd agent is opt-in
+## The scheduler is always on
 
-The agent is **not** installed automatically — `ensure_schedule_agent()` (wired
-into `mael install` / `mael self-update`) is gated on an opt-in marker
-(`~/.maelstrom/schedule.enabled`). Without the marker it is a deliberate no-op,
-so a background scheduler is never imposed on every checkout or CI box.
+`mael self setup` installs the scheduler on every host, beside the host services.
+See [host-services.md](host-services.md). The installer runs setup, so every
+install and update keeps it in place.
+
+The scheduler logs to `~/.maelstrom/schedule.log` on macOS, and to the journal on Linux:
+`journalctl --user -u maelstrom-schedule.service`. [host-services.md](host-services.md#the-units)
+names its units.
+
+The unit runs the `mael` shim, so a run has the production notebook root and
+daemon root.
 
 ```bash
-mael schedule install            # opt in: write marker + load the agent
-mael schedule uninstall          # opt out: remove marker, unload, clear old wake
-mael schedule status             # diagnose: marker / plist / loaded / log tail
+mael self status                 # diagnose: each unit, loaded or not, and its log
+mael self uninstall              # remove the scheduler with the host services
 ```
 
-The marker is a bare presence flag — an empty file. `install` needs no sudo and
-asks nothing, so it runs unattended.
-
-`mael schedule status` is the read-only diagnostic — reach for it first when a
-scheduled task didn't fire. It reports whether the marker and plist exist,
-whether launchd has the job loaded, and the tail of `~/.maelstrom/schedule.log`.
+`mael self status` is the read-only diagnostic — reach for it first when a
+scheduled task didn't fire. It reports whether the supervisor has each unit
+loaded, its pid and last exit, and where its log is.
 
 Every `add-scheduled` run writes a dated header line
 (`[2026-07-01T09:00:00+00:00] add-scheduled`) to that log before anything else,
-so the log records *when* the agent last fired even when nothing was due.
+so the log records *when* the scheduler last fired even when nothing was due.
 
 ## Firing behaviour
 
-- **While awake:** fires hourly at `:00` (`StartCalendarInterval`) plus once on
-  load (`RunAtLoad`).
-- **While asleep:** does not fire, and does not wake the Mac. The job runs on the
+- **While awake:** fires hourly at `:00`. On macOS that is
+  `StartCalendarInterval`, plus once on load (`RunAtLoad`). On Linux it is the
+  timer's `OnCalendar=hourly`.
+- **While asleep:** does not fire, and does not wake the machine. The job runs on the
   next wake instead, as a single coalesced catch-up. `fire_due` then makes
   exactly one run per due template — **no backfill** for missed boundaries.
 
@@ -57,15 +60,18 @@ the guarantee:
 > transpire before the computer is woken, those events will be coalesced into one
 > event upon wake from sleep.
 
+On Linux, the timer's `Persistent=true` gives the same guarantee: a boundary
+missed while the machine was off fires once at boot, and one missed in suspend fires on resume.
+
 Nothing pre-empts the wake. An earlier design added a daily `sudo pmset repeat`
 wake, which needed a sudo prompt at install and bought no extra firing. Do not
 add it back.
 
-`clear_leftover_wake()` cleans up after that design: `mael schedule uninstall`
+`clear_leftover_wake()` cleans up after that design: `mael self uninstall`
 cancels a repeating wake if one is set. The read (`pmset -g sched`) is free, so
-only a machine that has such a wake sees the `sudo` prompt. It runs from the CLI
-command **only** — `ensure_schedule_agent()` is called by `mael install` and
-`mael self-update`, which run unattended and must never block on a password.
+only a machine that has such a wake sees the `sudo` prompt. It runs from that
+command **only** — `mael self setup` runs unattended, from the installer, and
+must never block on a password.
 
 Each firing duplicates the template into a run keyed `<template>.<date>`. The run
 is created **parentless but dot-named**: its id names it under the template, while

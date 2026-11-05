@@ -4,8 +4,8 @@ From nothing to a running agent session.
 
 ## Prerequisites
 
-The install commands below assume macOS. Maelstrom itself needs Python 3.11 or later and is
-not macOS-only, but `mael schedule` is: it drives launchd, and no-ops on other platforms.
+The install commands below assume macOS. Maelstrom also runs on Linux: there, systemd user
+units take the place of the launchd agents.
 
 | Tool | Why | Install |
 |---|---|---|
@@ -20,24 +20,31 @@ agent sessions, and `gh` for pull requests.
 
 ## 1. Install maelstrom
 
-Download the latest release bundle, run its installer, then let `mael self-update` write the
-`mael` on your PATH:
+Run the installer:
 
 ```bash
-gh release download --repo sminnee/maelstrom --pattern maelstrom.tar.gz
-tar xzf maelstrom.tar.gz
-uv run --no-project --python 3.13 maelstrom/install.py
-~/.maelstrom/install/current/venv/bin/mael self-update
+curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 ```
 
-The installer writes to `~/.maelstrom/install/`. `self-update` writes `~/.local/bin/mael`, which
-runs the current release. Put `~/.local/bin` on your PATH if it is not there already.
+It needs only curl, tar and uv. uv fetches the Python the release uses. The installer writes the
+latest release bundle to `~/.maelstrom/install/`, then runs `mael self setup`. Setup writes
+`~/.local/bin/mael`, installs the Claude Code skills and hooks, and starts the host services and
+the scheduler. See [host services](../dev/host-services.md). Put `~/.local/bin` on your PATH if it
+is not there already.
 
-Then install the Claude Code skills and hooks:
+Run the same line again to upgrade, or run `mael self update`.
+
+### Install from source
+
+To install maelstrom from its own source, install a release first, so `mael` exists. Then, after
+step 2:
 
 ```bash
-mael install
+mael project add sminnee/maelstrom      # gives ~/Projects/maelstrom/_main
+mael self update --channel main         # builds a bundle from _main and installs it
 ```
+
+Later `mael self update` calls pull `_main` and install it again.
 
 Check it worked:
 
@@ -210,8 +217,8 @@ mael task list        # tasks you can start now
 mael session list     # live Claude sessions
 ```
 
-`mael list` and `mael task list` read the orchestrator server. Start one with
-`mael self-env start orchestrator`.
+`mael list` and `mael task list` read the orchestrator server, which the `orchestrator` host
+service runs. If it is down, run `mael self restart orchestrator`.
 
 ## 8. Close the worktree
 

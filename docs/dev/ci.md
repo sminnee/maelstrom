@@ -100,8 +100,8 @@ same, so CI reuses an old record and never runs the gate on the new content. A c
 `common`, `agent`, `domain`, `python-deps` and `jig`. Its comments say how each `depends` list
 is chosen. A SHA bucket named after a service gives that service its
 [service version](../guide/dev-environments.md#service-versions), and each SHA bucket named
-after a [component](../../CONTEXT.md) gives that component its version. `mael self-update`
-reads the `jig` bucket to decide whether to relink the jig plugin. Tests and READMEs are
+after a [component](../../CONTEXT.md) gives that component its version. `mael self setup`
+restarts the host services whose components moved. Tests and READMEs are
 excluded from the SHA buckets, so a test-only change restarts nothing.
 
 The SHA buckets do not use a global `[sha] exclude`. tangier applies that list to gate scopes

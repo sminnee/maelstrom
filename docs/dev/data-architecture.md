@@ -146,7 +146,8 @@ list like `follows`. So a link change is a task write, and it sends a task notic
 was the other choice. The column won because `task.create` already copies a parent's fields; see
 tasks.md, "What a child inherits".
 
-Tasks also keep a git-committed markdown export at `~/.maelstrom/tasks`. Nothing reads it on
+Tasks also keep a git-committed markdown export at `tasks/` in the notebook root,
+`~/.maelstrom/state/tasks` in production. Nothing reads it on
 any code path, so losing it costs history rather than data, and the reader that wants a task's
 prose queries the table.
 
@@ -155,7 +156,7 @@ See [`task_export.py`](../../lib/domain/src/mael_domain/task_export.py) for why 
 same database.
 
 Two rules keep it honest. The queue **drains on shutdown**, so a clean stop loses nothing. And
-falling behind is **visible** — `mael admin export-queue` reports the depth and the oldest
+falling behind is **visible** — `mael self status` reports the depth and the oldest
 entry, because silence is the failure mode to design against.
 
 ### Cached
@@ -255,7 +256,8 @@ see, not a question only the refresher can answer.
 
 ## One database
 
-All of it lives in one SQLite database at `~/.maelstrom/state.db`.
+All of it lives in one SQLite database, `state.db` in the notebook root. In production that is
+`~/.maelstrom/state/state.db`, and `mael self setup` migrates it on each install.
 
 One file gives one transaction, so a canonical write and its derived rows commit or roll back
 together. That alone removes the bug class `promote` works around today. It also gives one
@@ -344,7 +346,7 @@ inside the migration's own transaction, so a rung that raises rolls the whole ru
 also handed the directory the database file is in, and reads its files from there. So it imports
 the notebook beside the database it fills, whatever `MAEL_NOTEBOOK_ROOT` names.
 
-Lower refuses rather than upgrading because several processes share one `~/.maelstrom`, and a
+Lower refuses rather than upgrading because several processes share one notebook root, and a
 background process that rewrote the schema under a running server is worse than a stop with a
 one-line fix. Higher is the real hazard: every worktree shares that directory, so running an
 older branch after a newer one is ordinary, and writing rows that miss the newer migration's

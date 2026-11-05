@@ -300,8 +300,9 @@ uptimerobot:
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
 | `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
 | `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Run `mael env reset` in a worktree after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
-| `orchestrator_url` | string | — | The URL of the orchestrator server on this machine, such as `https://desk.tailnet.ts.net:3220`. Read only from the notebook root's `config.yaml`; see below. Its port is the `ORCHESTRATOR_PORT` in the `_main` worktree's `.env`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no value, or with no server on it, these commands fail. Start the server with `mael self-env start orchestrator`. The client does not verify the server's TLS certificate. |
-| `update_channel` | string | `stable` | Where `mael self-update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self-update --channel` writes this line and keeps the rest of the file. |
+| `orchestrator_url` | string | set by `mael self setup` | The URL of the orchestrator server on this machine, such as `https://desk.tailnet.ts.net:2772`. Read only from the notebook root's `config.yaml`, which is `~/.maelstrom/state/config.yaml` for everyday use; see below. When it is unset, `mael self setup` writes it there. The host is `dev_host:`, else this machine's tailnet name, else `localhost`. The scheme is `https` only when `dev_https:` is on and the dev certificate names that host. The port is 2772. Setup leaves a value you set alone. On each setup, the `orchestrator` host service binds to the URL's port: on `127.0.0.1` for `localhost`, else on `0.0.0.0`, with TLS for `https`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no value, or with no server on it, these commands fail. Restart the server with `mael self restart orchestrator`. The client does not verify the server's TLS certificate. |
+| `service_path` | string | set by `mael self setup` | The `PATH` of the host services and the scheduler. Read only from `~/.maelstrom/state/config.yaml`. The first setup writes it: `~/.local/bin`, then the `PATH` setup ran with, less any venv `bin`, then the system directories. Later setups reuse it, so a setup from another shell restarts nothing. Edit it to change the units' `PATH`, then run `mael self setup`. |
+| `update_channel` | string | `stable` | Where `mael self update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self update --channel` writes this line and keeps the rest of the file. |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -314,7 +315,6 @@ projects_dir: ~/Projects
 open_command: "cursor"
 dev_host: desk.tailnet.ts.net
 dev_https: true
-orchestrator_url: https://desk.tailnet.ts.net:3220
 update_channel: stable
 
 linear:
@@ -345,14 +345,19 @@ The legacy path `~/.maelstrom.yaml` still loads if `~/.maelstrom/config.yaml` is
 
 ### A dev environment's own config
 
-`MAEL_NOTEBOOK_ROOT` names the notebook root: `~/.maelstrom` for everyday use, and a directory such
-as `~/.maelstrom/playpen/kilo` for a dev environment. A `config.yaml` in that directory overlays
+`MAEL_NOTEBOOK_ROOT` names the notebook root: `~/.maelstrom/state` for everyday use, and a
+directory such as `~/.maelstrom/playpen/kilo` for a dev environment. A `config.yaml` in that directory overlays
 the global file. Each key it sets replaces the global key, and the other keys stay.
 
 `orchestrator_url:` is the exception. It names the server of that notebook, so maelstrom reads it
-from the notebook root's `config.yaml` alone. When the root is `~/.maelstrom`, that is the global
-file. A dev environment with no `config.yaml` of its own has no server, and the `mael task`
+from the notebook root's `config.yaml` alone. For everyday use that is
+`~/.maelstrom/state/config.yaml`, which `mael self setup` writes. A dev environment with no `config.yaml` of its own has no server, and the `mael task`
 commands that call one fail. They never reach the everyday server.
+
+```yaml
+# ~/.maelstrom/state/config.yaml
+orchestrator_url: https://desk.tailnet.ts.net:2772   # written by mael self setup
+```
 
 ```yaml
 # ~/.maelstrom/playpen/kilo/config.yaml
@@ -382,7 +387,7 @@ agent daemon passes its environment to every agent, so a token there would reach
 - Agent `mael` commands, such as `mael sync` and `mael gh create-pr`, never use it. They keep
   the `GITHUB_TOKEN` they inherit from `.env`.
 - Unset, the UI actions also use the inherited `GITHUB_TOKEN`, or the server's `gh` login.
-- Restart the orchestrator after a change: `mael self-env restart orchestrator`.
+- Restart the orchestrator after a change: `mael self restart orchestrator`.
 - An agent that reads this file can read the token. The token separates the rights of the UI
   and the agents. It does not hide them.
 

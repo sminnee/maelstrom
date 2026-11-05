@@ -46,8 +46,8 @@ services:
   # `.env` template.
   #
   # Starting this service is one of the two ways a daemon comes to exist; the
-  # other is `mael self-env start`, which is this same service on `_main`.
-  # Nothing else starts one. See docs/dev/agent-daemon.md.
+  # other is the `agent-daemon` host service, the production daemon that the
+  # OS supervisor runs. Nothing else starts one. See docs/dev/agent-daemon.md.
   agent-daemon:
     command: uv run mael-agent-daemon serve
 

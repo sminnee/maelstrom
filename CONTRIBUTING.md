@@ -16,8 +16,8 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs
 `.git-blame-ignore-revs` lists the commits that only reformat. The last line tells `git blame` to
 skip them, so each line keeps its real author. GitHub does this for you.
 
-Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/). `mael install` puts the Claude Code
-skills and hooks in place if you want to use maelstrom on itself.
+Python 3.11 or newer, and [uv](https://docs.astral.sh/uv/). To use maelstrom on itself, install a
+release: `mael self setup` puts the Claude Code skills and hooks in place.
 
 ## Before you open a PR
 
