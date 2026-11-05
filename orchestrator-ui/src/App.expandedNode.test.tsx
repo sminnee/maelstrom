@@ -379,7 +379,7 @@ describe('the expanded node', () => {
     // The list holds slim rows, so the card fetches the brief.
     const brief = await within(expanded()).findByTestId('task-content');
     // Markdown, not the raw source: the heading is a heading.
-    expect(within(brief).getByRole('heading', { name: 'Seams under test' })).toBeInTheDocument();
+    expect(within(brief).getByRole('heading', { name: 'Test plan' })).toBeInTheDocument();
     expect(brief).toHaveAttribute('data-expanded', 'false');
   });
 

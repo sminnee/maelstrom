@@ -104,7 +104,7 @@ receives. For a plan-mode task it is brief bullets:
 - what is out of scope, and which later task holds it;
 - pointers to files and to the design doc.
 
-It holds no implementation steps or test seams. The task's plan mode writes those.
+It holds no implementation steps or test plan. The task's plan mode writes those.
 
 `draft` refuses to overwrite an existing file unless you pass `--force`, so a sculpted draft
 survives a re-run. A hand-written file in the same format works too; the command is just the

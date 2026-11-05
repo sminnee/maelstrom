@@ -10,7 +10,7 @@ them:
 
 1. Rebase onto the current base: `mael sync --no-push`.
 2. Commit the implementation, then run the gates on the clean tree.
-3. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and test seams. It is what
+3. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and the test plan. It is what
    review reads first, and it becomes the PR body.
 4. Run `/code-review`. It uncommits the branch, reviews the working tree, and commits its fixes.
 5. Run `/present` to re-cut the reviewed tree into story commits.
@@ -188,7 +188,7 @@ parent's context. One runs per concern:
 - **Code** — the review guide's layers 1, 2, 4, and 5: design and architecture, security and
   correctness, and naming and vocabulary. It judges the decisions `.drafts/pr.md` states
   against what the tree actually does.
-- **Tests** — layer 3: what is tested, at which seam, and whether the assertions read.
+- **Tests** — layer 3: what is tested, at which layer, and whether the assertions read.
 - **Prose** — comments, docstrings, and documents.
 
 Splitting by concern rather than by commit gives each reviewer the whole change to judge, so a
