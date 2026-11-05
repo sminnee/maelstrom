@@ -1,28 +1,20 @@
 #!/usr/bin/env python3
-"""Publish sminnee-maelstrom, the `mael` CLI, to PyPI.
+"""Release maelstrom: bump the version, retitle the changelog, and push a tag.
 
 Usage: bin/publish [--minor|--major] [--dry-run]
 
-Requires UV_PUBLISH_TOKEN in the environment or in .env, and a non-empty
-Unreleased section in CHANGELOG.md.
+Requires a non-empty Unreleased section in CHANGELOG.md.
 
-This is the whole release: running it is all a release needs. In order it
-rebases onto origin/main, runs the gates, writes the new version, retitles the
-changelog, commits, builds, publishes, tags, and pushes the commit and the tag.
-
-The order matters. The rebase happens first so that the commit which gets
-tagged is already in its final form -- tagging before a rebase strands the tag
-on a commit the rebase then rewrites. The commit is written before the upload
-so that a published version always has a commit behind it; if the upload
-fails, the commit is rolled back and nothing has moved.
+In order it rebases onto origin/main, runs the gates, writes the new version,
+retitles the changelog, commits, tags, and pushes the commit and the tag. The
+tag push runs .github/workflows/release.yml, which builds the release bundle
+and publishes it as a GitHub Release.
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import re
-import shutil
 import subprocess
 import sys
 from datetime import date
@@ -48,23 +40,9 @@ VERSIONED: list[tuple[Path, Path | None]] = [
     ),
 ]
 LOCK = Path("uv.lock")
-DIST = Path("dist")
 CHANGELOG = Path("CHANGELOG.md")
 
 UNRELEASED_HEADING = "## [Unreleased]"
-
-
-def load_token_from_env_file() -> None:
-    env_file = Path(".env")
-    if not env_file.exists():
-        return
-    for raw in env_file.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or not line.startswith("UV_PUBLISH_TOKEN="):
-            continue
-        os.environ.setdefault(
-            "UV_PUBLISH_TOKEN", line.split("=", 1)[1].strip().strip("\"'")
-        )
 
 
 def current_version() -> str:
@@ -91,8 +69,8 @@ def write_version(old: str, new: str) -> None:
     ``uv.lock`` records each package's version alongside its pyproject.toml and
     its ``__init__``, so every one of those files has to move together. They
     are written here rather than at the call sites because every path that
-    writes a version -- the bump, the dry-run revert, and the failed-upload
-    rollback -- has to keep them all in step, and a lock that disagrees with the
+    writes a version -- the bump and the dry-run revert -- has to keep them
+    all in step, and a lock that disagrees with the
     package it locks is wrong however it got that way.
     """
     for pyproject, init in VERSIONED:
@@ -150,23 +128,6 @@ def retitle_unreleased(new: str, released_on: str) -> None:
     )
 
 
-def build(outdir: Path) -> None:
-    """Build the one wheel this release uploads: the CLI's, into ``outdir``."""
-    # --directory, so a caller outside the repository builds this checkout.
-    root = Path(__file__).resolve().parent.parent
-    run(
-        "uv",
-        "build",
-        "--directory",
-        str(root),
-        "--package",
-        "sminnee-maelstrom",
-        "--wheel",
-        "-o",
-        str(outdir.resolve()),
-    )
-
-
 def run(*command: str) -> None:
     try:
         subprocess.run(command, check=True)
@@ -179,9 +140,9 @@ def run(*command: str) -> None:
 def require_clean_worktree() -> None:
     """Refuse to release from a dirty tree.
 
-    The release commit stages only the version files and the changelog, and a
-    failed upload rolls it back with ``reset --hard``. Both are only safe when
-    nothing else is in flight.
+    The release commit stages only the version files and the changelog, and
+    the tag names the whole tree: anything else in flight would be released
+    without being committed.
     """
     result = subprocess.run(
         ("git", "status", "--porcelain"), check=True, capture_output=True, text=True
@@ -191,21 +152,19 @@ def require_clean_worktree() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Publish sminnee-maelstrom to PyPI")
+    parser = argparse.ArgumentParser(description="Release maelstrom")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--minor", action="store_true", help="bump the minor version")
     group.add_argument("--major", action="store_true", help="bump the major version")
     parser.add_argument(
-        "--dry-run", action="store_true", help="build only; do not publish or tag"
+        "--dry-run",
+        action="store_true",
+        help="run the gates and build the bundle; do not commit, tag or push",
     )
     args = parser.parse_args()
 
     if not PYPROJECT.exists():
         sys.exit("Error: run from the repository root")
-
-    load_token_from_env_file()
-    if not args.dry_run and not os.environ.get("UV_PUBLISH_TOKEN"):
-        sys.exit("Error: UV_PUBLISH_TOKEN is not set (environment or .env)")
 
     require_clean_worktree()
 
@@ -222,18 +181,18 @@ def main() -> int:
     new = bump(old, "major" if args.major else "minor" if args.minor else "patch")
     print(f"Version {old} -> {new}")
 
-    # Gates must pass before anything is published. A release runs all three
+    # Gates must pass before anything is tagged. A release runs all three
     # whatever changed, in the same order .github/workflows/test.yml uses.
     run("uv", "run", "pytest", "-m", "not e2e")
     run("uv", "run", "pytest", "-m", "e2e", "-v")
     run("bin/lint")
 
     write_version(old, new)
-    shutil.rmtree(DIST, ignore_errors=True)
-    build(DIST)
 
     if args.dry_run:
-        print("Dry run: built but not published. Reverting the version bump.")
+        # The version files are written, so the tree is dirty on purpose.
+        run("bin/build-bundle", "--allow-dirty", "--tag", f"v{new}")
+        print("Dry run: built the bundle, did not tag. Reverting the version bump.")
         write_version(new, old)
         return 0
 
@@ -242,48 +201,21 @@ def main() -> int:
     run("git", "add", *versioned, str(LOCK), str(CHANGELOG))
     run("git", "commit", "-m", f"chore: release v{new}")
 
-    # From here the commit exists but nothing is public yet. If the upload
-    # fails, undo it so a re-run starts from the same place rather than
-    # skipping a version number.
-    try:
-        run("uv", "publish")
-    except subprocess.CalledProcessError:
-        print(
-            f"Publish failed. Rolling back the release commit for v{new}.",
-            file=sys.stderr,
-        )
-        try:
-            run("git", "reset", "--hard", "HEAD~1")
-        except subprocess.CalledProcessError:
-            # Without this the reset failure stacks on the message above, and
-            # the user cannot tell whether the release commit is still there.
-            print(
-                f"Rollback failed. The release commit for v{new} is still present.\n"
-                "Remove it with: git reset --hard HEAD~1",
-                file=sys.stderr,
-            )
-        return 1
-
-    # Published, so the commit is now immutable in fact: tag it and push both
-    # before anything can rewrite it.
-    #
-    # Rolling back is not an option past this point -- the upload succeeded, so
-    # the version is spent. A push can still fail (origin/main moved during the
-    # gate run, or auth expired), and the only useful thing left is to say what
-    # state the release is in and how to finish it by hand.
+    # A push can fail: origin/main moved during the gate run, or auth expired.
+    # The commit and the tag are then local, and nothing is released.
     try:
         run("git", "tag", f"v{new}")
         run("git", "push")
         run("git", "push", "origin", f"v{new}")
     except subprocess.CalledProcessError:
         print(
-            f"v{new} is published to PyPI, but the push failed. The release commit "
-            f"and tag are local only.\nFinish with: git push && git push origin v{new}",
+            f"The push failed. The release commit and tag v{new} are local only.\n"
+            f"Finish with: git push && git push origin v{new}",
             file=sys.stderr,
         )
         return 1
 
-    print(f"Published, tagged and pushed v{new}.")
+    print(f"Tagged and pushed v{new}. .github/workflows/release.yml publishes it.")
     return 0
 
 

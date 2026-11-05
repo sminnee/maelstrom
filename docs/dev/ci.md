@@ -96,14 +96,31 @@ same, so CI reuses an old record and never runs the gate on the new content. A c
 
 ## SHA buckets
 
-`pipeline.toml` also holds five SHA buckets: `web`, `orchestrator`, `agent-daemon`, `cli` and
-`jig`. Its comments say how each `depends` list is chosen. `mael self-update` reads the `cli` and
-`jig` buckets to decide whether to reinstall the CLI and relink the jig plugin. A SHA bucket named after a service gives that
-service its [service version](../guide/dev-environments.md#service-versions). Tests and READMEs
-are excluded from the SHA buckets, so a test-only change restarts nothing.
+`pipeline.toml` also holds the SHA buckets: `web`, `orchestrator`, `agent-daemon`, `cli`,
+`common`, `agent`, `domain`, `python-deps` and `jig`. Its comments say how each `depends` list
+is chosen. A SHA bucket named after a service gives that service its
+[service version](../guide/dev-environments.md#service-versions), and each SHA bucket named
+after a [component](../../CONTEXT.md) gives that component its version. `mael self-update`
+reads the `jig` bucket to decide whether to relink the jig plugin. Tests and READMEs are
+excluded from the SHA buckets, so a test-only change restarts nothing.
 
 The SHA buckets do not use a global `[sha] exclude`. tangier applies that list to gate scopes
 too, so excluding `**/tests/**` there would let a test-only change skip the `test` gate.
 
 The `gates` job runs `tangier changemap sha --all`, so a broken SHA bucket fails CI.
-`cli/tests/test_pipeline_config.py` checks that each core service has a SHA bucket.
+`cli/tests/test_pipeline_config.py` checks that each core service and each component has a SHA
+bucket.
+
+## The release workflow
+
+`.github/workflows/release.yml` runs on a pushed `v*` tag, which `bin/publish` makes. It runs
+`bin/build-bundle --tag "$GITHUB_REF_NAME"`. It publishes `maelstrom.tar.gz` as a GitHub
+Release, with the tag's `CHANGELOG.md` section as its notes. A tag that ends in `a`, `b` or
+`rc` and a number makes a pre-release. It runs no gate: `bin/publish` ran them before it
+tagged.
+
+A bundle's requirements come from `uv.lock`, and its wheels install with `--no-deps`. So each CI
+job runs `uv sync --locked`, and a `pyproject.toml` change without `uv lock` fails CI.
+
+The `e2e` gate builds a bundle too, in `tests/test_release_bundle.py`, so its scope takes the
+web inputs, and its CI job installs pnpm and tangier.
