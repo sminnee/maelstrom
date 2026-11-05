@@ -18,7 +18,6 @@ from mael_common.util import get_maelstrom_dir, harden_path
 from .notebook_root import NOTEBOOK_ROOT_ENV
 
 GLOBAL_CONFIG_FILENAME = "config.yaml"
-GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
 
 #: Where `mael self update` gets a release: the latest GitHub Release, or a
 #: bundle built from `_main`. The first is the default.
@@ -183,44 +182,62 @@ class ResolvedContext:
 
 
 def load_global_config() -> GlobalConfig:
-    """Load global config from ~/.maelstrom/config.yaml (or legacy ~/.maelstrom.yaml).
+    """The config as the notebook root in ``MAEL_NOTEBOOK_ROOT`` sees it.
 
-    A dev environment's notebook root may hold a ``config.yaml`` of its own,
-    such as ``~/.maelstrom/playpen/kilo/config.yaml``. Each key it sets
-    replaces the global one. ``orchestrator_url`` comes from the notebook root
-    alone: it names that notebook's server, so a dev environment with no
-    server of its own never reaches the real one.
-
-    Returns:
-        GlobalConfig from the files, or defaults if neither exists.
+    See :func:`load_config_at`.
     """
     # Loading is a pure read: it never tightens permissions. The config holds
     # plaintext API keys, so loose perms are a real risk — but fixing them lives
-    # in ``mael doctor`` (``_check_secret_file_perms``) and ``mael self setup``
+    # in ``mael self check-host`` and ``mael self setup``
     # (which calls :func:`harden_global_config`), not on this hot read path that
     # runs on nearly every command.
     root = os.environ.get(NOTEBOOK_ROOT_ENV)
     return load_config_at(Path(root).expanduser() if root else None)
 
 
+#: The production notebook root, under the maelstrom dir. It holds the
+#: notebook only.
+PRODUCTION_ROOT_DIRNAME = "state"
+
+
 def load_config_at(root_dir: Path | None) -> GlobalConfig:
-    """The global config as the notebook root ``root_dir`` sees it.
+    """The config as the notebook root ``root_dir`` sees it.
 
-    :func:`load_global_config` with the root given rather than read from the
-    environment. ``mael self setup`` reads the production root this way,
-    whatever root its caller's environment names.
+    There are two cases:
+
+    - **Production**: the root is ``~/.maelstrom/state``. The config is
+      ``~/.maelstrom/config.yaml``, and nothing else.
+    - **A dev environment**: any other root, such as
+      ``~/.maelstrom/playpen/kilo``. Its own ``config.yaml``, if it has one,
+      overlays the production file key by key. ``orchestrator_url`` comes from
+      the dev environment's file alone, so it never reaches the production
+      server.
+
+    With no root there is no notebook, and so no server.
     """
-    global_dir = get_maelstrom_dir()
-    data = _read_config(global_dir / GLOBAL_CONFIG_FILENAME)
-    if data is None:
-        data = _read_config(Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY) or {}
+    production = _read_config(production_config_path()) or {}
+    if root_dir is None:
+        return GlobalConfig.from_dict({**production, "orchestrator_url": None})
+    if is_production_root(root_dir):
+        return GlobalConfig.from_dict(production)
+    dev_env = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
+    return GlobalConfig.from_dict({**production, "orchestrator_url": None, **dev_env})
 
-    if root_dir is not None and root_dir.resolve() != global_dir.resolve():
-        root_data = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
-        data = {**data, "orchestrator_url": None, **root_data}
-    elif root_dir is None:
-        data = {**data, "orchestrator_url": None}
-    return GlobalConfig.from_dict(data)
+
+def production_config_path() -> Path:
+    """``~/.maelstrom/config.yaml``: production's one config file."""
+    return get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME
+
+
+def load_config_file(path: Path) -> GlobalConfig:
+    """The config in one file, as it stands: no overlay, and its own server."""
+    return GlobalConfig.from_dict(_read_config(path) or {})
+
+
+def is_production_root(root_dir: Path) -> bool:
+    """Whether ``root_dir`` is the production notebook root."""
+    production = get_maelstrom_dir() / PRODUCTION_ROOT_DIRNAME
+    return root_dir.resolve() == production.resolve()
 
 
 def read_config_key(path: Path, key: str) -> object:
@@ -288,18 +305,12 @@ def _write_private(path: Path, text: str) -> None:
 
 
 def harden_global_config() -> list[str]:
-    """Tighten the global config file(s) and ~/.maelstrom dir to 0o600/0o700.
+    """Tighten ``~/.maelstrom`` and ``agents/`` to 0o700, and the config to 0o600.
 
-    The config holds plaintext API keys; maelstrom never writes it (users create
-    it by hand), so this is the explicit, opt-in hardening path — called from
-    ``mael self setup`` (and mirrored by the ``mael doctor`` check). It is *not*
-    run on the config load path, which stays a pure read.
-
-    Tightens both the new-location ``~/.maelstrom/config.yaml`` (plus its parent
-    dir) and the legacy ``~/.maelstrom.yaml``; the legacy file lives directly
-    under ``$HOME``, whose mode we must never touch. Best-effort and narrow-only
-    (see :func:`mael_common.util.harden_path`): existing tighter perms are left
-    alone, and any ``OSError`` is swallowed so the caller never crashes.
+    The config holds plaintext API keys. ``mael self setup`` calls this; it is
+    *not* run on the config load path, which stays a pure read. Best-effort and
+    narrow-only (see :func:`mael_common.util.harden_path`): existing tighter
+    perms are left alone, and any ``OSError`` is swallowed.
 
     Returns:
         Human-readable messages for each path that was tightened (empty if
@@ -311,7 +322,6 @@ def harden_global_config() -> list[str]:
     targets: list[tuple[Path, int, str]] = [
         (maelstrom_dir, 0o700, "~/.maelstrom"),
         (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "~/.maelstrom/config.yaml"),
-        (Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY, 0o600, "~/.maelstrom.yaml"),
         # Each spawn record holds the env its agent was started with.
         (maelstrom_dir / "agents", 0o700, "~/.maelstrom/agents"),
     ]

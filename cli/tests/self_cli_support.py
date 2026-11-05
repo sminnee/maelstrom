@@ -1,0 +1,31 @@
+"""Fakes for the ``mael self`` tests."""
+
+from dataclasses import dataclass, field
+
+from mael_cli.self.host_service import Applied, ServiceStatus
+
+
+@dataclass
+class FakeSupervisor:
+    calls: list[str] = field(default_factory=list)
+
+    def _record(self, verb, specs):
+        self.calls.append(f"{verb} {' '.join(s.name for s in specs)}")
+
+    def apply(self, specs):
+        self._record("apply", specs)
+        return Applied(started=[s.name for s in specs])
+
+    def remove(self, specs):
+        self._record("remove", specs)
+        return []
+
+    def restart(self, specs):
+        self._record("restart", specs)
+        return Applied()
+
+    def status(self, specs):
+        return [ServiceStatus(s.name, loaded=True, pid=7) for s in specs]
+
+    def log_hint(self, spec):
+        return f"log of {spec.name}"
