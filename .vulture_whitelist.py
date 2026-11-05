@@ -98,6 +98,7 @@ cpuPercent  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 rssBytes  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 shebang  # unused variable (lib/domain/src/mael_domain/protocol.py FileDiff)
 navigable  # unused variable (lib/domain/src/mael_domain/protocol.py FileDiff, FileExcerpt)
+inRev  # unused variable (lib/domain/src/mael_domain/protocol.py DefinitionTarget)
 codexUsage  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or

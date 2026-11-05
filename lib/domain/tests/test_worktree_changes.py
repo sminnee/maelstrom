@@ -15,13 +15,17 @@ from mael_domain.worktree_changes import (
     FileTooLarge,
     NoSuchFile,
     UnknownRev,
+    differing_paths,
     format_change_comments,
+    in_rev,
     list_changes,
     list_files,
+    new_commit,
     read_diff,
     read_excerpt,
     read_file_bytes,
     read_file_versions,
+    rev_text,
 )
 
 
@@ -379,6 +383,43 @@ async def test_a_sha_outside_the_branch_has_no_file_list(repo):
 
     with pytest.raises(UnknownRev):
         await list_files(repo, on_main)
+
+
+# -- what a language server reads -------------------------------------------
+
+
+async def test_the_rev_text_of_each_file_that_differs_from_the_working_tree(repo):
+    sha = create_commit(repo, "a.py", "A = 1\n", "feat: a")
+    create_commit(repo, "b.py", "B = 1\n", "feat: b")
+    (repo / "a.py").write_text("A = 2\n")
+
+    assert (
+        await new_commit(repo, "branch")
+        == run_git(repo, "rev-parse", "HEAD").stdout.strip()
+    )
+    assert await new_commit(repo, "uncommitted") is None
+    # At the first commit, b.py is on the disk but not in the commit.
+    assert await differing_paths(repo, sha) == {"a.py", "b.py"}
+    assert await differing_paths(repo, None) == set()
+    assert [await rev_text(repo, sha, name) for name in ("a.py", "b.py")] == [
+        "A = 1\n",
+        None,
+    ]
+    assert await rev_text(repo, None, "a.py") == "A = 2\n"
+
+
+async def test_a_rev_holds_its_tracked_files_and_the_working_tree_its_listed_ones(
+    repo,
+):
+    sha = create_commit(repo, ".gitignore", ".venv/\n", "chore: ignore")
+    (repo / ".venv").mkdir()
+    (repo / ".venv/site.py").write_text("x = 1\n")
+    (repo / "new.py").write_text("y = 1\n")
+
+    names = ("readme.md", "new.py", ".venv/site.py", "absent.py")
+    assert [await in_rev(repo, sha, n) for n in names] == [True, False, False, False]
+    # An ignored file is on the disk but in no rev.
+    assert [await in_rev(repo, None, n) for n in names] == [True, True, False, False]
 
 
 # -- excerpts -----------------------------------------------------------------

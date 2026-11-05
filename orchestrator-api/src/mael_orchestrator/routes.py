@@ -39,6 +39,7 @@ from mael_domain.worktree_changes import (
 )
 
 from .hubs import Lagging
+from .lsp_client import LspError
 from .server import Orchestrator
 
 log = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ STATUS_FOR_CODE = {
     "wrong_wait_kind": 409,
     "stale_version": 409,
     "not_implemented": 501,
+    "language_server_failed": 502,
 }
 
 #: The error code for an HTTP status aiohttp raises on its own.
@@ -117,6 +119,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/worktrees/{id}/file", _worktree_file)
     app.router.add_get("/api/worktrees/{id}/tree", _worktree_tree)
     app.router.add_get("/api/worktrees/{id}/excerpt", _worktree_excerpt)
+    app.router.add_get("/api/worktrees/{id}/definition", _worktree_definition)
     app.router.add_get("/api/worktrees/{id}/raw", _worktree_raw)
     app.router.add_get("/api/tasks", _tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
@@ -351,7 +354,7 @@ async def _worktree_diff(request: web.Request) -> web.Response:
     if not rev:
         return error_response("invalid", "Name a rev: uncommitted, branch or a sha")
     try:
-        files = await read_diff(path, rev)
+        files = await read_diff(path, rev, orch.language_servers.servers)
     except UnknownRev:
         return error_response("unknown_id", f"No rev {rev} on this branch")
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -433,7 +436,9 @@ async def _worktree_excerpt(request: web.Request) -> web.Response:
     except ValueError:
         return error_response("invalid", "start and end are line numbers")
     try:
-        excerpt = await read_excerpt(path, rev, file, start, end)
+        excerpt = await read_excerpt(
+            path, rev, file, start, end, orch.language_servers.servers
+        )
     except BadPath as exc:
         return error_response("invalid", f"Path {exc} is outside the worktree")
     except UnknownRev:
@@ -445,6 +450,38 @@ async def _worktree_excerpt(request: web.Request) -> web.Response:
     response = web.json_response(excerpt)
     response.enable_compression()
     return response
+
+
+async def _worktree_definition(request: web.Request) -> web.Response:
+    """Where the name at one position of a file on the new side of a rev is defined."""
+    orch = await _ready(request)
+    worktree_id = request.match_info["id"]
+    path = _open_worktree_path(orch, worktree_id)
+    if path is None:
+        return error_response("unknown_id", f"No open worktree {worktree_id}")
+    rev = request.query.get("rev", "")
+    file = request.query.get("path", "")
+    if not rev or not file:
+        return error_response("invalid", "Name a rev and a path")
+    try:
+        line, character = (int(request.query[k]) for k in ("line", "character"))
+    except (KeyError, ValueError):
+        return error_response("invalid", "line and character are numbers")
+    if line < 1 or character < 0:
+        return error_response("invalid", "line counts from 1, character from 0")
+    try:
+        definition = await orch.language_servers.definition(
+            worktree_id, path, rev, file, line, character
+        )
+    except BadPath as exc:
+        return error_response("invalid", f"Path {exc} is outside the worktree")
+    except UnknownRev:
+        return error_response("unknown_id", f"No rev {rev} on this branch")
+    except LspError as exc:
+        return error_response("language_server_failed", str(exc))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        return _git_failed(exc)
+    return web.json_response(definition)
 
 
 #: A worktree's file is anyone's content. An SVG opened on its own would run

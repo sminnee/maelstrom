@@ -33,6 +33,7 @@ from mael_domain.github_model import GitHubError
 from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
+from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
@@ -65,6 +66,7 @@ from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
 from .gate_source import watch_gates
+from .language_servers import LanguageServers
 from .routes import build_app, serve_app
 from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
@@ -381,6 +383,7 @@ def build_orchestrator(
         executor=executor,
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,
+        language_servers=LanguageServers(LANGUAGE_SERVERS),
     )
 
 
