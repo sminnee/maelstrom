@@ -1,0 +1,75 @@
+name: Release
+
+# bin/publish pushes a `v*` tag. This builds the release bundle from that tag
+# and publishes it as a GitHub Release. See
+# docs/adr/0001-maelstrom-installs-as-a-release-bundle.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # tangier hashes the SHA buckets from history.
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          package_json_file: orchestrator-ui/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: |
+            orchestrator-ui/pnpm-lock.yaml
+            vite-plugin-mael-jig/pnpm-lock.yaml
+
+      # The UI build loads the jig plugin's source, so both packages install.
+      - name: Install dependencies
+        run: |
+          pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+          pnpm --dir orchestrator-ui install --frozen-lockfile
+
+      # The build reads each component's version from `tangier`.
+      - name: Install tangier
+        run: |
+          uv tool install tangier
+          echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
+
+      - name: Build the bundle
+        run: bin/build-bundle --tag "$GITHUB_REF_NAME" --out dist/maelstrom.tar.gz
+
+      # The notes are the CHANGELOG section bin/publish retitled to this
+      # version. A pre-release tag has no section of its own.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v heading="## [$version]" '
+            index($0, heading) == 1 { found = 1; next }
+            /^## \[/ { if (found) exit }
+            found
+          ' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Pre-release $GITHUB_REF_NAME." > notes.md
+          flags=""
+          if echo "$version" | grep -Eq '(a|b|rc)[0-9]+$'; then
+            flags="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/maelstrom.tar.gz \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md $flags
