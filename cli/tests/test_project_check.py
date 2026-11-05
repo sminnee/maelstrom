@@ -482,25 +482,13 @@ class TestCheckSecretFilePerms:
 
     @staticmethod
     def _mode(path) -> int:
-        import os
-        import stat
-
         return stat.S_IMODE(os.stat(path).st_mode)
 
     def _setup(self, tmp_path, monkeypatch):
         """Wire up a fake home + a single worktree under project_path."""
-        from types import SimpleNamespace
-
         import mael_cli.project_check as project_check
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
-        mael_dir = tmp_path / ".maelstrom"
-        mael_dir.mkdir()
-        config = mael_dir / "config.yaml"
-        config.write_text("linear:\n  api_key: secret\n")
-        allocations = mael_dir / "port_allocations.json"
-        allocations.write_text("{}\n")
-
         project_path = tmp_path / "proj"
         project_path.mkdir()
         wt_path = project_path / "proj-bravo"
@@ -514,82 +502,40 @@ class TestCheckSecretFilePerms:
             SimpleNamespace(path=wt_path),
         ]
         monkeypatch.setattr(project_check, "list_worktrees", lambda _p: worktrees)
-        return project_path, mael_dir, config, allocations, env_file
+        return project_path, env_file
 
     def test_ok_when_all_tight(self, tmp_path, monkeypatch):
-        import os
-
-        from mael_cli.project_check import _check_secret_file_perms
-
-        project_path, mael_dir, config, allocations, env_file = self._setup(
-            tmp_path, monkeypatch
-        )
-        os.chmod(mael_dir, 0o700)
-        os.chmod(config, 0o600)
-        os.chmod(allocations, 0o600)
+        project_path, env_file = self._setup(tmp_path, monkeypatch)
         os.chmod(env_file, 0o600)
 
         result = _check_secret_file_perms(project_path)
         assert result.status == CheckStatus.OK
 
-    def test_fixes_loose_files_and_names_them(self, tmp_path, monkeypatch):
-        import os
-
-        from mael_cli.project_check import _check_secret_file_perms
-
-        project_path, mael_dir, config, allocations, env_file = self._setup(
-            tmp_path, monkeypatch
-        )
-        os.chmod(mael_dir, 0o700)
-        os.chmod(allocations, 0o600)
-        os.chmod(config, 0o644)
+    def test_fixes_a_loose_env_and_names_it(self, tmp_path, monkeypatch):
+        project_path, env_file = self._setup(tmp_path, monkeypatch)
         os.chmod(env_file, 0o644)
 
         result = _check_secret_file_perms(project_path)
 
         assert result.status == CheckStatus.FIXED
-        assert "config.yaml" in result.message
         assert "bravo/.env" in result.message
-        # Files actually tightened.
-        assert self._mode(config) == 0o600
         assert self._mode(env_file) == 0o600
 
-    def test_tightens_a_loose_spawn_record(self, tmp_path, monkeypatch):
-        """A record holds the env its agent was started with, allowlist-free."""
-        import os
-
-        from mael_cli.project_check import _check_secret_file_perms
-
-        project_path, mael_dir, config, allocations, env_file = self._setup(
-            tmp_path, monkeypatch
-        )
-        os.chmod(mael_dir, 0o700)
-        os.chmod(config, 0o600)
-        os.chmod(allocations, 0o600)
+    def test_leaves_the_maelstrom_dir_to_check_host(self, tmp_path, monkeypatch):
+        project_path, env_file = self._setup(tmp_path, monkeypatch)
         os.chmod(env_file, 0o600)
-        agents = mael_dir / "agents"
-        agents.mkdir()
-        record = agents / "a1.json"
-        record.write_text("{}")
-        os.chmod(record, 0o644)
+        config = tmp_path / ".maelstrom" / "config.yaml"
+        config.parent.mkdir()
+        config.write_text("linear:\n  api_key: secret\n")
+        os.chmod(config, 0o644)
 
         result = _check_secret_file_perms(project_path)
 
-        assert result.status == CheckStatus.FIXED
-        assert "agents/a1.json" in result.message
-        assert self._mode(record) == 0o600
+        assert result.status == CheckStatus.OK
+        assert self._mode(config) == 0o644
 
     def test_rerun_after_fix_reports_ok(self, tmp_path, monkeypatch):
-        import os
-
-        from mael_cli.project_check import _check_secret_file_perms
-
-        project_path, mael_dir, config, allocations, env_file = self._setup(
-            tmp_path, monkeypatch
-        )
-        os.chmod(mael_dir, 0o700)
-        os.chmod(allocations, 0o600)
-        os.chmod(config, 0o600)
+        project_path, env_file = self._setup(tmp_path, monkeypatch)
         os.chmod(env_file, 0o644)
 
         assert _check_secret_file_perms(project_path).status == CheckStatus.FIXED

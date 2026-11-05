@@ -4,6 +4,7 @@ The supervisor and the commands it would run are fakes, so nothing reaches
 launchd or systemd. ``tests/test_release_bundle.py`` installs a real bundle.
 """
 
+import os
 import subprocess
 
 import pytest
@@ -11,6 +12,7 @@ from click.testing import CliRunner, Result
 from self_cli_support import FakeSupervisor
 
 from mael_cli.cli import cli
+from mael_cli.self.production import Production, agent_path
 
 
 @pytest.fixture
@@ -53,6 +55,25 @@ def test_setup(host):
     assert result.output.rstrip().endswith(
         "Setup complete. Maelstrom runs at http://localhost:2772."
     )
+
+
+def test_check_host_without_a_tty_probes_the_agents_path(host, monkeypatch):
+    _, _, home = host
+    probed: set[str] = set()
+
+    def which(name, path):
+        probed.add(path)
+
+    monkeypatch.setattr("mael_cli.self.self_cli.shutil.which", which)
+    # The command puts the agents' PATH in its environment: undo it afterwards.
+    caller_path = os.environ["PATH"]
+    monkeypatch.setenv("PATH", caller_path)
+
+    result = mael("check-host")
+
+    assert result.exit_code == 1
+    assert "gh (required) is missing" in result.output
+    assert probed == {agent_path(Production(home), caller_path)}
 
 
 def test_update(host):

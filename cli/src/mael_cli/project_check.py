@@ -6,11 +6,9 @@ from enum import Enum
 from pathlib import Path
 
 from mael_common.shell import run_cmd
-from mael_common.util import get_maelstrom_dir, harden_path
-from mael_domain.context import GLOBAL_CONFIG_FILENAME
+from mael_common.util import harden_path
 from mael_domain.github import run_states_argv
 from mael_domain.ports import (
-    ALLOCATIONS_FILENAME,
     load_port_allocations,
     remove_port_allocation,
 )
@@ -472,29 +470,15 @@ def _check_env_markers(project_path: Path) -> CheckResult:
 
 
 def _check_secret_file_perms(project_path: Path) -> CheckResult:
-    """Check (and auto-fix) that secret-bearing files are not group/other readable.
+    """Check (and auto-fix) that the worktree ``.env`` files are not group/other readable.
 
-    Tightens ``~/.maelstrom/`` to 0o700; ``config.yaml`` and
-    ``port_allocations.json`` to 0o600; and every
-    worktree ``.env`` to 0o600. Only narrows perms (via :func:`util.harden_path`),
+    Tightens each to 0o600. Only narrows perms (via :func:`util.harden_path`),
     never widens. Returns OK when nothing was loose, FIXED listing what was
-    tightened, or WARNING naming any path that could not be fixed.
+    tightened, or WARNING naming any path that could not be fixed. The files
+    under ``~/.maelstrom`` are ``mael self check-host``'s.
     """
-    maelstrom_dir = get_maelstrom_dir()
-
     # (path, target_mode, label) — label is what we report when tightened.
-    targets: list[tuple[Path, int, str]] = [
-        (maelstrom_dir, 0o700, "~/.maelstrom"),
-        (maelstrom_dir / GLOBAL_CONFIG_FILENAME, 0o600, "config.yaml"),
-        (maelstrom_dir / ALLOCATIONS_FILENAME, 0o600, ALLOCATIONS_FILENAME),
-        (maelstrom_dir / "agents", 0o700, "~/.maelstrom/agents"),
-    ]
-    # Each spawn record holds the env its agent was started with, and the socket
-    # contract puts no allowlist on that env.
-    targets += [
-        (record, 0o600, f"agents/{record.name}")
-        for record in sorted((maelstrom_dir / "agents").glob("*.json"))
-    ]
+    targets: list[tuple[Path, int, str]] = []
 
     # Every worktree .env — enumerated exactly as _check_env_markers does.
     for wt in list_worktrees(project_path):

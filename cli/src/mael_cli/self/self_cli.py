@@ -6,6 +6,7 @@ See ``docs/dev/host-services.md``.
 
 import asyncio
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -27,8 +28,9 @@ from mael_domain.task_export import Queued, SqliteExportQueue
 from mael_domain.task_table import TABLE as TASKS_TABLE
 
 from . import schedule_launchd
+from .host_check import HostCheck
 from .host_service import AGENT_DAEMON, ORCHESTRATOR, run_quietly, supervisor
-from .production import SHIM_MARKER, Production
+from .production import SHIM_MARKER, Production, agent_path
 from .setup import Setup, SetupError, all_units, configured_services
 from .update import UpdateError, main_checkout, update_main, update_stable
 
@@ -115,6 +117,47 @@ async def _rebuild_export_queue(path: Path) -> int:
     finally:
         db.close()
     return len(entries)
+
+
+def _run_interactive(argv) -> int:
+    """Run ``argv`` on the user's terminal. 127 when it is not installed."""
+    try:
+        return subprocess.run(argv, check=False).returncode
+    except FileNotFoundError:
+        click.echo(f"  ✗ {argv[0]} is not installed.")
+        return 127
+
+
+@self_group.command("check-host")
+@click.option(
+    "--dev", is_flag=True, help="Also check node and pnpm, for a source install."
+)
+def cmd_check_host(dev: bool) -> None:
+    """Check this host's tools, sign-ins and Tailscale, and offer to fix each.
+
+    Each install or sign-in runs only after a yes. Without a terminal, it only
+    reports, and tightens the secret files.
+    `install.sh` runs it on a first install. Every step is safe to repeat.
+    """
+    prod = _production()
+    caller_path = os.environ.get("PATH", "")
+    # Probe on the agents' PATH, and run on it, so a later step finds what an
+    # earlier step installed. See docs/dev/host-services.md.
+    path = os.environ["PATH"] = agent_path(prod, caller_path)
+    unmet = HostCheck(
+        prod=prod,
+        platform="darwin" if sys.platform == "darwin" else "linux",
+        interactive=sys.stdin.isatty(),
+        which=lambda name: shutil.which(name, path=path),
+        run=run_quietly,
+        run_interactive=_run_interactive,
+        confirm=lambda text: click.confirm(text, default=False),
+        echo=click.echo,
+        dev=dev,
+        caller_path=caller_path,
+    )()
+    if unmet:
+        raise SystemExit(1)
 
 
 @self_group.command("update")
