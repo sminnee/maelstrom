@@ -527,3 +527,16 @@
     padding-inline: var(--u-half);
   }
 }
+/* Why a followed name went nowhere. It hangs below the sticky head over the
+   first rows, so it shows wherever in the card the name was, and moves no row. */
+.nameNotice {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  padding: var(--u-half) var(--u-2);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-family: var(--font);
+  font-weight: normal;
+}

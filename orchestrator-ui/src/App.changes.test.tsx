@@ -41,6 +41,7 @@ const file = (path: string, text: string, over: Partial<FileDiff> = {}): FileDif
   deletions: 1,
   truncated: false,
   shebang: null,
+  navigable: false,
   hunks: [
     {
       header: '@@ -4,2 +4,2 @@',
@@ -919,6 +920,166 @@ describe('pins', () => {
         ],
       }),
     );
+  });
+});
+
+describe('definitions', () => {
+  /** Each call answers the scrolled element's new-side line, so a test can see where it went. */
+  const scrolled = vi.fn(function (this: Element) {
+    return this.getAttribute('data-new-line');
+  });
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = scrolled;
+  });
+  afterEach(() => {
+    scrolled.mockReset();
+    vi.restoreAllMocks();
+  });
+
+  const definitionAsks = (server: FakeServer) =>
+    server.requests.filter((r) => r.path.includes('/definition?'));
+  const scrolledTo = () => scrolled.mock.results.map((r) => r.value as string | null);
+
+  /** Open the uncommitted changes, with `auth/tokens.py` navigable and its names' definitions. */
+  async function openWithNames(definitions: Changes['definitions']) {
+    const opened = await openChanges((c) => {
+      c.diffs.uncommitted = [
+        file('auth/tokens.py', 'tokens', { navigable: true }),
+        file('auth/rotate.py', 'rotate', { status: 'added' }),
+      ];
+      c.definitions = definitions;
+    });
+    const rows = await highlighted(opened.panel, 'auth/tokens.py');
+    return { ...opened, rows };
+  }
+
+  /** The name `text` in a row: the token a click follows. */
+  const name = (row: HTMLElement, text: string) =>
+    within(row).getByText(text, { selector: '[data-col]' });
+
+  it('follows a name to its definition in a hunk and scrolls to the line', async () => {
+    const { server, rows } = await openWithNames({
+      'auth/tokens.py:4': [{ path: 'auth/tokens.py', range: { start: 5, end: 5 }, inRev: true }],
+    });
+    // `import` is a keyword: no name to follow.
+    expect(within(rows[0]!).queryByText('import', { selector: '[data-col]' })).toBeNull();
+
+    await userEvent.click(name(rows[0]!, 'os'));
+
+    await waitFor(() => expect(scrolledTo()).toContain('5'));
+    expect(definitionAsks(server).map((r) => r.path)).toEqual([
+      `/api/worktrees/${DELTA}/definition?rev=uncommitted&path=auth%2Ftokens.py&line=4&character=7`,
+    ]);
+  });
+
+  it('pins the lines around a definition in a changed file outside its hunks', async () => {
+    const { panel, rows } = await openWithNames({
+      'auth/tokens.py:5': [{ path: 'auth/tokens.py', range: { start: 2, end: 2 }, inRev: true }],
+    });
+
+    await userEvent.click(name(rows[2]!, 'tokens'));
+
+    // Five lines above to 25 below, clipped to the file's seven.
+    await waitFor(() =>
+      expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
+        '11 line 1',
+        '22 line 2',
+        '33 line 3',
+        '44 import os',
+        '5-old tokens',
+        '5+new tokens',
+        '66 line 6',
+        '77 line 7',
+      ]),
+    );
+    await waitFor(() => expect(scrolledTo()).toContain('2'));
+    expect(within(panel).queryByRole('group', { name: 'Pinned' })).toBeNull();
+  });
+
+  it('pins an unchanged file with a definition right after the card of the click', async () => {
+    const { panel, rows } = await openWithNames({
+      'auth/tokens.py:4': [{ path: 'README.md', range: { start: 2, end: 2 }, inRev: true }],
+    });
+
+    await userEvent.click(name(rows[0]!, 'os'));
+
+    const card = await within(panel).findByRole('region', { name: 'README.md' });
+    expect(
+      within(panel)
+        .getAllByRole('region')
+        .map((r) => r.getAttribute('aria-label')),
+    ).toEqual(['auth/tokens.py', 'README.md', 'auth/rotate.py']);
+    await waitFor(() => expect(rowTexts(panel, 'README.md')).toEqual(['11 hello', '22 world']));
+    await waitFor(() => expect(scrolledTo()).toContain('2'));
+    expect(scrolled.mock.contexts.at(-1)).toBe(within(card).getAllByTestId('diff-row')[1]);
+  });
+
+  it('says a definition outside the rev, pins nothing, and the next click clears it', async () => {
+    const { server, panel, rows } = await openWithNames({
+      'auth/tokens.py:4': [
+        { path: '/usr/lib/python3.13/os.py', range: { start: 1, end: 1 }, inRev: false },
+      ],
+    });
+    const card = within(panel).getByRole('region', { name: 'auth/tokens.py' });
+
+    await userEvent.click(name(rows[0]!, 'os'));
+
+    expect(await within(card).findByRole('status')).toHaveTextContent(
+      'Definition not in this rev: /usr/lib/python3.13/os.py',
+    );
+    expect(server.requests.some((r) => r.path.includes('/excerpt?'))).toBe(false);
+    expect(within(panel).getAllByRole('region')).toHaveLength(2);
+
+    // `new` has no definition: the notice says so in place of the last one.
+    await userEvent.click(name(rows[2]!, 'new'));
+    await waitFor(() =>
+      expect(within(card).getByRole('status')).toHaveTextContent('No definition of new'),
+    );
+  });
+
+  it('says why a follow failed and frees the name', async () => {
+    const { server, panel, rows } = await openWithNames({});
+    server.refuse(/GET \/api\/worktrees\/[^/]+\/definition/, {
+      status: 502,
+      code: 'language_server_failed',
+      message: 'pyright-langserver exited with 1: no node runtime',
+    });
+    const card = within(panel).getByRole('region', { name: 'auth/tokens.py' });
+    const os = name(rows[0]!, 'os');
+
+    await userEvent.click(os);
+
+    expect(await within(card).findByRole('status')).toHaveTextContent(
+      'Could not follow os: pyright-langserver exited with 1: no node runtime',
+    );
+    expect(os).not.toHaveAttribute('aria-busy');
+  });
+
+  it('draws no names in a card no language server reads', async () => {
+    const { panel } = await openWithNames({});
+    const rotate = await highlighted(panel, 'auth/rotate.py');
+    expect(rotate[0]!.querySelectorAll('[data-col]')).toHaveLength(0);
+  });
+
+  it('sends nothing for a click that ends a text selection', async () => {
+    const { server, rows } = await openWithNames({});
+    vi.spyOn(window, 'getSelection').mockReturnValue({
+      isCollapsed: false,
+      toString: () => 'import os',
+    } as Selection);
+
+    await userEvent.click(name(rows[0]!, 'os'));
+
+    expect(definitionAsks(server)).toEqual([]);
+  });
+
+  it('still starts a line selection from the gutter', async () => {
+    const { server, panel, rows } = await openWithNames({});
+
+    await userEvent.click(within(rows[0]!).getByRole('button', { name: 'Line 4' }));
+
+    expect(within(panel).getByRole('textbox', { name: 'Comment on line 4' })).toBeInTheDocument();
+    expect(definitionAsks(server)).toEqual([]);
   });
 });
 

@@ -44,6 +44,8 @@ export interface Card {
   total: number | null;
   truncated: boolean;
   bare: Pin[];
+  /** A **Language server** reads the file, so a name in its rows can be followed. */
+  navigable: boolean;
 }
 
 /** A section of the flow: a **Diff group**, or the pinned cards (`group: null`). */
@@ -117,6 +119,7 @@ function diffCard(file: FileDiff, pins: Pin[], excerpts: Map<string, FileExcerpt
     total: totalOf(pins, excerpts),
     truncated: cut(pins, excerpts),
     bare: bareOf(pins, excerpts, extra),
+    navigable: file.navigable,
   };
 }
 
@@ -130,6 +133,7 @@ function pinnedCard(path: string, pins: Pin[], excerpts: Map<string, FileExcerpt
     total: totalOf(pins, excerpts),
     truncated: cut(pins, excerpts),
     bare: bareOf(pins, excerpts, spans),
+    navigable: pins.some((p) => excerpts.get(p.id)?.navigable),
   };
 }
 

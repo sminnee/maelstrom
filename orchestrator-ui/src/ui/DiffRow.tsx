@@ -24,6 +24,63 @@ export interface RowHandlers {
   onKeyDown: (index: number, e: React.KeyboardEvent) => void;
 }
 
+/** A click on a name in a row: where it starts, and the token, which shows the wait. */
+export interface NameClick {
+  /** The row's 1-based new-side line. */
+  line: number;
+  /** The UTF-16 offset of the name's start in the line. A JS string index is one already. */
+  character: number;
+  name: string;
+  token: HTMLElement;
+}
+
+const IDENTIFIER = /[\p{L}_][\p{L}\p{N}_]*/gu;
+const NAME_PART = /[\p{L}\p{N}_]/u;
+/** Token colours that hold no name to follow. */
+const NOT_A_NAME = /keyword|comment|string/;
+
+/**
+ * A run of a line's text, with each identifier in it a `name` span that holds
+ * its start offset. A run in a keyword, comment or string colour has none.
+ */
+function named(content: string, start: number, color?: string): ReactNode {
+  if (color && NOT_A_NAME.test(color)) return content;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const found of content.matchAll(IDENTIFIER)) {
+    // A digit is a name part too, so a number such as `0x1f` has no leading letter run.
+    if (found.index > 0 && NAME_PART.test(content[found.index - 1]!)) continue;
+    out.push(content.slice(last, found.index));
+    out.push(
+      <span key={found.index} className={styles.name} data-col={start + found.index}>
+        {found[0]}
+      </span>,
+    );
+    last = found.index + found[0].length;
+  }
+  if (last === 0) return content;
+  out.push(content.slice(last));
+  return out;
+}
+
+/**
+ * The row's text, in syntax colour with `tokens`, with its names marked when `names` is set.
+ * Without tokens no keyword is known, so the text has no names.
+ */
+function rowText(text: string, tokens: Token[] | undefined, names: boolean): ReactNode {
+  if (!tokens) return text;
+  let at = 0;
+  return tokens.map((t, i) => {
+    const start = at;
+    at += t.content.length;
+    return (
+      <span key={i} style={{ color: t.color }}>
+        {names ? named(t.content, start, t.color) : t.content}
+      </span>
+    );
+  });
+}
+
 /**
  * One line of a diff: its sign and its text, on the add, remove or context
  * ground. An Edit card draws it bare; the Changes tab passes the old and new
@@ -44,8 +101,11 @@ const DiffRow = memo(function DiffRow({
   selected,
   handlers,
   oneColumn = false,
+  onName,
 }: DiffRowData & {
   tokens?: Token[];
+  /** Makes each name a link that follows it. Only a row with a new-side line has names. */
+  onName?: (click: NameClick) => void;
   /** The row's place in its file, which `handlers` gets. */
   index: number;
   selected: boolean;
@@ -63,10 +123,13 @@ const DiffRow = memo(function DiffRow({
       </>
     ));
   const sign = <span className={styles.sign}>{SIGN[kind]}</span>;
+  const newLine = lineNumbers?.new ?? null;
+  const names = onName !== undefined && newLine !== null;
   return (
     <div
       className={styles.row}
       data-kind={kind}
+      data-new-line={newLine ?? undefined}
       data-highlighted={tokens ? 'true' : undefined}
       data-selected={selected ? 'true' : undefined}
       data-testid="diff-row"
@@ -94,18 +157,22 @@ const DiffRow = memo(function DiffRow({
           {sign}
         </>
       )}
-      <span>
-        {tokens
-          ? tokens.map((t, i) => (
-              <span key={i} style={{ color: t.color }}>
-                {t.content}
-              </span>
-            ))
-          : text}
+      {/* On the text, never the gutter: a line selection starts only from the gutter. */}
+      <span onClick={names ? (e) => followName(e, newLine, onName) : undefined}>
+        {rowText(text, tokens, names)}
       </span>
     </div>
   );
 });
+
+/** The name a click on a row's text landed on, unless the click ended a text selection. */
+function followName(e: React.MouseEvent, line: number, onName: (click: NameClick) => void) {
+  const token = (e.target as HTMLElement).closest<HTMLElement>('[data-col]');
+  if (!token) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  onName({ line, character: Number(token.dataset.col), name: token.textContent ?? '', token });
+}
 
 /**
  * Diff rows of one file, in syntax colour once its language's tokens are ready.
@@ -124,9 +191,12 @@ export function HighlightedRows({
   after,
   highlight = true,
   shebang,
+  onName,
 }: {
   rows: DiffRowData[];
   path: string;
+  /** Makes each name a link. Pass it only for a file a **Language server** reads. */
+  onName?: (click: NameClick) => void;
   shebang?: string | null;
   /** False holds back the tokeniser; tokens it made already still show. */
   highlight?: boolean;
@@ -151,6 +221,7 @@ export function HighlightedRows({
           selected={selected !== null && index >= selected[0] && index <= selected[1]}
           handlers={handlers}
           oneColumn={oneColumn}
+          onName={onName}
         />
         {after?.(index)}
       </Fragment>

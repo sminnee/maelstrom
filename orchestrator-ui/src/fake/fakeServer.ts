@@ -17,6 +17,7 @@ import type {
   Comm,
   CommItem,
   CommUpdate,
+  DefinitionTarget,
   DeskEntry,
   FileDiff,
   FileExcerpt,
@@ -96,6 +97,12 @@ export interface FakeWorld {
         Record<string, { old: string | null; new: string | null; truncated?: boolean }>
       >;
       tree?: Record<string, Record<string, string>>;
+      /**
+       * What the language server answers for a name, by `<path>:<line>` of the
+       * click, in every rev. A name with none has no definition. A file that
+       * is not Python has no server.
+       */
+      definitions?: Record<string, DefinitionTarget[]>;
     }
   >;
   /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
@@ -559,7 +566,9 @@ function read(path: string, server: FakeServer): Reply {
       steps: op.steps.map((s) => ({ name: s.name, lines: lines[s.name] ?? [] })),
     });
   }
-  const wt = pathname.match(/^\/api\/worktrees\/([^/]+)\/(changes|diff|file|tree|excerpt)$/);
+  const wt = pathname.match(
+    /^\/api\/worktrees\/([^/]+)\/(changes|diff|file|tree|excerpt|definition)$/,
+  );
   if (wt) {
     const id = decodeURIComponent(wt[1]!);
     if (!world.worktrees[id] || world.worktrees[id]!.isClosed) {
@@ -584,6 +593,12 @@ function read(path: string, server: FakeServer): Reply {
     if (wt[2] === 'tree') {
       const changed = files.filter((f) => f.status !== 'deleted').map((f) => f.path);
       return ok({ rev, paths: [...new Set([...Object.keys(tree), ...changed])].sort() });
+    }
+    if (wt[2] === 'definition') {
+      const path = params.get('path') ?? '';
+      if (!path.endsWith('.py')) return ok({ rev, targets: [], reason: 'no_server' });
+      const targets = entry.definitions?.[`${path}:${params.get('line')}`] ?? [];
+      return ok({ rev, targets, reason: targets.length ? 'ok' : 'no_definition' });
     }
     if (wt[2] === 'excerpt') {
       const path = params.get('path') ?? '';
@@ -2171,6 +2186,8 @@ function excerptOf(
   return {
     rev,
     path,
+    // The server's one language server reads Python.
+    navigable: path.endsWith('.py'),
     total: lines.length,
     truncated: last < wanted,
     span: {

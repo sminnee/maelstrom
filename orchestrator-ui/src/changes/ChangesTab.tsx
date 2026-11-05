@@ -19,6 +19,7 @@ import { useWorld } from '../api/useWorld';
 import {
   type DiffBody,
   type PostedComments,
+  useDefinition,
   usePostChangeComments,
   useWorktreeChanges,
   useWorktreeDiff,
@@ -30,6 +31,8 @@ import { RenderedFileDialog } from '../rendered/RenderedFileDialog';
 import type {
   BranchCommit,
   ChangeComment,
+  Definition,
+  DefinitionTarget,
   FileDiff,
   FileExcerpt,
   FileGroup,
@@ -43,7 +46,7 @@ import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
 import { ChunkedRows, type RowBreak } from '../ui/ChunkedRows';
-import { DiffBlock } from '../ui/DiffRow';
+import { DiffBlock, type NameClick } from '../ui/DiffRow';
 import { retainedKey } from '../ui/retained';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
@@ -73,7 +76,7 @@ import { useLineSelection } from './comments/useLineSelection';
 import commentStyles from './comments/comments.module.css';
 import { STATUS_LETTER } from './fileStatus';
 import { FileTree } from './FileTree';
-import { type Card, type CardRows, cardRows, flow, type Mark, type Pin } from './flow';
+import { type Card, type CardRows, cardRows, flow, type Mark, type Origin, type Pin } from './flow';
 import styles from './ChangesTab.module.css';
 
 const UNCOMMITTED = 'uncommitted';
@@ -160,9 +163,9 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
     [pins],
   );
   const pin = useCallback(
-    (path: string, range: LineRange | null) =>
+    (path: string, range: LineRange | null, from: Origin | null = null) =>
       setPins((h) => ({
-        pins: [...h.pins, { id: clientId('p'), target: { path, range }, from: null }],
+        pins: [...h.pins, { id: clientId('p'), target: { path, range }, from }],
       })),
     [setPins],
   );
@@ -194,16 +197,17 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
   useEffect(() => {
     groups.current = diff.data?.groups ?? [];
   });
+  // A folded file has no rows to land on, so a jump opens it and its group first.
+  const reveal = useCallback((path: string) => {
+    const group = groups.current.find((g) => g.paths.includes(path));
+    setFolds((f) => {
+      const next = new Map(f).set(fileKey(path), true);
+      return group ? next.set(groupKey(group.name), true) : next.set(PINNED_KEY, true);
+    });
+  }, []);
   const scrollToFile = useCallback(
     (path: string) => {
-      // A folded file has no rows to land on, so open it and its group first.
-      const group = groups.current.find((g) => g.paths.includes(path));
-      flushSync(() =>
-        setFolds((f) => {
-          const next = new Map(f).set(fileKey(path), true);
-          return group ? next.set(groupKey(group.name), true) : next.set(PINNED_KEY, true);
-        }),
-      );
+      flushSync(() => reveal(path));
       const block = blocks.current.get(path);
       if (block) {
         block.scrollIntoView({ block: 'start' });
@@ -212,7 +216,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
       scrollWhenDrawn.current = path;
       pin(path, null);
     },
-    [pin],
+    [pin, reveal],
   ); // Stable, as the memo rule above asks: `onPickFile` reaches `FileTree`.
   const closeSheet = chrome?.closeSheet;
   const pickRevInSheet = useCallback(
@@ -358,6 +362,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             onPick={setPicked}
             holdFile={holdFile}
             scrollToFile={scrollToFile}
+            reveal={reveal}
             messageOpen={messageOpen}
             onMessageOpen={setMessageOpen}
             listOpen={listOpen}
@@ -621,6 +626,7 @@ const Files = memo(function Files({
   onPick,
   holdFile,
   scrollToFile,
+  reveal,
   messageOpen,
   onMessageOpen,
   listOpen,
@@ -636,7 +642,7 @@ const Files = memo(function Files({
   /** The pins' lines, by pin id, and the pins whose read failed. */
   excerpts: Map<string, FileExcerpt>;
   failed: ReadonlySet<string>;
-  onPin: (path: string, range: LineRange) => void;
+  onPin: (path: string, range: LineRange | null, from?: Origin | null) => void;
   onUnpin: (ids: string[]) => void;
   folds: Map<string, boolean>;
   onFold: (key: string, open: boolean) => void;
@@ -648,6 +654,8 @@ const Files = memo(function Files({
   onPick: (rev: string) => void;
   holdFile: (path: string, el: HTMLElement | null) => void;
   scrollToFile: (path: string) => void;
+  /** Opens the folds over `path`'s card. */
+  reveal: (path: string) => void;
   messageOpen: boolean;
   onMessageOpen: (open: boolean) => void;
   listOpen: boolean;
@@ -673,6 +681,56 @@ const Files = memo(function Files({
   );
   const cancel = useCallback(() => setHeld(cancelled), [setHeld]);
   const selection = useLineSelection(select, cancel);
+  // Following a name: the line to scroll to once it is drawn, and why the last click went nowhere.
+  const [goal, setGoal] = useState<{ path: string; line: number } | null>(null);
+  const reached = useCallback(() => setGoal(null), []);
+  const [notice, setNotice] = useState<{ path: string; text: string } | null>(null);
+  const { mutateAsync: askDefinition } = useDefinition();
+  // Read when the answer comes, so the flow is the one in view then.
+  const cards = useRef<Card[]>([]);
+  useEffect(() => {
+    cards.current = sections.flatMap((s) => s.cards);
+  });
+  const go = useCallback(
+    (target: DefinitionTarget, from: Origin) => {
+      const { path, range } = target;
+      const card = cards.current.find((c) => c.path === path);
+      const drawn = card?.spans.some((s) => s.lines.some((l) => l.newLine === range.start));
+      if (!drawn && card?.reason.kind === 'diff')
+        onPin(path, { start: Math.max(1, range.start - 5), end: range.end + 25 }, from);
+      else if (!drawn && !card?.pins.some((p) => p.target.range === null)) onPin(path, null, from);
+      reveal(path);
+      setGoal({ path, line: range.start });
+    },
+    [onPin, reveal],
+  );
+  const followName = useCallback(
+    async (path: string, click: NameClick) => {
+      setNotice(null);
+      click.token.setAttribute('aria-busy', 'true');
+      try {
+        const answer = await askDefinition({
+          worktreeId,
+          rev,
+          path,
+          line: click.line,
+          character: click.character,
+        });
+        const target = answer.targets.find((t) => t.inRev);
+        if (target)
+          go(target, {
+            at: { path, range: { start: click.line, end: click.line } },
+            name: click.name,
+          });
+        else setNotice({ path, text: noticeOf(answer, click.name) });
+      } catch (e) {
+        setNotice({ path, text: `Could not follow ${click.name}: ${(e as Error).message}` });
+      } finally {
+        click.token.removeAttribute('aria-busy');
+      }
+    },
+    [askDefinition, worktreeId, rev, go],
+  );
   // Each file's comments on this rev, less the one in the open box, which draws
   // as the box wherever the box is. A key in the box makes a new `held` with
   // the same `comments`, so the lists keep their identity through it.
@@ -743,6 +801,10 @@ const Files = memo(function Files({
         holdFile={holdFile}
         onPin={onPin}
         onUnpin={onUnpin}
+        onName={card.navigable ? followName : undefined}
+        notice={notice?.path === card.path ? notice.text : null}
+        goalLine={goal?.path === card.path ? goal.line : null}
+        onGoalReached={reached}
       />
     );
   };
@@ -892,6 +954,13 @@ function Counts({ add, remove }: { add: number; remove: number }) {
   );
 }
 
+/** Why a followed name went nowhere: the notice its card shows. */
+function noticeOf(answer: Definition, name: string): string {
+  if (answer.reason === 'no_server') return 'No language server reads this file.';
+  const target = answer.targets[0];
+  return target ? `Definition not in this rev: ${target.path}` : `No definition of ${name} found.`;
+}
+
 /** `lines 4–9`, or nothing for a whole file: a pin's lines as its × names them. */
 function pinLabel(p: Pin): string {
   const { path, range } = p.target;
@@ -959,6 +1028,10 @@ const FileBlock = memo(function FileBlock({
   holdFile,
   onPin,
   onUnpin,
+  onName,
+  notice,
+  goalLine,
+  onGoalReached,
 }: {
   card: Card;
   /** A pinned card whose lines are not read yet. */
@@ -982,11 +1055,39 @@ const FileBlock = memo(function FileBlock({
   holdFile: (path: string, el: HTMLElement | null) => void;
   onPin: (path: string, range: LineRange) => void;
   onUnpin: (ids: string[]) => void;
+  /** Follows a name clicked in the card's rows. Only a card a **Language server** reads gets it. */
+  onName: ((path: string, click: NameClick) => void) | undefined;
+  /** Why the last name clicked here went nowhere. */
+  notice: string | null;
+  /** A new-side line to scroll to once it is drawn, then `onGoalReached`. */
+  goalLine: number | null;
+  onGoalReached: () => void;
 }) {
   const { path } = card;
   const file = card.reason.kind === 'diff' ? card.reason.file : null;
   const handlers = useMemo(() => handlersFor(path), [handlersFor, path]);
-  const section = useCallback((el: HTMLElement | null) => holdFile(path, el), [holdFile, path]);
+  const sectionEl = useRef<HTMLElement | null>(null);
+  const section = useCallback(
+    (el: HTMLElement | null) => {
+      sectionEl.current = el;
+      holdFile(path, el);
+    },
+    [holdFile, path],
+  );
+  const followHere = useMemo(
+    () => onName && ((click: NameClick) => onName(path, click)),
+    [onName, path],
+  );
+  const goalIndex = goalLine === null ? -1 : rows.findIndex((r) => r.lineNumbers?.new === goalLine);
+  useEffect(() => {
+    if (goalIndex < 0 || !expanded) return;
+    const row = sectionEl.current?.querySelector<HTMLElement>(`[data-new-line="${goalLine}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: 'center' });
+    row.setAttribute('data-flash', '');
+    row.addEventListener('animationend', () => row.removeAttribute('data-flash'), { once: true });
+    onGoalReached();
+  }, [goalIndex, goalLine, expanded, onGoalReached]);
   const bodyId = useId();
   const breaks = useMemo<RowBreak[]>(
     () =>
@@ -1019,9 +1120,15 @@ const FileBlock = memo(function FileBlock({
     [comments, rows],
   );
   // The rows whose chunks stay mounted out of view: a comment's, the open box's, the drag's.
+  // And the row a followed name scrolls to, so it is drawn to land on.
   const hold = useMemo(
-    () => [...added.map((a) => a.last), ...(openAt ?? []), ...(dragged ?? [])],
-    [added, openAt, dragged],
+    () => [
+      ...added.map((a) => a.last),
+      ...(openAt ?? []),
+      ...(dragged ?? []),
+      ...(goalIndex >= 0 ? [goalIndex] : []),
+    ],
+    [added, openAt, dragged, goalIndex],
   );
   const after = (i: number) => (
     <>
@@ -1080,6 +1187,12 @@ const FileBlock = memo(function FileBlock({
             ×
           </button>
         )}
+        {/* In the sticky head, so it shows wherever in the card the name was. */}
+        {notice && (
+          <span className={styles.nameNotice} role="status">
+            {notice}
+          </span>
+        )}
       </h3>
       {/* `hidden`, not unmounted: the rows keep their place, so a selection's indices hold. */}
       <div id={bodyId} hidden={!expanded}>
@@ -1106,6 +1219,7 @@ const FileBlock = memo(function FileBlock({
                 handlers={handlers}
                 after={after}
                 hold={hold}
+                onName={followHere}
               />
             </div>
           </DiffBlock>

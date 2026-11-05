@@ -1,5 +1,5 @@
 import { type CSSProperties, Fragment, type ReactNode, useMemo, useRef } from 'react';
-import { type DiffRowData, HighlightedRows, type RowHandlers } from './DiffRow';
+import { type DiffRowData, HighlightedRows, type NameClick, type RowHandlers } from './DiffRow';
 import styles from './ChunkedRows.module.css';
 import { useInView } from './useInView';
 
@@ -40,6 +40,7 @@ export function ChunkedRows({
   handlers,
   after,
   hold,
+  onName,
 }: {
   rows: DiffRowData[];
   breaks: RowBreak[];
@@ -50,6 +51,8 @@ export function ChunkedRows({
   after: (index: number) => ReactNode;
   /** The rows whose chunks stay mounted out of view. */
   hold: number[];
+  /** Makes each name a link: see `HighlightedRows`. */
+  onName?: (click: NameClick) => void;
 }) {
   const chunks: Chunk[] = [];
   for (let start = 0; start < rows.length || chunks.length === 0; start += CHUNK_ROWS) {
@@ -75,6 +78,7 @@ export function ChunkedRows({
       handlers={handlers}
       after={after}
       held={hold.some((n) => n >= chunk.start && n < chunk.end)}
+      onName={onName}
     />
   ));
 }
@@ -89,6 +93,7 @@ function ChunkRows({
   handlers,
   after,
   held,
+  onName,
 }: {
   first: boolean;
   chunk: Chunk;
@@ -99,6 +104,7 @@ function ChunkRows({
   handlers: RowHandlers;
   after: (index: number) => ReactNode;
   held: boolean;
+  onName?: (click: NameClick) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { latch: false, initial: first });
@@ -144,6 +150,7 @@ function ChunkRows({
                 handlers={handlers}
                 after={after}
                 highlight={inView}
+                onName={onName}
               />
             )}
           </Fragment>
