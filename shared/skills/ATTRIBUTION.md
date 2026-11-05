@@ -11,12 +11,12 @@ Imported skills:
 - `grilling/` — skills/productivity/grilling/
 - `writing-for-agents/` — skills/productivity/writing-for-agents/
 - `codebase-design/` — skills/engineering/codebase-design/
-- `tdd/` — skills/engineering/tdd/
+- `design-build-test/` — `examples.md` and `mocking.md` from skills/engineering/tdd/ (adapted);
+  `SKILL.md` is new
 - `domain-modeling/` — skills/engineering/domain-modeling/
 - `resolve-rebase-conflicts/` — skills/engineering/resolving-merge-conflicts/ (adapted)
 
-Imported verbatim, unmodified, on 2026-08-07, except `resolve-rebase-conflicts/`, which is
-adapted for this project's rebase flow.
+Imported verbatim, unmodified, on 2026-08-07, except the entries marked (adapted).
 
 ### MIT License text
 
