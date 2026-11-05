@@ -20,6 +20,11 @@ from .notebook_root import NOTEBOOK_ROOT_ENV
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
 
+#: Where `mael self-update` gets a release: the latest GitHub Release, or a
+#: bundle built from `_main`. The first is the default.
+UPDATE_CHANNELS = ("stable", "main")
+UPDATE_CHANNEL_KEY = "update_channel"
+
 
 #: A bare host name or IPv4 address: no scheme, port, path or whitespace.
 _HOST_NAME = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
@@ -60,6 +65,8 @@ class GlobalConfig:
     openai_api_key: str | None = None
     github_orchestrator_token: str | None = None
     slack_webhooks: dict[str, str] = field(default_factory=dict)
+    #: One of :data:`UPDATE_CHANNELS`.
+    update_channel: str = UPDATE_CHANNELS[0]
 
     @property
     def url_host(self) -> str:
@@ -141,6 +148,11 @@ class GlobalConfig:
             openai_api_key=openai_api_key,
             github_orchestrator_token=github_orchestrator_token,
             slack_webhooks=slack_webhooks,
+            update_channel=(
+                channel
+                if (channel := data.get(UPDATE_CHANNEL_KEY)) in UPDATE_CHANNELS
+                else UPDATE_CHANNELS[0]
+            ),
         )
 
 
@@ -212,6 +224,30 @@ def _read_config(path: Path) -> dict | None:
     except (yaml.YAMLError, OSError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def set_update_channel(path: Path, channel: str) -> None:
+    """Write ``update_channel: <channel>`` to the config file at ``path``.
+
+    A line edit, not a YAML round-trip: the file holds the user's comments,
+    and a round-trip drops them. The line is replaced where it is, or appended.
+    A new file is made private, because the file holds API keys.
+    """
+    if channel not in UPDATE_CHANNELS:
+        raise ValueError(f"unknown update channel {channel!r}")
+    line = f"{UPDATE_CHANNEL_KEY}: {channel}"
+    text = path.read_text() if path.exists() else ""
+    pattern = re.compile(rf"^{UPDATE_CHANNEL_KEY}:.*$", re.MULTILINE)
+    if pattern.search(text):
+        text = pattern.sub(line, text, count=1)
+    else:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        text += line + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
 
 
 def harden_global_config() -> list[str]:

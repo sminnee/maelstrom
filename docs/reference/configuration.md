@@ -301,6 +301,7 @@ uptimerobot:
 | `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
 | `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Run `mael env reset` in a worktree after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
 | `orchestrator_url` | string | — | The URL of the orchestrator server on this machine, such as `https://desk.tailnet.ts.net:3220`. Read only from the notebook root's `config.yaml`; see below. Its port is the `ORCHESTRATOR_PORT` in the `_main` worktree's `.env`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no value, or with no server on it, these commands fail. Start the server with `mael self-env start orchestrator`. The client does not verify the server's TLS certificate. |
+| `update_channel` | string | `stable` | Where `mael self-update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self-update --channel` writes this line and keeps the rest of the file. |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -314,6 +315,7 @@ open_command: "cursor"
 dev_host: desk.tailnet.ts.net
 dev_https: true
 orchestrator_url: https://desk.tailnet.ts.net:3220
+update_channel: stable
 
 linear:
   api_key: "lin_api_xxx"
