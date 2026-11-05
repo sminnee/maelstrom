@@ -247,11 +247,13 @@ def generate_branch_name(
 #: execute task. Each names a skill in ``shared/skills/``; anything else the
 #: model invents falls back to ``""``.
 #:
-#: Deliberately narrower than the web app's ``KNOWN_COMMANDS``
+#: Deliberately different from the web app's ``KNOWN_COMMANDS``
 #: (``orchestrator-ui/src/protocol/phase.ts``): ``shape`` names no skill file, ``watch-pr``
 #: needs a pushed PR, and every ``impeccable`` command needs a target. None
-#: suits a task the user has only just described.
-KNOWN_COMMANDS = ("plan-task", "plan-next-step")
+#: suits a task the user has only just described. ``setup-project`` is here
+#: but not in the web list: a draft such as "set up this repo" names it, and
+#: the editor's shortlist stays the phase commands.
+KNOWN_COMMANDS = ("plan-task", "plan-next-step", "setup-project")
 
 #: The longest title inference will hand back. Long enough for a real sentence,
 #: short enough to read in the task list's one line.

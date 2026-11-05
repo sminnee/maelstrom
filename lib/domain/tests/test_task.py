@@ -1481,8 +1481,10 @@ class TestModeForCommand:
     def test_execute_task_runs_unattended(self):
         assert model.mode_for_command("") == "auto"
 
-    @pytest.mark.parametrize("command", ["plan-task", "plan-next-step"])
-    def test_a_planning_skill_runs_normal(self, command):
+    @pytest.mark.parametrize(
+        "command", ["plan-task", "plan-next-step", "setup-project"]
+    )
+    def test_a_skill_that_owns_its_plan_step_runs_normal(self, command):
         assert model.mode_for_command(command) == "normal"
 
     def test_unknown_command_keeps_the_default(self):

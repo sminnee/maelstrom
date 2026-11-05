@@ -1756,14 +1756,16 @@ def mode_for_command(command: str) -> str:
     An execute task (empty ``command``) runs its plan unattended in ``"auto"``.
     A planning skill runs in ``"normal"``: the skill itself forbids code edits,
     so plan mode adds only a review prompt for an operator who is already there.
-    ``mael linear plan`` seeds a ``plan-task`` this way today. Anything else is
+    ``mael linear plan`` seeds a ``plan-task`` this way today. ``setup-project``
+    runs in ``"normal"`` too: its dev env phase edits and commits the dev env
+    config, and the skill enters plan mode itself for the audit. Anything else is
     an unknown command, which keeps :data:`DEFAULT_MODE`.
 
     Only a starting point — the mode stays editable wherever it is offered.
     """
     if not command:
         return "auto"
-    if command in ("plan-task", "plan-next-step"):
+    if command in ("plan-task", "plan-next-step", "setup-project"):
         return "normal"
     return DEFAULT_MODE
 
