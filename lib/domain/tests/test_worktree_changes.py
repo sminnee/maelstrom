@@ -117,6 +117,7 @@ def file_diff(path, **over):
         "deletions": 0,
         "truncated": False,
         "shebang": None,
+        "navigable": False,
         "hunks": [],
         **over,
     }
@@ -399,6 +400,7 @@ async def test_an_excerpt_reads_a_range_of_the_new_side(repo):
     assert excerpt == {
         "rev": "branch",
         "path": "a.py",
+        "navigable": False,
         "total": 10,
         "truncated": False,
         "span": {

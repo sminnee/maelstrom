@@ -227,6 +227,8 @@ class FileDiff(TypedDict):
     truncated: bool
     #: The file's ``#!`` line, read only for a name with no extension, else ``None``.
     shebang: str | None
+    #: A **Language server** reads the file, so a name in it can be followed.
+    navigable: bool
     hunks: list[DiffHunk]
 
 
@@ -244,6 +246,8 @@ class FileExcerpt(TypedDict):
 
     rev: str
     path: str
+    #: A **Language server** reads the file, so a name in it can be followed.
+    navigable: bool
     #: The file's line count.
     total: int
     #: The range passed the line cap, so ``span`` holds its first lines only.

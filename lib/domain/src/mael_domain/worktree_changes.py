@@ -8,11 +8,13 @@ import asyncio
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
 
 from .base_store import GitConfigBaseStore
 from .git_status import read_dirty_files_async
+from .language_servers import LanguageServer, installed, reads
 from .protocol import (
     BranchCommit,
     ChangeComment,
@@ -124,14 +126,22 @@ async def list_changes(path: Path) -> WorktreeChanges:
     }
 
 
-async def read_diff(path: Path, rev: str) -> list[FileDiff]:
-    """The diff ``rev`` names, file by file. Raises :class:`UnknownRev`."""
+async def read_diff(
+    path: Path, rev: str, servers: Sequence[LanguageServer] = ()
+) -> list[FileDiff]:
+    """The diff ``rev`` names, file by file. Raises :class:`UnknownRev`.
+
+    A file one of ``servers`` reads is ``navigable``.
+    """
     refs = await _refs(path, rev)
     if refs.new is None:
         files = await _uncommitted_diff(path)
     else:
         files = await _diff(path, [refs.old, refs.new])
     await _read_shebangs(path, refs, files)
+    ready = installed(path, servers)
+    for file in files:
+        file["navigable"] = any(reads(s, file["path"]) for s in ready)
     return files
 
 
@@ -171,7 +181,7 @@ async def read_file_versions(
     :class:`BadPath`.
     """
     old_file = old_file or file
-    _check_paths(file, old_file)
+    check_paths(file, old_file)
     refs = await _refs(path, rev)
     old = await _blob(path, f"{refs.old}:{old_file}")
     if refs.new is None:
@@ -208,7 +218,12 @@ async def _names(path: Path, *args: str) -> set[str]:
 
 
 async def read_excerpt(
-    path: Path, rev: str, file: str, start: int | None = None, end: int | None = None
+    path: Path,
+    rev: str,
+    file: str,
+    start: int | None = None,
+    end: int | None = None,
+    servers: Sequence[LanguageServer] = (),
 ) -> FileExcerpt:
     """Lines ``start`` to ``end`` of ``file`` on the new side of ``rev``; the whole file by default.
 
@@ -216,7 +231,7 @@ async def read_excerpt(
     binary file, or one past :data:`MAX_FILE_BYTES`, has no lines. Raises
     :class:`UnknownRev`, :class:`BadPath` and :class:`NoSuchFile`.
     """
-    _check_paths(file)
+    check_paths(file)
     refs = await _refs(path, rev)
     if refs.new is None:
         side = await asyncio.to_thread(_worktree_file, path, file)
@@ -230,6 +245,7 @@ async def read_excerpt(
     return {
         "rev": rev,
         "path": file,
+        "navigable": any(reads(s, file) for s in installed(path, servers)),
         "total": len(texts),
         "truncated": side.too_large or last < min(end or len(texts), len(texts)),
         "span": {
@@ -278,7 +294,7 @@ async def read_file_bytes(
     :class:`FileTooLarge`.
     """
     old_file = old_file or file
-    _check_paths(file, old_file)
+    check_paths(file, old_file)
     refs = await _refs(path, rev)
     if side == "old":
         return await _blob_bytes(path, f"{refs.old}:{old_file}")
@@ -287,7 +303,7 @@ async def read_file_bytes(
     return await _blob_bytes(path, f"{refs.new}:{file}")
 
 
-def _check_paths(*names: str) -> None:
+def check_paths(*names: str) -> None:
     for name in names:
         parts = PurePosixPath(name).parts
         if not parts or PurePosixPath(name).is_absolute() or ".." in parts:
@@ -588,6 +604,7 @@ def _new_file(paths: str) -> FileDiff:
         "deletions": 0,
         "truncated": False,
         "shebang": None,
+        "navigable": False,
         "hunks": [],
     }
 
