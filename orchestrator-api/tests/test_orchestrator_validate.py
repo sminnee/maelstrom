@@ -1447,3 +1447,26 @@ def test_a_refresh_names_a_known_project_and_a_branch_or_neither(body, expected)
     assert code(validate_command(world, {"type": "worktree.refresh", **body})) == (
         expected
     )
+
+
+# --- project.add ---
+
+
+@pytest.mark.parametrize("git_url", [None, "", "   ", 7, "--upload-pack=touch x"])
+def test_adding_a_project_needs_a_git_url(git_url):
+    cmd = {"type": "project.add", "gitUrl": git_url}
+    assert code(validate_command(empty_world(), cmd)) == "invalid"
+
+
+def test_a_project_whose_name_the_world_holds_is_refused_before_the_clone():
+    world = world_with(projects=[PROJECT])
+    cmd = {"type": "project.add", "gitUrl": "git@github.com:acme/northwind.git"}
+    error = validate_command(world, cmd)
+    assert code(error) == "invalid"
+    assert "northwind" in error["message"]
+
+
+def test_a_new_project_may_be_added():
+    world = world_with(projects=[PROJECT])
+    cmd = {"type": "project.add", "gitUrl": "https://github.com/acme/demo.git"}
+    assert validate_command(world, cmd) is None

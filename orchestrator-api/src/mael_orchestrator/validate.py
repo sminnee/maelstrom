@@ -16,7 +16,7 @@ from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
 from mael_domain.protocol import Agent, Worktree, World
 from mael_domain.task import PROMOTABLE_FIELDS
-from mael_domain.worktree_model import is_worktree_closable
+from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
 from .desk import split_desk_id
 from .world_build import split_task_key
@@ -1004,6 +1004,18 @@ def validate_command(
         mode = cmd.get("mode")
         if mode is not None and mode not in MODES:
             return _err("invalid", f"No mode {mode}")
+        return None
+
+    if kind == "project.add":
+        git_url = cmd.get("gitUrl")
+        if not isinstance(git_url, str) or not git_url.strip():
+            return _err("invalid", "A git URL is required")
+        if git_url.strip().startswith("-"):
+            return _err("invalid", "A git URL cannot start with -")
+        # Refused before any clone: the clone would only fail on the folder.
+        name = extract_project_name(git_url.strip())
+        if name in world["projects"]:
+            return _err("invalid", f"Project {name} already exists")
         return None
 
     if kind == "agent.start":

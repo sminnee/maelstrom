@@ -7,9 +7,11 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 """
 
 import asyncio
+import functools
 import logging
 import signal
 import ssl
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -49,6 +51,7 @@ from mael_domain.task_store import GitFileStore
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree import (
     WorktreeSetup,
+    add_project,
     find_all_projects,
     setup_worktree_for_branch,
 )
@@ -351,6 +354,7 @@ def build_orchestrator(
         env=env_worktree,
         ensure_terminal=ensure_worktree_terminal,
         terminal_urls=terminal_urls,
+        add_project=functools.partial(clone_project, projects_dir),
     )
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
@@ -385,6 +389,23 @@ def build_orchestrator(
         gate_watch=watch_gates,
         language_servers=LanguageServers(LANGUAGE_SERVERS),
     )
+
+
+def clone_project(projects_dir: Path, git_url: str) -> None:
+    """``mael project add`` for the server, with no one at the terminal.
+
+    A failed clone is refused with git's own words, which are in stderr: the
+    exception says only the exit status.
+    """
+    try:
+        add_project(git_url, projects_dir, batch=True)
+    except subprocess.CalledProcessError as exc:
+        raise CloseBlocked((exc.stderr or "").strip() or str(exc)) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CloseBlocked(f"The clone took more than {exc.timeout:.0f}s") from exc
+    except ValueError as exc:
+        # The folder exists, though the world holds no such project.
+        raise CloseBlocked(str(exc)) from exc
 
 
 def _config_reader(

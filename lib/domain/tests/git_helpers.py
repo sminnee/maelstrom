@@ -146,3 +146,15 @@ def make_conflict_from_a_second_worktree(project_path, worktree_path):
     run_git(other, "push", "-q", "origin", "other:main")
     run_git(worktree_path, "fetch", "-q", "origin")
     return head
+
+
+def bare_remote(tmp_path, name="demo"):
+    """A bare repo ``<name>.git`` with one commit on main: a remote to clone a project from."""
+    source = tmp_path / f"{name}-source"
+    source.mkdir()
+    setup_git_repo(source)
+    run_git(source, "checkout", "-b", "main")
+    create_commit(source, "README.md", f"{name}\n", "initial")
+    remote = tmp_path / f"{name}.git"
+    run_git(tmp_path, "clone", "--bare", str(source), str(remote))
+    return remote
