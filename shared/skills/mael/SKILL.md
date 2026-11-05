@@ -27,7 +27,7 @@ Use `mode: plan` for tasks and `mode: normal` for a `plan-next-step` tail. For c
 
 ## Build and commit
 
-Build test-first. Stop environments before heavy edits. Run the project gates from its instructions. Commit in small steps. Give each build commit a short body that says why the change was made: `/present` reads these bodies to find the design decisions. Working commits may use `wip:`. Do not use `--fixup` before review; commit the correction as its own step. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.
+Build as `design-build-test` says. Stop environments before heavy edits. Run the project gates from its instructions. Commit in small steps. Give each build commit a short body that says why the change was made: `/present` reads these bodies to find the design decisions. Working commits may use `wip:`. Do not use `--fixup` before review; commit the correction as its own step. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.
 
 During Land, use `--fixup=<sha>` for an earlier decision. Do not amend an earlier commit. Record test-shaping choices in a commit body.
 
@@ -39,7 +39,7 @@ When the implementation is written, run this unattended sequence:
 
 1. Run `mael sync --no-push`, so the gates run on the current base.
 2. Commit the implementation, then run the project gates on the clean tree. Continue when they pass. When the system prompt teaches `<compact-session>`, write `<compact-session min-tokens="200k">` and end your turn.
-3. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and test seams. Review reads it.
+3. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and the test plan. Review reads it.
 4. Run `/code-review`. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
 5. Run `/present`, which writes `<milestone>presented</milestone>`.
 6. Push with `mael gh create-pr --squash`, in the background. It rebases, runs the project's `pre_push_cmd`, then pushes. When the check fails, nothing is pushed: fix the failure and run step 6 again.

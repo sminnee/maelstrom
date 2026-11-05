@@ -42,7 +42,8 @@ E2E limited to critical user paths and non-trivial component interactions? · un
 subsystems? · duplicated fixture boilerplate · verbose body · non-obvious assertions ·
 point-assertions · no converter for complex state · duplicative · contract tested twice · re-tests
 the layer below · mirror test · E2E re-testing component detail · not cross-referenced to spec ·
-assertion-free · missing negative case · testing configuration · mocked integration test
+assertion-free · missing negative case · ephemeral check would do · risk left untested ·
+testing configuration · mocked integration test
 
 **Layer 4 — Security & correctness** — injection · secrets in code · missing authorisation ·
 overbroad permissions · input trusted by origin · swallowed errors · data loss · unhandled
@@ -185,6 +186,15 @@ exception was raised — cannot fail, so it provides no assurance.
 
 **Negative cases.** New branching logic tested only on its success path leaves the branch that
 actually breaks untested.
+
+**Ephemeral check would do.** The test guards something that `design-build-test` step 2 sends to
+an ephemeral check, such as a layout or a script nothing else calls. Suggest the check and delete
+the test.
+
+**Risk left untested.** A risky part of the change has no test, no recorded check, and no stated
+reason in `.drafts/pr.md`. Count each risk the PR's test plan names, and each kind that
+`design-build-test` step 4 lists. A branch tested only on its success path is a missing negative
+case instead. Name the risk and the layer that owns it.
 
 ### Testing configuration or structure
 

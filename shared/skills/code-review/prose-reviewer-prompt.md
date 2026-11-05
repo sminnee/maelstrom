@@ -133,7 +133,7 @@ is worth.
 ### The whole story
 
 `.drafts/pr.md` is the branch's account of itself: the decisions taken, the rationale, the test
-seams. It becomes the PR body, and it is the narrative a reviewer reads before the code.
+plan. It becomes the PR body, and it is the narrative a reviewer reads before the code.
 
 Read it against the change and ask:
 
