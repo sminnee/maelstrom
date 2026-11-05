@@ -1,4 +1,4 @@
-# Good and Bad Tests
+# Test examples: good and bad
 
 ## Good Tests
 
