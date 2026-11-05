@@ -302,3 +302,18 @@ def format_uptime(started_at: str) -> str:
     if minutes > 0:
         return f"{minutes}m"
     return f"{total_seconds}s"
+
+
+def read_json(path: Path) -> dict:
+    """Read a JSON object, returning ``{}`` if it is missing or unreadable.
+
+    Shared because several modules read the same third-party files (notably
+    ``~/.claude.json``); a second private reader would drift from this one.
+    """
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}

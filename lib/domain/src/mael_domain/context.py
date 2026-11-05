@@ -20,7 +20,7 @@ from .notebook_root import NOTEBOOK_ROOT_ENV
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 GLOBAL_CONFIG_FILENAME_LEGACY = ".maelstrom.yaml"
 
-#: Where `mael self-update` gets a release: the latest GitHub Release, or a
+#: Where `mael self update` gets a release: the latest GitHub Release, or a
 #: bundle built from `_main`. The first is the default.
 UPDATE_CHANNELS = ("stable", "main")
 UPDATE_CHANNEL_KEY = "update_channel"
@@ -196,22 +196,36 @@ def load_global_config() -> GlobalConfig:
     """
     # Loading is a pure read: it never tightens permissions. The config holds
     # plaintext API keys, so loose perms are a real risk — but fixing them lives
-    # in ``mael doctor`` (``_check_secret_file_perms``) and ``mael self-update``
+    # in ``mael doctor`` (``_check_secret_file_perms``) and ``mael self setup``
     # (which calls :func:`harden_global_config`), not on this hot read path that
     # runs on nearly every command.
+    root = os.environ.get(NOTEBOOK_ROOT_ENV)
+    return load_config_at(Path(root).expanduser() if root else None)
+
+
+def load_config_at(root_dir: Path | None) -> GlobalConfig:
+    """The global config as the notebook root ``root_dir`` sees it.
+
+    :func:`load_global_config` with the root given rather than read from the
+    environment. ``mael self setup`` reads the production root this way,
+    whatever root its caller's environment names.
+    """
     global_dir = get_maelstrom_dir()
     data = _read_config(global_dir / GLOBAL_CONFIG_FILENAME)
     if data is None:
         data = _read_config(Path.home() / GLOBAL_CONFIG_FILENAME_LEGACY) or {}
 
-    root = os.environ.get(NOTEBOOK_ROOT_ENV)
-    root_dir = Path(root).expanduser() if root else None
     if root_dir is not None and root_dir.resolve() != global_dir.resolve():
         root_data = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
         data = {**data, "orchestrator_url": None, **root_data}
     elif root_dir is None:
         data = {**data, "orchestrator_url": None}
     return GlobalConfig.from_dict(data)
+
+
+def read_config_key(path: Path, key: str) -> object:
+    """The value of ``key`` in the config file at ``path``, or ``None``."""
+    return (_read_config(path) or {}).get(key)
 
 
 def _read_config(path: Path) -> dict | None:
@@ -235,15 +249,38 @@ def set_update_channel(path: Path, channel: str) -> None:
     """
     if channel not in UPDATE_CHANNELS:
         raise ValueError(f"unknown update channel {channel!r}")
-    line = f"{UPDATE_CHANNEL_KEY}: {channel}"
+    set_config_key(path, UPDATE_CHANNEL_KEY, channel)
+
+
+def set_config_key(path: Path, key: str, value: str) -> None:
+    """Write ``<key>: <value>`` to the config file at ``path``.
+
+    A line edit, not a YAML round-trip, as :func:`set_update_channel` says.
+    """
+    line = f"{key}: {value}"
     text = path.read_text() if path.exists() else ""
-    pattern = re.compile(rf"^{UPDATE_CHANNEL_KEY}:.*$", re.MULTILINE)
+    pattern = re.compile(rf"^{re.escape(key)}:.*$", re.MULTILINE)
     if pattern.search(text):
-        text = pattern.sub(line, text, count=1)
+        text = pattern.sub(lambda _: line, text, count=1)
     else:
         if text and not text.endswith("\n"):
             text += "\n"
         text += line + "\n"
+    _write_private(path, text)
+
+
+def remove_config_key(path: Path, key: str) -> None:
+    """Remove the ``<key>:`` line from the config file at ``path``, if any."""
+    if not path.exists():
+        return
+    text = path.read_text()
+    pattern = re.compile(rf"^{re.escape(key)}:.*(\n|$)", re.MULTILINE)
+    if pattern.search(text):
+        _write_private(path, pattern.sub("", text, count=1))
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write ``text`` to ``path``; a new file is private, as it holds API keys."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w") as f:
@@ -255,7 +292,7 @@ def harden_global_config() -> list[str]:
 
     The config holds plaintext API keys; maelstrom never writes it (users create
     it by hand), so this is the explicit, opt-in hardening path — called from
-    ``mael self-update`` (and mirrored by the ``mael doctor`` check). It is *not*
+    ``mael self setup`` (and mirrored by the ``mael doctor`` check). It is *not*
     run on the config load path, which stays a pure read.
 
     Tightens both the new-location ``~/.maelstrom/config.yaml`` (plus its parent
