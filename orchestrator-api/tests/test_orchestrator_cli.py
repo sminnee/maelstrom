@@ -42,7 +42,7 @@ def test_serve_passes_its_flags_to_the_server():
         )
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with(
-        "0.0.0.0", 9000, DEFAULT_LOG_LEVEL, ssl_context=None
+        "0.0.0.0", 9000, DEFAULT_LOG_LEVEL, ssl_context=None, web_root=None
     )
 
 
@@ -50,9 +50,19 @@ def test_serve_defaults_to_localhost_and_the_default_port():
     with patch("mael_orchestrator.cli.run_server") as run_server:
         result = CliRunner().invoke(cli, ["serve"])
     assert result.exit_code == 0, result.output
+    # The suite's venv is a worktree's, not an installed release: no UI.
     run_server.assert_called_once_with(
-        DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL, ssl_context=None
+        DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL, ssl_context=None, web_root=None
     )
+
+
+def test_serve_passes_a_web_root(tmp_path):
+    with patch("mael_orchestrator.cli.run_server") as run_server:
+        result = CliRunner().invoke(
+            cli, ["serve"], env={"MAEL_WEB_ROOT": str(tmp_path)}
+        )
+    assert result.exit_code == 0, result.output
+    assert run_server.call_args.kwargs["web_root"] == tmp_path
 
 
 def test_serve_reads_its_certificate_from_the_worktree_env(self_signed_cert):
