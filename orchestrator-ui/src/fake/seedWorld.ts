@@ -289,7 +289,7 @@ column the export needs, so this is a read path plus a download endpoint.
 2. Add \`GET /orders/export\` behind the existing session auth.
 3. Cap the export at 10,000 rows and return 413 above it.
 
-## Seams under test
+## Test plan
 
 - \`OrderExport.rows()\` against an in-memory order set.
 - The endpoint, with a client fixture: status, content type, first row.
@@ -454,7 +454,7 @@ export function seedWorld(): Seed {
       createdMinutesAgo: 55,
       content: `Export an order as CSV from the orders table.
 
-## Seams under test
+## Test plan
 
 The HTTP endpoint. One fixture per column type, asserted through the response
 body rather than the query builder.

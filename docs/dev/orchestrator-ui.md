@@ -1959,7 +1959,7 @@ by `orchestrator-ui/bin/render-icons`. Run it after `logo.svg` changes; CI does 
 
 ## What the tests cover
 
-Tests sit at the seams the plan agreed, never against internals: the pure modules; the API
+Tests sit at the layers the plan agreed, never against internals: the pure modules; the API
 client over a fake `fetch`; the change stream and the agent streams over a fake `EventSource`
 and a fake socket; each resource and mutation hook over the fake server; the question prompt
 and the button at their props seams; and the app boundary with Testing Library.

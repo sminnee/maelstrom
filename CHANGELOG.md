@@ -49,8 +49,8 @@ release while that section is empty, and retitles it to the version it is releas
   confirms that every file is in a section. Its state is on disk, so it continues after a
   compaction. See
   [Reviewing existing code](docs/guide/planning.md#reviewing-existing-code).
-- **Sharper test rules for review and TDD.** Test each contract once, at the seam that commits
-  to it. Do not write mirror tests that copy the code's shape. Keep E2E tests to critical paths
+- **Sharper test rules for review and testing.** Test each contract once, at the layer that
+  owns it. Do not write mirror tests that copy the code's shape. Keep E2E tests to critical paths
   and to interactions between components that are not trivial.
 - **Gate jobs show what each job uses.** Each row in the Gate jobs dialog shows the job's CPU and memory, and a running gate throbs.
 - **The Changes tab draws a file whole.** The eye on a file's head or in the file list opens the
@@ -172,6 +172,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **Sessions build, then test what matters.** The `design-build-test` skill replaces `tdd`. A
+  session breaks the work into modules, builds, then picks tests by risk and writes each at the
+  layer that owns its contract. A layout or a script nothing else calls can get a recorded check
+  instead of a test. A bug fix still writes its regression test first. A plan's **Seams under
+  test** section is now **Test plan**. See
+  [Build, then test what matters](docs/guide/multi-agent-workflow.md#build-then-test-what-matters).
 - **A task an agent creates is on the canvas at once.** `mael task add`, `promote` and
   `load-many` now ask the orchestrator server to write the task, and the server puts every task
   it writes on the desk. A document approval's tasks join the desk too. The three commands fail

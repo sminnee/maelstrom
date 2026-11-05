@@ -110,19 +110,24 @@ it. Tests ship with the slice they cover; there are no test-only tasks.
 
 A shape has at most five tasks. See [The shape of a plan](planning.md#the-shape-of-a-plan).
 
-### Build test-first, at agreed seams
+### Build, then test what matters
 
-The execute session builds test-first: one failing test, then enough code to pass it, then the
-next. A **seam** is the public boundary a test observes behaviour through. Tests go at seams,
-never against internals — that is what lets the code be rewritten without rewriting the tests.
+The execute session follows the `design-build-test` skill. It breaks the work into modules,
+builds the code, then selects tests by risk. A test goes where the implementation is risky or
+the behaviour is critical to a user, at the one layer that owns the contract. Some work gets an
+ephemeral check instead: a browser screenshot of a layout, or a run of a dev-tooling script. The
+PR records each such check.
 
-Seams are agreed, not chosen mid-implementation. The plan names them in a **Seams under test**
-section, and approving the plan agrees them. This matters because an execute session runs
-unattended: there is nobody to ask once it starts. Deciding the seams at plan time is what lets
-the session write tests without stopping, and it puts the decision where you can still change it.
+Writing tests after the build lets the session see where the real risk is. Test-first gives
+every small step its own test, so the suite grows with duplicates. A bug fix is the exception:
+its regression test is written first, and seen to fail, so it proves it catches the bug.
 
-If you are working outside a plan, agree the seams with the agent before it writes the first
-test.
+The plan's **Test plan** section names the modules, the owning layers, and the risks to cover.
+Approving the plan agrees them. The session picks the test cases after the build. An execute
+session runs unattended, so it cannot ask you mid-build. Agreeing the layers at plan time lets it
+write tests without stopping, while you can still change the decision.
+
+If you are working outside a plan, agree the owning layer with the agent when it is not obvious.
 
 ## 3. Run several agents at once
 

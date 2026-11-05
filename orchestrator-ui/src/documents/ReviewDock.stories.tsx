@@ -130,7 +130,7 @@ const GROUP_BODY = [
     'feed. A mismatch stops the swap and leaves the old cache in place.',
     '',
   ]).flat(),
-  '## Seams under test',
+  '## Test plan',
   '',
   'The cache directory. One fixture per feed shape, asserted through the reader.',
 ].join('\n');
