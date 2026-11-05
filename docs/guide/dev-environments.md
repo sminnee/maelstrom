@@ -225,7 +225,7 @@ One daemon serves one daemon root: the directory holding its socket, log and spa
 
 **Every environment has its own daemon, and its own root.** A worktree that changes the agent
 protocol drives agents running that change. A worktree that does not keeps its agents away from
-the everyday ones. maelstrom declares the daemon as an ordinary service:
+the production ones. maelstrom declares the daemon as an ordinary service:
 
 ```yaml
 services:
@@ -249,20 +249,22 @@ uv run mael-agent-daemon status   # names the daemon on this worktree's root
 mael env stop                     # takes the daemon and its agents with it
 ```
 
-**`_main` runs the everyday daemon.** `_main` is a worktree name like any other, so the same line
-gives it `~/.maelstrom/daemons/_main`. Start it with `mael self-env start`, which is `mael env
-start` aimed at `_main`.
+**The production daemon is a host service.** The OS supervisor runs it on
+`~/.maelstrom/state/daemon`, from the current release. See
+[host services](../dev/host-services.md). `_main` is a worktree name like any other, so the same
+line gives `_main`'s environment its own root, `~/.maelstrom/daemons/_main`. That root is not the
+production one.
 
-**Two commands start a daemon, and nothing else does.** `mael self-env start` runs the everyday
-one; `mael env start` runs this worktree's. No `mael agent` command, session launch or
+**Two things start a daemon, and nothing else does.** The `agent-daemon` host service runs the
+production one; `mael env start` runs this worktree's. No `mael agent` command, session launch or
 orchestrator poll ever starts one. A daemon that is not running is an error naming the root and
 the command that starts one.
 
 **Your shell reaches the daemon its directory names.** `uv run mael` in a worktree reads that
 worktree's `.env` through `UV_ENV_FILE=.env`, a convention you set in your shell rather than one
 maelstrom sets. So `uv run mael agent list` in a worktree lists that worktree's agents. A plain
-`mael` reaches the everyday daemon, because `mael self-update` writes the everyday root into the
-`mael` on your PATH.
+`mael` reaches the production daemon, because the `mael` on your PATH sets the production root.
+`mael self setup` writes that file.
 
 **A session reaches the daemon that runs it.** The daemon passes its own root to every agent it
 starts, so `mael agent` inside a driven session talks to the daemon holding that session.
@@ -273,8 +275,8 @@ make them spawn, so one environment's daemon never starts a second `claude` on a
 holds.
 
 `uv run mael-agent-daemon status` names the daemon answering and the tree its code came from, which is
-the question a long-lived daemon makes worth asking. `mael self-env restart agent-daemon` replaces
-one holding stale code.
+the question a long-lived daemon makes worth asking. `mael self restart agent-daemon` replaces the
+production daemon when it holds stale code.
 
 ## Running
 
@@ -331,8 +333,9 @@ first `--changed` restart records one. At start, a missing `tangier` or a failed
 version, and the start still succeeds. The same failure stops `--changed` with an error, so it
 never reads as "nothing changed".
 
-`mael self-update --channel main` uses this to restart only the `_main` services that its pull
-changed.
+The host services use the same hashes. A release bundle's [component](../../CONTEXT.md) version is
+the hash of the SHA bucket of its name, and `mael self setup` restarts only the host services whose
+components changed.
 
 ## The `.env` file
 

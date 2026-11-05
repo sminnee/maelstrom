@@ -1,0 +1,175 @@
+# Host services
+
+How a host installs maelstrom, and how the OS keeps its **host services** running. The decisions
+are in [ADR 0002](../adr/0002-one-installer-and-host-services.md).
+
+A [host service](../../CONTEXT.md) is `orchestrator` or `agent-daemon`, run by the OS supervisor.
+It is not a **Service** of a worktree.
+
+## The flow
+
+```
+curl … | sh  ─┐
+mael self update ─┼─▶ install.sh ──▶ components, venv, `current` ──▶ mael self setup --changed …
+sh install.sh --source DIR ─┘                                         (the new release's code)
+```
+
+1. `bin/install.sh` places the release under `~/.maelstrom/install/` and moves `current`.
+2. It runs `current/venv/bin/mael self setup --changed <components>`.
+3. Setup brings the host to the state the release wants.
+
+`mael self update` runs `install.sh` for the stored channel. See
+[the CLI reference](../reference/cli.md#host-control-mael-self).
+
+## The installer
+
+`bin/install.sh` is POSIX `sh`. Its prerequisites are `curl`, `tar` and `uv`. uv fetches Python
+3.13 for the venv. The whole script is one `main` function, so `curl | sh` runs nothing until the
+script has arrived.
+
+| Rule | Why |
+|---|---|
+| Each component version is copied once, through a temp directory and a rename | A second release shares the unchanged versions, and a failed copy leaves no half directory |
+| A release with the same versions keeps its venv | A reinstall costs nothing |
+| A running tag with other versions is refused | Its venv runs now, and a rebuild under it would change what runs |
+| A half-built venv is removed | It has a `python`, so the next run would take it for a finished one |
+| `current` moves last, with `ln -s` and `mv -h` (macOS) or `mv -T` (Linux) | A failure before the switch leaves the release that runs as it was |
+| A tarball member outside `maelstrom/`, or with a `..`, is refused | The bundle unpacks under the install root, and nothing may land beside it |
+| The changed components are added to `pending-changed` in the install root before setup runs | Setup deletes the record once the restarts succeed, so a setup that stops early leaves them to the next |
+
+The script reads `manifest.toml` with `awk`. The format is fixed and flat: one `key = value` per
+line, and one `[components.<name>]` table per component. `bin/build-bundle` writes it through
+`Manifest` in `mael_domain/release_bundle/layout.py`.
+
+`COMPONENTS` is in the script and in `layout.py`. Keep the two lists the same.
+
+With `--source DIR`, the script runs `git pull --ff-only` in `DIR`. Then it runs the checkout's
+own `install.sh`, because the pull can change it. It runs `bin/install` with
+`MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production notebook. Then
+`bin/build-bundle` makes a bundle tagged `main-<sha12>`. A tag that runs now is not built again.
+
+## Setup
+
+`mael self setup` is in `cli/src/mael_cli/self/setup.py`. Each step is safe to repeat, so every
+run applies all of them. `--changed`, with the components in `pending-changed`, decides what
+restarts. A unit whose file changed also reloads. A host service that does not load or restart
+fails the setup.
+
+| Step | What it does |
+|---|---|
+| Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
+| Migrate | Migrates `state/state.db`, and writes `orchestrator_url:` when it is unset |
+| Integrate | The Claude skills and hooks, then `harden_global_config` |
+| Shim | Writes `~/.local/bin/mael` |
+| Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |
+| Units | Stops `_main`'s env-managed orchestrator and daemon, then writes and loads the host service units |
+| Restart | Restarts the host services whose components changed, and that the load did not just start |
+| Scheduler | Writes and loads the hourly scheduler unit |
+
+**The migration comes before the restarts.** The orchestrator refuses an unmigrated `state.db`.
+Under `KeepAlive`, that refusal is a crash loop.
+
+**The units come after `_main` stops.** The env-managed daemon holds the flock on the daemon
+root, and the env-managed orchestrator holds the port. A host service started first fails on
+both.
+
+### The orchestrator URL
+
+Clients dial `orchestrator_url:` from `~/.maelstrom/state/config.yaml`. Setup moves a value from
+`~/.maelstrom/config.yaml` there, and writes a default when there is none.
+[configuration.md](../reference/configuration.md) gives the rules for the default and the bind.
+`ORCHESTRATOR_DEFAULT_PORT` in `setup.py` holds the port.
+
+Setup writes the key once, so a client never calls `tailscale` on each command. Each setup reads
+the key back and renders the orchestrator unit's `--host`, `--port` and TLS variables from it.
+
+### The production environment
+
+The units and the shim share `production_env()` in `production.py`:
+
+| Variable | Value |
+|---|---|
+| `MAEL_NOTEBOOK_ROOT` | `~/.maelstrom/state` |
+| `MAEL_AGENT_ROOT` | `~/.maelstrom/state/daemon` |
+| `MAEL_PRODUCTION` | `1` |
+| `PATH` | `service_path:` from `~/.maelstrom/state/config.yaml` |
+
+The first setup writes `service_path:`: `~/.local/bin`, then the PATH setup ran with, less any
+venv `bin`, then the system directories. The daemon's agents need `claude`, `git`, `uv` and the
+other tools of the user's shell. A venv `bin` is dropped, so a worktree's `mael` never shadows the
+shim. Later setups reuse the stored value, so a setup from another shell writes the same unit
+files and restarts nothing. Edit the key to change the units' PATH. The shim keeps the caller's
+PATH, and sets a root only when none is set.
+
+## The units
+
+`cli/src/mael_cli/self/host_service.py` holds the `HostService` specs and the two pure renderers,
+`render_plist` and `render_unit`. A `Supervisor` writes the files and drives the OS supervisor
+through an injected `run`. `supervisor()` picks `Launchd` on macOS and `Systemd` elsewhere.
+
+| Unit | launchd (`~/Library/LaunchAgents/<label>.plist`) | systemd (`~/.config/systemd/user/`) |
+|---|---|---|
+| orchestrator | `nz.tangerinelabs.maelstrom.orchestrator` | `maelstrom-orchestrator.service` |
+| agent-daemon | `nz.tangerinelabs.maelstrom.agent-daemon` | `maelstrom-agent-daemon.service` |
+| scheduler | `nz.tangerinelabs.mael_domain.schedule` | `maelstrom-schedule.service` and `.timer` |
+
+- The host services run `current/venv/bin/mael-orchestrator serve` and
+  `current/venv/bin/mael-agent-daemon serve`. `current` is a symlink, so a unit file does not
+  change between releases.
+- launchd: `RunAtLoad` and `KeepAlive`. The logs go to `~/.maelstrom/logs/service/<name>.log`.
+- systemd: `Restart=always`, `RestartSec=5` and `WantedBy=default.target`. Setup runs
+  `loginctl enable-linger $USER`, so the units run without a login. A failure there warns. The
+  logs go to the journal: `journalctl --user -u maelstrom-<name>.service`.
+- The scheduler runs `mael task add-scheduled --all-projects --run` through the shim, hourly. See
+  [scheduled-tasks.md](scheduled-tasks.md#firing-behaviour) for when it fires.
+
+`apply` loads a unit whose file changed or that is not loaded, and reports what it started. A
+loaded unit with the same file is left running. On macOS, `apply` waits for
+a booted-out job to unload before it bootstraps it again, and retries a bootstrap that races the
+teardown.
+
+### The restart mapping
+
+`RESTARTED_BY` maps a component to the host services it restarts:
+
+| Component | Restarts |
+|---|---|
+| `orchestrator` | orchestrator |
+| `web` | orchestrator, which serves it |
+| `agent-daemon` | agent-daemon |
+
+A component's SHA bucket holds its `depends`. A change in `common`, `agent`, `domain` or
+`python-deps` therefore moves `orchestrator` or `agent-daemon` too. On a first install every
+component has changed, so both host services start.
+
+## The `self` fence
+
+All `mael self` code is in `cli/src/mael_cli/self/`. Two import-linter contracts in
+`pyproject.toml` fence it:
+
+- `mael_cli.self` imports no other `mael_cli` module. It uses `mael_domain`, `mael_agent` and
+  `mael_common`.
+- No `mael_cli` module imports `mael_cli.self`, except `mael_cli.cli`, which registers the group.
+
+A later change can then carve `self` out into a binary of its own.
+
+## Testing
+
+| Suite | Seam |
+|---|---|
+| `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home |
+| `tests/test_release_bundle.py` (e2e) | A real bundle, installed with real uv and `--no-setup`, then served |
+
+The e2e install skips setup, because setup loads units into the real launchd or systemd whatever
+home it is given.
+
+## Known limits
+
+- On macOS the units are in the GUI domain, so they start at login, not at boot. Setup over `ssh`
+  with no console login cannot load them.
+- The orchestrator host service takes port 2772, which is also `_main`'s `ORCHESTRATOR_PORT`. In
+  `_main`, start only the services you need, such as `mael env start web -w maelstrom._main`.
+  Each setup stops `_main`'s env-managed orchestrator and daemon.
+- A host-service orchestrator does not renew the dev certificate. Only `mael env start` does.
+- An update run from an agent session of the production daemon stops that agent when the daemon
+  restarts. Run `mael self update` from a shell.

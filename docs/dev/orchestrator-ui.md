@@ -1898,7 +1898,7 @@ The provider validates and formats each **Feedback** type. See
 ## How to run it
 
 ```
-mael self-env start             # the always-there instance: web on 2770, orchestrator on 2772
+mael self restart orchestrator  # the always-there instance: a host service, at orchestrator_url
 mael env start                  # this worktree's own copy, on its floating ports
 mael env start ladle            # the component workbench, alone, on this worktree's LADLE_APP port
 mael env start web-fake         # the fake mode, alone, on this worktree's FAKE_FRONTEND port
@@ -1917,9 +1917,10 @@ port collides with the next worktree that tries.
 
 `mael env list` shows it under stopped services, and `mael env stop ladle` ends it.
 
-`mael self-env` runs the app from maelstrom's own `_main` worktree, on a reserved port base, so
-one instance is always at the same address whatever a NATO worktree is doing. See
-[the fixed environment](../guide/worktrees.md#the-fixed-environment).
+The `orchestrator` host service runs the always-there instance from the current release bundle.
+It serves the built UI from the release's `web` component, at `orchestrator_url:`, so one instance
+is always at the same address whatever a NATO worktree is doing. See
+[host services](host-services.md).
 
 Under maelstrom the `web` service always points at the `orchestrator` service, so start both. A
 worktree whose `.env` is missing a port a service needs — `ORCHESTRATOR_PORT`, or `LADLE_APP_PORT`
@@ -1927,8 +1928,8 @@ on a worktree opened before the port had that name — needs `mael env reset` on
 
 The dev server proxies `/api` to the orchestrator, WebSockets included. `ORCHESTRATOR_URL` names it
 — see [environment.md](../reference/environment.md). `pnpm build` produces a page with no proxy
-behind it: serving `orchestrator-ui/dist` needs the orchestrator on the same origin, and nothing
-does that yet.
+behind it, so the orchestrator serves it on its own origin: `mael-orchestrator serve --web-root`.
+A release's orchestrator defaults to that release's `web` component.
 
 **The change stream is the one exception: it skips the proxy.** `eventsUrl` builds its address
 from the page's own protocol and hostname, plus the orchestrator's port. A proxied stream never

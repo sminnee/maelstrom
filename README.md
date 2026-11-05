@@ -13,18 +13,24 @@ ports. It is a highly opinionated Swiss-army knife.
 ## Installation
 
 A release is a release bundle, `maelstrom.tar.gz`, on a
-[GitHub Release](https://github.com/sminnee/maelstrom/releases). Its installer puts maelstrom in
-`~/.maelstrom/install/`, apart from any checkout:
+[GitHub Release](https://github.com/sminnee/maelstrom/releases). One installer installs and
+upgrades it, on macOS and Linux. It needs only curl, tar and uv:
 
 ```bash
-gh release download --repo sminnee/maelstrom --pattern maelstrom.tar.gz
-tar xzf maelstrom.tar.gz
-uv run --no-project --python 3.13 maelstrom/install.py
-~/.maelstrom/install/current/venv/bin/mael self-update   # writes ~/.local/bin/mael
+curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 ```
 
-`mael self-update` installs the next release the same way. See
-[Getting started](docs/guide/getting-started.md).
+It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout, then runs
+`mael self setup`. Setup writes `~/.local/bin/mael`, installs the Claude Code skills and hooks,
+and starts the orchestrator and the agent daemon as host services. `mael self update` installs
+the next release. See [Getting started](docs/guide/getting-started.md).
+
+To install maelstrom from its own source, install a release first, so `mael` exists. Then:
+
+```bash
+mael project add sminnee/maelstrom      # gives ~/Projects/maelstrom/_main
+mael self update --channel main         # builds a bundle from _main and installs it
+```
 
 For local development:
 
@@ -34,12 +40,6 @@ cd maelstrom
 uv sync --extra dev
 uv tool install "tangier>=0.3.1"   # for the gates, the gate watch and service versions
 uv run mael --help
-```
-
-Then install the Claude Code skills and hooks:
-
-```bash
-mael install
 ```
 
 ### Prerequisites
@@ -117,7 +117,7 @@ deliberate local-shell escape hatch.
 | [Planning](docs/guide/planning.md) | Linear plan → plan-task → chain → PR |
 | [Pull requests](docs/guide/pull-requests.md) | The finishing sequence, code review, watching CI |
 | [Integrations](docs/guide/integrations.md) | Linear, Sentry, Slack, UptimeRobot, GitHub |
-| [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, build triggers, launchd |
+| [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, build triggers, the scheduler |
 | [Troubleshooting](docs/guide/troubleshooting.md) | `doctor`, `reconcile`, `session list`, common failures |
 
 ### Reference
@@ -133,7 +133,7 @@ deliberate local-shell escape hatch.
 - [Domain glossary](CONTEXT.md) — the domain terms, and the words to avoid for each.
 - [Architecture patterns](docs/dev/architecture-patterns.md) — the storage / model / CLI layering.
 - [The task domain model](docs/dev/tasks.md) — `parent` vs `follows`, ids, session discovery.
-- [Scheduled tasks](docs/dev/scheduled-tasks.md) — launchd firing mechanics.
+- [Scheduled tasks](docs/dev/scheduled-tasks.md) — launchd and systemd firing mechanics.
 - [cmux control](docs/dev/cmux.md) — how maelstrom drives the cmux socket.
 - [CI gates](docs/dev/ci.md) — the tangier gates, and how CI reuses a local pass.
 

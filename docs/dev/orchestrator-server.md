@@ -1009,9 +1009,9 @@ keeps the last one, because a reading arrives only while an agent takes a turn. 
 
 **The server never starts the daemon.** It polls, and reports what it finds. A server that
 started one served its own worktree's code to every session on the machine: it noticed the
-everyday daemon was gone before anything else did, and `mael-agent-daemon serve` under `uv run`
-resolved to that worktree's `.venv`. The banner is the whole response now, and
-`mael self-env start` is what brings the daemon back.
+production daemon was gone before anything else did, and `mael-agent-daemon serve` under `uv run`
+resolved to that worktree's `.venv`. The banner is the whole response now. The OS supervisor
+restarts the production daemon, and `mael self restart agent-daemon` restarts it by hand.
 
 Each agent row carries the child's `pid` while it is alive, so a client can name the process an
 agent is and `mael-agent-daemon list` can be read against the canvas.

@@ -60,4 +60,4 @@ When the system prompt teaches `<end-session>`, end a finished session with it.
 
 ## Operations
 
-Use `mael gh read-pr` for PR status, `mael gh check-log <run> --failed-only` for failures, and `mael gh download-artifact` for artifacts. Resolve Sentry issues only after confirming the current code fixes them; ask before that write. Run `mael uptimerobot status` for current availability. For scheduled tasks, start with `mael schedule status`.
+Use `mael gh read-pr` for PR status, `mael gh check-log <run> --failed-only` for failures, and `mael gh download-artifact` for artifacts. Resolve Sentry issues only after confirming the current code fixes them; ask before that write. Run `mael uptimerobot status` for current availability. For scheduled tasks and the host services, start with `mael self status`.

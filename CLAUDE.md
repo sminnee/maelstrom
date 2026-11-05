@@ -37,7 +37,9 @@ See `docs/dev/` for architecture and design docs:
   stay whole.
 - `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
   stack tip, and why only `gh stack link` is used.
-- `docs/dev/scheduled-tasks.md` — launchd firing mechanics for template tasks.
+- `docs/dev/scheduled-tasks.md` — how the scheduler fires template tasks, on launchd and systemd.
+- `docs/dev/host-services.md` — `install.sh` and `mael self setup`: the setup steps, the launchd
+  and systemd units, the restart mapping, why the migration comes first, and the `self` fence.
 - `docs/dev/ci.md` — the CI gates in `pipeline.toml`: how CI reuses a local pass, and the
   service buckets that give each service its version.
 - `docs/dev/testing.md` — which suite owns which contract, what an outer layer and e2e keep,
@@ -79,7 +81,7 @@ names (alpha, bravo, charlie, …) in a bare-like repository structure.
 
 The CLI is built with **Click**. `cli/src/mael_cli/cli.py` is the entry point; each subsystem
 adds its own command group (`task_cli.py`, `env_cli.py`, `git_cli.py`, `github_cli.py`,
-`session_cli.py`, `admin_cli.py`, and the `integrations/` package).
+`session_cli.py`, the `self/` package (`mael self`), and the `integrations/` package).
 The command groups are thin. The model and store modules they call are in the
 `mael_domain` package, in `lib/domain/`, which the orchestrator server also imports.
 

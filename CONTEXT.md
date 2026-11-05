@@ -488,9 +488,9 @@ and the worktree its code came from.
 The one directory a daemon owns: its socket, its lock, its pid file, its log and its `agents/`
 spawn records. `MAEL_AGENT_ROOT` names it, and nothing else does — there is no default. One
 daemon per root, enforced by the lock, so a session belongs to exactly one daemon. One owner per
-root too: the environment whose `.env` names it. `mael self-env start` runs the everyday daemon
-on `~/.maelstrom/daemons/_main`, `mael env start` runs a worktree's, and nothing else starts one.
-_Avoid_: Socket directory, spec dir, daemon home
+root too. The OS supervisor runs the production daemon as a **Host service** on
+`~/.maelstrom/state/daemon`, `mael env start` runs a worktree's, and nothing else starts one.
+_Avoid_: Socket directory, spec dir, daemon home, everyday daemon (say production daemon)
 
 **Wire contract**:
 What an agent daemon client sends and reads back: the request payloads, the replies to an ask,
@@ -1709,12 +1709,14 @@ _Avoid_: Subproject, module, crate
 ## Install
 
 How a host runs maelstrom apart from any checkout. See
-[`docs/adr/0001-maelstrom-installs-as-a-release-bundle.md`](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md).
+[`docs/adr/0001-maelstrom-installs-as-a-release-bundle.md`](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md),
+[`docs/adr/0002-one-installer-and-host-services.md`](docs/adr/0002-one-installer-and-host-services.md)
+and [`docs/dev/host-services.md`](docs/dev/host-services.md).
 
 **Release bundle**:
 The tarball a release publishes, `maelstrom.tar.gz`: a manifest and one directory per
-**Component**. The installer copies each component into `~/.maelstrom/install/` and moves the
-`current` link to the release.
+**Component**. The installer, `install.sh`, copies each component into `~/.maelstrom/install/`
+and moves the `current` link to the release.
 _Avoid_: package, distribution
 
 **Bundle kind**:
@@ -1727,6 +1729,13 @@ One part of a **Release bundle** with its own version: the hash of the **SHA buc
 name. A host installs each version of a component once. A component can be one wheel, the
 built UI, or the pinned third-party requirements.
 _Avoid_: module, package
+
+**Host service**:
+A process of the install that the OS supervisor runs and restarts: `orchestrator` or
+`agent-daemon`. It is a launchd agent on macOS and a systemd user unit on Linux, and it runs the
+`current` release. `mael self setup` installs it, and `mael self restart` restarts it. It is not a
+**Service**, which is a process from `.maelstrom.yaml` for one worktree.
+_Avoid_: Service, daemon (for the orchestrator), self-env
 
 ## Open questions
 

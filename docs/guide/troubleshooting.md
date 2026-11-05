@@ -115,7 +115,7 @@ Reconcile corrects three mismatches:
 
 A sandbox refused the connect, and the agent daemon is probably running. Confirm it outside the
 sandbox: run `uv run mael-agent-daemon status` from a maelstrom checkout. Then run
-`mael admin install`. See "A sandbox can deny the socket" in `docs/dev/agent-daemon.md`.
+`mael self setup`, which adds the sandbox exclusions. See "A sandbox can deny the socket" in `docs/dev/agent-daemon.md`.
 
 ---
 
@@ -151,7 +151,7 @@ removes the fallback, so it can legitimately return nothing.
 ### Task listings look wrong after a manual edit
 
 A task is a row in the state database, so a listing shows what was last written through
-`mael task`. Editing the markdown export at `~/.maelstrom/tasks` changes nothing a listing
+`mael task`. Editing the markdown export at `~/.maelstrom/state/tasks` changes nothing a listing
 reads — that tree is for audit and backup. Use `mael task update` or `mael task edit`.
 
 ---
@@ -308,16 +308,17 @@ gh auth login
 ### A scheduled task did not fire
 
 ```bash
-mael schedule status
+mael self status
 ```
 
-It reports the marker, the plist, whether launchd loaded the job, and the tail of
-`~/.maelstrom/schedule.log`.
+It reports each unit, whether the supervisor loaded it, and where its log is. The scheduler's
+log is `~/.maelstrom/schedule.log` on macOS, and the journal on Linux:
+`journalctl --user -u maelstrom-schedule.service`.
 
 Common causes:
 
-- **The agent was never installed.** It is opt-in per machine: `mael schedule install`.
-- **The Mac was asleep.** Maelstrom does not wake it. The job runs on the next wake, and
+- **The scheduler is not loaded.** Run `mael self setup`, which installs it again.
+- **The machine was asleep.** Maelstrom does not wake it. The job runs on the next wake, and
   there is **no backfill** — you get one catch-up run per template, not one per missed
   boundary.
 - **Nothing was due.** Every run writes a dated header to the log first, so a header with no

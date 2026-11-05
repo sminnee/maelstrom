@@ -16,7 +16,8 @@ Both commands ask the orchestrator server, at `GET /api/worktrees`. They read no
 GitHub themselves. When the server has not read every branch in the last 10 seconds, it does so
 before it answers, so the table is at most that old. Its own poll asks GitHub about the desk's
 branches only, so that read does not count. With no server configured or listening, the command
-fails and says so. Start one with `mael self-env start orchestrator`. A project the server does
+fails and says so. The `orchestrator` host service runs the server: `mael self restart orchestrator`
+restarts it. A project the server does
 not know is an error, not an empty table.
 
 `mael --json list-all` is the only machine-readable form of the worktree tables.

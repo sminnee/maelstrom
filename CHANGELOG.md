@@ -15,9 +15,22 @@ release while that section is empty, and retitles it to the version it is releas
 - **Maelstrom installs as a release bundle, apart from any checkout.** A release is
   `maelstrom.tar.gz` on a GitHub Release, which CI builds from the `v*` tag. Its installer puts
   each component in `~/.maelstrom/install/` once per version, and reports which changed. The
-  orchestrator serves the built UI beside its API. `mael self-update --channel stable|main`
+  orchestrator serves the built UI beside its API. `mael self update --channel stable|main`
   installs the latest release, or a bundle built from `_main`; `--tag` installs one release.
   See [the ADR](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md).
+- **One command installs or upgrades a host.** Run
+  `curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh`.
+  It needs only `curl`, `tar` and `uv`. `install.sh --source DIR` installs a bundle built from a
+  checkout. The installer ends with `mael self setup`, which migrates the notebook, installs the
+  Claude integration and the shim, and installs the host services. See
+  [Host services](docs/dev/host-services.md) and
+  [ADR 0002](docs/adr/0002-one-installer-and-host-services.md).
+- **The OS keeps the orchestrator and the agent daemon running.** They are host services: launchd
+  agents with `KeepAlive` on macOS, systemd user units with linger on Linux. A crash or a reboot
+  no longer leaves them down. An update restarts only the ones whose components changed.
+- **`mael self`** has five commands: `setup`, `update`, `status`, `uninstall` and `restart`.
+  `mael self status` reports the release, each host service, the scheduler, the log locations and
+  the export queue.
 - **The Changes tab pins code from outside the diff.** The file list has Changed | All and a
   search. A file picked from All pins whole, under Pinned. A "⋯ n lines" row between hunks pins
   the hidden lines into the diff card. A × unpins. Pins last per rev. See
@@ -178,6 +191,14 @@ release while that section is empty, and retitles it to the version it is releas
   instead of a test. A bug fix still writes its regression test first. A plan's **Seams under
   test** section is now **Test plan**. See
   [Build, then test what matters](docs/guide/multi-agent-workflow.md#build-then-test-what-matters).
+- **The production notebook moves to `~/.maelstrom/state`, and the production daemon root to
+  `~/.maelstrom/state/daemon`.** The first `mael self setup` moves `state.db`, `tasks/`,
+  `desk.json` and `~/.maelstrom/daemons/_main/` there, once. `orchestrator_url:` moves to
+  `~/.maelstrom/state/config.yaml`. When it is unset, setup writes it from `dev_host:`, the
+  tailnet name or `localhost`, on port 2772.
+- **The scheduler is always on.** On Linux it is a systemd timer with `Persistent=true`. The
+  `~/.maelstrom/schedule.enabled` marker is gone.
+- **Hints say `mael self restart`** where they said `mael self-env start`.
 - **A task an agent creates is on the canvas at once.** `mael task add`, `promote` and
   `load-many` now ask the orchestrator server to write the task, and the server puts every task
   it writes on the desk. A document approval's tasks join the desk too. The three commands fail
@@ -291,6 +312,16 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **`mael self-update`.** Use `mael self update`.
+- **`mael install`.** `mael self setup` installs the Claude integration.
+- **`mael schedule install|uninstall|status`.** `mael self setup` installs the scheduler,
+  `mael self uninstall` removes it, and `mael self status` reports it.
+- **`mael admin export-queue`.** `mael self status` reports the queue. `--rebuild` is now
+  `mael self setup --rebuild-export`.
+- **`mael self-env`.** The orchestrator and the agent daemon are host services: restart them with
+  `mael self restart`. For anything else on `_main`, use `mael env … -w maelstrom._main`.
+- **The manual `python -m mael_domain.state_db.migrate` after an install.** Setup migrates.
+- **`install.py`.** `install.sh` replaces it.
 - **The PyPI package `sminnee-maelstrom`.** Install from a GitHub Release instead. See
   [Getting started](docs/guide/getting-started.md).
 - **`mael session end` is removed.** A driven agent writes `<end-session>` instead.
