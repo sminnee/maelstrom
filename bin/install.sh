@@ -10,13 +10,15 @@
 #   --bundle FILE install a local maelstrom.tar.gz
 #   --source DIR  pull the git checkout DIR, build its bundle, and install that
 #   --root DIR    the install root (default: ~/.maelstrom/install)
-#   --no-setup    do not run `mael self setup` after the switch
+#   --no-setup    run neither `mael self check-host` nor `mael self setup`
 #
-# The script needs curl, tar and uv. uv fetches the Python the venv uses. It
-# places each component version once, builds the release's venv, and moves
-# `current` with one rename as its last step, so a failure leaves the release
-# that runs as it was. Then it runs the new release's `mael self setup`, which
-# brings the host to the state the release wants. See docs/dev/host-services.md.
+# The script needs curl and tar. It installs uv when uv is missing, and uv
+# fetches the Python the venv uses. It places each component version once,
+# builds the release's venv, and moves `current` with one rename as its last
+# step, so a failure leaves the release that runs as it was. On a first install
+# it then runs `mael self check-host`, which offers the host tools and the
+# sign-ins. Last, it runs the new release's `mael self setup`, which brings the
+# host to the state the release wants. See docs/dev/host-services.md.
 #
 # The body is one function, called on the last line, so that `curl | sh` runs
 # nothing until the whole script has arrived.
@@ -216,6 +218,22 @@ install_bundle() {
   install_tree "$3/unpacked/maelstrom" "$2"
 }
 
+# ensure_uv: install uv when it is not on PATH.
+ensure_uv() {
+  command -v uv >/dev/null && return 0
+  hint="Install uv with \`curl -LsSf https://astral.sh/uv/install.sh | sh\`, then run this again."
+  say "uv is not on PATH. Installing it..."
+  curl -LsSf https://astral.sh/uv/install.sh | sh || die "$hint"
+  # Where uv's installer puts it.
+  PATH="${UV_INSTALL_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH"
+  export PATH
+  command -v uv >/dev/null || die "$hint"
+}
+
+# has_tty: whether a user can answer a question. Under `curl | sh`, stdin is
+# the script, so the questions read /dev/tty.
+has_tty() { (exec </dev/tty) 2>/dev/null; }
+
 current_tag() {
   if [ -f "$1/current/$MANIFEST" ]; then
     manifest_key "$1/current/$MANIFEST" tag
@@ -250,9 +268,12 @@ main() {
     [ -z "$value" ] || given=$((given + 1))
   done
   [ "$given" -le 1 ] || die "give one of --tag, --bundle and --source"
-  command -v uv >/dev/null || die "uv is not on PATH: https://docs.astral.sh/uv/"
+  ensure_uv
   mkdir -p "$root"
   root="$(resolve "$root")"
+  # A first install offers the host tools before setup.
+  first=0
+  [ -f "$root/current/$MANIFEST" ] || first=1
 
   if [ -n "$source" ]; then
     source="$(resolve "$source")"
@@ -312,10 +333,25 @@ main() {
   mael="$root/current/venv/bin/mael"
   # The production shim sets it; setup runs before the shim exists.
   export MAEL_PRODUCTION=1
-  if [ -n "$source" ]; then
-    exec "$mael" self setup --changed "$changed" --source "$source"
+  if [ "$first" = 1 ]; then
+    # Setup writes orchestrator_url: from dev_host:, which the check sets. Its
+    # exit code is ignored: the host services start without gh or codex.
+    set -- self check-host
+    # A source install builds with node and pnpm.
+    [ -z "$source" ] || set -- "$@" --dev
+    if has_tty; then
+      "$mael" "$@" </dev/tty || true
+    else
+      "$mael" "$@" || true
+    fi
   fi
-  exec "$mael" self setup --changed "$changed"
+  set -- self setup --changed "$changed"
+  [ -z "$source" ] || set -- "$@" --source "$source"
+  # Setup asks for projects_dir: when it is unset.
+  if has_tty; then
+    exec "$mael" "$@" </dev/tty
+  fi
+  exec "$mael" "$@"
 }
 
 main "$@"
