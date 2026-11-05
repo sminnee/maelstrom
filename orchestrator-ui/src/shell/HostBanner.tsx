@@ -21,7 +21,7 @@ export function HostBanner() {
   return (
     <div className={styles.banner} role="status" data-host="unreachable">
       Agent host unreachable since {at}, showing the last known agents. Run{' '}
-      <code>mael self-env start</code>.
+      <code>mael self restart</code>.
     </div>
   );
 }

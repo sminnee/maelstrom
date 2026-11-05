@@ -99,7 +99,7 @@ class RootUnset(Exception):
 
     The one failure that has no safe default. A guessed root reaches another
     environment's agents, which is how a worktree's test code came to serve as
-    the everyday daemon.
+    the production daemon.
     """
 
     def __init__(self) -> None:
@@ -109,8 +109,8 @@ class RootUnset(Exception):
 #: What to tell someone whose environment names no root. Names both starters,
 #: because which one they want depends on the worktree they are standing in.
 ROOT_UNSET_MESSAGE = (
-    f"{ROOT_ENV} is not set. `mael self-env start` runs the everyday daemon; "
-    "`mael env start` runs this worktree's."
+    f"{ROOT_ENV} is not set. The installed `mael` names the production "
+    "daemon's root, and `mael env start` runs this worktree's daemon."
 )
 
 
@@ -140,16 +140,17 @@ def daemon_paths(root: str | Path | None = None) -> DaemonPaths:
 
 
 def all_roots(base: Path) -> list[DaemonPaths]:
-    """Every daemon root on this machine: ``base`` itself, plus each under ``daemons``.
+    """Every daemon root on this machine: the production one, ``base``, and each under ``daemons``.
 
-    An environment's daemon lives under ``<base>/daemons/<worktree>``, which is
-    where maelstrom's own ``.maelstrom.yaml`` puts it. ``base`` itself is
-    listed because the everyday daemon used to live there, and its records
-    outlive the move. A root set by hand anywhere else cannot be reached.
+    The production daemon's root is ``<base>/state/daemon``. An environment's
+    daemon lives under ``<base>/daemons/<worktree>``, which is where
+    maelstrom's own ``.maelstrom.yaml`` puts it. ``base`` itself is listed
+    because an old daemon lived there, and its records outlive the move. A root
+    set by hand anywhere else cannot be reached.
 
     ``base`` is the caller's: the transport knows no maelstrom directory.
     """
-    roots = [DaemonPaths(base)]
+    roots = [DaemonPaths(base / "state" / "daemon"), DaemonPaths(base)]
     daemons = base / "daemons"
     if daemons.is_dir():
         roots += [
@@ -210,7 +211,7 @@ def denied_message(socket_path: str) -> str:
         "permission denied. The daemon may well be running — a sandbox can "
         "deny a socket connect. Check with `uv run mael-agent-daemon status` "
         "from a maelstrom checkout, outside the sandbox, and run "
-        "`mael admin install` if so."
+        "`mael self setup` if so."
     )
 
 
@@ -222,8 +223,8 @@ def unreachable_message(paths: DaemonPaths) -> str:
     is wanted depends on the worktree the caller is standing in.
     """
     return (
-        f"{UNREACHABLE_MARKER} {paths.root}. Run `mael self-env start` "
-        "(everyday daemon) or `mael env start` (this worktree's)."
+        f"{UNREACHABLE_MARKER} {paths.root}. Run `mael self restart` "
+        "(the production daemon) or `mael env start` (this worktree's)."
     )
 
 

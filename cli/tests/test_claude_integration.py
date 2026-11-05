@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from mael_cli.claude_integration import (
+from mael_cli.self.claude_integration import (
     SANDBOX_EXCLUSIONS,
     install_sandbox_exclusions,
     remove_session_channel,
@@ -50,7 +50,7 @@ class TestSandboxExclusions:
         assert set(SANDBOX_EXCLUSIONS) <= set(_read(path))
 
     def test_it_adds_nothing_twice(self, tmp_path):
-        """`mael admin install` is run repeatedly, so it must not accumulate."""
+        """`mael self setup` runs on every update, so it must not accumulate."""
         path = _settings(tmp_path, {})
         install_sandbox_exclusions(path)
         install_sandbox_exclusions(path)
@@ -78,7 +78,7 @@ class TestRemoveSessionHooks:
     """An older `mael install` wrote hooks running `mael session record`.
 
     That command is gone with the session registry, so every one of them now
-    runs a missing binary. `mael install` clears them on the next run.
+    runs a missing binary. `mael self setup` clears them on the next run.
     """
 
     def test_removes_a_mael_hook(self, tmp_path):

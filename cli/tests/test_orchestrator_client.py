@@ -100,7 +100,7 @@ def test_a_url_with_nothing_listening_names_the_url_and_how_to_start_it(home):
         OrchestratorClient.from_config().get("/api/tasks")
 
     assert url in caught.value.message
-    assert "mael self-env start orchestrator" in caught.value.message
+    assert "mael self restart orchestrator" in caught.value.message
 
 
 @pytest.mark.binds_socket

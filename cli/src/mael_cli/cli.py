@@ -71,7 +71,6 @@ from mael_domain.worktree_model import (
 )
 from mael_domain.worktree_trash import trash_worktree_fully
 
-from .admin_cli import cmd_admin, cmd_install, cmd_self_env, cmd_self_update
 from .agent_cli import agent as agent_cli
 from .comms_cli import comms
 from .env_cli import (
@@ -91,7 +90,7 @@ from .integrations.uptimerobot_cli import uptimerobot_group
 from .json_flag import wants_json
 from .orchestrator_client import OrchestratorClient, tell_pr_changed
 from .project_cli import project as project_cli
-from .schedule_cli import schedule_group
+from .self.self_cli import self_group
 from .session_cli import session as session_cli
 from .table_cli import draw_table
 from .task_cli import _harness_options as _harness_flags
@@ -1751,12 +1750,8 @@ cli.add_command(uptimerobot_group)
 cli.add_command(session_cli)
 cli.add_command(task_cli)
 cli.add_command(wiki_cli)
-cli.add_command(schedule_group)
 cli.add_command(project_cli)
-cli.add_command(cmd_admin)
-cli.add_command(cmd_install)
-cli.add_command(cmd_self_update)
-cli.add_command(cmd_self_env)
+cli.add_command(self_group)
 cli.add_command(agent_cli)
 
 

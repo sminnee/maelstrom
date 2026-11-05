@@ -41,8 +41,7 @@ def make_store() -> JsonEnvStore:
     return JsonEnvStore()
 
 
-# Every verb that acts on one worktree takes it with -w. `mael self-env` finds
-# those verbs by this parameter name.
+# Every verb that acts on one worktree takes it with -w.
 WORKTREE_PARAM = "worktree_opt"
 worktree_option = click.option(
     "-w",

@@ -54,7 +54,7 @@ class OrchestratorUnreachable(OrchestratorError):
     def __init__(self, url: str, reason: object) -> None:
         super().__init__(
             f"No orchestrator answered at {url} ({reason}). "
-            "Start it with `mael self-env start orchestrator`."
+            "Start it with `mael self restart orchestrator`."
         )
         self.url = url
 

@@ -75,11 +75,11 @@ def test_a_closed_connection_and_a_malformed_line_are_error_replies():
 def test_an_unreachable_socket_is_an_error_reply_not_an_exception():
     """The server polls the daemon, so an absent one must not raise into the
     poll loop. It also must not start one: the worktree orchestrator that did
-    replaced the everyday daemon with its own test code."""
+    replaced the production daemon with its own test code."""
     client = SocketAsyncDaemonClient("/nonexistent/d.sock")
     reply = asyncio.run(client.request({"cmd": "list"}))
     assert "No agent daemon on /nonexistent" in reply["error"]
-    assert "mael self-env start" in reply["error"]
+    assert "mael self restart" in reply["error"]
 
 
 def test_attach_streams_lines_until_the_server_closes():

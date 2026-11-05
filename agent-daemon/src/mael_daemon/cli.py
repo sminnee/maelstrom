@@ -49,10 +49,10 @@ def _daemon_at(paths: DaemonPaths) -> AsyncDaemonClient:
 def cli() -> None:
     """Inspect the agent daemon, and run one as a service.
 
-    The environment manager owns a daemon's lifetime: `mael self-env start`
-    runs the everyday daemon, and `mael env start` runs this worktree's. Both
-    run `serve` as a service, so `mael self-env restart agent-daemon` is how a
-    daemon picks up new code.
+    A supervisor owns a daemon's lifetime: the OS runs the production daemon
+    as a host service, and `mael env start` runs this worktree's. Both run
+    `serve`, so `mael self restart agent-daemon` or `mael env restart
+    agent-daemon` is how a daemon picks up new code.
 
     `status` says which daemon is answering and whose code it runs, which is
     the question a long-lived daemon makes worth asking.
@@ -107,8 +107,8 @@ async def cmd_daemon_status() -> None:
                 "Error: the daemon on "
                 f"{paths.root} is older than this "
                 "code: it does not answer `ping`.\n"
-                "       Run `mael self-env restart agent-daemon` to serve from "
-                "this tree.",
+                "       Run `mael self restart agent-daemon` (production) or "
+                "`mael env restart agent-daemon` (a worktree) to serve new code.",
                 err=True,
             )
         sys.exit(1)

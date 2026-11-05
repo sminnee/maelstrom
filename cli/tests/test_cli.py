@@ -588,7 +588,7 @@ class TestStaleSymlinkCleanup:
 
     def test_removes_stale_symlink_into_source(self, tmp_path):
         """Stale symlinks pointing into source_dir are removed."""
-        from mael_cli.claude_integration import _symlink_items
+        from mael_cli.self.claude_integration import _symlink_items
 
         source = tmp_path / "source"
         source.mkdir()
@@ -607,7 +607,7 @@ class TestStaleSymlinkCleanup:
 
     def test_preserves_foreign_symlinks(self, tmp_path):
         """Symlinks pointing outside source_dir are not touched."""
-        from mael_cli.claude_integration import _symlink_items
+        from mael_cli.self.claude_integration import _symlink_items
 
         source = tmp_path / "source"
         source.mkdir()
@@ -629,7 +629,7 @@ class TestStaleSymlinkCleanup:
 
     def test_preserves_valid_symlinks(self, tmp_path):
         """Valid symlinks into source_dir are preserved."""
-        from mael_cli.claude_integration import _symlink_items
+        from mael_cli.self.claude_integration import _symlink_items
 
         source = tmp_path / "source"
         source.mkdir()
@@ -2071,7 +2071,7 @@ class TestMainExitCodes:
         assert code == 1
         err = capsys.readouterr().err
         assert "MAEL_AGENT_ROOT is not set" in err
-        assert "mael self-env start" in err
+        assert "production daemon" in err
         assert "Traceback" not in err
 
     def test_a_missing_notebook_root_is_an_error_not_a_traceback(
