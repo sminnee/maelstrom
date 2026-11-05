@@ -16,7 +16,8 @@ release while that section is empty, and retitles it to the version it is releas
   stack tip and its Linear link. The URL holds it as `?detail=<project>`, so a reload reopens
   it.
 - **Set up a project from the UI.** The detail dialog's **Set up** button creates and launches a
-  task that runs `/setup-project`.
+  task that runs `/setup-project`. **Add project** does the same after the clone, unless you
+  clear its **Set up after adding** box.
 
 ### Changed
 
