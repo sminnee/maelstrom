@@ -9,7 +9,7 @@ import tomllib
 from pathlib import Path
 
 from mael_domain.config import load_config
-from mael_domain.release_bundle.install import COMPONENTS
+from mael_domain.release_bundle.layout import COMPONENTS
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -20,7 +20,7 @@ def _buckets() -> set[str]:
 
 
 def test_every_core_service_has_a_bucket():
-    """Otherwise `mael self-update` never restarts it."""
+    """Otherwise a pull never restarts it."""
     services = {s.name for s in load_config(REPO).services if not s.optional}
     assert services <= _buckets()
 

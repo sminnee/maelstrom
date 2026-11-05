@@ -1,7 +1,7 @@
 """Build a release bundle from a checkout: ``bin/build-bundle``.
 
-CI runs it on a ``v*`` tag, and ``mael self-update --channel main`` runs
-``_main``'s copy. See "Release bundle" in CONTEXT.md.
+CI runs it on a ``v*`` tag, and ``bin/install.sh --source`` runs the
+checkout's own copy. See "Release bundle" in CONTEXT.md.
 """
 
 import argparse
@@ -14,8 +14,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from mael_domain.env import ServiceVersionError, service_versions
-from mael_domain.release_bundle import install
-from mael_domain.release_bundle.install import BUNDLE_DIR, COMPONENTS, Manifest
+from mael_domain.release_bundle.layout import (
+    BUNDLE_DIR,
+    COMPONENTS,
+    MANIFEST,
+    REQUIREMENTS,
+    Manifest,
+)
 
 #: The wheel each Python component is, by its distribution's file-name prefix.
 WHEELS = {
@@ -29,6 +34,8 @@ WHEELS = {
 
 UI = "orchestrator-ui"
 TARBALL = "maelstrom.tar.gz"
+#: The installer, copied into the bundle and published beside it.
+INSTALLER = "install.sh"
 
 
 class BuildError(RuntimeError):
@@ -94,12 +101,12 @@ def build_bundle(
                 "--format",
                 "requirements-txt",
                 "--output-file",
-                str(components / "python-deps" / install.REQUIREMENTS),
+                str(components / "python-deps" / REQUIREMENTS),
             ],
             repo,
         )
-        manifest.write(bundle / install.MANIFEST)
-        shutil.copy2(install.__file__, bundle / "install.py")
+        manifest.write(bundle / MANIFEST)
+        shutil.copy2(repo / "bin" / INSTALLER, bundle / INSTALLER)
         out.parent.mkdir(parents=True, exist_ok=True)
         with tarfile.open(out, "w:gz") as tar:
             tar.add(bundle, arcname=BUNDLE_DIR)

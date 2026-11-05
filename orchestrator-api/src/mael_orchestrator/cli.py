@@ -37,7 +37,7 @@ from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
-from mael_domain.release_bundle.install import installed_web_root
+from mael_domain.release_bundle.layout import installed_web_root
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
