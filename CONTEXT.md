@@ -1695,6 +1695,28 @@ The repository root is not a member: it builds nothing, and `uv sync` reads it t
 member into one environment.
 _Avoid_: Subproject, module, crate
 
+## Install
+
+How a host runs maelstrom apart from any checkout. See
+[`docs/adr/0001-maelstrom-installs-as-a-release-bundle.md`](docs/adr/0001-maelstrom-installs-as-a-release-bundle.md).
+
+**Release bundle**:
+The tarball a release publishes, `maelstrom.tar.gz`: a manifest and one directory per
+**Component**. The installer copies each component into `~/.maelstrom/install/` and moves the
+`current` link to the release.
+_Avoid_: package, distribution
+
+**Bundle kind**:
+What a **Release bundle** installs. It names the bundle's set of **Components**. Today the one
+kind is `host`.
+_Avoid_: flavour, profile
+
+**Component**:
+One part of a **Release bundle** with its own version: the hash of the **SHA bucket** of its
+name. A host installs each version of a component once. A component can be one wheel, the
+built UI, or the pinned third-party requirements.
+_Avoid_: module, package
+
 ## Open questions
 
 This is unresolved. Do not treat it as settled intent.
