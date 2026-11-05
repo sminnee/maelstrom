@@ -1,7 +1,8 @@
 # Host services
 
 How a host installs maelstrom, and how the OS keeps its **host services** running. The decisions
-are in [ADR 0002](../adr/0002-one-installer-and-host-services.md).
+are in [ADR 0002](../adr/0002-one-installer-and-host-services.md) and
+[ADR 0003](../adr/0003-check-host-provisions-a-fresh-host.md).
 
 A [host service](../../CONTEXT.md) is `orchestrator` or `agent-daemon`, run by the OS supervisor.
 It is not a **Service** of a worktree.
@@ -9,22 +10,28 @@ It is not a **Service** of a worktree.
 ## The flow
 
 ```
-curl … | sh  ─┐
-mael self update ─┼─▶ install.sh ──▶ components, venv, `current` ──▶ mael self setup --changed …
-sh install.sh --source DIR ─┘                                         (the new release's code)
+curl … | sh  ─┐                                                  first install only
+mael self update ─┼─▶ install.sh ──▶ components, venv, `current` ──▶ mael self check-host
+sh install.sh --source DIR ─┘                                                 │
+                                                                              ▼
+                                                     mael self setup --changed …
+                                                     (the new release's code)
 ```
 
-1. `bin/install.sh` places the release under `~/.maelstrom/install/` and moves `current`.
-2. It runs `current/venv/bin/mael self setup --changed <components>`.
-3. Setup brings the host to the state the release wants.
+1. `bin/install.sh` installs uv when it is missing.
+2. It places the release under `~/.maelstrom/install/` and moves `current`.
+3. On a first install, it runs `current/venv/bin/mael self check-host`.
+4. It runs `current/venv/bin/mael self setup --changed <components>`.
+5. Setup brings the host to the state the release wants.
 
 `mael self update` runs `install.sh` for the stored channel. See
 [the CLI reference](../reference/cli.md#host-control-mael-self).
 
 ## The installer
 
-`bin/install.sh` is POSIX `sh`. Its prerequisites are `curl`, `tar` and `uv`. uv fetches Python
-3.13 for the venv. The whole script is one `main` function, so `curl | sh` runs nothing until the
+`bin/install.sh` is POSIX `sh`. Its prerequisites are `curl` and `tar`. It installs uv with uv's
+own installer when uv is not on PATH, and stops with that command when the install fails. uv
+fetches Python 3.13 for the venv. The whole script is one `main` function, so `curl | sh` runs nothing until the
 script has arrived.
 
 | Rule | Why |
@@ -36,6 +43,9 @@ script has arrived.
 | `current` moves last, with `ln -s` and `mv -h` (macOS) or `mv -T` (Linux) | A failure before the switch leaves the release that runs as it was |
 | A tarball member outside `maelstrom/`, or with a `..`, is refused | The bundle unpacks under the install root, and nothing may land beside it |
 | The changed components are added to `pending-changed` in the install root before setup runs | Setup deletes the record once the restarts succeed, so a setup that stops early leaves them to the next |
+| `check-host` runs only when there was no `current/manifest.toml` before the install | An update must not prompt, and a tool the user declined would be asked about on each update |
+| `check-host`'s exit code is ignored | The host services start without `gh` or `codex` |
+| `check-host` and setup read `/dev/tty` when it opens | Under `curl \| sh`, stdin is the script |
 
 The script reads `manifest.toml` with `awk`. The format is fixed and flat: one `key = value` per
 line, and one `[components.<name>]` table per component. `bin/build-bundle` writes it through
@@ -57,8 +67,9 @@ fails the setup.
 
 | Step | What it does |
 |---|---|
+| Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. Asks only when the key is unset and stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
-| Migrate | Migrates `state/state.db`, and writes `orchestrator_url:` when it is unset |
+| Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset |
 | Integrate | The Claude skills and hooks, then `harden_global_config` |
 | Shim | Writes `~/.local/bin/mael` |
 | Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |
@@ -75,13 +86,18 @@ both.
 
 ### The orchestrator URL
 
-Clients dial `orchestrator_url:` from `~/.maelstrom/state/config.yaml`. Setup moves a value from
-`~/.maelstrom/config.yaml` there, and writes a default when there is none.
+Clients dial `orchestrator_url:` from `~/.maelstrom/config.yaml`. For the production root,
+`~/.maelstrom/state`, `load_config_at()` reads that file alone: the root holds only the notebook.
+For every other notebook root it drops the global key, so a dev environment never reaches the
+real server. Setup moves `orchestrator_url:` and `service_path:` from an older
+`~/.maelstrom/state/config.yaml` up, and names anything else left in that file. It writes a
+default URL when there is none.
 [configuration.md](../reference/configuration.md) gives the rules for the default and the bind.
 `ORCHESTRATOR_DEFAULT_PORT` in `setup.py` holds the port.
 
 Setup writes the key once, so a client never calls `tailscale` on each command. Each setup reads
 the key back and renders the orchestrator unit's `--host`, `--port` and TLS variables from it.
+The last line of setup names the URL.
 
 ### The production environment
 
@@ -92,7 +108,7 @@ The units and the shim share `production_env()` in `production.py`:
 | `MAEL_NOTEBOOK_ROOT` | `~/.maelstrom/state` |
 | `MAEL_AGENT_ROOT` | `~/.maelstrom/state/daemon` |
 | `MAEL_PRODUCTION` | `1` |
-| `PATH` | `service_path:` from `~/.maelstrom/state/config.yaml` |
+| `PATH` | `service_path:` from `~/.maelstrom/config.yaml` |
 
 The first setup writes `service_path:`: `~/.local/bin`, then the PATH setup ran with, less any
 venv `bin`, then the system directories. The daemon's agents need `claude`, `git`, `uv` and the
@@ -100,6 +116,43 @@ other tools of the user's shell. A venv `bin` is dropped, so a worktree's `mael`
 shim. Later setups reuse the stored value, so a setup from another shell writes the same unit
 files and restarts nothing. Edit the key to change the units' PATH. The shim keeps the caller's
 PATH, and sets a root only when none is set.
+
+## Host check
+
+`mael self check-host` is in `cli/src/mael_cli/self/host_check.py`. The check is one list,
+`HOST_ITEMS`. Each entry is a `HostCheckItem`: `applies()` says whether it counts on this host,
+`check()` returns a `Finding` (met, and the line that says so), and `remedy()` returns a `Remedy`
+(the hint, and a fix to run after a yes). `HostCheck` holds every outside effect as a field, as
+`Setup` does, and works through the list. A met item prints one `✓` line and asks nothing. After
+a fix, the item is checked again. So every run is safe to repeat. A new check is a new subclass
+in the list.
+
+| Items | What they do |
+|---|---|
+| `PackageManager` | `brew` on macOS, offering the Homebrew installer. `apt-get` on Linux |
+| `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
+| `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
+| `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
+| `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
+| `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |
+
+**The check runs before setup.** Setup writes `orchestrator_url:` once, from `dev_host:` and
+`dev_https:`. The check sets those two keys, so it must come first. A `dev_host:` set after setup
+does not change the URL: the check names the key to edit.
+
+**Tools are probed on the host services' PATH**, `agent_path()`. The question is whether the
+agents find a tool. `cmd_check_host` also puts that PATH in its own environment, so a step finds
+a tool an earlier step installed, such as uv in `~/.local/bin`.
+
+`--dev` adds `node` and `pnpm`. `install.sh --source` passes it. [ADR 0003](../adr/0003-check-host-provisions-a-fresh-host.md)
+gives the Node rationale.
+
+Without a tty, the check asks nothing. It runs only the secret-file fix, which only narrows a mode.
+It exits 1 when a required tool is
+missing, or `gh` or `claude` is signed out.
+
+`mael project check` keeps the worktree `.env` permissions. The files under `~/.maelstrom` are the
+host check's.
 
 ## The units
 
@@ -157,7 +210,8 @@ A later change can then carve `self` out into a binary of its own.
 
 | Suite | Seam |
 |---|---|
-| `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home |
+| `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home; `Setup` with fakes |
+| `cli/tests/test_host_check.py` | `HostCheck` on a fake host, on both platforms |
 | `tests/test_release_bundle.py` (e2e) | A real bundle, installed with real uv and `--no-setup`, then served |
 
 The e2e install skips setup, because setup loads units into the real launchd or systemd whatever

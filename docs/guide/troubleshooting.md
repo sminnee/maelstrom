@@ -6,21 +6,21 @@ sections, this page is organised by subsystem — find the heading that matches 
 ## Start here
 
 ```bash
-mael doctor            # project health, with automatic fixes
+mael project check     # project health, with automatic fixes
 mael cmux status       # can maelstrom reach cmux?
 mael list              # what every worktree is doing — see listing.md
 mael session list      # live Claude sessions
 mael task reconcile    # do tasks and sessions agree?
 ```
 
-## `mael doctor`
+## `mael project check`
 
-Doctor runs fourteen checks in order and fixes what it safely can. Each reports **OK**,
+The check runs fourteen checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
 |---|---|
-| `.mael` marker | No — its absence means this is not a maelstrom project, and doctor stops. |
+| `.mael` marker | No — its absence means this is not a maelstrom project, and the check stops. |
 | `core.bare = true` | Yes |
 | Standard fetch refspec | Yes |
 | `origin` remote configured | No |
@@ -28,20 +28,20 @@ Doctor runs fourteen checks in order and fixes what it safely can. Each reports 
 | Remote default branch exists | No — try `git fetch origin`. |
 | Default branch tracks its remote | Yes — a bare clone sets no upstream, so `git pull` in `_main` fails. |
 | Local main against origin | Yes |
-| Default branch is checked out in `_main` | No — moving it moves a checkout you may be working in. Doctor prints the commands. |
+| Default branch is checked out in `_main` | No — moving it moves a checkout you may be working in. The check prints the commands. |
 | Stale worktree registrations | Yes |
 | Port allocations against worktrees | Yes |
 | `.env` section markers | Reports |
-| Permissions on files holding secrets | Yes |
-| `_main`'s editable install points into `_main` | Reports — the repair reinstalls a machine-wide tool, so doctor names it rather than running it. |
+| Permissions on worktree `.env` files | Yes |
+| `_main`'s editable install points into `_main` | Reports — the repair reinstalls a machine-wide tool, so the check names it rather than running it. |
 
 Run it against a specific project:
 
 ```bash
-mael doctor myproject
+mael project check myproject
 ```
 
-Doctor reads the default branch from `refs/remotes/origin/HEAD`, so a project on `develop`,
+The check reads the default branch from `refs/remotes/origin/HEAD`, so a project on `develop`,
 `master` or any other branch is checked against that branch. The rest of maelstrom still
 assumes `main`.
 
@@ -212,13 +212,13 @@ all follow from it. A plain `mv` breaks two of these silently:
   administrative directory, and the repository records an absolute path back to
   each worktree. After a `mv` both point at directories that no longer exist, so
   git commands fail inside every worktree.
-- **The next `mael doctor` deletes the port allocations.** Allocations are keyed
-  by absolute project path. `doctor` prunes allocations whose worktree folders it
+- **The next `mael project check` deletes the port allocations.** Allocations are keyed
+  by absolute project path. `project check` prunes allocations whose worktree folders it
   cannot find, so it garbage-collects every port base for the project. Each
   worktree then gets new ports on its next start.
 
 `mael project mv` repairs the git pointers and moves the allocations across. Run
-it with `--dry-run` first to see the full plan, and `mael doctor NEW` afterwards.
+it with `--dry-run` first to see the full plan, and `mael project check NEW` afterwards.
 
 It does not migrate Claude sessions. Session ids derive from the project name, so
 a rename orphans them: `mael task run` starts a fresh session rather than

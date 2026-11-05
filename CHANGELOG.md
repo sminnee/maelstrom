@@ -18,6 +18,12 @@ release while that section is empty, and retitles it to the version it is releas
 - **Set up a project from the UI.** The detail dialog's **Set up** button creates and launches a
   task that runs `/setup-project`. **Add project** does the same after the clone, unless you
   clear its **Set up after adding** box.
+- **`mael self check-host` takes a fresh macOS or Ubuntu Server 24.04 host to a working one.** It
+  checks the tools, the sign-ins, Tailscale and the secret files, prints the `brew` or `apt`
+  command for each missing item, and runs it after a yes. `install.sh` runs it on a first
+  install, and installs uv when it is missing.
+- **`mael self setup` asks where projects live** when `projects_dir:` is unset, and ends with the
+  orchestrator's URL.
 
 ### Changed
 
@@ -25,6 +31,13 @@ release while that section is empty, and retitles it to the version it is releas
   writes `services:` in `.maelstrom.yaml` and proves each service with `mael env start`. Then it
   audits the project against a shorter checklist. The task runs in normal mode, and the skill
   enters plan mode for the audit. `mael self setup` removes the old skill link.
+- **`mael doctor` is now `mael project check`**, and checks only the project.
+- **Production reads one config file, `~/.maelstrom/config.yaml`.** Setup moves
+  `orchestrator_url:` and `service_path:` up from `~/.maelstrom/state/config.yaml`.
+
+### Removed
+
+- **`~/.maelstrom.yaml` is no longer read.** Move its contents into `~/.maelstrom/config.yaml`.
 
 ## [0.2.0] - 2026-11-06
 

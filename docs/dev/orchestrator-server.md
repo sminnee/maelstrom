@@ -897,7 +897,7 @@ workflow's cancel is a red build even when another workflow on that commit passe
 The page is also a window in time, not a set of branches. So four cases read `checks-unreadable`:
 a commit whose build has fallen off the end of the page, a commit nothing has run yet, a commit
 whose runs all reached no verdict, and a repository that grants neither permission. All four are
-the same honest answer — nothing looked these checks up — and `mael doctor` names the last, which
+the same honest answer — nothing looked these checks up — and `mael project check` names the last, which
 is the one a user can fix.
 
 ### What a landing read costs

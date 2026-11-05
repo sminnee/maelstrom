@@ -1743,6 +1743,14 @@ A process of the install that the OS supervisor runs and restarts: `orchestrator
 **Service**, which is a process from `.maelstrom.yaml` for one worktree.
 _Avoid_: Service, daemon (for the orchestrator), self-env
 
+**Host check**:
+The check of the machine outside maelstrom's own install: the host tools, the sign-ins,
+Tailscale and the secret files under `~/.maelstrom`. `mael self check-host` runs it, and
+installs or signs in only after a yes. The install runs it on a first install only. It is not
+`mael self setup`, which applies maelstrom's own install, nor `mael project check`,
+which checks one project.
+_Avoid_: doctor, host doctor
+
 ## Open questions
 
 This is unresolved. Do not treat it as settled intent.

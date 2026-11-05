@@ -4,19 +4,22 @@ From nothing to a running agent session.
 
 ## Prerequisites
 
-The install commands below assume macOS. Maelstrom also runs on Linux: there, systemd user
-units take the place of the launchd agents.
+Maelstrom runs on macOS and on Ubuntu Server 24.04. The installer needs only `curl` and `tar`.
+On a first install, `mael self check-host` offers every other tool.
 
-| Tool | Why | Install |
+| Tool | Why | Required |
 |---|---|---|
-| [uv](https://docs.astral.sh/uv/) | Installs and runs maelstrom. | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
-| [Claude Code](https://claude.com/claude-code) | The agent maelstrom launches. | `npm install -g @anthropic-ai/claude-code` |
-| [cmux](https://github.com/sminnee/cmux) | Manages the workspaces sessions run in. | See the cmux README. |
-| [GitHub CLI](https://cli.github.com/) | Pull requests and CI. | `brew install gh && gh auth login` |
-| git | Worktrees. | Preinstalled on macOS. |
+| git | Worktrees. | Yes |
+| [GitHub CLI](https://cli.github.com/) (`gh`) | Pull requests and CI. | Yes |
+| [uv](https://docs.astral.sh/uv/) | Installs and runs maelstrom. | Yes |
+| [Claude Code](https://claude.com/claude-code) (`claude`) | The agent maelstrom launches. | Yes |
+| `lsof` | Finds the worktree each process runs in. | Yes |
+| [Codex](https://github.com/openai/codex) (`codex`) | A second agent. It installs through npm, so it needs Node. | No |
+| [Tailscale](https://tailscale.com/) | Reaches the orchestrator and the dev servers from other devices, over HTTPS. | No |
+| [tangier](https://pypi.org/project/tangier/) | Runs a project's gates. | No |
+| [cmux](https://github.com/sminnee/cmux) | Shows sessions in workspaces. macOS only; install it from its README. | No |
 
-Only `uv` and git are needed to create worktrees. You need cmux and Claude Code to launch
-agent sessions, and `gh` for pull requests.
+A release install needs no Node and no pnpm: the bundle carries the built web UI.
 
 ## 1. Install maelstrom
 
@@ -26,13 +29,37 @@ Run the installer:
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 ```
 
-It needs only curl, tar and uv. uv fetches the Python the release uses. The installer writes the
-latest release bundle to `~/.maelstrom/install/`, then runs `mael self setup`. Setup writes
-`~/.local/bin/mael`, installs the Claude Code skills and hooks, and starts the host services and
-the scheduler. See [host services](../dev/host-services.md). Put `~/.local/bin` on your PATH if it
-is not there already.
+The installer does these steps:
 
-Run the same line again to upgrade, or run `mael self update`.
+1. It installs uv when uv is missing. uv fetches the Python the release uses.
+2. It writes the latest release bundle to `~/.maelstrom/install/`.
+3. On a first install, it runs `mael self check-host`.
+4. It runs `mael self setup`.
+
+`check-host` checks each tool in the table above. For a missing tool, it prints the `brew` or
+`apt-get` command, and runs it after a yes. Then it checks the sign-ins to `gh`, `claude` and
+`codex`, and offers each login. When Tailscale is installed, it offers to connect the machine,
+to set `dev_host:` to the tailnet name, and to issue a certificate for `dev_https:`. Run
+`mael self check-host` again at any time. A met item asks nothing.
+
+Setup asks where your projects live, when `projects_dir:` is unset. It writes
+`~/.local/bin/mael`, installs the Claude Code skills and hooks, and starts the host services and
+the scheduler. See [host services](../dev/host-services.md). The last line names the URL of the
+orchestrator. Put `~/.local/bin` on your PATH if it is not there already: `check-host` prints
+the line to add.
+
+Run the same line again to upgrade, or run `mael self update`. An upgrade does not run
+`check-host`. It asks for `projects_dir:` only when the key is unset.
+
+### On Ubuntu Server
+
+The `check-host` commands use `apt-get` and `sudo`. Node comes from the NodeSource 22 repository,
+because Ubuntu's own `nodejs` is v18. Tailscale runs `sudo tailscale up`, and makes you its
+operator, so that `tailscale cert` runs without sudo.
+
+cmux is not available on Linux. Agents run under the agent daemon, and the orchestrator UI shows
+them. A `mael` command that opens a cmux pane reports that it cannot reach cmux. The agent runs
+anyway, and `mael agent attach` reaches it.
 
 ### Install from source
 
@@ -50,20 +77,20 @@ Check it worked:
 
 ```bash
 mael --version
-mael cmux status      # confirms maelstrom can reach cmux
+mael self status      # the release and the host services
 ```
 
-## 2. Point maelstrom at your projects directory
+## 2. Check your projects directory
 
-Maelstrom keeps every project under one directory. The default is `~/Projects`. To use
-another, create `~/.maelstrom/config.yaml`:
+Maelstrom keeps every project under one directory. Setup asked for it, and wrote it to
+`~/.maelstrom/config.yaml`. The default is `~/Projects`. To change it, edit the file:
 
 ```yaml
 projects_dir: ~/Code
 open_command: cursor      # optional; default is "code"
 ```
 
-Set this **before** you add a project. `mael project add --projects-dir` only affects the
+Change it **before** you add a project. `mael project add --projects-dir` only affects the
 clone; every other command reads `projects_dir` from this file.
 
 ## 3. Add a project
