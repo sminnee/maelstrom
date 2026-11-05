@@ -167,6 +167,11 @@ class EnvWorktree(Protocol):
 #: :class:`CloseBlocked` when cmux cannot. Blocking: it shells out to cmux.
 EnsureTerminal = Callable[[str, str, str], str]
 
+#: Clones a git URL as a new **Project**, as ``mael project add`` does. Raises
+#: :class:`CloseBlocked` with git's words when the clone fails. Blocking: it
+#: shells out to git.
+AddProject = Callable[[str], None]
+
 #: The terminal's ``cmux://`` link, by ``(project, nato)``, for the open
 #: worktrees it is given: ``pairs -> {(project, nato): url}``. A worktree with
 #: no terminal is absent. Blocking: cmux is asked over a subprocess.
@@ -487,6 +492,9 @@ class WorktreeSource(Protocol):
 
     #: Makes a worktree's terminal and returns its link, or ``None``.
     ensure_terminal: EnsureTerminal | None
+
+    #: Clones a new project, or ``None`` on a source that cannot.
+    add_project: AddProject | None
 
     @property
     def rate_limited(self) -> bool:
@@ -1102,8 +1110,10 @@ class InMemoryWorktreeSource:
         ensure_terminal: EnsureTerminal | None = None,
         prs: PrStateCache | None = None,
         auto_merge: AutoMergeWorktreePr | None = None,
+        add_project: AddProject | None = None,
     ) -> None:
         self.projects = list(projects or [])
+        self.add_project = add_project
         #: A real cache over a fake read, for a test of the PR watch. A read
         #: refreshes it for each project's open worktree branches.
         self.prs = prs
@@ -1197,8 +1207,10 @@ class ListAllWorktreeSource:
         ensure_terminal: EnsureTerminal | None = None,
         terminal_urls: TerminalUrls = _no_terminal_urls,
         prs: PrStateCache | None = None,
+        add_project: AddProject | None = None,
     ) -> None:
         self.projects_dir = projects_dir
+        self.add_project = add_project
         self.terminal_urls = terminal_urls
         self.prs = prs or PrStateCache()
         self.close = close

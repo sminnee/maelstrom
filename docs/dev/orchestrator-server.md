@@ -1697,6 +1697,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/load-many` | `{project, text, defaultParent?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
+| `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |

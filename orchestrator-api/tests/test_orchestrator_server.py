@@ -17,7 +17,7 @@ from pathlib import Path
 import aiohttp
 import pytest
 from agent_fixtures import make_change_comment, read_stamped_fixture
-from git_helpers import create_commit, setup_git_repo, setup_origin_main
+from git_helpers import bare_remote, create_commit, setup_git_repo, setup_origin_main
 from git_helpers import run_git as git
 from yarl import URL
 
@@ -69,8 +69,10 @@ from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
+from mael_domain.worktree_model import extract_project_name
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
+from mael_orchestrator.cli import clone_project
 from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.language_servers import LanguageServers
 from mael_orchestrator.live_feedback import LiveFeedbackHub
@@ -82,7 +84,7 @@ from mael_orchestrator.sources import (
     NotebookTaskSource,
     PrStateCache,
 )
-from mael_orchestrator.world_build import split_task_key
+from mael_orchestrator.world_build import project_entity, split_task_key
 
 NOW = "2026-09-01T00:00:00Z"
 PROJECT = "northwind"
@@ -11877,3 +11879,125 @@ def test_without_a_web_root_no_ui_is_served(harness):
     reply = run(scenario())
     assert reply.status == 404
     assert reply.body["error"]["code"] == "unknown_id"
+
+
+# ---------------------------------------------------------------------------
+# project.add
+# ---------------------------------------------------------------------------
+
+
+def _clone_into(harness, projects_dir: Path):
+    """The production clone, and the project row the next read would build."""
+
+    def add(git_url: str) -> None:
+        clone_project(projects_dir, git_url)
+        name = extract_project_name(git_url)
+        harness.worktrees.projects.append(project_entity({"name": name}))
+
+    return add
+
+
+def test_adding_a_project_clones_it_and_the_world_holds_it_at_the_end(
+    harness, tmp_path
+):
+    projects_dir = tmp_path / "Projects"
+    harness.worktrees.add_project = _clone_into(harness, projects_dir)
+    remote = bare_remote(tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            op = await operated(api, "/api/projects", {"gitUrl": str(remote)})
+            return op, await api.get_json("/api/projects")
+
+    op, projects = run(scenario())
+    assert (op["state"], op["kind"], op["words"]) == (
+        "done",
+        "addProject",
+        "Added demo",
+    )
+    assert "demo" in [p["id"] for p in projects["projects"]]
+    assert (projects_dir / "demo").is_dir()
+
+
+def test_a_project_added_while_a_read_runs_is_in_the_world_when_it_ends(
+    harness_factory, tmp_path
+):
+    """The read in flight listed the projects before the clone. Ending on it
+    would leave the new row off the Projects tab until the next poll."""
+    harness = harness_factory(worktree_poll=30.0)
+    harness.worktrees.add_project = _clone_into(harness, tmp_path / "Projects")
+    remote = bare_remote(tmp_path)
+    source = harness.worktrees
+    plain = source.read
+    gate = asyncio.Event()
+
+    async def stale_read(active_branches=None):
+        rows = plain(active_branches)
+        await gate.wait()
+        return rows
+
+    async def scenario():
+        async with harness.client() as api:
+            source.read = stale_read
+            in_flight = asyncio.create_task(harness.orch.refresh_worktrees())
+            reply = await api.post("/api/projects", {"gitUrl": str(remote)})
+            op_id = reply.body["operationId"]
+
+            def cloned() -> bool:
+                steps = harness.orch.world["operations"][op_id]["steps"]
+                return any(s["name"] == "clone" and s["state"] == "done" for s in steps)
+
+            # The clone is done and the refresh has begun: a refresh that does
+            # not wait out the read in flight ends the operation here.
+            await wait_until(cloned)
+            await asyncio.sleep(0.05)
+            assert harness.orch.world["operations"][op_id]["state"] == "running"
+            gate.set()
+            await in_flight
+            source.read = plain
+            op = await ended(api, op_id)
+            return op, list(harness.orch.world["projects"])
+
+    op, projects = run(scenario())
+    assert op["state"] == "done"
+    assert "demo" in projects
+
+
+def test_a_clone_that_fails_says_what_git_said(harness, tmp_path):
+    harness.worktrees.add_project = _clone_into(harness, tmp_path / "Projects")
+    missing = tmp_path / "missing.git"
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/projects", {"gitUrl": str(missing)})
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert op["steps"][0]["state"] == "refused"
+    assert "does not exist" in op["words"]
+
+
+def test_a_folder_the_world_does_not_hold_refuses_the_clone(harness, tmp_path):
+    """Validation passes a name the world lacks; the folder on disk still refuses."""
+    projects_dir = tmp_path / "Projects"
+    (projects_dir / "demo").mkdir(parents=True)
+    harness.worktrees.add_project = _clone_into(harness, projects_dir)
+    remote = bare_remote(tmp_path)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/projects", {"gitUrl": str(remote)})
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert "already exists" in op["words"]
+
+
+def test_a_server_that_cannot_add_projects_says_so(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/projects", {"gitUrl": "git@x:acme/demo.git"})
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "cannot add projects" in reply.body["error"]["message"]

@@ -169,6 +169,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_post("/api/operations/{id}/retry", _retry_operation)
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
+    app.router.add_post("/api/projects", _add_project)
     app.router.add_post("/api/tasks/promote", _promote_tasks)
     app.router.add_post("/api/tasks/load-many", _load_many_tasks)
     app.router.add_get("/api/linear/issues", _linear_issues)
@@ -1129,6 +1130,13 @@ async def _linear_plan(request: web.Request) -> web.StreamResponse:
     """Plan a Linear issue. It reads Linear and names a branch, so it runs as an operation."""
     return await _command(
         request, lambda body: {**body, "type": "linear.plan"}, status=202
+    )
+
+
+async def _add_project(request: web.Request) -> web.StreamResponse:
+    """Clone a git URL as a new project, as ``mael project add`` does. Always ``202``."""
+    return await _command(
+        request, lambda body: {**body, "type": "project.add"}, status=202
     )
 
 

@@ -133,7 +133,7 @@ from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
-from mael_domain.worktree_model import get_worktree_folder_name
+from mael_domain.worktree_model import extract_project_name, get_worktree_folder_name
 from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
@@ -1221,7 +1221,11 @@ class Orchestrator:
         )
 
     async def refresh_worktrees(
-        self, extra_branches: set[str] | None = None, *, every_branch: bool = False
+        self,
+        extra_branches: set[str] | None = None,
+        *,
+        every_branch: bool = False,
+        force: bool = False,
     ) -> None:
         """Re-read ``list-all``, one read in flight at a time.
 
@@ -1232,12 +1236,18 @@ class Orchestrator:
         :class:`mael_orchestrator.sources.PrStateCache`. ``extra_branches`` are
         asked about beyond the desk. ``every_branch`` asks about every branch
         on disk. A read that names some, or all, waits out one in flight, which
-        chose its branches without them.
+        chose its branches without them. ``force`` waits one out too, for a
+        change on disk that the read in flight may have missed.
 
         The landing sync reads GitHub too, so it is skipped while the PR cache
         stands off, and a refusal it meets stands the cache off.
         """
-        if self._worktree_read.locked() and not extra_branches and not every_branch:
+        if (
+            self._worktree_read.locked()
+            and not extra_branches
+            and not every_branch
+            and not force
+        ):
             return
         async with self._worktree_read:
             # Read before the await; the world below is re-read after it,
@@ -2344,6 +2354,7 @@ class Orchestrator:
             "comm.updateUpdate": self._update_comm_update,
             "linear.plan": self._operate,
             "agent.start": self._operate,
+            "project.add": self._operate,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
             "worktree.close": self._operate,
@@ -3223,6 +3234,8 @@ class Orchestrator:
             return self._linear_plan(command)
         if kind == "agent.start":
             return self._start_plan(command)
+        if kind == "project.add":
+            return self._add_project_plan(command)
         return self._worktree_plan(command)
 
     # -- launch kinds --
@@ -3493,6 +3506,38 @@ class Orchestrator:
             steps=steps + (LAUNCH_STEPS if launch else ()),
             replay=frozenset({"read_issue", "name_task", *LAUNCH_STEPS}),
             task_id=launching.task_id or None,
+        )
+
+    def _add_project_plan(
+        self, command: dict[str, Any]
+    ) -> OperationPlan | dict[str, Any]:
+        """Clone a new project: the equivalent of ``mael project add``. Runs on the worktree pool."""
+        add = self.worktrees.add_project
+        if add is None:
+            return _refused("invalid", "This server cannot add projects")
+        git_url = command["gitUrl"].strip()
+        name = extract_project_name(git_url)
+
+        async def clone() -> StepOutcome:
+            try:
+                await self._run_worktree(add, git_url)
+            except CloseBlocked as exc:
+                return StepOutcome(blocked=str(exc))
+            return StepOutcome(messages=[f"Cloned {git_url}."])
+
+        async def work(hook: OperationHook) -> None:
+            await _run_own_steps([Step(name="clone", run=clone)], hook)
+
+        return OperationPlan(
+            "addProject",
+            frozenset({f"project:{name}"}),
+            f"Adding {name}",
+            f"Added {name}",
+            f"Could not add {name}",
+            work,
+            lambda: self.refresh_worktrees(force=True),
+            project=name,
+            steps=("clone",),
         )
 
     def _start_plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
