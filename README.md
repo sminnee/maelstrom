@@ -14,14 +14,16 @@ ports. It is a highly opinionated Swiss-army knife.
 
 A release is a release bundle, `maelstrom.tar.gz`, on a
 [GitHub Release](https://github.com/sminnee/maelstrom/releases). One installer installs and
-upgrades it, on macOS and Linux. It needs only curl, tar and uv:
+upgrades it, on macOS and Ubuntu Server 24.04. It needs only curl and tar, and installs uv
+itself:
 
 ```bash
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 ```
 
-It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout, then runs
-`mael self setup`. Setup writes `~/.local/bin/mael`, installs the Claude Code skills and hooks,
+It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout. On a first install it runs
+`mael self check-host`, which offers the host tools and the sign-ins. Then it runs
+`mael self setup`. Setup asks where your projects live, writes `~/.local/bin/mael`, installs the Claude Code skills and hooks,
 and starts the orchestrator and the agent daemon as host services. `mael self update` installs
 the next release. See [Getting started](docs/guide/getting-started.md).
 
@@ -44,12 +46,10 @@ uv run mael --help
 
 ### Prerequisites
 
-[uv](https://docs.astral.sh/uv/), git, [Claude Code](https://claude.com/claude-code),
-[cmux](https://github.com/sminnee/cmux) and [GitHub CLI](https://cli.github.com/). Only `uv`
-and git are needed to create worktrees; cmux and Claude Code are needed to launch agent
-sessions. See
-[Getting started](docs/guide/getting-started.md#prerequisites) for what each one is for and
-how to install it.
+`mael self check-host` checks each tool and sign-in, and offers to install or fix each one. The
+installer runs it on a first install; run it again at any time. See
+[Getting started](docs/guide/getting-started.md#prerequisites) for what each tool is for.
+[cmux](https://github.com/sminnee/cmux) is optional, and macOS only: install it from its README.
 
 ## Quick start
 
@@ -118,7 +118,7 @@ deliberate local-shell escape hatch.
 | [Pull requests](docs/guide/pull-requests.md) | The finishing sequence, code review, watching CI |
 | [Integrations](docs/guide/integrations.md) | Linear, Sentry, Slack, UptimeRobot, GitHub |
 | [Scheduled work](docs/guide/scheduled-work.md) | Templates, cron, build triggers, the scheduler |
-| [Troubleshooting](docs/guide/troubleshooting.md) | `doctor`, `reconcile`, `session list`, common failures |
+| [Troubleshooting](docs/guide/troubleshooting.md) | `project check`, `reconcile`, `session list`, common failures |
 
 ### Reference
 

@@ -1337,7 +1337,7 @@ Records are never deleted, so a machine that runs agents for months accumulates 
 file per agent.
 
 Records are written owner-only (`0600`, in a `0700` directory). `env` holds whatever a client
-passed to `start`, and that has no allowlist, so a record can hold a secret. `mael doctor`
+passed to `start`, and that has no allowlist, so a record can hold a secret. `mael self check-host`
 tightens a record it finds loose.
 
 ### The resume rules

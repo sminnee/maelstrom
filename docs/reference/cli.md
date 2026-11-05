@@ -52,12 +52,12 @@ The `mael project` group adds, creates, renames and lists projects.
 | `mael project create NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael project mv OLD NEW` | Rename a project and everything derived from its name. |
 | `mael project list` | List every project under the projects directory, with its path and worktree count. Reads no git status, no ports and no sessions, so it stays fast where `mael list-all` does not. Supports `mael --json project list`. |
-| `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
+| `mael project check [PROJECT]` | Check one project's git layout, remotes, worktrees, ports and `.env` files, and fix the safe issues. For the host, run `mael self check-host`. |
 
 ```bash
 mael project add https://github.com/org/repo.git  # clone into maelstrom's layout
 mael project list
-mael doctor myproject        # check project health, and fix what it can
+mael project check myproject        # check project health, and fix what it can
 ```
 
 **`mael project add`**
@@ -108,7 +108,7 @@ Out of scope — these are not changed:
 - **`remote.origin.url`**, unless you pass `--git-url`.
 - **Committed files.** A project name in `README.md` or `CLAUDE.md` stays as it is.
 
-Run `mael doctor NEW` afterwards.
+Run `mael project check NEW` afterwards.
 
 ---
 
@@ -1308,7 +1308,8 @@ With no monitors configured, these commands fall back to every monitor on the ac
 ## The installer (`install.sh`)
 
 `install.sh` installs or upgrades the release bundle in `~/.maelstrom/install/`, then runs the new
-release's `mael self setup`. See [host services](../dev/host-services.md#the-installer).
+release's `mael self setup`. It installs uv first when uv is missing. On a first install, it runs
+`mael self check-host` before setup, with `--dev` for `--source`. See [host services](../dev/host-services.md#the-installer).
 
 ```bash
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
@@ -1321,7 +1322,7 @@ curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install
 | `--bundle FILE` | Install a local `maelstrom.tar.gz`. |
 | `--source DIR` | Pull the git checkout `DIR`, build its bundle, tagged `main-<sha12>`, and install that. |
 | `--root DIR` | The install root. Default: `~/.maelstrom/install`. |
-| `--no-setup` | Do not run `mael self setup` after the switch. |
+| `--no-setup` | Run neither `mael self check-host` nor `mael self setup` after the switch. |
 
 Give at most one of `--tag`, `--bundle` and `--source`.
 
@@ -1334,6 +1335,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | Command | Description |
 |---|---|
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
+| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the markdown export queue. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
@@ -1341,6 +1343,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 
 ```bash
 mael self status                     # run this first when a host service or a scheduled task fails
+mael self check-host                 # check the tools and sign-ins, and offer to fix each
 mael self update                     # install the latest release on the stored channel
 mael self update --channel main      # build and install _main
 mael self update --tag v0.2.0rc1     # install one GitHub Release
@@ -1356,14 +1359,46 @@ mael self setup --rebuild-export     # repair the host, and re-export every task
 | `--source DIRECTORY` | The checkout the release was built from. Links its jig plugin (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). |
 | `--rebuild-export` | Queue every task for the markdown export, whatever the queue holds. For a file that went missing without its row changing, which no ordinary write re-queues. |
 
-Setup moves an older install's state into `~/.maelstrom/state` once, migrates `state.db`, writes
-`orchestrator_url:` when it is unset (see [configuration.md](configuration.md)), installs the
-Claude integration and the `mael` shim, then loads the host services and the scheduler. It
+Setup asks for `projects_dir:` when it is unset and a terminal can answer. Without a terminal,
+it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
+migrates `state.db`, writes `orchestrator_url:` when it is unset (see
+[configuration.md](configuration.md)), installs the Claude integration and the `mael` shim, then
+loads the host services and the scheduler. Its last line names the orchestrator URL. It
 restarts only the host services whose components or unit files changed. See
 [host services](../dev/host-services.md#setup) for each step and its order.
 
 A migration is forward-only and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".
+
+**`mael self check-host`**
+
+| Option | Description |
+|---|---|
+| `--dev` | Also check `node` and `pnpm`, which only a source install (`install.sh --source`) uses. |
+
+The check runs these steps in order:
+
+1. **Package manager.** `brew` on macOS, `apt-get` on Linux. Without Homebrew, it prints the
+   Homebrew install line and skips every `brew` command.
+2. **Tools.** Required: `git`, `gh`, `uv`, `claude`, `lsof`. Optional: `codex`, `tailscale`,
+   `tangier`. For a missing tool, it prints the install command, and runs it after a yes. Codex
+   installs through npm, so a yes to `codex` without Node installs Node first.
+3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
+   and each spawn record to 0600.
+4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
+   login.
+5. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
+   operator. It offers to set `dev_host:` to the tailnet name, and to issue a certificate. It
+   writes `dev_https: true` only when the certificate issues.
+6. **PATH.** It warns when `~/.local/bin` is not on your PATH.
+
+Without a terminal, the check asks nothing. It runs only the secret-file fix, which only narrows a
+mode. It looks up tools on the host services' PATH.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Every required tool is installed, and `gh` and `claude` are signed in. |
+| 1 | A required item is unmet. The last line names each one. |
 
 **`mael self update`**
 

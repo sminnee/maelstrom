@@ -328,7 +328,7 @@ in a worktree are skipped. A conflicting rebase aborts and skips that branch.
 ## Health
 
 ```bash
-mael doctor
+mael project check
 ```
 
 Checks and repairs the project layout:

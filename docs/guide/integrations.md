@@ -26,7 +26,7 @@ slack:
     alerts: "https://hooks.slack.com/services/T000/B000/xxx"
 ```
 
-This file holds plaintext secrets. `mael doctor` checks its permissions.
+This file holds plaintext secrets. `mael self check-host` checks its permissions.
 
 ---
 

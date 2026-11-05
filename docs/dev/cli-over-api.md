@@ -33,7 +33,7 @@ same shape: a wire contract and a client surface, so the CLI never imports `mael
 
 | Question | Answer |
 |---|---|
-| Where is the server? | The `orchestrator_url:` key in `$MAEL_NOTEBOOK_ROOT/config.yaml`: `~/.maelstrom/state/config.yaml` for everyday use, and a dev environment's own file beside its `state.db`. The notebook and its server are found the same way, so a dev environment never reaches the everyday server. The client has no default. `mael self setup` writes the everyday value when it is unset. |
+| Where is the server? | The `orchestrator_url:` key: in `~/.maelstrom/config.yaml` for production, and in a dev environment's own `config.yaml` beside its `state.db`. A dev environment never reads the global key, so it never reaches the production server. The client has no default. `mael self setup` writes the production value when it is unset. |
 | What does it send? | Ids. The server runs on this machine, so the client resolves the cwd, `$MAEL_TASK_ID` and `--project` to the wire id `<project>/<notebook id>` itself. |
 | What if the key is unset? | `OrchestratorUnconfigured`. The message names the key. |
 | What if no server answers? | `OrchestratorUnreachable`. The message names the URL and `mael self restart orchestrator`. |
@@ -54,7 +54,7 @@ no domain in the package split below.
 |---|---|---|
 | **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch), `task add/promote/load-many` | The state is the server's. Both sides already call the same domain function. |
 | **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
-| **C. Stays local** | `self *`, `doctor`, `cmux status`, `session info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `task add --edit`, `task load-many --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self setup` installs it, and `self restart orchestrator` restarts it. The rest use the TTY or `$EDITOR`, or exec into the caller's shell. |
+| **C. Stays local** | `self *`, `project check`, `cmux status`, `session info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `task add --edit`, `task load-many --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self setup` installs it, and `self restart orchestrator` restarts it. The rest use the TTY or `$EDITOR`, or exec into the caller's shell. |
 | **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `base/stack-tip/promote/eject`, `wiki *`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
 | **E. Already a thin client** | `agent show/say/run/approve/…` | They speak the agent daemon's wire contract. |
 
