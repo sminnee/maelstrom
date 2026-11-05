@@ -68,9 +68,13 @@
     padding: var(--bar-pad);
   }
   /* A rule on the top and the left: whichever edge meets the row shows, and
-     the other falls outside the bar. */
+     the other falls outside the bar. Below about 380px the five views cannot
+     fit: the strip scrolls, and the page keeps its width. */
   .views {
-    flex: 1000 0 auto;
+    flex: 1000 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
     border-radius: 0;
     background: transparent;
     box-shadow:
@@ -80,8 +84,12 @@
   .view + .view {
     border-left-color: var(--border);
   }
-  .view {
-    flex: 1;
+  /* Five views share a phone's width: each gives up its padding before its label. */
+  .view,
+  .view:first-child,
+  .view:last-child {
+    flex: 1 0 auto;
+    padding-inline: var(--u-half);
   }
   /* The raised fill does not show on a raised bar, so the view in front takes
      the rule the deck's zone tabs use. */
