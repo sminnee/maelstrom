@@ -1327,14 +1327,16 @@ None of these take options beyond `--help`.
 | `mael admin export-queue --rebuild` | Queue every task for export. For a file that went missing without its row changing — deleted by hand, or lost to a git failure — which no ordinary write re-queues. |
 | `mael doctor [PROJECT]` | Check project health and fix issues automatically. |
 | `mael install` | Install maelstrom's Claude Code skills and hooks into `~/.claude/`. |
-| `mael self-update` | Update maelstrom to the latest version from git. Always updates `_main`, whichever worktree you run it from — the install is shared by the whole machine. Also points the `mael` on your PATH at the everyday daemon's root, so a bare `mael agent …` reaches it. After the pull it reinstalls the CLI only when its `cli` SHA bucket moved. When the `jig` SHA bucket moved, it builds `_main`'s `vite-plugin-mael-jig` and registers it with `pnpm link --global`, so a project can use it in place of the npm release (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)); a missing or failing `pnpm` only warns. Then it runs `install_cmd` in `_main`, which migrates the state database, then restarts the `_main` services whose [service version](../../CONTEXT.md) moved. If `install_cmd` fails, it restarts nothing and names `mael self-env restart --install`. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
+| `mael self-update [--channel stable\|main] [--tag TAG]` | Install the latest [release bundle](../../CONTEXT.md) into `~/.maelstrom/install/`, and move its `current` link. The `stable` channel downloads the latest GitHub Release with `gh`; `--tag` installs another one (stable channel only), such as a pre-release or an older version to roll back to. The `main` channel pulls `_main`, runs its `install_cmd`, which migrates the state database, and stops if that fails. Then it builds a bundle with `_main/bin/build-bundle`, tagged `main-<commit>`. A release that runs already is not fetched or built again. `--channel` stores the channel as `update_channel` in `config.yaml`; without it the stored channel is used, else `stable`. It reports which components changed, then writes `~/.local/bin/mael`, which runs the current release with the everyday daemon's root and the notebook root. On the `main` channel it then restarts the `_main` services whose [service version](../../CONTEXT.md) moved, and, when the `jig` SHA bucket moved, builds `_main`'s `vite-plugin-mael-jig` and registers it with `pnpm link --global` (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). On the `stable` channel the services still run from `_main`: restart them with `mael self-env restart`. A restarted agent daemon resumes the agents it stopped mid-turn. Run it from a shell: an agent of the `_main` daemon that runs it stops itself, and the daemon stays down. |
 | `mael self-env <VERB>` | `mael env <VERB>` aimed at maelstrom's own `_main`. `mael self-env start` runs the everyday agent daemon, which is a service of that environment. |
 
 ```bash
 mael admin export-queue      # what the markdown export still owes
 mael install                 # skills and hooks into ~/.claude/
 mael doctor myproject        # check project health, and fix what it can
-mael self-update             # pull, then restart only what the pull changed
+mael self-update             # install the latest release on the stored channel
+mael self-update --channel main      # build and install _main, then restart what moved
+mael self-update --tag v0.2.0rc1     # install one GitHub Release
 mael self-env start          # maelstrom's own orchestrator, web UI and the everyday daemon
 mael self-env status
 mael self-env restart agent-daemon   # the everyday daemon picks up new code
@@ -1344,6 +1346,7 @@ mael self-env stop
 `mael-orchestrator serve` refuses a state database written by a different build. The install
 script, `bin/install`, creates and upgrades the database. It runs as the project's `install_cmd`:
 on each worktree open, on `mael env start` and `mael env restart --install`, and in `_main` on
-`mael self-update`. A PyPI install runs `python -m mael_domain.state_db.migrate` instead. A migration is forward-only
-and has no undo. See
+`mael self-update --channel main`. On the `stable` channel nothing migrates the database: run
+`~/.maelstrom/install/current/venv/bin/python -m mael_domain.state_db.migrate`. A migration is
+forward-only and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".

@@ -3,17 +3,29 @@
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import click
 
 from mael_agent.agent_transport import ROOT_ENV
 from mael_common.cli_async import AsyncGroup
-from mael_common.shell import mael_path
-from mael_common.util import get_maelstrom_dir, now_iso, sanitise_child_env
-from mael_domain.context import harden_global_config
+from mael_common.util import get_maelstrom_dir, now_iso
+from mael_domain.context import (
+    GLOBAL_CONFIG_FILENAME,
+    UPDATE_CHANNELS,
+    harden_global_config,
+    load_global_config,
+    set_update_channel,
+)
 from mael_domain.env import ServiceVersionError, restart_changed, service_versions
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
+from mael_domain.release_bundle.install import (
+    InstallError,
+    current_manifest,
+    format_report,
+    install_bundle,
+)
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
@@ -35,110 +47,9 @@ def cmd_install():
         click.echo(msg)
 
 
-#: Marks a `mael` that is already a shim, so a second update replaces it
-#: rather than wrapping it again.
-SHIM_MARKER = "# maelstrom daemon-root shim"
-
-#: A `mael` under this directory belongs to a virtualenv, not to the PATH
-#: install. Under `uv run` that is what the name resolves to.
-VENV_DIR = ".venv"
-
-
-def _write_daemon_root_shim() -> str:
-    """Give the `mael` on PATH the everyday daemon's root.
-
-    That `mael` is a uv entrypoint, which reads no `.env`. `UV_ENV_FILE` only
-    reaches `uv run` in a directory that has one, so a bare `mael agent list`
-    anywhere else names no root and has no daemon to reach.
-
-    The shim supplies `_main`'s root only when nothing else has: a worktree's
-    `uv run mael` and a command inside a driven session both arrive with a root
-    already set, and overriding either would send it to the wrong daemon.
-
-    A `mael` inside a virtualenv is left alone. Under `uv run` the name resolves
-    to the worktree's own `.venv/bin/mael`, and shimming there would corrupt
-    that venv while leaving the real PATH entrypoint rootless.
-
-    The lookup runs against a sanitised environment. `mael` lives in
-    `_main/.venv/bin`, and an inherited activation puts that directory first on
-    PATH, so a raw lookup names the venv copy wherever the command is run — and
-    the test above then skips every `mael`, including the one on the real PATH.
-
-    Best-effort, like the dependency sync above it: the update has already
-    landed by this point, so a `mael` that cannot be rewritten warns rather than
-    aborting, and the entrypoint is put back the way it was.
-
-    Returns what to tell the user.
-    """
-    path = Path(mael_path(sanitise_child_env(os.environ)))
-    root = get_maelstrom_dir() / "daemons" / MAIN_WORKTREE_FOLDER
-    if VENV_DIR in path.parts:
-        return (
-            f"`mael` at {path} is a virtualenv entrypoint, not the `mael` on "
-            "your PATH, so it was left alone. Run `mael self-update` outside a "
-            "worktree to point your PATH `mael` at a daemon root."
-        )
-    advice = (
-        f"Warning: could not point `mael` at {root}. "
-        f"Set {ROOT_ENV} in your shell instead."
-    )
-    real = path.with_name(f"{path.name}-real")
-    try:
-        moved = SHIM_MARKER not in path.read_text(errors="replace")
-        if moved:
-            # First time: move the entrypoint aside, so the shim can exec it.
-            path.replace(real)
-    except OSError:
-        return advice
-    shim = (
-        "#!/bin/sh\n"
-        f"{SHIM_MARKER} — written by `mael self-update`.\n"
-        "# The everyday daemon's root, unless something already named one.\n"
-        f'export {ROOT_ENV}="${{{ROOT_ENV}:-{root}}}"\n'
-        f'export {NOTEBOOK_ROOT_ENV}="${{{NOTEBOOK_ROOT_ENV}:-{get_maelstrom_dir()}}}"\n'
-        "export MAEL_PRODUCTION=1\n"
-        f'exec "{real}" "$@"\n'
-    )
-    try:
-        path.write_text(shim)
-        path.chmod(0o755)
-    except OSError:
-        # The rename already happened, so returning here would leave the user
-        # with no `mael` at all — and no way to act on the advice.
-        if moved:
-            real.replace(path)
-        return advice
-    return f"`mael` reaches the daemon on {root}"
-
-
-def resolve_install_root(module_dir: Path) -> Path:
-    """The checkout ``self-update`` reinstalls: ``_main``, not the caller's worktree.
-
-    The editable install is shared by the whole machine, so its target must not
-    depend on which copy of the source happens to be running. Deriving it from
-    ``__file__`` did exactly that: ``mael self-update`` run from a worktree
-    repointed the install at that worktree, and every bare ``mael`` then ran
-    its in-progress code.
-
-    A checkout with no ``_main`` beside it is an ordinary clone rather than a
-    maelstrom project, and updates in place.
-
-    Args:
-        module_dir: The ``mael_cli`` package directory, i.e. ``__file__``'s parent.
-
-    Returns:
-        The checkout to pull and reinstall.
-    """
-    # cli/src/mael_cli/ -> the repository root.
-    repo_root = module_dir.parents[2]
-    if repo_root.name == MAIN_WORKTREE_FOLDER:
-        return repo_root
-    main = repo_root.parent / MAIN_WORKTREE_FOLDER
-    return main if main.is_dir() else repo_root
-
-
-#: The tangier SHA bucket that hashes the CLI and the libraries it bundles.
-CLI_BUCKET = "cli"
+#: The repository whose GitHub Releases carry the stable channel's bundles.
+RELEASE_REPO = "sminnee/maelstrom"
+TARBALL = "maelstrom.tar.gz"
 
 #: The tangier SHA bucket that hashes the jig's Vite plugin, and its package.
 JIG_BUCKET = "jig"
@@ -148,102 +59,62 @@ JIG_PACKAGE = "vite-plugin-mael-jig"
 AGENT_DAEMON_SERVICE = "agent-daemon"
 
 
+def install_root() -> Path:
+    """Where releases install: ``~/.maelstrom/install``."""
+    return get_maelstrom_dir() / "install"
+
+
+def shim_path() -> Path:
+    """The `mael` on PATH: ``~/.local/bin/mael``, where uv puts tool entry points."""
+    return Path.home() / ".local" / "bin" / "mael"
+
+
 @click.command("self-update")
-def cmd_self_update():
-    """Update maelstrom to the latest version from git."""
-    # Always `_main`, whichever worktree's copy of this code is running.
-    repo_root = resolve_install_root(Path(__file__).parent)
-    git_dir = repo_root / ".git"
-
-    # Check if it's a git checkout
-    if not git_dir.exists():
-        raise click.ClickException(
-            "Cannot self-update: maelstrom is not installed from a git checkout. "
-            "Please reinstall from git or use your package manager to update."
-        )
-
-    # The SHA buckets before the pull. Only a change to the CLI or its
-    # libraries needs the slow reinstall, and only a change to the jig a relink.
-    before = _bucket_hashes(repo_root)
-
-    # Run git pull
-    click.echo(f"Updating maelstrom from {repo_root}...")
-    try:
-        result = subprocess.run(
-            ["git", "pull"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        if result.stdout.strip():
-            click.echo(result.stdout)
-        if result.stderr.strip():
-            click.echo(result.stderr, err=True)
-    except subprocess.CalledProcessError as e:
-        raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or str(e)}")
-
-    # Re-sync dependencies. `git pull` updates the source, but a new dependency
-    # in pyproject.toml is invisible to the installed environment until uv
-    # re-resolves it — so commands that import the new package crash with
-    # ModuleNotFoundError after an otherwise-successful self-update. Reinstall
-    # the editable tool to pick up dependency changes.
-    #
-    # This is best-effort: the pull already landed, so a missing/failing uv must
-    # warn rather than abort. Installs that aren't uv tools (plain `uv run`, a
-    # system package manager) handle their own deps and simply skip this.
-    after = _bucket_hashes(repo_root)
-    cli_before = before.get(CLI_BUCKET)
-    uv = shutil.which("uv")
-    if cli_before is not None and cli_before == after.get(CLI_BUCKET):
-        # No version on either side fails open: the reinstall runs.
-        click.echo("CLI unchanged; skipping its reinstall.")
-    elif uv is None:
-        click.echo(
-            "  Warning: 'uv' not found; skipping dependency sync. If a new "
-            "dependency was added, reinstall maelstrom to pick it up.",
-            err=True,
-        )
+@click.option(
+    "--channel",
+    type=click.Choice(UPDATE_CHANNELS),
+    help="Where to update from, stored in config.yaml for later updates: "
+    "`stable` (the latest GitHub Release) or `main` (a bundle built from "
+    "_main). Default: the stored channel, else stable.",
+)
+@click.option(
+    "--tag",
+    help="Install this GitHub Release, such as a pre-release or an older "
+    "version to roll back to. Stable channel only.",
+)
+def cmd_self_update(channel: str | None, tag: str | None):
+    """Install the latest release bundle of maelstrom."""
+    if channel is None:
+        channel = load_global_config().update_channel
+        stored = False
     else:
-        click.echo("Syncing dependencies...")
-        # --force overwrites the existing `mael` entrypoint: self-update always
-        # reinstalls over a live install, and without it uv aborts with
-        # "Executable already exists: mael".
-        sync = subprocess.run(
-            [
-                uv,
-                "tool",
-                "install",
-                "--editable",
-                # The workspace root builds no package.
-                str(repo_root / "cli"),
-                "--reinstall",
-                "--force",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        # uv writes its progress to stderr; surface it whatever the outcome.
-        if sync.stderr.strip():
-            click.echo(sync.stderr, err=True)
-        if sync.returncode != 0:
-            click.echo(
-                "  Warning: dependency sync failed. The code updated, but new "
-                "dependencies may be missing — reinstall maelstrom manually if "
-                "commands fail.",
-                err=True,
-            )
+        stored = True
+    if tag is not None and channel != "stable":
+        raise click.UsageError("--tag names a GitHub Release: use --channel stable.")
+    if stored:
+        set_update_channel(get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME, channel)
+        click.echo(f"Update channel: {channel}")
 
-    # Unlike the CLI, no hash skips: the jig is a developer override, and the
-    # npm release serves everyone else.
-    if after.get(JIG_BUCKET) is not None and before.get(JIG_BUCKET) != after.get(
-        JIG_BUCKET
-    ):
-        _link_jig(repo_root / JIG_PACKAGE)
+    root = install_root()
+    main: Path | None = None
+    jig_moved = False
+    with tempfile.TemporaryDirectory() as tmp:
+        if channel == "stable":
+            bundle = _fetch_stable(root, Path(tmp), tag)
+        else:
+            main = load_global_config().projects_dir / SELF_ENV_PROJECT
+            main = main / MAIN_WORKTREE_FOLDER
+            bundle, jig_moved = _build_main(root, main, Path(tmp))
+        if bundle is not None:
+            try:
+                report = install_bundle(bundle, root)
+            except (InstallError, OSError, subprocess.CalledProcessError) as e:
+                raise click.ClickException(f"The install failed: {e}") from e
+            for line in format_report(report):
+                click.echo(line)
 
     click.echo("Updating Claude Code integration...")
-    messages = install_claude_integration()
-    for msg in messages:
+    for msg in install_claude_integration():
         click.echo(f"  {msg}")
 
     # Tighten any loose perms on the global config / ~/.maelstrom while we're
@@ -252,19 +123,188 @@ def cmd_self_update():
     for msg in harden_global_config():
         click.echo(f"  {msg}")
 
-    click.echo(f"  {_write_daemon_root_shim()}")
+    click.echo(f"  {_write_shim(shim_path(), root)}")
 
-    _update_self_env(repo_root)
+    if main is not None:
+        # The jig is a developer override, and the npm release serves
+        # everyone else, so only the main channel links it.
+        if jig_moved:
+            _link_jig(main / JIG_PACKAGE)
+        _restart_self_env(main)
+    else:
+        click.echo(
+            "  The services still run from _main; restart them with "
+            "`mael self-env restart` to pick up a changed component."
+        )
 
     click.echo("Update complete.")
 
 
-def _bucket_hashes(repo_root: Path) -> dict[str, str]:
-    """The `cli` and `jig` SHA buckets' hashes, or none when tangier cannot give them."""
+def _current_tag(root: Path) -> str | None:
+    """The tag of the release that runs now, or ``None`` before the first install."""
+    current = current_manifest(root)
+    return current.tag if current else None
+
+
+def _gh(*args: str) -> str:
     try:
-        return service_versions(repo_root, [CLI_BUCKET, JIG_BUCKET])
+        result = subprocess.run(
+            ["gh", *args], capture_output=True, text=True, check=True
+        )
+    except FileNotFoundError as e:
+        raise click.ClickException("gh is not on PATH") from e
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(
+            f"gh {args[0]} {args[1]} failed: {(e.stderr or e.stdout).strip()}"
+        ) from e
+    return result.stdout.strip()
+
+
+def _fetch_stable(root: Path, tmp: Path, tag: str | None) -> Path | None:
+    """Download the GitHub Release ``tag``, or the latest, unless it runs now."""
+    if tag is None:
+        tag = _gh(
+            "release",
+            "view",
+            "--repo",
+            RELEASE_REPO,
+            "--json",
+            "tagName",
+            "--jq",
+            ".tagName",
+        )
+    if tag == _current_tag(root):
+        click.echo(f"{tag} is installed already.")
+        return None
+    click.echo(f"Downloading {tag}...")
+    _gh(
+        "release",
+        "download",
+        tag,
+        "--repo",
+        RELEASE_REPO,
+        "--pattern",
+        TARBALL,
+        "--dir",
+        str(tmp),
+    )
+    return tmp / TARBALL
+
+
+def _build_main(root: Path, main: Path, tmp: Path) -> tuple[Path | None, bool]:
+    """Pull ``_main`` and build its bundle, unless that commit runs now.
+
+    It runs ``_main``'s own ``bin/build-bundle``, not the installed copy, so a
+    change to the build lands with the commit that makes it.
+
+    Returns the bundle, and whether the pull moved the jig.
+    """
+    if not (main / ".git").exists():
+        raise click.ClickException(
+            f"The main channel builds from {main}, which is not a checkout."
+        )
+    jig_before = _jig_hash(main)
+    click.echo(f"Updating {main}...")
+    try:
+        pull = subprocess.run(
+            ["git", "pull"], cwd=main, capture_output=True, text=True, check=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"Git pull failed: {e.stderr or e.stdout or e}")
+    if pull.stdout.strip():
+        click.echo(pull.stdout.strip())
+    jig_after = _jig_hash(main)
+    jig_moved = jig_after is not None and jig_after != jig_before
+
+    # The build needs _main's dependencies, and the install migrates the state
+    # database, which new code refuses unmigrated.
+    click.echo("Installing dependencies in _main...")
+    try:
+        run_install_cmd(main)
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise click.ClickException(
+            f"install_cmd failed in {main}: {e}. Nothing was installed."
+        ) from e
+
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=main,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except subprocess.CalledProcessError as e:
+        raise click.ClickException(f"git rev-parse failed in {main}: {e.stderr}")
+    tag = f"main-{commit[:12]}"
+    if tag == _current_tag(root):
+        click.echo(f"{tag} is installed already.")
+        return None, jig_moved
+    click.echo(f"Building {tag}...")
+    bundle = tmp / TARBALL
+    try:
+        subprocess.run(
+            [str(main / "bin" / "build-bundle"), "--tag", tag, "--out", str(bundle)],
+            cwd=main,
+            check=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as e:
+        raise click.ClickException(f"bin/build-bundle failed: {e}") from e
+    return bundle, jig_moved
+
+
+def _jig_hash(main: Path) -> str | None:
+    """The jig's SHA bucket hash, or ``None`` when tangier cannot give it."""
+    try:
+        return service_versions(main, [JIG_BUCKET]).get(JIG_BUCKET)
     except ServiceVersionError:
-        return {}
+        return None
+
+
+#: Marks a `mael` this command wrote, so the user can tell it from uv's.
+SHIM_MARKER = "# maelstrom shim"
+
+
+def _write_shim(path: Path, root: Path) -> str:
+    """Point the `mael` on PATH at the ``current`` release, with its roots.
+
+    ``current`` is a symlink, so the shim does not change between releases.
+
+    The shim supplies `_main`'s daemon root and the notebook root only when
+    nothing else has: a worktree's `uv run mael` and a command inside a driven
+    session both arrive with a root already set, and overriding either would
+    send it to the wrong daemon.
+
+    The write goes through a temporary file and a rename. The rename replaces
+    a symlink rather than writing through it, and a running `mael` keeps its
+    file.
+
+    Best-effort: the release is installed by this point, so a failed write
+    warns rather than aborting. Returns what to tell the user.
+    """
+    daemon_root = get_maelstrom_dir() / "daemons" / MAIN_WORKTREE_FOLDER
+    shim = (
+        "#!/bin/sh\n"
+        f"{SHIM_MARKER} — written by `mael self-update`.\n"
+        "# The everyday daemon's root, unless something already named one.\n"
+        f'export {ROOT_ENV}="${{{ROOT_ENV}:-{daemon_root}}}"\n'
+        f'export {NOTEBOOK_ROOT_ENV}="${{{NOTEBOOK_ROOT_ENV}:-{get_maelstrom_dir()}}}"\n'
+        "export MAEL_PRODUCTION=1\n"
+        f'exec "{root / "current" / "venv" / "bin" / "mael"}" "$@"\n'
+    )
+    staging = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staging.write_text(shim)
+        staging.chmod(0o755)
+        os.replace(staging, path)
+    except OSError:
+        staging.unlink(missing_ok=True)
+        return (
+            f"Warning: could not write {path}. Run "
+            f"{root / 'current' / 'venv' / 'bin' / 'mael'} with {ROOT_ENV} set."
+        )
+    return f"`mael` at {path} runs the current release"
 
 
 def _link_jig(package: Path) -> None:
@@ -297,25 +337,8 @@ def _link_jig(package: Path) -> None:
             return
 
 
-def _update_self_env(repo_root: Path) -> None:
-    """Install new dependencies in `_main`, then restart its changed services.
-
-    Best-effort, as the dependency sync is: the pull has already landed. A
-    failed install skips the restart: the install migrates the state database,
-    and new code refuses one it did not migrate.
-    """
-    click.echo("Installing dependencies in _main...")
-    try:
-        run_install_cmd(repo_root)
-    except (OSError, subprocess.CalledProcessError) as e:
-        click.echo(
-            f"  Warning: install_cmd failed: {e}. The changed services were not "
-            "restarted. Fix the install, then run "
-            "`mael self-env restart --install`.",
-            err=True,
-        )
-        return
-
+def _restart_self_env(repo_root: Path) -> None:
+    """Restart `_main`'s changed services, best-effort: the release is installed."""
     click.echo("Restarting changed services...")
     try:
         changes = restart_changed(
