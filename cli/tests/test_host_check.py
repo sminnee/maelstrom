@@ -43,6 +43,9 @@ class FakeHost:
     answer: bool = True
     cert_error: str | None = None
     caller_path: str = ""
+    #: Whether minnstack is installed in each harness.
+    practices: bool = True
+    plugin_commands: list[str] = field(default_factory=list)
     asked: list[str] = field(default_factory=list)
     ran: list[str] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
@@ -53,6 +56,14 @@ class FakeHost:
     def run(self, argv) -> subprocess.CompletedProcess:
         argv = list(argv)
         joined = " ".join(argv)
+        if argv[1:2] == ["plugin"]:
+            self.plugin_commands.append(" ".join([Path(argv[0]).name, *argv[1:]]))
+            if argv[2:4] in (
+                ["install", "minnstack@maelstrom"],
+                ["add", "minnstack@maelstrom"],
+            ):
+                self.install_practices(Path(argv[0]).name)
+            return subprocess.CompletedProcess(argv, 0, "", "")
         if argv[:2] == ["tailscale", "status"]:
             out = json.dumps(
                 {
@@ -88,11 +99,27 @@ class FakeHost:
         if self.cert_error:
             raise DevCertError(self.cert_error)
 
+    def install_practices(self, tool: str) -> None:
+        if tool == "claude":
+            installed = self.home / ".claude" / "plugins" / "installed_plugins.json"
+            installed.parent.mkdir(parents=True, exist_ok=True)
+            installed.write_text(json.dumps({"plugins": {"minnstack@maelstrom": []}}))
+        else:
+            config = self.home / ".codex" / "config.toml"
+            config.parent.mkdir(parents=True, exist_ok=True)
+            if config.is_file() and "minnstack" in config.read_text():
+                return
+            with config.open("a") as f:
+                f.write('\n[plugins."minnstack@maelstrom"]\nenabled = true\n')
+
     @property
     def config(self) -> Path:
         return self.home / ".maelstrom" / "config.yaml"
 
     def check(self, dev: bool = False) -> list[str]:
+        if self.practices:
+            self.install_practices("claude")
+            self.install_practices("codex")
         return HostCheck(
             prod=Production(self.home),
             platform=self.platform,
@@ -107,6 +134,7 @@ class FakeHost:
             user="sam",
             root=False,
             issue_cert=self.issue_cert,
+            codex_home=None,
         )()
 
     @property
@@ -316,3 +344,41 @@ def test_it_warns_when_the_shim_is_not_on_path(home):
     host.check()
 
     assert 'export PATH="$HOME/.local/bin:$PATH"' in host.text
+
+
+# -- the practices plugin --------------------------------------------------
+
+
+def test_installed_practices_are_met(home):
+    host = FakeHost(home)
+    host.check()
+    assert "✓ minnstack is installed" in host.text
+    assert host.plugin_commands == []
+
+
+def test_missing_practices_install_after_a_yes(home):
+    host = FakeHost(home, practices=False)
+    host.check()
+    assert "Install minnstack for Claude Code and Codex?" in host.asked
+    # The check runs before setup, so it registers the marketplace first.
+    link = str(home / ".maelstrom" / "plugins")
+    assert host.plugin_commands == [
+        f"claude plugin marketplace add {link}",
+        "claude plugin install minnstack@maelstrom --scope user",
+        "codex plugin add minnstack@maelstrom",
+    ]
+    assert "✓ minnstack is installed" in host.text
+
+
+def test_declined_practices_stay_unmet_and_do_not_fail_the_check(home):
+    host = FakeHost(home, practices=False, answer=False)
+    unmet = host.check()
+    assert "✗ minnstack (optional) is not installed" in host.text
+    assert host.plugin_commands == []
+    assert "minnstack plugin" not in unmet
+
+
+def test_practices_are_not_checked_without_claude(home):
+    host = FakeHost(home, practices=False, tools=set(BASE_TOOLS) - {"claude"})
+    host.check()
+    assert "minnstack" not in host.text

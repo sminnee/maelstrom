@@ -154,6 +154,7 @@ in the list.
 | `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
+| `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
 | `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
 | `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |
 
