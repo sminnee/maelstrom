@@ -76,3 +76,6 @@ reboot left them down, and the `stable` channel did not restart them after an up
 - A host-service orchestrator does not renew the dev certificate. Only `mael env start` does.
 - A first install from source still needs a release, or `bin/build-bundle` and `install.sh
   --bundle`, before `mael project add` works.
+
+  _2026-11-06:_ no longer true. `bin/install-main.sh` clones `_main` with git alone, then runs
+  its `install.sh --source`. See [host services](../dev/host-services.md#the-bootstrap).

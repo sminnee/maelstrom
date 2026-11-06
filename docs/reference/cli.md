@@ -1308,8 +1308,10 @@ With no monitors configured, these commands fall back to every monitor on the ac
 ## The installer (`install.sh`)
 
 `install.sh` installs or upgrades the release bundle in `~/.maelstrom/install/`, then runs the new
-release's `mael self setup`. It installs uv first when uv is missing. On a first install, it runs
-`mael self check-host` before setup, with `--dev` for `--source`. See [host services](../dev/host-services.md#the-installer).
+release's `mael self setup`. It installs uv first when uv is missing. Before it downloads or
+builds, it asks where the projects live when `projects_dir:` is unset, and writes the key. On a
+first install, it runs `mael self check-host` before setup. With `--source`, it runs
+`check-host --dev` from the checkout before the build, because the build needs Node and pnpm. See [host services](../dev/host-services.md#the-installer).
 
 ```bash
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
@@ -1322,9 +1324,29 @@ curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install
 | `--bundle FILE` | Install a local `maelstrom.tar.gz`. |
 | `--source DIR` | Pull the git checkout `DIR`, build its bundle, tagged `main-<sha12>`, and install that. |
 | `--root DIR` | The install root. Default: `~/.maelstrom/install`. |
-| `--no-setup` | Run neither `mael self check-host` nor `mael self setup` after the switch. |
+| `--projects-dir DIR` | The directory that holds the projects. Written as `projects_dir:`. Default: the stored key, else a question, else `~/Projects`. A relative path is refused. |
+| `--no-setup` | Run neither `mael self check-host` nor `mael self setup`. The projects directory is still resolved and written. |
 
 Give at most one of `--tag`, `--bundle` and `--source`.
+
+### Install from main (`install-main.sh`)
+
+`install-main.sh` installs maelstrom from its main branch, on a host with no release. It makes
+maelstrom a project at `<projects_dir>/maelstrom/`: a bare clone, with `main` in `_main`. It writes
+`update_channel: main`, then runs `_main`'s own `bin/install.sh --source`. When the checkout
+exists, it skips the clone, so the same line upgrades. A `maelstrom` directory that is not
+a maelstrom checkout is refused.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-main.sh | sh
+```
+
+| Option | Description |
+|---|---|
+| `--projects-dir DIR` | As for `install.sh`. Passed on to it. |
+| `--no-setup` | Passed on to `install.sh`. |
+
+`MAEL_REPO_URL` changes the repo it clones. See [environment.md](environment.md).
 
 ## Host control (`mael self`)
 
@@ -1358,8 +1380,8 @@ mael self setup                      # repair the host
 | `--changed TEXT` | The components that changed, comma-separated. Their host services restart. Default: none, so nothing restarts. |
 | `--source DIRECTORY` | The checkout the release was built from. Links its jig plugin (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). |
 
-Setup asks for `projects_dir:` when it is unset and a terminal can answer. Without a terminal,
-it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
+The installer writes `projects_dir:`. Setup asks for it only when the key is unset and a terminal
+can answer. Without a terminal, it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
 migrates `state.db`, writes `orchestrator_url:` when it is unset (see
 [configuration.md](configuration.md)), installs the Claude integration and the `mael` shim, then
 loads the host services and the scheduler. Its last line names the orchestrator URL. It
@@ -1408,8 +1430,8 @@ mode. It looks up tools on the host services' PATH.
 
 The `stable` channel downloads that release's `install.sh` and runs it. The `main` channel runs
 `_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install`, builds a
-bundle tagged `main-<commit>` and installs it. A tag that runs already is not built again. Add the project first with
-`mael project add sminnee/maelstrom`. Either way the installer then runs the new release's
+bundle tagged `main-<commit>` and installs it. A tag that runs already is not built again. `install-main.sh` makes `_main` (see
+[above](#install-from-main-install-mainsh)). Either way the installer then runs the new release's
 `mael self setup`.
 
 Run it from a shell, not from an agent of the production daemon. The daemon restart stops
