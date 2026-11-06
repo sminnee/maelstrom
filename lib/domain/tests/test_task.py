@@ -874,10 +874,6 @@ class TestSafeId:
     def test_rejects_unsafe(self, bad):
         assert not model.is_safe_id(bad)
 
-    def test_task_key_rejects_traversal(self):
-        with pytest.raises(ValueError):
-            model.task_key("p", "todo", "../escape")
-
     async def test_load_rejects_traversal(self, store):
         with pytest.raises(ValueError):
             await model.load(store, "p", "../escape")
@@ -2140,7 +2136,7 @@ class TestUpdate:
         assert await store.revision() == before + 1
 
 
-# --- edit_in_editor() (needs a GitFileStore for the on-disk path) ---
+# --- edit_in_editor() ---
 
 
 def _editor_script(tmp_path, py_body: str):

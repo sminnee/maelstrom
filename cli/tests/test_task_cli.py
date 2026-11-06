@@ -1,8 +1,8 @@
-"""Tests for the ``mael task`` CLI, against an InMemoryStore.
+"""Tests for the ``mael task`` CLI, against an InMemoryTaskTable.
 
-The CLI is exercised via Click's ``CliRunner``. ``task_cli._store`` is patched
-to return a shared :class:`InMemoryStore` and ``resolve_project`` to a fixed
-project, so no git or cwd resolution happens.
+The CLI is exercised via Click's ``CliRunner``. The CLI's table seams are
+patched to return a shared :class:`InMemoryTaskTable` and ``resolve_project`` to
+a fixed project, so no database or cwd resolution happens.
 """
 
 from concurrent.futures import ThreadPoolExecutor

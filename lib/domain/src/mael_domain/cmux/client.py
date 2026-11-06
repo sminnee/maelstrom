@@ -1,12 +1,12 @@
 """Transport layer for cmux integration.
 
-Mirrors the storage trio in ``task_store.py`` (Protocol + real + fake):
+A Protocol, a real client and a fake:
 
 - ``CmuxClient`` — a Protocol with a single ``run(*args) -> CmuxResult`` method.
 - ``SubprocessCmuxClient`` — the real client. Discovers the cmux binary, adds
   ``--socket`` and shells out, wrapping the reply in a ``CmuxResult``.
-- ``RecordingCmuxClient`` — the in-memory fake (the cmux analogue of
-  ``InMemoryStore``). Records every call and returns scripted results.
+- ``RecordingCmuxClient`` — the in-memory fake. Records every call and returns
+  scripted results.
 
 Parsing of cmux's ``OK <ref>`` replies lives on ``CmuxResult`` so it sits right
 at the transport seam. ``current_client()`` returns ``None`` when no binary is
@@ -163,7 +163,7 @@ Responses = dict[tuple[str, ...], str | None] | Callable[..., str | None]
 
 @dataclass
 class RecordingCmuxClient:
-    """The in-memory fake :class:`CmuxClient` (the cmux ``InMemoryStore`` analogue).
+    """The in-memory fake :class:`CmuxClient`.
 
     Records every ``run`` call in ``calls`` and returns a scripted result.
     ``responses`` is either a ``dict`` keyed by the exact args tuple or a callable

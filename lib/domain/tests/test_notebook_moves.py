@@ -1,9 +1,9 @@
 """Tests for the rungs that retire the git task notebook.
 
-Two ladders take the state out of ``<root>/tasks/``: the wiki ladder imports
-the pages, and the attachments-move ladder moves the media and rewrites the
-refs to them. Each runs over a real SQLite file in ``tmp_path``, so the rung
-reads the notebook beside it.
+Three ladders take the state out of ``<root>/tasks/``: the wiki ladder imports
+the pages, the attachments-move ladder moves the media and rewrites the refs to
+them, and the task-export ladder drops the queue table. Each runs over a real
+SQLite file in ``tmp_path``, so the rung reads the notebook beside it.
 """
 
 from mael_domain.state_db.migrate import LADDERS, open_state_db
@@ -177,3 +177,23 @@ class TestTheAttachmentsMoveRung:
     def test_the_token_matches_the_model(self):
         """The rung writes the token itself, so the two must not drift."""
         assert _TOKEN == MAEL_TASK_DIR_TOKEN
+
+
+# --- the export queue drop ---
+
+
+class TestTheTaskExportDrop:
+    async def test_a_queue_with_rows_is_dropped(self, tmp_path):
+        db = await migrated(tmp_path, upto={"task_export": 1})
+        try:
+            # The table is no longer declared, so the row goes in by hand.
+            await db._call(
+                lambda conn: conn.execute(
+                    "INSERT INTO task_export (id, revision) VALUES ('p/t1', 1)"
+                )
+            )
+            await climb(db)
+            assert not await db.has_table("task_export")
+            assert await db.schema_version("task_export") == 2
+        finally:
+            db.close()

@@ -741,7 +741,7 @@ def block_task_update_options(f):
 
 @click.group("task", cls=AsyncGroup)
 def task() -> None:
-    """Manage the git-backed task notebook."""
+    """Manage the task notebook."""
 
 
 @task.command("add")

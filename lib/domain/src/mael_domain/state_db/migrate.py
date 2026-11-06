@@ -56,10 +56,6 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
 TABLES: dict[str, TableSpec] = {
     "desk": TableSpec("desk"),
     "tasks": TableSpec("tasks"),
-    # The export queue is the server's own bookkeeping: nothing draws it, and
-    # nothing reads the tree it feeds on any code path. So a write to it is not
-    # news for a client, even though it shares the task write's transaction.
-    "task_export": TableSpec("task_export", notifies=False),
     "agents": TableSpec("agents", notifies=False),
     # The ledger the cost report reads. Nothing in the UI draws it, so a write
     # is not news for a client — as for `agents` itself.

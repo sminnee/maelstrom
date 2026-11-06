@@ -42,18 +42,6 @@ def notebook_path(root: Path) -> Path:
     return root / "tasks"
 
 
-def get_notebook_path() -> Path:
-    """The markdown task notebook under the environment's notebook root.
-
-    It resolves the same directory as :func:`mael_domain.task_store.tasks_root`,
-    so the two must move together.
-
-    Raises:
-        NotebookRootUnset: If the environment names no notebook root.
-    """
-    return notebook_path(notebook_root())
-
-
 def attachments_path(root: Path) -> Path:
     """Where the attachments directory is kept, under ``root``."""
     return root / "attachments"

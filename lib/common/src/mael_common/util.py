@@ -221,8 +221,7 @@ def locked_file(
     try:
         deadline = time.monotonic() + timeout
         # Non-blocking acquire + sleep-poll so the deadline is portable; a plain
-        # blocking LOCK_EX can't be time-bounded across platforms. Mirrors
-        # task_store._locked.
+        # blocking LOCK_EX can't be time-bounded across platforms.
         while True:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

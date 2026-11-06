@@ -1,6 +1,7 @@
-"""The task-export ladder: the queue table the markdown export drains.
+"""The task-export ladder: the queue table of the removed markdown export.
 
-See :mod:`mael_domain.task_export` for why the queue lives in this database.
+The ladder stays, because ladders are append-only and ``check()`` compares
+version numbers. Rung 2 drops the table.
 """
 
 from ..types import Migration, Rung
@@ -30,4 +31,6 @@ TASK_EXPORT: tuple[Rung, ...] = (
             "CREATE INDEX task_export_revision ON task_export (revision)",
         )
     ),
+    # The index goes with the table.
+    Migration(("DROP TABLE task_export",)),
 )
