@@ -2,8 +2,9 @@
 
 The **Changes tab** is a review trail. The reviewer reads a rev's diff and brings extra context
 into the same column: a whole file picked from the file list, or the hidden lines between two
-hunks. Later work adds the **Symbol card**, which follows a name to its definition and pins the
-target after the card it came from.
+hunks. A click on a name follows it: a use pins its definition's **Fragment**, and the
+definition opens a **Reference menu** of its uses. Later work adds the **Symbol card**, which
+shows a name's type.
 
 This page holds the rules that the chain of tasks shares. `docs/dev/orchestrator-ui.md`,
 "The Changes tab", describes the code as it is.
@@ -54,9 +55,11 @@ Three layers, in one direction:
 | `DiffHunk` | `LineSpan` plus `header` | `parse_diff` sets `range` from the `+c,d` of the header |
 | `FileExcerpt` | `{rev, path, total, truncated, span}` | `GET /excerpt`. Every line is `context` |
 | `FileList` | `{rev, paths}` | `GET /tree`. Every path on the rev's new side |
+| `CodeTarget` | `{path, range, inRev, anchor?, symbol?}` | A definition or a use. `range` is the lines to pin; `anchor` is the name's line, absent when it is `range.start`; `symbol` is the dotted name of the enclosing function or class |
+| `Definition` | `{rev, targets, references, moreReferences?, reason}` | `GET /definition`. `references` is `null` for a click on a use. `reason` is `ok`, `no_server`, `no_definition` or `no_references` |
 
 Git's diff stays parsed on the server, and `/diff` keeps its shape. The client turns hunks and
-pinned lines into one span shape. The server sends no fragments: pins are client state, and
+pinned lines into one span shape. The server sends line ranges, never pinned text: pins are client state, and
 context drawn from whole-file text would ship both sides of every file.
 
 ### Client state
@@ -107,8 +110,8 @@ drag. Tokens are made per run of rows between two marks or chunk edges, while th
 
 ## The language server
 
-A click on a name in a Python card goes to its definition. The flow is: the click, the
-`/definition` route, the worktree's **Language server**, then a scroll or a **Pin**.
+A click on a name in a Python card follows it. The flow is: the click, the `/definition` route,
+the worktree's **Language server**, then a scroll, a **Pin** or a **Reference menu**.
 
 ### The list
 
@@ -142,6 +145,35 @@ A target outside the worktree, such as typeshed, or in a file the rev does not t
 in `.venv`, comes back with `inRev: false`. The tab says "Definition not in this rev" and pins
 nothing.
 
+### Fragments and references
+
+The server picks the lines to pin for every target, so the client has no line rule of its own.
+The symbol tree stays on the server, as `navigable` does. One `/definition` request sends up to
+three LSP requests, under one lock hold, so all of them read the same **Rev overlay**:
+
+1. `textDocument/definition`, for the targets.
+2. `textDocument/references`, with `includeDeclaration: false`, only when the click is on the
+   definition. It waits up to 30 s, because pyright reads the whole project for it.
+3. `textDocument/documentSymbol`, once for each distinct path the rev holds among the targets
+   and references.
+
+The click is on the definition when a target in the clicked file has a name range that holds
+the click's line and character. The name range is `targetSelectionRange`, else `range`. Only the
+server has the character ranges, so the server decides.
+
+A target's `range` is its **Fragment**: the innermost Class, Method, Constructor or Function
+symbol (kinds 5, 6, 9 and 12) that holds the name's line. A use in a method pins the method, not
+its class. When no such symbol holds the line, such as for a module-level constant, `range` is
+5 lines above the name to 25 lines below it, clipped at line 1. The excerpt read and the flow
+clip the end. A target outside the rev keeps the name's own lines.
+
+| Rule | Why |
+|---|---|
+| Both symbol reply shapes are read: `DocumentSymbol[]` with `children`, and flat `SymbolInformation[]` with `containerName` | `initialize` asks for the tree, but a server may send the flat list |
+| A failed `documentSymbol` request gives the window | The targets are already known. The error is logged |
+| A failed `references` request fails the route | As a failed `definition` request does |
+| References are the ones the rev holds, sorted by path then line, at most 100 | The cap bounds the `documentSymbol` requests. `moreReferences` counts the rest |
+
 ### Life
 
 The orchestrator runs one server per worktree and server name, over `LspClient`, its own stdio
@@ -155,23 +187,25 @@ The click handler is on the row text, never on the gutter. Line selection for ch
 starts only from the gutter button, so the two do not collide. A click while text is selected
 sends nothing. A token in a keyword, comment or string colour is not a name.
 
-The client sends the 1-based new-side line and the UTF-16 offset of the token. It follows the
-first target the rev holds:
+The client sends the 1-based new-side line and the UTF-16 offset of the token.
 
-1. A target line drawn in the flow: the tab scrolls to it and flashes it.
-2. A target in a changed file: the tab pins 5 lines above it to 25 lines below it in the diff
-   card, then scrolls.
-3. A target in another file: the tab pins the whole file after the card of the click, then
-   scrolls.
+A click on a use follows the first target the rev holds. A click on the definition opens the
+**Reference menu** beside the name. The menu lists each use as `{symbol} — {path}:{line}`, and a
+last row says how many uses it leaves out. A pick goes to that use. Escape or a click outside
+closes the menu. With no uses, the card says "No uses of {name} in this rev".
 
-A click opens no popup. The **Symbol card** waits for later work.
+To go to a target, the tab uses its `anchor`, else `range.start`:
+
+1. The flow draws the anchor line: the tab scrolls to it and flashes it.
+2. Else, unless the card already has a whole-file pin, the tab pins `range`. A pin in an
+   unchanged file goes after the card of the click. Then the tab scrolls to the anchor.
 
 ## The chain
 
 1. The card model, the windowed flow, the full file list and pins of whole files and gaps.
 2. The language-server bridge, for Python, and a click that goes to a definition.
-3. Fragments: the enclosing function or class of a target, from `documentSymbol`, in place of
-   the whole file.
+3. Fragments: the enclosing function or class of a target, from `documentSymbol`, and the
+   **Reference menu**, from `references`. Hover type stays with the **Symbol card**.
 4. The TypeScript server for `orchestrator-ui`.
 
 Rename, code actions, diagnostics, editing and old-side spans are out of scope.

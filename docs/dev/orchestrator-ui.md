@@ -1041,10 +1041,12 @@ A name in a card that a **Language server** reads (`navigable` on the `FileDiff`
 `FileExcerpt`) is a `name` span with a `data-col`: its UTF-16 start in the line. One `onClick`
 on the row text reads the span and calls `followName` in `Files`.
 
-`followName` asks `GET /definition`. A pin of a whole file sets `from` to the click, so `flow`
-puts that card after the card of the click.
+`followName` asks `GET /definition`. For a click on a use, `go` pins the target's `range`
+unless the flow draws its anchor line. The pin sets `from` to the click, so `flow` puts a card
+of an unchanged file after the card of the click. For a click on the definition, `Files` opens
+`ReferenceMenu`, one per tab, anchored to the clicked token; a pick calls `go`.
 `Files` holds the goal line; the card that has it keeps the line's chunk mounted, scrolls the row
-to the centre and flashes it. A target outside the rev, no definition, or an error shows as a
+to the centre and flashes it. A target outside the rev, no definition, no uses, or an error shows as a
 `role="status"` line that hangs from the card's sticky head. The next click clears it. The rules for a click and its target are in
 [code-navigation.md](code-navigation.md), "The click".
 
