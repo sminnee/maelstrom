@@ -167,3 +167,12 @@ def test_setup_refuses_a_relative_projects_dir(bare_home):
 
     with pytest.raises(SetupError, match="relative"):
         run()
+
+
+def test_setup_quotes_a_bare_tilde_projects_dir(bare_home):
+    """Plain ``~`` is YAML null, which reads as unset."""
+    run = SetupRun(bare_home, interactive=True, answer="~")
+
+    run()
+
+    assert yaml.safe_load(run.config.read_text())["projects_dir"] == "~"
