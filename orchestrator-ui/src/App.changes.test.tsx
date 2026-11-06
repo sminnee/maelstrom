@@ -941,13 +941,17 @@ describe('definitions', () => {
   const scrolledTo = () => scrolled.mock.results.map((r) => r.value as string | null);
 
   /** Open the uncommitted changes, with `auth/tokens.py` navigable and its names' definitions. */
-  async function openWithNames(definitions: Changes['definitions']) {
+  async function openWithNames(
+    definitions: Changes['definitions'],
+    references: Changes['references'] = {},
+  ) {
     const opened = await openChanges((c) => {
       c.diffs.uncommitted = [
         file('auth/tokens.py', 'tokens', { navigable: true }),
         file('auth/rotate.py', 'rotate', { status: 'added' }),
       ];
       c.definitions = definitions;
+      c.references = references;
     });
     const rows = await highlighted(opened.panel, 'auth/tokens.py');
     return { ...opened, rows };
@@ -972,14 +976,16 @@ describe('definitions', () => {
     ]);
   });
 
-  it('pins the lines around a definition in a changed file outside its hunks', async () => {
+  it('pins the lines the server picks in a changed file and lands on the name', async () => {
     const { panel, rows } = await openWithNames({
-      'auth/tokens.py:5': [{ path: 'auth/tokens.py', range: { start: 2, end: 2 }, inRev: true }],
+      'auth/tokens.py:5': [
+        { path: 'auth/tokens.py', range: { start: 1, end: 3 }, anchor: 2, inRev: true },
+      ],
     });
 
     await userEvent.click(name(rows[2]!, 'tokens'));
 
-    // Five lines above to 25 below, clipped to the file's seven.
+    // Lines 1-3 and no more: the client adds no window of its own.
     await waitFor(() =>
       expect(rowTexts(panel, 'auth/tokens.py')).toEqual([
         '11 line 1',
@@ -988,15 +994,13 @@ describe('definitions', () => {
         '44 import os',
         '5-old tokens',
         '5+new tokens',
-        '66 line 6',
-        '77 line 7',
       ]),
     );
     await waitFor(() => expect(scrolledTo()).toContain('2'));
     expect(within(panel).queryByRole('group', { name: 'Pinned' })).toBeNull();
   });
 
-  it('pins an unchanged file with a definition right after the card of the click', async () => {
+  it('pins the range of an unchanged file right after the card of the click', async () => {
     const { panel, rows } = await openWithNames({
       'auth/tokens.py:4': [{ path: 'README.md', range: { start: 2, end: 2 }, inRev: true }],
     });
@@ -1009,17 +1013,72 @@ describe('definitions', () => {
         .getAllByRole('region')
         .map((r) => r.getAttribute('aria-label')),
     ).toEqual(['auth/tokens.py', 'README.md', 'auth/rotate.py']);
+    // Line 2 only, not the whole file.
+    await waitFor(() => expect(rowTexts(panel, 'README.md')).toEqual(['22 world']));
+    await waitFor(() => expect(scrolledTo()).toContain('2'));
+    expect(scrolled.mock.contexts.at(-1)).toBe(within(card).getAllByTestId('diff-row')[0]);
+  });
+
+  it('lists the uses of a definition, and a pick pins and lands on one', async () => {
+    const { panel, rows } = await openWithNames(
+      {
+        'auth/tokens.py:5': [{ path: 'auth/tokens.py', range: { start: 5, end: 5 }, inRev: true }],
+      },
+      {
+        'auth/tokens.py:5': {
+          references: [
+            {
+              path: 'README.md',
+              range: { start: 1, end: 2 },
+              anchor: 2,
+              symbol: 'intro',
+              inRev: true,
+            },
+            { path: 'auth/tokens.py', range: { start: 1, end: 3 }, inRev: true },
+          ],
+          more: 3,
+        },
+      },
+    );
+
+    await userEvent.click(name(rows[2]!, 'tokens'));
+
+    const menu = await screen.findByRole('menu', { name: 'Uses of tokens' });
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((i) => i.textContent),
+    ).toEqual(['intro — README.md:2', 'auth/tokens.py:1', '3 more not shown']);
+    expect(within(menu).getByRole('menuitem', { name: '3 more not shown' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
+    await userEvent.click(within(menu).getByRole('menuitem', { name: 'intro — README.md:2' }));
+
     await waitFor(() => expect(rowTexts(panel, 'README.md')).toEqual(['11 hello', '22 world']));
     await waitFor(() => expect(scrolledTo()).toContain('2'));
-    expect(scrolled.mock.contexts.at(-1)).toBe(within(card).getAllByTestId('diff-row')[1]);
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    // Escape closes the menu and goes nowhere, not even to the focused first use. A pick
+    // scrolls in the same render that drops the menu.
+    await userEvent.click(name(rows[2]!, 'tokens'));
+    expect(await screen.findByRole('menu', { name: 'Uses of tokens' })).toBeInTheDocument();
+    const scrolls = scrolled.mock.calls.length;
+    await userEvent.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('menu')).toBeNull());
+    expect(scrolled.mock.calls.length).toBe(scrolls);
   });
 
   it('says a definition outside the rev, pins nothing, and the next click clears it', async () => {
-    const { server, panel, rows } = await openWithNames({
-      'auth/tokens.py:4': [
-        { path: '/usr/lib/python3.13/os.py', range: { start: 1, end: 1 }, inRev: false },
-      ],
-    });
+    const { server, panel, rows } = await openWithNames(
+      {
+        'auth/tokens.py:4': [
+          { path: '/usr/lib/python3.13/os.py', range: { start: 1, end: 1 }, inRev: false },
+        ],
+        'auth/tokens.py:5': [{ path: 'auth/tokens.py', range: { start: 5, end: 5 }, inRev: true }],
+      },
+      { 'auth/tokens.py:5': { references: [] } },
+    );
     const card = within(panel).getByRole('region', { name: 'auth/tokens.py' });
 
     await userEvent.click(name(rows[0]!, 'os'));
@@ -1030,11 +1089,13 @@ describe('definitions', () => {
     expect(server.requests.some((r) => r.path.includes('/excerpt?'))).toBe(false);
     expect(within(panel).getAllByRole('region')).toHaveLength(2);
 
-    // `new` has no definition: the notice says so in place of the last one.
+    // A click on the definition of `new`, which nothing uses: the notice, in place
+    // of the last one, and no menu.
     await userEvent.click(name(rows[2]!, 'new'));
     await waitFor(() =>
-      expect(within(card).getByRole('status')).toHaveTextContent('No definition of new'),
+      expect(within(card).getByRole('status')).toHaveTextContent('No uses of new in this rev'),
     );
+    expect(screen.queryByRole('menu')).toBeNull();
   });
 
   it('says why a follow failed and frees the name', async () => {

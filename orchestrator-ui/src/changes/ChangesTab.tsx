@@ -32,7 +32,7 @@ import type {
   BranchCommit,
   ChangeComment,
   Definition,
-  DefinitionTarget,
+  CodeTarget,
   FileDiff,
   FileExcerpt,
   FileGroup,
@@ -47,6 +47,7 @@ import { AppButton } from '../ui/AppButton';
 import { trackedAgents } from '../selectors/worktrees';
 import { ChunkedRows, type RowBreak } from '../ui/ChunkedRows';
 import { DiffBlock, type NameClick } from '../ui/DiffRow';
+import { ReferenceMenu, type ReferenceList } from './ReferenceMenu';
 import { retainedKey } from '../ui/retained';
 import { ScreenSheet, ScreenStrip } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
@@ -691,19 +692,22 @@ const Files = memo(function Files({
   useEffect(() => {
     cards.current = sections.flatMap((s) => s.cards);
   });
+  // The server picks the lines: pin `range` unless the flow draws the name, and land on it.
   const go = useCallback(
-    (target: DefinitionTarget, from: Origin) => {
+    (target: CodeTarget, from: Origin) => {
       const { path, range } = target;
+      const anchor = target.anchor ?? range.start;
       const card = cards.current.find((c) => c.path === path);
-      const drawn = card?.spans.some((s) => s.lines.some((l) => l.newLine === range.start));
-      if (!drawn && card?.reason.kind === 'diff')
-        onPin(path, { start: Math.max(1, range.start - 5), end: range.end + 25 }, from);
-      else if (!drawn && !card?.pins.some((p) => p.target.range === null)) onPin(path, null, from);
+      const drawn = card?.spans.some((s) => s.lines.some((l) => l.newLine === anchor));
+      if (!drawn && !card?.pins.some((p) => p.target.range === null)) onPin(path, range, from);
       reveal(path);
-      setGoal({ path, line: range.start });
+      setGoal({ path, line: anchor });
     },
     [onPin, reveal],
   );
+  // The open **Reference menu**, and the click's Origin: a pick pins after it.
+  const [uses, setUses] = useState<(ReferenceList & { from: Origin }) | null>(null);
+  const closeUses = useCallback(() => setUses(null), []);
   const followName = useCallback(
     async (path: string, click: NameClick) => {
       setNotice(null);
@@ -716,12 +720,20 @@ const Files = memo(function Files({
           line: click.line,
           character: click.character,
         });
+        const from = {
+          at: { path, range: { start: click.line, end: click.line } },
+          name: click.name,
+        };
         const target = answer.targets.find((t) => t.inRev);
-        if (target)
-          go(target, {
-            at: { path, range: { start: click.line, end: click.line } },
+        if (answer.references?.length)
+          setUses({
             name: click.name,
+            token: click.token,
+            references: answer.references,
+            more: answer.moreReferences,
+            from,
           });
+        else if (answer.references === null && target) go(target, from);
         else setNotice({ path, text: noticeOf(answer, click.name) });
       } catch (e) {
         setNotice({ path, text: `Could not follow ${click.name}: ${(e as Error).message}` });
@@ -816,6 +828,7 @@ const Files = memo(function Files({
       data-flat={flat || undefined}
       data-selecting={selection.dragging || undefined}
     >
+      {uses && <ReferenceMenu list={uses} onPick={(t) => go(t, uses.from)} onClose={closeUses} />}
       {commit && flat && (
         <>
           <div className={styles.messageLine}>
@@ -957,6 +970,7 @@ function Counts({ add, remove }: { add: number; remove: number }) {
 /** Why a followed name went nowhere: the notice its card shows. */
 function noticeOf(answer: Definition, name: string): string {
   if (answer.reason === 'no_server') return 'No language server reads this file.';
+  if (answer.references) return `No uses of ${name} in this rev`;
   const target = answer.targets[0];
   return target ? `Definition not in this rev: ${target.path}` : `No definition of ${name} found.`;
 }

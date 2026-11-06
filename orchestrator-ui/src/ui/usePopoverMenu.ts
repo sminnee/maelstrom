@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 
 /** A menu's items: a `menuitem` and a `menuitemcheckbox` both take the keyboard. */
 const menuItems = (menu: HTMLElement | null) =>
@@ -14,7 +14,8 @@ const menuItems = (menu: HTMLElement | null) =>
  * back to the trigger, as Escape does.
  *
  * The menu ref is a callback ref, so a menu that mounts after the caller,
- * behind a condition, still reports its state.
+ * behind a condition, still reports its state. A menu with no trigger opens
+ * with `show()` once `mounted`: the state follows from then on.
  */
 export function usePopoverMenu() {
   const [menu, setMenu] = useState<HTMLDivElement | null>(null);
@@ -41,6 +42,8 @@ export function usePopoverMenu() {
     menu.addEventListener('toggle', onToggle);
     return () => menu.removeEventListener('toggle', onToggle);
   }, [menu]);
+
+  const show = useCallback(() => menu?.showPopover(), [menu]);
 
   const hide = () => {
     if (openRef.current) menu?.hidePopover();
@@ -79,6 +82,8 @@ export function usePopoverMenu() {
   return {
     open,
     close,
+    mounted: menu !== null,
+    show,
     menuId,
     triggerProps: {
       ref: triggerRef,
