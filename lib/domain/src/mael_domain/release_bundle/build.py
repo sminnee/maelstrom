@@ -87,7 +87,9 @@ def build_bundle(
         for name, wheel in build_wheels(repo, Path(tmp) / "wheels").items():
             (components / name).mkdir()
             shutil.copy2(wheel, components / name)
-        _run(["pnpm", "--dir", UI, "build"], repo)
+        # From the UI's folder, not with --dir: corepack reads packageManager
+        # from the cwd, and with none it fetches the latest pnpm.
+        _run(["pnpm", "build"], repo / UI)
         shutil.copytree(repo / UI / "dist", components / "web")
         (components / "python-deps").mkdir()
         _run(
