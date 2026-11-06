@@ -34,9 +34,13 @@ class LspClient:
     spawns a new one, as the Codex bridge does.
     """
 
-    def __init__(self, command: list[str], root: Path) -> None:
+    def __init__(
+        self, command: list[str], root: Path, options: dict[str, Any] | None = None
+    ) -> None:
         self.command = command
         self.root = root
+        #: The ``initializationOptions``.
+        self.options = options or {}
         self._process: asyncio.subprocess.Process | None = None
         self._reader: asyncio.Task[None] | None = None
         self._stderr_reader: asyncio.Task[None] | None = None
@@ -44,6 +48,10 @@ class LspClient:
         self._next_id = 0
         self._stderr = bytearray()
         self._write_lock = asyncio.Lock()
+        #: The work-done progress tokens begun and not yet ended.
+        self._busy: set[Any] = set()
+        #: Set when no progress is open, after the first ``end``.
+        self._idle = asyncio.Event()
 
     @property
     def running(self) -> bool:
@@ -56,6 +64,8 @@ class LspClient:
         """Spawn the server and run the ``initialize`` handshake."""
         await self.stop()
         self._stderr.clear()
+        self._busy.clear()
+        self._idle.clear()
         try:
             # Its own session, so a stop kills the node runtime under the wrapper too.
             self._process = await asyncio.create_subprocess_exec(
@@ -81,17 +91,20 @@ class LspClient:
         await self.request(
             "initialize",
             {
+                **({"initializationOptions": self.options} if self.options else {}),
                 "processId": os.getpid(),
                 "rootUri": uri,
                 "workspaceFolders": [{"uri": uri, "name": self.root.name}],
                 # Definitions, references and symbols. No didChangeWatchedFiles: the server
                 # watches the disk itself.
+                # workDoneProgress: tsserver reports its project load, see loaded().
                 "capabilities": {
+                    "window": {"workDoneProgress": True},
                     "textDocument": {
                         "definition": {"linkSupport": True},
                         "references": {},
                         "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
-                    }
+                    },
                 },
             },
             timeout,
@@ -115,6 +128,19 @@ class LspClient:
             ) from exc
         finally:
             self._pending.pop(request_id, None)
+
+    async def loaded(self, timeout: float) -> None:
+        """Wait until no work-done progress is open, and the first one has ended.
+
+        A wait that times out gives up until the next progress ``begin``.
+        """
+        try:
+            await asyncio.wait_for(self._idle.wait(), timeout)
+        except TimeoutError:
+            log.warning(
+                "%s reported no end of its load in %gs", self.command[0], timeout
+            )
+            self._idle.set()
 
     async def notify(self, method: str, params: Any) -> None:
         await self._send({"method": method, "params": params})
@@ -199,7 +225,17 @@ class LspClient:
                 result = [None] * len((message.get("params") or {}).get("items", []))
             with suppress(LspError):
                 await self._send({"id": message["id"], "result": result})
-        # A notification, such as diagnostics, is dropped.
+        elif method == "$/progress":
+            params = message.get("params") or {}
+            kind = (params.get("value") or {}).get("kind")
+            if kind == "begin":
+                self._busy.add(params.get("token"))
+                self._idle.clear()
+            elif kind == "end":
+                self._busy.discard(params.get("token"))
+                if not self._busy:
+                    self._idle.set()
+        # Any other notification, such as diagnostics, is dropped.
 
     async def _read_stderr(self, process: asyncio.subprocess.Process) -> None:
         assert process.stderr is not None
