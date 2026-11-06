@@ -1477,13 +1477,18 @@ the diff stays.
 _Avoid_: Addition, added file, bookmark, attachment
 
 **Fragment**:
-A **Pin** of the lines of one function or class, reached by following a symbol. Fragments are
-planned work.
+A **Pin** of the lines of one function or class, reached by following a symbol. When no
+function or class holds the target, the pin is a plain range **Pin** around it.
 _Avoid_: Snippet, excerpt (the wire read), slice
 
+**Reference menu**:
+The menu that a click on a definition in the **Changes tab** opens: each use of the name in the
+rev. A pick pins the **Fragment** that holds the use.
+_Avoid_: Dropdown, references popup
+
 **Symbol card**:
-A card for a name in the **Changes tab**: the symbol's type, its definition and its references,
-from the worktree's **Language server**. Planned work.
+A card for a name in the **Changes tab**: the symbol's type, from the worktree's **Language
+server**. Planned work.
 _Avoid_: Tooltip, hover card, popover
 
 **Language server**:
