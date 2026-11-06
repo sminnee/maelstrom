@@ -34,6 +34,9 @@ COMPONENTS = (
     "python-deps",
 )
 
+#: The install root's name under ``~/.maelstrom``.
+INSTALL_DIRNAME = "install"
+
 FORMAT = 1
 KIND = "host"
 MANIFEST = "manifest.toml"
