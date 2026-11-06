@@ -50,14 +50,19 @@ SCHEDULER_LABEL = "nz.tangerinelabs.mael_domain.schedule"
 class HostService:
     """One supervised unit: what it runs, and how the supervisor runs it.
 
-    ``hourly`` units run once an hour and exit, and the others run without
-    end and restart when they die.
+    ``hourly`` units run once an hour and exit, ``oneshot`` units run once
+    when submitted and exit, and the others run without end and restart when
+    they die.
     """
 
     name: str
     argv: tuple[str, ...]
     env: Mapping[str, str] = field(default_factory=dict)
     hourly: bool = False
+    oneshot: bool = False
+    #: The launchd plist of a one-shot unit. It must lie outside
+    #: ``~/Library/LaunchAgents``; see docs/dev/host-services.md.
+    plist: Path | None = None
     #: The working directory. No ``.env`` is there to name another notebook.
     cwd: Path | None = None
     #: The log file, on macOS. Linux logs to the journal.
@@ -85,7 +90,7 @@ def render_plist(spec: HostService) -> bytes:
     if spec.hourly:
         # launchd fires a run missed during sleep on the next wake, once.
         plist["StartCalendarInterval"] = {"Minute": 0}
-    else:
+    elif not spec.oneshot:
         plist["KeepAlive"] = True
     if spec.cwd is not None:
         plist["WorkingDirectory"] = str(spec.cwd)
@@ -194,6 +199,18 @@ class Supervisor(Protocol):
         """Where the log of ``spec`` is, for the user to read."""
         ...
 
+    def submit(self, spec: HostService) -> None:
+        """Run the one-shot unit ``spec`` once, apart from every other unit.
+
+        A restart of a host service does not reach it. Raises
+        :class:`SubmitError` when the supervisor refuses it.
+        """
+        ...
+
+
+class SubmitError(RuntimeError):
+    """The supervisor did not start a one-shot unit."""
+
 
 def _write_if_changed(path: Path, content: bytes) -> bool:
     """Write ``content`` to ``path``; return whether the file changed."""
@@ -232,6 +249,8 @@ class Launchd(Supervisor):
     sleep: Callable[[float], None] = time.sleep
 
     def _plist(self, spec: HostService) -> Path:
+        if spec.plist is not None:
+            return spec.plist
         return self.home / "Library" / "LaunchAgents" / f"{spec.label}.plist"
 
     def _target(self, spec: HostService) -> str:
@@ -319,6 +338,19 @@ class Launchd(Supervisor):
 
     def log_hint(self, spec: HostService) -> str:
         return str(spec.log) if spec.log is not None else "(no log)"
+
+    def submit(self, spec: HostService) -> None:
+        # bootout kills a running job, so a job that has a pid is refused.
+        (status,) = self.status([spec])
+        if status.pid is not None:
+            raise SubmitError(f"{spec.name} is running (pid {status.pid})")
+        # The old job stays loaded after it exits; bootstrap refuses a loaded label.
+        self._unload(spec)
+        _write_if_changed(self._plist(spec), render_plist(spec))
+        applied = Applied()
+        self._load(spec, applied)
+        if applied.failed:
+            raise SubmitError("; ".join(applied.messages))
 
 
 def _field(text: str, pattern: str) -> int | None:
@@ -427,6 +459,23 @@ class Systemd(Supervisor):
 
     def log_hint(self, spec: HostService) -> str:
         return f"journalctl --user -u {spec.unit}.service"
+
+    def submit(self, spec: HostService) -> None:
+        # --collect unloads the unit when it ends, so the name is free for the
+        # next submit. systemd-run refuses the name while the unit runs.
+        argv = ["systemd-run", "--user", f"--unit={spec.unit}", "--collect"]
+        argv += [f"--setenv={k}={v}" for k, v in spec.env.items()]
+        if spec.cwd is not None:
+            argv.append(f"--property=WorkingDirectory={spec.cwd}")
+        if spec.log is not None:
+            # What the job prints before it opens its log, such as a traceback.
+            argv += [
+                f"--property=StandardOutput=append:{spec.log}",
+                f"--property=StandardError=append:{spec.log}",
+            ]
+        result = self.run([*argv, "--", *spec.argv])
+        if result.returncode != 0:
+            raise SubmitError(f"systemd-run failed: {_failed(result)}")
 
 
 def supervisor(run: Run, home: Path) -> Supervisor:
