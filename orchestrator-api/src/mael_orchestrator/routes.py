@@ -685,9 +685,9 @@ async def _host(request: web.Request) -> web.Response:
 
 
 async def _system(request: web.Request) -> web.Response:
-    """The install's paths, linked skills and release, for the Welcome dialog.
+    """The install's paths, core plugin skills and release, for the Welcome dialog.
 
-    Off the loop: it walks ``~/.claude/skills``.
+    Off the loop: it reads the core plugin's ``skills/`` dir and Claude's plugin list.
     """
     orch = request.app[ORCH]
     if orch.system is None:

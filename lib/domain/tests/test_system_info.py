@@ -1,28 +1,38 @@
 """What the Welcome dialog shows about this install: its skills and its version."""
 
+import json
+
 from mael_domain.release_bundle.layout import MANIFEST, Manifest
-from mael_domain.system_info import SystemPaths, linked_skills, system_reply
+from mael_domain.system_info import (
+    SystemPaths,
+    plugin_skills,
+    practices_installed,
+    system_reply,
+)
 
 
-def test_only_live_links_into_a_shared_skills_dir_count(tmp_path):
-    shared = tmp_path / "shared" / "skills"
-    (shared / "mael").mkdir(parents=True)
-    (shared / "planning").mkdir()
-    elsewhere = tmp_path / "elsewhere" / "theirs"
-    elsewhere.mkdir(parents=True)
-    claude = tmp_path / "claude" / "skills"
-    claude.mkdir(parents=True)
-    (claude / "planning").symlink_to(shared / "planning")
-    (claude / "mael").symlink_to(shared / "mael")
-    (claude / "theirs").symlink_to(elsewhere)
-    (claude / "own").mkdir()
-    (claude / "dead").symlink_to(shared / "removed")
+def test_the_skills_are_the_plugin_dirs_with_a_skill_file(tmp_path):
+    skills = tmp_path / "plugins" / "maelstrom" / "skills"
+    for name in ("planning", "mael"):
+        (skills / name).mkdir(parents=True)
+        (skills / name / "SKILL.md").write_text("---\nname: x\n---\n")
+    (skills / "half-made").mkdir()
 
-    assert linked_skills(claude) == ["mael", "planning"]
+    assert plugin_skills(skills) == ["mael", "planning"]
 
 
 def test_no_skills_dir_lists_nothing(tmp_path):
-    assert linked_skills(tmp_path / "missing") == []
+    assert plugin_skills(tmp_path / "missing") == []
+
+
+def test_the_practices_are_installed_when_claude_lists_them(tmp_path):
+    plugins = tmp_path / ".claude" / "plugins"
+    assert practices_installed(plugins) is False
+    plugins.mkdir(parents=True)
+    (plugins / "installed_plugins.json").write_text(
+        json.dumps({"version": 2, "plugins": {"minnstack@maelstrom": []}})
+    )
+    assert practices_installed(plugins) is True
 
 
 def _version(tmp_path, manifest_text: str | None):

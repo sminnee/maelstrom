@@ -12321,13 +12321,16 @@ def test_a_server_that_cannot_add_projects_says_so(harness):
 
 def test_the_system_route_names_the_installs_paths(harness_factory, tmp_path):
     """A run from a checkout has no release manifest, so the version is null."""
-    shared = tmp_path / "shared" / "skills"
-    (shared / "mael").mkdir(parents=True)
-    claude = tmp_path / ".claude" / "skills"
-    claude.mkdir(parents=True)
-    (claude / "mael").symlink_to(shared / "mael")
-    system = SystemPaths.for_home(
-        tmp_path, tmp_path / "Projects", str(tmp_path / ".venv")
+    skills = tmp_path / "shared" / "plugins" / "maelstrom" / "skills"
+    (skills / "mael").mkdir(parents=True)
+    (skills / "mael" / "SKILL.md").write_text("---\nname: mael\n---\n")
+    system = SystemPaths(
+        home=tmp_path,
+        config_dir=tmp_path / ".maelstrom",
+        projects_dir=tmp_path / "Projects",
+        core_skills_dir=skills,
+        claude_plugins_dir=tmp_path / ".claude" / "plugins",
+        prefix=str(tmp_path / ".venv"),
     )
     harness = harness_factory(system=system)
 
@@ -12340,6 +12343,7 @@ def test_the_system_route_names_the_installs_paths(harness_factory, tmp_path):
         "home": str(tmp_path),
         "configDir": str(tmp_path / ".maelstrom"),
         "projectsDir": str(tmp_path / "Projects"),
-        "skillsDir": str(claude),
+        "skillsDir": str(skills),
         "skills": ["mael"],
+        "practices": False,
     }
