@@ -17,7 +17,7 @@ import type {
   Comm,
   CommItem,
   CommUpdate,
-  DefinitionTarget,
+  CodeTarget,
   DeskEntry,
   FileDiff,
   FileExcerpt,
@@ -102,7 +102,12 @@ export interface FakeWorld {
        * click, in every rev. A name with none has no definition. A file that
        * is not Python has no server.
        */
-      definitions?: Record<string, DefinitionTarget[]>;
+      definitions?: Record<string, CodeTarget[]>;
+      /**
+       * The uses of a name, keyed as `definitions`: a click at a key here is on the
+       * definition. A key absent here is a click on a use.
+       */
+      references?: Record<string, { references: CodeTarget[]; more?: number }>;
     }
   >;
   /** The operations, running and ended. `fake/operations.ts` runs them on a timer. */
@@ -596,9 +601,23 @@ function read(path: string, server: FakeServer): Reply {
     }
     if (wt[2] === 'definition') {
       const path = params.get('path') ?? '';
-      if (!path.endsWith('.py')) return ok({ rev, targets: [], reason: 'no_server' });
-      const targets = entry.definitions?.[`${path}:${params.get('line')}`] ?? [];
-      return ok({ rev, targets, reason: targets.length ? 'ok' : 'no_definition' });
+      if (!path.endsWith('.py'))
+        return ok({ rev, targets: [], references: null, reason: 'no_server' });
+      const key = `${path}:${params.get('line')}`;
+      const targets = entry.definitions?.[key] ?? [];
+      const used = entry.references?.[key];
+      const reason = !targets.length
+        ? 'no_definition'
+        : used && !used.references.length
+          ? 'no_references'
+          : 'ok';
+      return ok({
+        rev,
+        targets,
+        references: used?.references ?? null,
+        ...(used?.more ? { moreReferences: used.more } : {}),
+        reason,
+      });
     }
     if (wt[2] === 'excerpt') {
       const path = params.get('path') ?? '';

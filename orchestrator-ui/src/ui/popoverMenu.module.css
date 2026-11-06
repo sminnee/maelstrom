@@ -1,5 +1,5 @@
 /*
- * The menu of `usePopoverMenu`, shared by `SplitButton` and `MultiSelect`.
+ * The menu of `usePopoverMenu`, shared by `SplitButton`, `MultiSelect` and `ReferenceMenu`.
  * Compose `.menu` on the popover and `.item` on each item. The trigger carries
  * `anchor-name: var(--anchor-name)` — see `anchoredPopover.module.css`.
  */

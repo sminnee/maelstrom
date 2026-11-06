@@ -1,0 +1,9 @@
+/* A name can have 100 uses: the menu scrolls, and stays within the screen. */
+.menu {
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+}
+
+.more {
+  color: var(--fg-muted);
+}
