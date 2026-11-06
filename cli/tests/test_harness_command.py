@@ -6,11 +6,11 @@ The alias table and mode flags belong to ``lib/agent/tests/test_harness_model.py
 import asyncio
 from pathlib import Path
 
+import click
 import pytest
 
-from mael_agent.harness_model import TRANSPORT_CLI, TRANSPORT_DAEMON
 from mael_cli.task_cli import resolve_harness_or_fail
-from mael_cli.worktree_launcher import build_harness_command, launch_claude_in_worktree
+from mael_cli.worktree_launcher import build_harness_command, launch_agent_in_worktree
 
 
 def test_cli_command_uses_the_model_prefix_and_omits_a_mismatched_alias():
@@ -33,21 +33,11 @@ def test_cli_command_refuses_an_unknown_harness():
         build_harness_command(harness="cursor")
 
 
-def test_cli_flags_select_transport_and_here_refuses_daemon():
-    assert resolve_harness_or_fail(cli=True) == TRANSPORT_CLI
-    assert resolve_harness_or_fail(daemon=True) == TRANSPORT_DAEMON
-    with pytest.raises(Exception, match="--here cannot use --daemon"):
-        resolve_harness_or_fail(daemon=True, here=True)
+def test_conflicting_transport_flags_are_a_click_error():
+    with pytest.raises(click.ClickException, match="--cli conflicts with --daemon"):
+        resolve_harness_or_fail(cli=True, daemon=True)
 
 
 def test_daemon_refuses_a_codex_model_before_starting_any_process():
     with pytest.raises(ValueError, match="codex daemon is not available"):
-        asyncio.run(
-            launch_claude_in_worktree(
-                Path("/tmp"),
-                project="p",
-                worktree="alpha",
-                model="codex:astra",
-                harness=TRANSPORT_DAEMON,
-            )
-        )
+        asyncio.run(launch_agent_in_worktree(Path("/tmp"), model="codex:astra"))

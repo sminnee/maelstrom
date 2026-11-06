@@ -14,6 +14,7 @@ import click
 from mael_agent.agent_transport import ROOT_ENV, RootUnset
 from mael_agent.harness_model import (
     HARNESS_CLAUDE,
+    TRANSPORT_CLI,
     TRANSPORT_DAEMON,
     resolve_execute_model,
     resolve_model_reference,
@@ -99,9 +100,8 @@ from .task_cli import resolve_harness_or_fail
 from .task_cli import task as task_cli
 from .wiki_cli import wiki as wiki_cli
 from .worktree_launcher import (
-    AddContext,
-    detect_add_context,
-    has_install_command,
+    NO_TERMINAL_REFUSAL,
+    has_terminal,
     launch_add_in_worktree,
     open_worktree,
     start_install_async,
@@ -114,26 +114,16 @@ START_BRANCH = "feat/start-project"
 
 async def _finish_add(
     worktree_path: Path,
-    project: str,
-    worktree: str,
     *,
-    context: AddContext,
+    terminal: bool,
     harness: str,
     model: str | None,
     execute_model: str | None,
     open_editor: bool,
     no_agent: bool,
 ) -> None:
-    """Report install state, then select the prepared worktree's surface."""
-    if (
-        context == AddContext.CMUX
-        and not open_editor
-        and has_install_command(worktree_path)
-    ):
-        click.echo("Installer: shown in the worktree shell.")
-    elif context == AddContext.CMUX and not open_editor:
-        click.echo("Installer: no install command configured.")
-    elif start_install_async(worktree_path):
+    """Start the installer, then the prepared worktree's agent or shell."""
+    if start_install_async(worktree_path):
         click.echo("Installer: started in the background.")
     else:
         click.echo("Installer: no install command configured.")
@@ -148,9 +138,7 @@ async def _finish_add(
 
     if not await launch_add_in_worktree(
         worktree_path,
-        project,
-        worktree,
-        context=context,
+        terminal=terminal,
         harness=harness,
         model=model,
         execute_model=execute_model,
@@ -430,7 +418,9 @@ async def cmd_add(
             f"The {model_ref.harness} daemon is not available; use --cli with a "
             f"{model_ref.harness}:* model."
         )
-    add_context = detect_add_context()
+    terminal = has_terminal()
+    if not terminal and resolved_harness == TRANSPORT_CLI and not no_agent:
+        raise click.UsageError(NO_TERMINAL_REFUSAL)
     try:
         ctx = resolve_context(
             project,
@@ -473,9 +463,7 @@ async def cmd_add(
             click.echo(f"App: {url}")
         await _finish_add(
             worktree_path,
-            ctx.project,
-            wt_name,
-            context=add_context,
+            terminal=terminal,
             harness=resolved_harness,
             model=model,
             execute_model=execute_model,
@@ -487,9 +475,7 @@ async def cmd_add(
     click.echo(f"Creating worktree for branch '{branch}'...")
 
     # Ensure a fully set-up worktree exists for the branch (shared with `task run`).
-    # The shared launcher owns install for the create path (it runs it in the new
-    # workspace's shell pane), and reuses a live workspace as a new Claude tab — so
-    # skip install here and let the launcher place the session.
+    # _finish_add starts the installer in the background, so skip it here.
     try:
         result = setup_worktree_for_branch(
             project_path,
@@ -530,9 +516,7 @@ async def cmd_add(
 
     await _finish_add(
         worktree_path,
-        ctx.project,
-        wt_name,
-        context=add_context,
+        terminal=terminal,
         harness=resolved_harness,
         model=model,
         execute_model=execute_model,

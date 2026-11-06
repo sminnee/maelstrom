@@ -4,25 +4,19 @@ import os
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from mael_agent.agent_transport import RecordingDaemonClient
 from mael_cli.worktree_launcher import (
-    AddContext,
     build_claude_command,
-    detect_add_context,
     launch_add_in_worktree,
-    launch_claude_in_worktree,
-    open_claude_workspace,
+    launch_agent_in_worktree,
     open_worktree,
     start_agent_in_worktree,
     start_install_async,
 )
-from mael_common.shell import Command, Pipeline, describe
-from mael_domain.cmux.mael_layout import MaelCmux
 
 
 class TestOpenWorktree:
@@ -57,14 +51,6 @@ class TestOpenWorktree:
 
 
 class TestAddLauncher:
-    def test_daemon_context_takes_precedence_over_cmux(self):
-        with (
-            patch.dict(os.environ, {"MAEL_HARNESS_TYPE": "daemon"}),
-            patch("mael_cli.worktree_launcher.current_client") as cmux,
-        ):
-            assert detect_add_context() == AddContext.DAEMON
-        cmux.assert_not_called()
-
     def test_install_starts_asynchronously_in_the_worktree(self, tmp_path):
         with (
             patch("mael_cli.worktree_launcher.load_config_or_default") as config,
@@ -82,9 +68,7 @@ class TestAddLauncher:
             run.return_value.returncode = 0
             assert await launch_add_in_worktree(
                 tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.REGULAR,
+                terminal=True,
                 harness="cli",
             )
         assert run.call_args.kwargs["cwd"] == tmp_path
@@ -118,9 +102,7 @@ class TestAddLauncher:
             run.return_value.returncode = 0
             assert await launch_add_in_worktree(
                 tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.REGULAR,
+                terminal=True,
                 harness="cli",
                 model=model,
             )
@@ -132,9 +114,7 @@ class TestAddLauncher:
             run.return_value.returncode = 0
             assert await launch_add_in_worktree(
                 tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.REGULAR,
+                terminal=True,
                 harness="cli",
             )
         assert run.call_args.args[0] == ["claude", "--model", "opus"]
@@ -191,7 +171,7 @@ class TestAddLauncher:
             await start_agent_in_worktree(tmp_path, model=model)
 
     @pytest.mark.asyncio
-    async def test_regular_daemon_starts_an_agent_without_cmux(self, tmp_path):
+    async def test_daemon_starts_an_agent(self, tmp_path):
         with (
             patch(
                 "mael_cli.worktree_launcher.start_agent_in_worktree",
@@ -201,88 +181,31 @@ class TestAddLauncher:
         ):
             assert await launch_add_in_worktree(
                 tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.REGULAR,
+                terminal=True,
                 harness="daemon",
             )
         start.assert_awaited_once_with(tmp_path, model=None, execute_model=None)
         run.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_driven_cli_leaves_the_worktree_when_cmux_is_unavailable(
-        self, tmp_path
-    ):
+    async def test_no_agent_runs_a_subshell_in_the_worktree(self, tmp_path):
         with (
-            patch("mael_cli.worktree_launcher.ensure_cmux_running", return_value=False),
-            patch("mael_cli.worktree_launcher.start_agent_in_worktree") as start,
+            patch.dict(os.environ, {"SHELL": "/bin/zsh"}),
+            patch("mael_cli.worktree_launcher.subprocess.run") as run,
         ):
+            run.return_value.returncode = 0
             assert await launch_add_in_worktree(
-                tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.DAEMON,
-                harness="cli",
+                tmp_path, terminal=True, harness="cli", no_agent=True
             )
-        start.assert_not_called()
+        run.assert_called_once_with(["/bin/zsh"], cwd=tmp_path)
 
     @pytest.mark.asyncio
-    async def test_cmux_daemon_attaches_the_started_agent(self, tmp_path, fake_cmux):
-        with (
-            patch("mael_cli.worktree_launcher.load_config_or_default") as config,
-            patch(
-                "mael_cli.worktree_launcher.start_agent_in_worktree",
-                return_value="agent-1",
-            ),
-        ):
-            config.return_value.install_cmd = "uv sync"
+    async def test_no_agent_without_a_terminal_stops_after_the_worktree(self, tmp_path):
+        with patch("mael_cli.worktree_launcher.subprocess.run") as run:
             assert await launch_add_in_worktree(
-                tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.CMUX,
-                harness="daemon",
+                tmp_path, terminal=False, harness="cli", no_agent=True
             )
-        # The installer shell is ready before the agent tab attaches.
-        texts = fake_cmux.texts()
-        assert texts.index("uv sync\n") < texts.index("mael agent attach agent-1\n")
-        assert fake_cmux.tabs("proj-alpha")[0] == ["Claude", "Claude"]
-
-    @pytest.mark.asyncio
-    async def test_cmux_cli_uses_the_selected_model_command(self, tmp_path, fake_cmux):
-        with patch("mael_cli.worktree_launcher.load_config_or_default") as config:
-            config.return_value.install_cmd = ""
-            assert await launch_add_in_worktree(
-                tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.CMUX,
-                harness="cli",
-                model="codex:terra",
-            )
-        assert fake_cmux.sent[-1][1] == (
-            "codex --sandbox workspace-write -c approvals_reviewer=user "
-            "--model gpt-5.6-terra -c model_reasoning_effort=medium\n"
-        )
-
-    @pytest.mark.asyncio
-    async def test_cmux_no_agent_uses_one_shell_surface(self, tmp_path, fake_cmux):
-        with (
-            patch("mael_cli.worktree_launcher.load_config_or_default") as config,
-            patch("mael_cli.worktree_launcher.start_agent_in_worktree") as agent,
-        ):
-            config.return_value.install_cmd = "uv sync"
-            assert await launch_add_in_worktree(
-                tmp_path,
-                "proj",
-                "alpha",
-                context=AddContext.CMUX,
-                harness="cli",
-                no_agent=True,
-            )
-        assert fake_cmux.tabs("proj-alpha") == [["Terminal"]]
-        assert fake_cmux.texts() == [f"cd {tmp_path}\n", "uv sync\n"]
-        agent.assert_not_called()
+        run.assert_not_called()
 
 
 class TestBuildClaudeCommand:
@@ -369,140 +292,31 @@ class TestBuildClaudeCommand:
         ]
 
 
-class TestOpenClaudeWorkspace:
-    """Tests for the cmux new-workspace placement peer.
+class TestLaunchAgent:
+    """A daemon launch starts the agent, starts the installer, prints attach."""
 
-    open_claude_workspace hands the rendered command and the install command to
-    WorktreeWorkspace.open_for_agent, whose create-vs-reuse logic is tested in
-    test_mael_layout.py. These tests guard the translation.
-    """
-
-    def test_returns_false_without_project_or_worktree(self, fake_cmux):
-        # A workspace can't be named without project+worktree → no placement.
-        placed = open_claude_workspace(None, "alpha", Path("/wt"), ["claude", "hi"])
-        assert placed is False
-        assert fake_cmux.list_workspaces() == []
-
-    def test_false_outside_cmux(self):
-        with patch.object(MaelCmux, "current", return_value=None):
-            placed = open_claude_workspace(
-                "proj", "alpha", Path("/wt"), ["claude", "hi"]
-            )
-        assert placed is False
-
-    def test_passes_shell_line_and_install_to_the_workspace(self, fake_cmux):
-        with patch(
-            "mael_cli.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd="npm install"),
-        ):
-            placed = open_claude_workspace(
-                "proj",
-                "alpha",
-                Path("/wt"),
-                Command(
-                    ["claude", "--permission-mode", "plan", "hi there"],
-                    env={"MAEL_TASK_ID": "t1"},
-                ),
-            )
-        assert placed is True
-        texts = fake_cmux.texts()
-        assert "npm install\n" in texts
-        assert texts[-1] == (
-            "MAEL_TASK_ID=t1 claude --permission-mode plan 'hi there'\n"
-        )
-
-    def test_passes_pipeline_rendered(self, fake_cmux):
-        # A Pipeline carries the env on its ``claude`` Command (the right of the
-        # pipe); ``open_claude_workspace`` renders it — env stays on the correct
-        # segment structurally, so there's nothing to re-prefix at the front.
-        expr = Pipeline(
-            [
-                Command(["mael", "task", "prompt", "t1", "--project", "proj"]),
-                Command(
-                    ["claude", "--permission-mode", "plan"],
-                    env={"MAEL_TASK_ID": "t1"},
-                ),
-            ]
-        )
-        with patch(
-            "mael_cli.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd=""),
-        ):
-            assert open_claude_workspace("proj", "alpha", Path("/wt"), expr)
-        assert fake_cmux.sent[-1][1] == (
-            "mael task prompt t1 --project proj "
-            "| MAEL_TASK_ID=t1 claude --permission-mode plan\n"
-        )
-
-    def test_empty_install_cmd_runs_nothing(self, fake_cmux):
-        with patch(
-            "mael_cli.worktree_launcher.load_config_or_default",
-            return_value=SimpleNamespace(install_cmd=""),
-        ):
-            open_claude_workspace("proj", "alpha", Path("/wt"), ["claude", "hi"])
-        # The shell pane gets its cd and no installer.
-        shell = fake_cmux.surface_ref("proj-alpha", 1)
-        assert [text for ref, text in fake_cmux.sent if ref == shell] == ["cd /wt\n"]
-
-
-class TestDaemonLaunchAttach:
-    """``attach`` decides whether a started daemon agent gets a cmux pane."""
-
-    async def _launch(self, client, capsys, *, attach):
+    async def _launch(self, client, capsys):
         with (
             patch("mael_agent.agent_transport.client_factory", lambda **_: client),
-            patch(
-                "mael_cli.worktree_launcher.ensure_cmux_running", return_value=True
-            ) as mock_cmux,
-            patch(
-                "mael_cli.worktree_launcher.open_claude_workspace", return_value=True
-            ) as mock_open,
             patch("mael_cli.worktree_launcher.start_install_async") as mock_install,
         ):
-            placed = await launch_claude_in_worktree(
-                Path("/wt/alpha"),
-                project="proj",
-                worktree="alpha",
-                task_id="t1",
-                harness="daemon",
-                attach=attach,
-            )
-        out = capsys.readouterr()
-        return placed, mock_cmux, mock_open, mock_install, out
+            started = await launch_agent_in_worktree(Path("/wt/alpha"))
+        return started, mock_install, capsys.readouterr()
 
-    async def test_attached_places_a_pane_that_attaches(self, capsys):
+    async def test_starts_the_agent_and_prints_attach(self, capsys):
         client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
-        placed, mock_cmux, mock_open, mock_install, _ = await self._launch(
-            client, capsys, attach=True
-        )
+        started, mock_install, out = await self._launch(client, capsys)
 
-        assert placed is True
-        mock_cmux.assert_called_once()
-        assert describe(mock_open.call_args.args[3]) == "mael agent attach a7"
-        mock_install.assert_not_called()  # the pane's shell runs it
-
-    async def test_headless_starts_the_agent_and_touches_no_cmux(self, capsys):
-        client = RecordingDaemonClient(replies=[{"ok": True, "id": "a7"}])
-        placed, mock_cmux, mock_open, mock_install, out = await self._launch(
-            client, capsys, attach=False
-        )
-
-        assert placed is True
+        assert started is True
         assert [c["cmd"] for c in client.calls] == ["start"]
-        mock_cmux.assert_not_called()
-        mock_open.assert_not_called()
         mock_install.assert_called_once_with(Path("/wt/alpha"))
         assert "mael agent attach a7" in out.out
 
-    async def test_headless_failed_start_returns_false_with_the_reason(self, capsys):
+    async def test_a_failed_start_returns_false_with_the_reason(self, capsys):
         client = RecordingDaemonClient(replies=[{"error": "connection refused"}])
-        placed, mock_cmux, mock_open, mock_install, out = await self._launch(
-            client, capsys, attach=False
-        )
+        started, mock_install, out = await self._launch(client, capsys)
 
-        assert placed is False
-        mock_cmux.assert_not_called()
-        mock_open.assert_not_called()
+        assert started is False
         mock_install.assert_not_called()
         assert "connection refused" in out.err
         assert "Agent started" not in out.out

@@ -19,7 +19,6 @@ from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     TRANSPORT_CLI,
     TRANSPORT_DAEMON,
-    is_driven_agent,
     resolve_execute_model,
     resolve_model_reference,
     resolve_transport,
@@ -37,7 +36,6 @@ from mael_domain import task as model  # noqa: F401  (module, used as `model.*`)
 from mael_domain import task as task_model
 from mael_domain.build_runs import BuildRuns, parse_trigger
 from mael_domain.build_runs_github import GhBuildRuns
-from mael_domain.cmux.client import ensure_cmux_running
 from mael_domain.comm_store import CommStore, SqliteCommStore
 from mael_domain.context import load_global_config, resolve_context, resolve_project
 from mael_domain.protocol import StatusMoved, TaskDetail, TaskFollower, TaskRow
@@ -63,22 +61,20 @@ from .env_cli import refresh_worktree_env
 from .orchestrator_client import OrchestratorClient, OrchestratorRefused
 from .table_cli import draw_table
 from .worktree_launcher import (
+    NO_TERMINAL_REFUSAL,
     build_task_launch_line,
-    launch_claude_in_worktree,
+    has_terminal,
+    launch_agent_in_worktree,
+    start_install_async,
 )
 
 
-def resolve_harness_or_fail(
-    cli: bool = False, daemon: bool = False, *, here: bool = False
-) -> str:
+def resolve_harness_or_fail(cli: bool = False, daemon: bool = False) -> str:
     """Resolve transport flags and render their errors as Click errors."""
     try:
-        resolved = resolve_transport(cli=cli, daemon=daemon)
+        return resolve_transport(cli=cli, daemon=daemon)
     except ValueError as e:
         raise click.ClickException(str(e))
-    if here and resolved == TRANSPORT_DAEMON:
-        raise click.ClickException("--here cannot use --daemon; use --cli.")
-    return resolved
 
 
 def _harness_options(default: str = TRANSPORT_CLI):
@@ -92,15 +88,26 @@ def _harness_options(default: str = TRANSPORT_CLI):
         return f"{text} (default)." if transport == default else f"{text}."
 
     def decorator(f):
-        def removed(
-            _ctx: click.Context, param: click.Parameter, value: str | bool | None
-        ):
-            if value is not None and value is not False:
-                raise click.UsageError(
-                    f"{param.opts[0]} was removed; use --cli or --daemon."
-                )
-            return value
+        def removed_because(hint: str):
+            def removed(
+                _ctx: click.Context,
+                param: click.Parameter,
+                value: str | bool | None,
+            ):
+                if value is not None and value is not False:
+                    raise click.UsageError(f"{param.opts[0]} was removed; {hint}.")
+                return value
 
+            return removed
+
+        removed = removed_because("use --cli or --daemon")
+        f = click.option(
+            "--here",
+            is_flag=True,
+            hidden=True,
+            expose_value=False,
+            callback=removed_because("--cli runs in this shell"),
+        )(f)
         f = click.option(
             "--harness", hidden=True, expose_value=False, callback=removed
         )(f)
@@ -118,7 +125,7 @@ def _harness_options(default: str = TRANSPORT_CLI):
         return click.option(
             "--cli",
             is_flag=True,
-            help=help_for("Launch the model CLI", TRANSPORT_CLI),
+            help=help_for("Run the model CLI in this shell", TRANSPORT_CLI),
         )(f)
 
     return decorator
@@ -242,25 +249,18 @@ async def _run_task(
     project: str,
     task: "model.Task",
     *,
-    here: bool = False,
     fresh: bool = False,
     harness: str = TRANSPORT_CLI,
-    attach: bool = True,
 ) -> None:
-    """Mark a task in-progress and launch its Claude session.
+    """Prepare the task's worktree, mark the task in-progress, and launch it.
 
-    ``attach=False`` starts a daemon agent with no cmux pane; see
-    :func:`launch_agent_in_worktree`. A driven agent's daemon launch places no
-    pane: the orchestrator shows the agent it starts. ``--cli`` still places one.
-
-    With ``here=True`` the session runs in the current shell via
+    ``harness`` picks the launch. The daemon starts a driven agent and prints
+    its attach command; if the start fails the task goes back to TODO, so it
+    never lingers in-progress without a session and the next run retries.
+    ``--cli`` runs the harness in this shell, in the worktree, via
     ``exec_cmd`` — an ``execvp`` that never returns — so every write MUST
-    complete before it. No worktree reconciliation, no new cmux workspace.
-
-    Otherwise the session is placed **inside cmux** (cmux-or-fail): the task is
-    moved in-progress before ``launch_claude_in_worktree`` runs; if placement
-    fails (cmux unreachable) it is rolled back to TODO so it never lingers
-    in-progress without a session and the next run retries.
+    complete before it. A process with no terminal (``has_terminal``) is
+    refused.
 
     ``fresh=True`` marks a just-created task (load-many head, ``add --run``, a
     scheduled run): it has no prior conversation, so it must always launch with
@@ -269,11 +269,11 @@ async def _run_task(
     relaunch callers (``task run`` / ``task next``) leave it ``False`` so they
     still resume a previously-stopped session.
     """
+    if harness == TRANSPORT_CLI and not has_terminal():
+        raise click.ClickException(NO_TERMINAL_REFUSAL)
     # The plan settles the session id, env, permission mode and branch once,
     # the same way the orchestrator server does. Harnesses without task-session
     # support cannot pin, resume, or guard their own session ids.
-    if is_driven_agent():
-        attach = False
     plan = plan_launch(project, task)
     ref = resolve_model_reference(plan.model, task.mode)
     if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
@@ -310,54 +310,14 @@ async def _run_task(
     }
     perm = plan.permission_mode
 
-    if here:
-        # No live session exists (the guard above ruled that out), so the only
-        # question is whether this task's deterministic session was started before
-        # and stopped: an on-disk transcript means `--session-id` would fail with
-        # "already exists", so we resume it instead. `--here` runs in the cwd.
-        # fresh ⇒ never resume; see docstring. Codex has no id to resume.
-        resume = False
-        if has_session_id and not fresh:
-            assert session_id is not None  # set above on the claude path
-            resume = has_claude_transcript(Path.cwd(), session_id)
-        await task_actions.move_with_actions(
-            table, project, task.id, model.STATUS_IN_PROGRESS, warn=_warn
-        )  # write BEFORE launch; fires pre_action
-        suffix = " (resuming)" if resume else ""
-        if plan.execute_model:
-            # --here runs the harness in this shell, with no daemon between —
-            # so nothing switches the model when the plan is approved.
-            click.echo(
-                f"Ignoring the execute model {plan.execute_model!r}: --here has "
-                "no daemon to switch it when the plan is approved.",
-                err=True,
-            )
-        click.echo(f"Running {task.id} here (current shell){suffix}")
-        exec_cmd(
-            build_task_launch_line(
-                project,
-                task.id,
-                perm,
-                env=session_env,
-                session_id=session_id,
-                resume=resume,
-                model=plan.model,
-                harness=ref.harness,
-            ),
-            cwd=None,
-            env=session_env,
-        )
-        return
-
     ctx = resolve_context(project, require_project=True, arg_is_project=True)
     project_path = ctx.project_path
     if project_path is None or not project_path.exists():
         raise click.ClickException(f"Project '{project}' not found at {project_path}")
     branch = plan.branch
-    # The launcher owns install (shell pane on create, blocking in non-cmux).
-    # ``task.base`` is a declarative input: it seeds the branch's stored base the
-    # first time the worktree is set up. Empty falls through to the stack tip,
-    # which is what every task did before stacking existed.
+    # ``run_install=False``: each launch below starts the installer in the background.
+    # ``task.base`` seeds the branch's stored base the first time the worktree is
+    # set up. Empty falls through to the stack tip.
     try:
         result = setup_worktree_for_branch(
             project_path,
@@ -372,8 +332,7 @@ async def _run_task(
         raise click.ClickException(str(e))
     # Opening the worktree rebased its branch onto its base. If that failed,
     # block: an unattended session must not run against stale code. The failure
-    # lands before the in-progress write below, so the task never leaves TODO —
-    # the same end state as the cmux rollback, with no rollback write needed.
+    # lands before the in-progress write below, so the task never leaves TODO.
     try:
         check_synced(task.id, branch, result)
     except LaunchBlocked as e:
@@ -401,11 +360,35 @@ async def _run_task(
     suffix = " (resuming)" if resume else ""
     click.echo(f"Running {task.id} on {branch}{suffix}")
     click.echo(f"  → {project}/{result.name} ({result.action})")
-    placed = await launch_claude_in_worktree(
+
+    if harness == TRANSPORT_CLI:
+        if plan.execute_model:
+            # A CLI session has no daemon, so nothing switches the model when
+            # the plan is approved. Said rather than dropped silently.
+            click.echo(
+                f"Ignoring the execute model {plan.execute_model!r}: a --cli "
+                "session has no daemon to switch it when the plan is approved.",
+                err=True,
+            )
+        start_install_async(result.path)
+        exec_cmd(
+            build_task_launch_line(
+                project,
+                task.id,
+                perm,
+                env=session_env,
+                session_id=session_id,
+                resume=resume,
+                model=plan.model,
+                harness=ref.harness,
+            ),
+            cwd=result.path,
+            env=session_env,
+        )
+        return
+
+    started = await launch_agent_in_worktree(
         result.path,
-        project=project,
-        worktree=result.name,
-        task_id=task.id,
         permission_mode=perm,
         env=session_env,
         session_id=session_id,
@@ -413,18 +396,13 @@ async def _run_task(
         model=plan.model,
         execute_model=plan.execute_model,
         prompt=plan.prompt,
-        harness=harness,
-        attach=attach,
     )
-    if not placed:
-        # No session opened, so roll the task back to TODO — a task that never
+    if not started:
+        # No agent started, so roll the task back to TODO — a task that never
         # launched must never be left in-progress. It stays re-runnable with
         # `mael task run`; the scheduler has moved its watermark and does not
-        # retry it. No execvp happens on this path
-        # now, so this write always runs. The rollback is best-effort: if the
-        # store write itself raises, the run aborts loudly (leaving the task
-        # in-progress) rather than silently — an acceptable failure mode, since
-        # a raised store error is already fatal.
+        # retry it. If the store write itself raises, the run aborts loudly
+        # (leaving the task in-progress) rather than silently.
         await task_actions.move_with_actions(
             table, project, task.id, model.STATUS_TODO, warn=_warn
         )
@@ -793,11 +771,7 @@ def task() -> None:
 @click.option(
     "-r", "--run", is_flag=True, help="Launch the task as a session immediately."
 )
-@click.option(
-    "--here",
-    is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
-)
+@_harness_options(default=TRANSPORT_DAEMON)
 async def task_add(
     title: str | None,
     project: str | None,
@@ -823,9 +797,11 @@ async def task_add(
     comms: tuple[str, ...],
     edit: bool,
     run: bool,
-    here: bool,
+    cli: bool,
+    daemon: bool,
 ) -> None:
     """Add a new task and print its id."""
+    check_run_transport(run, cli, daemon)
     content = _read_content_file(content_file) if content_file is not None else None
     await add_task(
         title=title,
@@ -851,7 +827,7 @@ async def task_add(
         comms=list(dict.fromkeys(c for c in comms if c)) if comms else None,
         edit=edit,
         run=run,
-        here=here,
+        cli=cli,
     )
 
 
@@ -879,7 +855,7 @@ async def add_task(
     comms: list[str] | None = None,
     edit: bool = False,
     run: bool = False,
-    here: bool = False,
+    cli: bool = False,
 ) -> str:
     """Create a task on the orchestrator server (and optionally launch it).
 
@@ -890,7 +866,7 @@ async def add_task(
     source's value. ``content`` of ``None`` is left out too: pass ``""`` to
     blank a duplicate's content.
 
-    ``run`` launches on the server, on the daemon, unless ``here`` runs it in
+    ``run`` launches on the server, on the daemon, unless ``cli`` runs it in
     this shell. ``edit`` opens the new task in ``$EDITOR`` first.
     """
     proj = resolve_project(project)
@@ -924,15 +900,15 @@ async def add_task(
         body["from"] = f"{proj}/{from_id}"
     if is_template:
         body["status"] = task_model.STATUS_TEMPLATE
-    # With --edit or --here, the launch runs after the create, not in it.
-    if run and not here and not edit:
+    # With --edit or --cli, the launch runs after the create, not in it.
+    if run and not cli and not edit:
         body["launch"] = True
     client = OrchestratorClient.from_config()
     reply = client.post("/api/tasks", body)
     task_id = _notebook_id(reply["taskId"])
     click.echo(task_id)
     operation_id = reply.get("operationId")
-    if operation_id and (edit or here):
+    if operation_id and (edit or cli):
         # The operation names the task. A local write before it ends would
         # save the stand-in title and branch over the names.
         _wait_for_operation(client, operation_id)
@@ -944,10 +920,10 @@ async def add_task(
             raise click.ClickException(f"Task not found: {task_id}")
         except RuntimeError as e:
             raise click.ClickException(str(e))
-    if run and here:
+    if run and cli:
         table = await _table()
         new = await task_model.load(table, proj, task_id)
-        await _run_task(table, proj, new, here=True, fresh=True)
+        await _run_task(table, proj, new, fresh=True, harness=TRANSPORT_CLI)
     elif run:
         launched = reply["operationId"] if body.get("launch") else None
         _echo_started(task_id, launched or _launch_on_server(proj, task_id))
@@ -1131,16 +1107,12 @@ async def task_promote(
         "`mael task next --run`)."
     ),
 )
-@click.option(
-    "--here",
-    is_flag=True,
-    help=(
-        "With --run, launch only the head task in the current shell "
-        "(no worktree, no new workspace)."
-    ),
-)
-async def task_load_many(file: str, project: str | None, run: bool, here: bool) -> None:
+@_harness_options(default=TRANSPORT_DAEMON)
+async def task_load_many(
+    file: str, project: str | None, run: bool, cli: bool, daemon: bool
+) -> None:
     """Create one or more tasks from a marked plan file ('-' reads stdin)."""
+    _refuse_bulk_cli(run, cli, daemon)
     text = _read_content_file(file)
     proj = resolve_project(project)
     reply = OrchestratorClient.from_config().post(
@@ -1149,7 +1121,7 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
             "project": proj,
             "text": text,
             "defaultParent": _default_parent(""),
-            "launch": run and not here,
+            "launch": run,
         },
     )
     for w in reply["warnings"]:
@@ -1157,20 +1129,38 @@ async def task_load_many(file: str, project: str | None, run: bool, here: bool) 
     created = [(_notebook_id(t["taskId"]), t["title"]) for t in reply["tasks"]]
     for task_id, title in created:
         click.echo(f"{task_id}\t{title}")
-    if run and here and created:
-        # `exec_cmd` is an execvp that never returns, so only the head can be
-        # launched this way. Print BEFORE _run_task — after the execvp nothing
-        # here reaches the terminal.
-        head_id = created[0][0]
-        click.echo(f"{head_id} starting in this shell.")
-        table = await _table()
-        head = await model.load(table, proj, head_id)
-        await _run_task(table, proj, head, here=True, fresh=True)
-        return
     # The server launched each task that waits on nothing.
     for row in reply["tasks"]:
         if "operationId" in row:
             _echo_started(_notebook_id(row["taskId"]), row["operationId"])
+
+
+def check_run_transport(run: bool, cli: bool, daemon: bool) -> None:
+    """Refuse bad ``--cli``/``--daemon`` flags on a command that adds, then runs.
+
+    The command makes the task before it launches, so each refusal must come
+    first: a later one leaves a TODO task behind.
+    """
+    if cli and daemon:
+        raise click.UsageError("--cli conflicts with --daemon")
+    if (cli or daemon) and not run:
+        raise click.UsageError("--cli and --daemon need --run")
+    if cli and not has_terminal():
+        raise click.UsageError(NO_TERMINAL_REFUSAL)
+
+
+def _refuse_bulk_cli(run: bool, cli: bool, daemon: bool) -> None:
+    """Refuse ``--cli`` on a command whose ``--run`` launches many sessions.
+
+    A ``--cli`` session replaces this process, so it can run only one.
+    """
+    if cli and daemon:
+        raise click.UsageError("--cli conflicts with --daemon")
+    if cli and run:
+        raise click.UsageError(
+            "--run can launch more than one session, and --cli runs one in this "
+            "shell. Launch one task with `mael task run <id> --cli`."
+        )
 
 
 def _scheduled_projects(project: str | None, all_projects: bool) -> list[str]:
@@ -1199,8 +1189,6 @@ async def _fire_due_templates(
     now: datetime,
     build_runs: BuildRuns,
     run: bool,
-    here: bool,
-    harness: str = TRANSPORT_DAEMON,
 ) -> list["model.Task"]:
     """Fire the due templates in ``project``, and launch each new run with ``run``.
 
@@ -1213,28 +1201,13 @@ async def _fire_due_templates(
     for warning in fired.warnings:
         click.echo(f"warning: {project}/{warning}", err=True)
     created = fired.created
-    if run and created and harness == TRANSPORT_CLI and not here:
-        # Start the cmux app once for the whole batch (N due runs share one app
-        # start); each _run_task still guards liveness individually and rolls its
-        # own task back to TODO on failure. With no execvp fallback, the launch
-        # loop always completes — a failed placement never abandons later runs.
-        # A daemon run places no pane, so it needs no cmux.
-        ensure_cmux_running()
     if run:
         for t in created:
             # One run's refusal (a non-Claude model on the daemon, a live
             # session, an exhausted port range) must not abandon later runs or
             # later projects.
             try:
-                await _run_task(
-                    table,
-                    project,
-                    t,
-                    here=here,
-                    fresh=True,
-                    harness=harness,
-                    attach=harness != TRANSPORT_DAEMON,
-                )
+                await _run_task(table, project, t, fresh=True, harness=TRANSPORT_DAEMON)
             except click.ClickException as e:
                 click.echo(f"warning: {t.id} — {e.format_message()}", err=True)
             except RuntimeError as e:
@@ -1253,21 +1226,15 @@ async def _fire_due_templates(
 @click.option(
     "--run",
     is_flag=True,
-    help="Launch each due run (default: a daemon-driven agent, no cmux pane).",
+    help="Launch each due run as a daemon-driven agent.",
 )
 @_harness_options(default=TRANSPORT_DAEMON)
-@click.option(
-    "--here",
-    is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
-)
 async def task_add_scheduled(
     project: str | None,
     all_projects: bool,
     run: bool,
     cli: bool,
     daemon: bool,
-    here: bool,
 ) -> None:
     """Fire every due template: duplicate it into a dated run and advance its watermark.
 
@@ -1275,14 +1242,9 @@ async def task_add_scheduled(
     due templates and reuses the canonical duplicate/launch path — it owns only
     the cron/last-run/catch-up logic, never creation or launch.
 
-    The transport defaults to the daemon, and ``MAEL_HARNESS_TYPE`` does not
-    change it. ``--cli`` or ``--here`` opens a session you can see.
+    Each run launches on the daemon, whatever ``MAEL_HARNESS_TYPE`` says.
     """
-    if cli or daemon:
-        # A flag is given, so the resolver never reaches the env fallback.
-        harness = resolve_harness_or_fail(cli, daemon, here=here)
-    else:
-        harness = TRANSPORT_CLI if here else TRANSPORT_DAEMON
+    _refuse_bulk_cli(run, cli, daemon)
     now = datetime.now().astimezone()
     # Stamp every run so schedule.log records when the agent fired, even when
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
@@ -1297,8 +1259,6 @@ async def task_add_scheduled(
             now=now,
             build_runs=build_runs,
             run=run,
-            here=here,
-            harness=harness,
         )
         for t in fired:
             click.echo(f"{proj}/{t.id}\t{t.title}")
@@ -1431,11 +1391,6 @@ def _next_fire_display(schedule: str) -> str:
     default=None,
     help="Restrict to this branch (no fallback to other branches).",
 )
-@click.option(
-    "--here",
-    is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
-)
 async def task_next(
     project: str | None,
     parent: str | None,
@@ -1443,7 +1398,6 @@ async def task_next(
     cli: bool,
     daemon: bool,
     branch: str | None,
-    here: bool,
 ) -> None:
     """Print the id of the next actionable task.
 
@@ -1467,13 +1421,7 @@ async def task_next(
     if nxt is None:
         raise click.ClickException("No actionable task.")
     if run:
-        await _run_task(
-            table,
-            proj,
-            nxt,
-            here=here,
-            harness=resolve_harness_or_fail(cli, daemon, here=here),
-        )
+        await _run_task(table, proj, nxt, harness=resolve_harness_or_fail(cli, daemon))
     else:
         click.echo(nxt.id)
 
@@ -1482,27 +1430,21 @@ async def task_next(
 @_harness_options()
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-@click.option(
-    "--here",
-    is_flag=True,
-    help="Launch in the current shell (no worktree, no new workspace).",
-)
 async def task_run(
     id: str,
     project: str | None,
-    here: bool,
     cli: bool,
     daemon: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
-    resolved = resolve_harness_or_fail(cli, daemon, here=here)
+    resolved = resolve_harness_or_fail(cli, daemon)
     proj = resolve_project(project)
     table = await _table()
     try:
         t = await model.load(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    await _run_task(table, proj, t, here=here, harness=resolved)
+    await _run_task(table, proj, t, harness=resolved)
 
 
 async def _live_sessions_by_task(
