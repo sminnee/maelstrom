@@ -1770,8 +1770,9 @@ _Avoid_: update operation, background update
 
 **Host check**:
 The check of the machine outside maelstrom's own install: the host tools, the sign-ins, the git
-author identity, Docker, the browser tool, Tailscale and the secret files under `~/.maelstrom`. `mael self check-host` runs it, and
-installs or signs in only after a yes. The install runs it on a first install only. It is not
+author identity, Docker, the browser tool, Tailscale and the secret files under `~/.maelstrom`.
+`mael self check-host` runs it, and installs or signs in only after a yes. Each install runs it
+with `--quiet`, which skips an optional item the user said no to. It is not
 `mael self setup`, which applies maelstrom's own install, nor `mael project check`,
 which checks one project.
 _Avoid_: doctor, host doctor
