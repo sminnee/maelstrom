@@ -67,6 +67,9 @@ def test_each_wheel_holds_its_own_member_alone(wheels: dict[str, Path]):
 def test_the_domain_wheel_carries_shared(wheels: dict[str, Path]):
     names = zipfile.ZipFile(wheels["domain"]).namelist()
     assert "mael_domain/shared/agent-prompt.md" in names
+    # The manifests are in dot-dirs, which a glob could skip.
+    assert "mael_domain/shared/plugins/.claude-plugin/marketplace.json" in names
+    assert "mael_domain/shared/plugins/maelstrom/.claude-plugin/plugin.json" in names
     assert not [n for n in names if n.startswith("mael_domain/shared/tests/")]
 
 

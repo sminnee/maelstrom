@@ -244,8 +244,8 @@ def generate_branch_name(
 # --- inferring a whole task from prose ---
 
 #: The task ``command`` values inference may propose, plus ``""`` for an
-#: execute task. Each names a skill in ``shared/skills/``; anything else the
-#: model invents falls back to ``""``.
+#: execute task. Each names a skill in ``shared/plugins/maelstrom/skills/``;
+#: anything else the model invents falls back to ``""``.
 #:
 #: Deliberately different from the web app's ``KNOWN_COMMANDS``
 #: (``orchestrator-ui/src/protocol/phase.ts``): ``shape`` names no skill file, ``watch-pr``

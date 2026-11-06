@@ -12,7 +12,10 @@ import pytest
 
 from mael_domain.worktree_model import render_managed_section
 
-SCRIPT = Path(__file__).resolve().parents[1] / "skills/security-test/target-guard.sh"
+SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "plugins/minnstack/skills/security-test/target-guard.sh"
+)
 
 DEV_HOST = "cobalt.example.ts.net"
 
