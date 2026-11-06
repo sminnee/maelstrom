@@ -151,7 +151,7 @@ in the list.
 | Items | What they do |
 |---|---|
 | `PackageManager` | `brew` on macOS, offering the Homebrew installer. `apt-get` on Linux |
-| `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
+| `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew. The last rows come from `LANGUAGE_SERVERS`: one per **Language server** with an install command |
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
 | `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
