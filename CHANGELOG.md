@@ -22,8 +22,14 @@ release while that section is empty, and retitles it to the version it is releas
   checks the tools, the sign-ins, Tailscale and the secret files, prints the `brew` or `apt`
   command for each missing item, and runs it after a yes. `install.sh` runs it on a first
   install, and installs uv when it is missing.
-- **`mael self setup` asks where projects live** when `projects_dir:` is unset, and ends with the
-  orchestrator's URL.
+- **`mael self setup` ends with the orchestrator's URL.**
+- **Install from main with one line, on a host with no release.**
+  `curl -LsSf https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-main.sh | sh`
+  clones maelstrom into `<projects_dir>/maelstrom/_main`, sets `update_channel: main`, and
+  installs a bundle built from it. Run it again to upgrade.
+- **The installer asks where projects live** before it downloads or builds, when `projects_dir:`
+  is unset. `install.sh --projects-dir DIR` answers the question. A source install offers Node
+  and pnpm before the build.
 
 ### Changed
 

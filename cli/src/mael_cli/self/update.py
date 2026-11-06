@@ -17,6 +17,11 @@ from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 RELEASES = "https://github.com/sminnee/maelstrom/releases"
 INSTALLER = "install.sh"
 
+#: The bootstrap that lays out ``_main`` and installs from it.
+INSTALL_MAIN_URL = (
+    "https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-main.sh"
+)
+
 #: The project whose ``_main`` the main channel builds.
 MAELSTROM_PROJECT = "maelstrom"
 
@@ -91,6 +96,6 @@ def update_main(main: Path, run: Callable[..., subprocess.CompletedProcess]) -> 
     if not (main / ".git").exists():
         raise UpdateError(
             f"The main channel builds from {main}, which is not a checkout. "
-            f"Run `mael project add sminnee/{MAELSTROM_PROJECT}` first."
+            f"Make it with `curl -LsSf {INSTALL_MAIN_URL} | sh`."
         )
     return run(["sh", str(main / "bin" / INSTALLER), "--source", str(main)]).returncode

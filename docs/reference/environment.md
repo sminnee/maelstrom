@@ -175,6 +175,7 @@ that lack the key.
 | `MAEL_WEB_ROOT` | — | The built UI that `mael-orchestrator serve` serves beside its API, the same as `--web-root`. Without it, an installed release serves its own `web` component, and a worktree serves the API alone. See [orchestrator-server.md](../dev/orchestrator-server.md#the-built-ui). |
 | `MAEL_INSTALL_PYTHON` | `3.13` | The Python version `install.sh` builds each release venv with. uv downloads it when the host has none. |
 | `MAEL_RELEASE_URL` | `https://github.com/sminnee/maelstrom/releases` | Where `install.sh` downloads release bundles from. |
+| `MAEL_REPO_URL` | `https://github.com/sminnee/maelstrom.git` | The repo `install-main.sh` clones, such as a fork. |
 | `MAEL_PRODUCTION` | — | Suppresses the non-production environment warning. The PATH `mael` shim, which `mael self setup` writes, sets it, and so do the host services. Worktree `uv run mael` commands leave it unset and print their agent daemon root and State database root. |
 | `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes and its per-agent sockets. Read by `vite.config.ts`, which also passes its port to the dev bundle as `VITE_ORCHESTRATOR_PORT` for the change stream — see [orchestrator-ui.md](../dev/orchestrator-ui.md). |
 | `ORCHESTRATOR_PORT` | — | The port this worktree's orchestrator serves on, allocated into its `.env`. To point `mael` at a server, set the global `orchestrator_url:`. See [configuration.md](configuration.md). |

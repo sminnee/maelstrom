@@ -10,19 +10,27 @@ It is not a **Service** of a worktree.
 ## The flow
 
 ```
-curl … | sh  ─┐                                                  first install only
-mael self update ─┼─▶ install.sh ──▶ components, venv, `current` ──▶ mael self check-host
+curl …/install-main.sh | sh ──▶ clone <projects_dir>/maelstrom/_main ──▶ install.sh --source …
+                                                                              │
+curl … | sh  ─┐                                                               ▼
+mael self update ─┼─▶ install.sh ──▶ projects dir ──▶ components, venv, `current`
 sh install.sh --source DIR ─┘                                                 │
+                                                                              ▼
+                                         mael self check-host (first install only;
+                                         --source runs it before the build)
+                                                                              │
                                                                               ▼
                                                      mael self setup --changed …
                                                      (the new release's code)
 ```
 
 1. `bin/install.sh` installs uv when it is missing.
-2. It places the release under `~/.maelstrom/install/` and moves `current`.
-3. On a first install, it runs `current/venv/bin/mael self check-host`.
-4. It runs `current/venv/bin/mael self setup --changed <components>`.
-5. Setup brings the host to the state the release wants.
+2. It asks for the projects directory when `projects_dir:` is unset, and writes the key.
+3. It places the release under `~/.maelstrom/install/` and moves `current`.
+4. On a first install, it runs `current/venv/bin/mael self check-host`. With `--source`, it runs
+   `check-host --dev` from the checkout before the build instead.
+5. It runs `current/venv/bin/mael self setup --changed <components>`.
+6. Setup brings the host to the state the release wants.
 
 `mael self update` runs `install.sh` for the stored channel. See
 [the CLI reference](../reference/cli.md#host-control-mael-self).
@@ -43,7 +51,10 @@ script has arrived.
 | `current` moves last, with `ln -s` and `mv -h` (macOS) or `mv -T` (Linux) | A failure before the switch leaves the release that runs as it was |
 | A tarball member outside `maelstrom/`, or with a `..`, is refused | The bundle unpacks under the install root, and nothing may land beside it |
 | The changed components are added to `pending-changed` in the install root before setup runs | Setup deletes the record once the restarts succeed, so a setup that stops early leaves them to the next |
+| The projects directory is resolved before the download or the build, also with `--no-setup` | The question comes first, and setup then finds the key set |
+| The directory is asked for only when `--projects-dir` is not given and `projects_dir:` is unset | `mael self update` cannot pass the flag, because an older release's `install.sh` refuses unknown arguments |
 | `check-host` runs only when there was no `current/manifest.toml` before the install | An update must not prompt, and a tool the user declined would be asked about on each update |
+| With `--source`, `check-host --dev` runs before the build, through `uv run --project DIR`, and not again after the switch | `bin/install` and `bin/build-bundle` need `node` and `pnpm`, and the checkout's `mael` needs only uv |
 | `check-host`'s exit code is ignored | The host services start without `gh` or `codex` |
 | `check-host` and setup read `/dev/tty` when it opens | Under `curl \| sh`, stdin is the script |
 
@@ -58,6 +69,16 @@ own `install.sh`, because the pull can change it. It runs `bin/install` with
 `MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production state database. Then
 `bin/build-bundle` makes a bundle tagged `main-<sha12>`. A tag that runs now is not built again.
 
+### The bootstrap
+
+`bin/install-main.sh` installs from main on a host with no release and no checkout. It does the
+git steps of `_lay_out_project()` for `_main` alone, writes the `.mael` marker, and writes
+`update_channel: main`. Then it runs `_main`'s own `install.sh --source --projects-dir`, so all
+install logic stays in one script. A layout step that fails, or an interrupt, removes the project directory. It writes
+`update_channel: main` after the layout, so a failed clone leaves the channel as it was. It
+carries a copy of `install.sh`'s projects-directory functions, because it
+runs before any checkout exists. Keep the two copies the same.
+
 ## Setup
 
 `mael self setup` is in `cli/src/mael_cli/self/setup.py`. Each step is safe to repeat, so every
@@ -67,7 +88,7 @@ fails the setup.
 
 | Step | What it does |
 |---|---|
-| Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. Asks only when the key is unset and stdin is a tty |
+| Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. The installer writes the key, so this asks only on a host whose key was removed after the install, when stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
 | Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
 | Integrate | The Claude skills and hooks, then `harden_global_config` |
@@ -212,6 +233,7 @@ A later change can then carve `self` out into a binary of its own.
 |---|---|
 | `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home; `Setup` with fakes |
 | `cli/tests/test_host_check.py` | `HostCheck` on a fake host, on both platforms |
+| `tests/test_install_main.py` | `install-main.sh` against a local repo with a stub `install.sh`; the layout passes `run_project_check`. `install.sh`'s projects-directory step, and the `check-host` order with `--source` |
 | `tests/test_release_bundle.py` (e2e) | A real bundle, installed with real uv and `--no-setup`, then served |
 
 The e2e install skips setup, because setup loads units into the real launchd or systemd whatever

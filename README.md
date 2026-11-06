@@ -21,18 +21,20 @@ itself:
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 ```
 
-It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout. On a first install it runs
-`mael self check-host`, which offers the host tools and the sign-ins. Then it runs
-`mael self setup`. Setup asks where your projects live, writes `~/.local/bin/mael`, installs the Claude Code skills and hooks,
-and starts the orchestrator and the agent daemon as host services. `mael self update` installs
+It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout. It asks where your
+projects live, when that is not yet set. On a first install it runs `mael self check-host`, which offers the host tools and
+the sign-ins. Then it runs `mael self setup`. Setup writes `~/.local/bin/mael`, installs the Claude
+Code skills and hooks, and starts the orchestrator and the agent daemon as host services. `mael self update` installs
 the next release. See [Getting started](docs/guide/getting-started.md).
 
-To install maelstrom from its own source, install a release first, so `mael` exists. Then:
+To install maelstrom from its main branch, with no release, run:
 
 ```bash
-mael project add sminnee/maelstrom      # gives ~/Projects/maelstrom/_main
-mael self update --channel main         # builds a bundle from _main and installs it
+curl -LsSf https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-main.sh | sh
 ```
+
+`mael self update` then stays on main. See
+[Install from main](docs/guide/getting-started.md#install-from-main).
 
 For local development:
 
