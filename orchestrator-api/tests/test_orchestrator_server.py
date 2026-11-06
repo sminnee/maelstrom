@@ -7,7 +7,9 @@ replies.
 """
 
 import asyncio
+import ipaddress
 import json
+import socket
 import subprocess
 import sys
 import threading
@@ -190,7 +192,9 @@ class Harness:
 
     def serving(self, web_root: Path | None = None):
         """Serve the orchestrator on a free port for the length of the block."""
-        return serving(build_app(self.orch, web_root=web_root), "127.0.0.1", 0)
+        return serving(
+            build_app(self.orch, web_root=web_root), [("127.0.0.1", None)], 0
+        )
 
     @asynccontextmanager
     async def client(self, web_root: Path | None = None):
@@ -6939,7 +6943,7 @@ def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
     app = build_app(harness.orch)
 
     async def scenario():
-        async with serving(app, "127.0.0.1", 0) as port:
+        async with serving(app, [("127.0.0.1", None)], 0) as port:
             async with aiohttp.ClientSession(
                 base_url=f"http://127.0.0.1:{port}"
             ) as session:
@@ -11659,20 +11663,50 @@ def test_feedback_with_no_agent_in_the_worktree_is_refused(harness):
     assert said(harness) == []
 
 
+def _first_public_ipv4() -> str | None:
+    """This host's address on its default route, or ``None`` without one.
+
+    A UDP connect sends nothing; it only picks the route.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.connect(("10.255.255.255", 1))
+        except OSError:
+            return None
+        address = probe.getsockname()[0]
+    return None if ipaddress.ip_address(address).is_loopback else address
+
+
 @pytest.mark.binds_socket
-def test_the_server_answers_over_tls_with_a_certificate(harness, tls_server_context):
-    """Under ``dev_https:`` the page is a secure context, so the server it
-    dials must speak TLS on the same port."""
+def test_the_server_serves_http_on_loopback_and_tls_on_the_public_address(
+    harness, tls_server_context
+):
+    """One port, two addresses: the Vite proxy dials loopback in plain HTTP,
+    and a tailnet page under ``dev_https:`` dials the public address in TLS."""
+    public = _first_public_ipv4()
+    if public is None:
+        pytest.skip("this host has no non-loopback IPv4 address")
+
+    async def status(session, url):
+        async with session.get(url, ssl=False) as response:
+            return response.status
 
     async def scenario():
         app = build_app(harness.orch)
-        async with serving(app, "127.0.0.1", 0, ssl_context=tls_server_context) as port:
+        binds = [("127.0.0.1", None), (public, tls_server_context)]
+        async with serving(app, binds, 0) as port:
             async with aiohttp.ClientSession() as session:
-                url = f"https://127.0.0.1:{port}/api/desk"
-                async with session.get(url, ssl=False) as response:
-                    return response.status
+                served = (
+                    await status(session, f"http://127.0.0.1:{port}/api/desk"),
+                    await status(session, f"https://{public}:{port}/api/desk"),
+                )
+        closed = []
+        for address in ("127.0.0.1", public):
+            with socket.socket() as probe:
+                closed.append(probe.connect_ex((address, port)) != 0)
+        return served, closed
 
-    assert run(scenario()) == 200
+    assert run(scenario()) == ((200, 200), [True, True])
 
 
 # --- landings and comms ------------------------------------------------------

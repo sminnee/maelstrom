@@ -29,17 +29,19 @@ services:
     dir: orchestrator-ui
     command: pnpm dev
     env:
-      # The dev host, not localhost: under `dev_https:` the certificate names
-      # only the dev host. This dials the dev host with HTTPS off too.
-      ORCHESTRATOR_URL: ${DEV_SCHEME}://${DEV_HOST}:${ORCHESTRATOR_PORT}
+      # The dev server's `/api` proxy dials loopback, in plain HTTP. It never
+      # crosses the tailnet.
+      ORCHESTRATOR_URL: http://127.0.0.1:${ORCHESTRATOR_PORT}
 
-  # Bound on every interface, as the web service is: the change stream is
-  # dialled directly rather than through the dev server's proxy, so a page
-  # loaded over the tailnet reaches this port itself. Close that off at the
-  # firewall, as `orchestrator-ui/vite.config.ts` says of its own bind.
+  # Two listeners on one port. Loopback serves plain HTTP to the dev server's
+  # proxy. The dev host serves the change stream, which a page loaded over
+  # the tailnet dials directly rather than through the proxy; it speaks TLS
+  # under `dev_https:`, with the certificate the `.env` names.
   orchestrator:
     ports: [ORCHESTRATOR]
-    command: uv run mael-orchestrator serve --host 0.0.0.0 --port ${ORCHESTRATOR_PORT}
+    command: >-
+      uv run mael-orchestrator serve --host 127.0.0.1 --public-host ${DEV_HOST}
+      --port ${ORCHESTRATOR_PORT}
 
   # The agent daemon of this environment. Its root comes from MAEL_AGENT_ROOT
   # in the worktree's `.env`, substituted per worktree from the project root's

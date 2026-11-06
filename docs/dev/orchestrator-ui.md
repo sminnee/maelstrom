@@ -2003,9 +2003,13 @@ its own machine. `GET /api/events` echoes the request's `Origin` back, so the cr
 allowed.
 
 Under `dev_https:` the page is `https://`, so the stream dials `https://` too, and the orchestrator
-must speak TLS on its port. `mael-orchestrator serve` reads `DEV_TLS_CERT` and `DEV_TLS_KEY` from
-the worktree's `.env` for this. The dev server's proxy dials `ORCHESTRATOR_URL`, which names the
-dev host rather than `localhost`, because the certificate names the dev host.
+must speak TLS on its port. The orchestrator has two listeners on that port. `--host 127.0.0.1`
+serves plain HTTP, and the dev server's proxy dials it: `ORCHESTRATOR_URL` is
+`http://localhost:${ORCHESTRATOR_PORT}`, so the proxy never crosses the tailnet.
+`--public-host ${DEV_HOST}` binds the dev host's addresses, and serves TLS with the `DEV_TLS_CERT`
+and `DEV_TLS_KEY` of the worktree's `.env`. A page on `localhost` dials the loopback listener, and
+a tailnet page dials the public one, so each stream gets the scheme of its page. The installed
+orchestrator has the same two listeners: see [host services](host-services.md#the-orchestrator-url).
 
 The dev server accepts the dev host. `vite.config.ts` puts `DEV_HOST` in `server.allowedHosts`,
 and Ladle loads the same file. Ladle pins its HMR socket to `localhost`, so `.ladle/config.mjs`
