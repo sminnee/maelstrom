@@ -51,5 +51,6 @@ Thumbs.db
 .env
 
 .claude/CLAUDE.local.md
+.claude/settings.local.json
 AGENTS.md
 .drafts/
