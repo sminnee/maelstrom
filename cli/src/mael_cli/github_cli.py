@@ -8,7 +8,6 @@ from pathlib import Path
 import click
 
 from mael_common.cli_async import AsyncGroup
-from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.context import resolve_context
 from mael_domain.github import (
     create_pr,
@@ -68,16 +67,6 @@ def _handle_wait_for_review(cwd: Path) -> None:
     click.echo(f"Review received from @{comment.author} ({comment.kind}){location}")
     if snippet:
         click.echo(f"  {snippet}")
-
-
-def _open_pr_in_cmux(url: str) -> None:
-    """Open a PR URL in the caller's cmux pane, recycling any github.com browser.
-
-    No-op unless the caller runs in a cmux pane; see ``MaelCmux.for_caller``.
-    """
-    cmux = MaelCmux.for_caller()
-    if cmux:
-        cmux.show_pr_browser(url)
 
 
 @gh.command("create-pr")
@@ -146,7 +135,6 @@ async def gh_create_pr(
             click.echo(f"Pushed to existing PR: {url}")
         if task_id and pushed.number:
             await _register_pushed_pr(task_id, pushed.number, url, ctx.project)
-        _open_pr_in_cmux(url)
         # The PR is in no world until something looks it up, and the next
         # worktree poll is up to a minute away — landing on exactly the moment
         # the user looks at the card for it. Never raises; see tell_orchestrator.
@@ -505,7 +493,6 @@ def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     # Print header
     click.echo(f"PR #{pr_info.number}: {pr_info.title}")
     click.echo(f"URL: {pr_info.url}")
-    _open_pr_in_cmux(pr_info.url)
 
     # If merged, show simple message and exit
     if pr_info.merged:

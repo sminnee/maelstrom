@@ -99,7 +99,6 @@ class EnvState:
     worktree_path: str
     started_at: str  # ISO 8601
     services: list[ServiceState]
-    cmux_browser_surface: str | None = None
 
 
 @dataclass
@@ -341,7 +340,6 @@ def load_env_state(store: EnvStore, project: str, worktree: str) -> EnvState | N
             worktree_path=data["worktree_path"],
             started_at=data["started_at"],
             services=[_service_state_from_dict(s) for s in data["services"]],
-            cmux_browser_surface=data.get("cmux_browser_surface"),
         )
     except (KeyError, TypeError):
         return None
@@ -949,14 +947,12 @@ def start_env(
             services=[],
         )
     if existing is not None:
-        # Carry the browser surface forward, or the next stop leaks a cmux pane.
         state = EnvState(
             project=project,
             worktree=worktree,
             worktree_path=str(worktree_path),
             started_at=existing.started_at,
             services=_merge_service_states(existing.services, service_states),
-            cmux_browser_surface=existing.cmux_browser_surface,
         )
     else:
         state = EnvState(
