@@ -622,13 +622,10 @@ def localize_description_images(
 
     Scans ``description`` for ``![alt](https://uploads.linear.app/...)`` refs.
     Each unique URL is downloaded with the Linear API key (the URLs are
-    auth-gated) and written into the git-backed task repo under
-    ``images/<identifier>/``; the ref's target is rewritten to a
+    auth-gated) and written into the attachments directory under
+    ``<project>/images/<identifier>/``; the ref's target is rewritten to a
     ``{{MAEL_TASK_DIR}}/images/<identifier>/<file>`` token that
     :func:`mael_domain.task.build_prompt` expands to an absolute path at launch.
-
-    The image files are left untracked on disk — the caller's subsequent
-    ``add_task`` commit sweeps them in via ``git add -A``.
 
     A single failed download (an HTTP error such as a 404 or a revoked key)
     goes to ``warn`` and that one ref is left as the original URL, so one bad

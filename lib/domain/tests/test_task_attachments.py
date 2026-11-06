@@ -147,8 +147,8 @@ def test_sqlite_rows_survive_a_reopen(tmp_path):
 @pytest.fixture
 def tasks(tmp_path, monkeypatch):
     """Point the task repo at a temp dir and hand back its root."""
-    root = tmp_path / "tasks"
-    monkeypatch.setattr("mael_domain.task_store.tasks_root", lambda: root)
+    root = tmp_path / "attachments"
+    monkeypatch.setattr("mael_domain.state_db.paths.attachments_root", lambda: root)
     return root
 
 

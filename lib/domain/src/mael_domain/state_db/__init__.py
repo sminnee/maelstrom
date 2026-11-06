@@ -11,7 +11,7 @@ so import order is a property of the file rather than of this docstring:
 ============================ ==================================================
 ``state_db.types``           The errors, ``Migration``, ``PythonMigration``,
                              ``Rung``, ``TableSpec`` and ``Write``
-``state_db.paths``           ``get_state_db_path``
+``state_db.paths``           ``get_state_db_path`` and ``attachments_root``
 ``state_db.db``              ``StateDb`` and ``Txn``
 ``state_db.migrate``         ``open_state_db``, ``LADDERS`` and ``TABLES``
 ``state_db.migrations.*``    One ladder each

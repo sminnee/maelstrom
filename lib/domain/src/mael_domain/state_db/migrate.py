@@ -21,6 +21,7 @@ from ..notebook_root import (
 from ..worktree_model import MAIN_WORKTREE_FOLDER, parse_env_text
 from .db import StateDb
 from .migrations.agents import AGENTS
+from .migrations.attachments_move import ATTACHMENTS_MOVE
 from .migrations.comms import COMMS
 from .migrations.desk import DESK
 from .migrations.landings import LANDINGS
@@ -44,6 +45,8 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "comms": COMMS,
     "operations": OPERATIONS,
     "pr_events": PR_EVENTS,
+    # Reads `tasks` and `task_attachments`, so it climbs after both.
+    "attachments_move": ATTACHMENTS_MOVE,
 }
 
 #: Every table a subsystem declares. The spine's own tables are not here: they

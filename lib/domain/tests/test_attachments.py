@@ -10,6 +10,7 @@ import pytest
 
 from mael_common.image import MAX_BYTES
 from mael_domain import attachments
+from mael_domain.state_db import paths
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 NOT_AN_IMAGE = b"just some text, not an image at all"
@@ -17,9 +18,9 @@ NOT_AN_IMAGE = b"just some text, not an image at all"
 
 @pytest.fixture
 def tasks(tmp_path, monkeypatch):
-    """Point the task repo at a temp dir and hand back its root."""
-    root = tmp_path / "tasks"
-    monkeypatch.setattr("mael_domain.task_store.tasks_root", lambda: root)
+    """Point the attachments directory at a temp dir and hand back its root."""
+    root = tmp_path / "attachments"
+    monkeypatch.setattr("mael_domain.state_db.paths.attachments_root", lambda: root)
     return root
 
 
@@ -176,7 +177,18 @@ class TestAttachmentUrls:
             "![a](/api/attachments/proj/t1/a.png) ![b](/api/attachments/other/t2/b.png)"
         )
 
-    def test_a_path_outside_the_task_repo_stays_unchanged(self, tasks, tmp_path):
+    def test_the_old_notebook_path_maps_to_the_route(self, tasks):
+        """A transcript sent before the media moved keeps the old path."""
+        old = paths.notebook_path(paths.notebook_root())
+        markdown = f"![a]({old}/proj/images/t1/a.png)"
+
+        assert attachments.attachment_urls(markdown, "proj") == (
+            "![a](/api/attachments/proj/t1/a.png)"
+        )
+
+    def test_a_path_outside_the_attachments_directory_stays_unchanged(
+        self, tasks, tmp_path
+    ):
         markdown = (
             f"![x]({tmp_path}/elsewhere/images/t1/x.png) "
             f"![y]({tasks}/proj/notes/y.png) ![z](docs/images/z.png)"

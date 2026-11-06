@@ -1432,7 +1432,7 @@ class TestBuildPrompt:
         )
 
     def test_expands_task_dir_token(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
+        monkeypatch.setattr(model, "attachments_root", lambda: tmp_path / "attachments")
         t = Task(
             id="x",
             title="Do thing",
@@ -1440,13 +1440,13 @@ class TestBuildPrompt:
             mode="auto",
             content="See ![img]({{MAEL_TASK_DIR}}/images/NORT-1/a.png)",
         )
-        expected_dir = tmp_path / "tasks" / "proj"
+        expected_dir = tmp_path / "attachments" / "proj"
         assert model.build_prompt(t) == (
             f"Do thing\n\nSee ![img]({expected_dir}/images/NORT-1/a.png)"
         )
 
     def test_content_without_token_unchanged(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(model, "tasks_root", lambda: tmp_path / "tasks")
+        monkeypatch.setattr(model, "attachments_root", lambda: tmp_path / "attachments")
         t = Task(
             id="x",
             title="Do thing",

@@ -5115,9 +5115,9 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 
 @pytest.fixture
 def images(tmp_path, monkeypatch):
-    """Point the task repo at a temp dir, so uploads write nowhere real."""
-    root = tmp_path / "tasks"
-    monkeypatch.setattr("mael_domain.task_store.tasks_root", lambda: root)
+    """Point the attachments directory at a temp dir, so uploads write nowhere real."""
+    root = tmp_path / "attachments"
+    monkeypatch.setattr("mael_domain.state_db.paths.attachments_root", lambda: root)
     return root
 
 
