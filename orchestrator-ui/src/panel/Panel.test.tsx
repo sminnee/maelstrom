@@ -14,12 +14,12 @@ import {
 import { clickNode, renderApp } from '../test/renderApp';
 
 describe('the panel beside each view', () => {
-  it('stays beside the task list and the worktree table', async () => {
+  it('stays beside the task list and the Comms view', async () => {
     const user = userEvent.setup();
     await renderApp();
     await user.click(paneItem('Tasks'));
     expect(screen.getByTestId('panel')).toBeVisible();
-    await user.click(paneItem('Worktrees'));
+    await user.click(paneItem('Comms'));
     expect(screen.getByTestId('panel')).toBeVisible();
     expect(isShowing('Tabs')).toBe(true);
   });

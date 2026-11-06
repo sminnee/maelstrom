@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { commandsSince, paneItem } from './test/appHelpers';
+import { commandsSince } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /**
@@ -164,9 +164,10 @@ describe('a worktree table row under an operation', () => {
     );
 
   it('says what runs on the worktree, with a step meter, and how it ended badly', async () => {
-    const user = userEvent.setup();
-    await renderApp({ scenario: 'operations-board' });
-    await user.click(paneItem('Worktrees'));
+    await renderApp({
+      scenario: 'operations-board',
+      url: '/desk?detail=maelstrom&dtab=worktrees',
+    });
     await waitFor(() =>
       expect(row('maelstrom-alpha')).toHaveAttribute('data-operation', 'running'),
     );
@@ -174,13 +175,12 @@ describe('a worktree table row under an operation', () => {
     expect(running.getByText('Closing alpha · 3/6')).toBeInTheDocument();
     expect(running.getByRole('img', { name: '2 of 6 steps done' })).toBeInTheDocument();
     expect(within(row('maelstrom-alpha')!).getByRole('button', { name: 'Sync' })).toBeDisabled();
-    expect(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' })).toBeEnabled();
-    expect(row('northwind-bravo')).toHaveTextContent('Syncing bravo · 2/3');
+    expect(within(row('_main')!).getByRole('button', { name: 'Sync' })).toBeEnabled();
     expect(row('maelstrom-bravo')).toHaveAttribute('data-operation', 'refused');
     expect(row('maelstrom-bravo')!.cells[0]).toHaveTextContent(
       'Close refused · Worktree has 2 commit(s) not merged to origin/main',
     );
-    expect(row('northwind-alpha')).not.toHaveAttribute('data-operation');
+    expect(row('_main')).not.toHaveAttribute('data-operation');
   });
 });
 

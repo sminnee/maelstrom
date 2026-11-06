@@ -67,11 +67,12 @@ describe('the console strip', () => {
   it('keeps a done operation for four seconds, then lets it go', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { server } = await renderApp();
+    const { server } = await renderApp({ url: '/desk?detail=northwind&dtab=worktrees' });
     exitAgent(server, 'a1f3c9e2');
-    await user.click(paneItem('Worktrees'));
     const row = () =>
-      document.querySelector('[data-worktree-id="northwind-alpha"]') as HTMLElement | null;
+      document.querySelector(
+        '[data-testid="worktree-table"] [data-worktree-id="northwind-alpha"]',
+      ) as HTMLElement | null;
     const close = within(row()!).getByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
@@ -305,15 +306,18 @@ describe('the console keys', () => {
 
   it('retries a refused operation on R', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
+    const { server } = await renderApp({ url: '/desk?detail=maelstrom&dtab=worktrees' });
     exitAgent(server, 'b7d2e4a0');
-    await user.click(paneItem('Worktrees'));
     // maelstrom-alpha has 3 dirty files, which the close refuses.
-    const row = document.querySelector('[data-worktree-id="maelstrom-alpha"]') as HTMLElement;
+    const row = document.querySelector(
+      '[data-testid="worktree-table"] [data-worktree-id="maelstrom-alpha"]',
+    ) as HTMLElement;
     const close = within(row).getByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
     await waitFor(() => expect(server.world.operations['op1']?.state).toBe('refused'));
+    // The console is under the Project dialog: close the dialog to reach it.
+    await user.keyboard('{Escape}');
 
     ctrlBacktick();
     // The console reads the refusal from the list, which can trail the world.
@@ -421,11 +425,12 @@ describe('the console in motion', () => {
   it('keeps its last entry, inert, while the strip sinks out', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-    const { server } = await renderApp();
+    const { server } = await renderApp({ url: '/desk?detail=northwind&dtab=worktrees' });
     exitAgent(server, 'a1f3c9e2');
-    await user.click(paneItem('Worktrees'));
     const row = () =>
-      document.querySelector('[data-worktree-id="northwind-alpha"]') as HTMLElement | null;
+      document.querySelector(
+        '[data-testid="worktree-table"] [data-worktree-id="northwind-alpha"]',
+      ) as HTMLElement | null;
     const close = within(row()!).getByRole('button', { name: 'Close' });
     await waitFor(() => expect(close).toBeEnabled());
     await user.click(close);
@@ -459,5 +464,24 @@ describe('the console on a phone', () => {
     expect(within(consoleRegion()!).queryByRole('button', { name: 'Close console' })).toBeNull();
     await user.click(within(screen.getByTestId('top-bar')).getByRole('button', { name: 'Close' }));
     expect(consoleRegion()).toBeNull();
+  });
+  it("goes to the Worktrees tab of the target's Project dialog, having no card screen", async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ scenario: 'operations-live', viewport: 'narrow' });
+    await waitFor(() => expect(stripEntries()).toHaveLength(1));
+    await user.click(stripEntries()[0]!);
+    // op4 closes maelstrom-bravo.
+    await waitFor(() =>
+      expect(list().getByRole('option', { selected: true })).toHaveAttribute(
+        'data-operation-id',
+        'op4',
+      ),
+    );
+
+    await user.keyboard('{Enter}');
+
+    expect(router.state.location.search).toBe('?detail=maelstrom&dtab=worktrees');
+    const dialog = within(await screen.findByRole('dialog', { name: 'maelstrom' }));
+    expect(dialog.getByTestId('worktree-table')).toBeInTheDocument();
   });
 });

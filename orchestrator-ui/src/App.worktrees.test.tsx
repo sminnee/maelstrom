@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { commandsSince, exitAgent, paneItem } from './test/appHelpers';
+import { commandsSince, exitAgent } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
-describe('the worktrees view', () => {
-  const goToWorktrees = async (user: ReturnType<typeof userEvent.setup>) => {
-    await user.click(paneItem('Worktrees'));
-    return screen.getByTestId('worktree-table');
-  };
+describe("the Project dialog's Worktrees tab", () => {
+  /** The URL of a project's Worktrees tab. */
+  const worktreesOf = (project: string, search = '') =>
+    `/projects?${search}detail=${project}&dtab=worktrees`;
+  /** Open the app on a project's Worktrees tab. */
+  const openWorktrees = (project = 'northwind', search = '') =>
+    renderApp({ url: worktreesOf(project, search) });
   const row = (id: string) =>
     document.querySelector(
       `[data-testid="worktree-table"] [data-worktree-id="${id}"]`,
@@ -20,30 +22,17 @@ describe('the worktrees view', () => {
       .filter(Boolean)
       .sort();
 
-  it('draws every open worktree, including ones with nothing on the desk', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+  it("draws the project's open worktrees, including ones with nothing on the desk", async () => {
+    await openWorktrees('northwind');
 
-    // Six open of the nine seeded; the three closed are held back.
-    expect(listedIds()).toEqual([
-      '_main',
-      'maelstrom-alpha',
-      'maelstrom-bravo',
-      'northwind-alpha',
-      'northwind-bravo',
-      'northwind-delta',
-    ]);
+    // Three open of northwind's five; the two closed are held back. No other project's row.
+    expect(listedIds()).toEqual(['northwind-alpha', 'northwind-bravo', 'northwind-delta']);
   });
 
   it('lists the closed worktrees too when the URL says so', async () => {
-    await renderApp({ url: '/worktrees?closed=1' });
-    expect(screen.getByLabelText('show closed')).toBeChecked();
+    await openWorktrees('northwind', 'closed=1&');
+    expect(screen.getByLabelText('Show closed')).toBeChecked();
     expect(listedIds()).toEqual([
-      '_main',
-      'maelstrom-alpha',
-      'maelstrom-bravo',
-      'maelstrom-charlie',
       'northwind-alpha',
       'northwind-bravo',
       'northwind-charlie',
@@ -52,55 +41,43 @@ describe('the worktrees view', () => {
     ]);
   });
 
-  it('groups the rows under their project', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
-
-    const headings = within(screen.getByTestId('worktree-table'))
-      .getAllByRole('heading')
-      .map((h) => h.textContent);
-    expect(headings).toEqual(['maelstrom', 'northwind']);
-  });
-
   it('lists a closed worktree only when asked', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('maelstrom');
     expect(row('maelstrom-charlie')).toBeNull();
 
-    await user.click(screen.getByRole('checkbox', { name: 'show closed' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Show closed' }));
     await waitFor(() => expect(row('maelstrom-charlie')).not.toBeNull());
     expect(row('maelstrom-charlie')).toHaveAttribute('data-closed', 'true');
   });
 
   it('reads the branch, the dirty count and the PR off the world', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('northwind');
 
-    expect(row('maelstrom-alpha')).toHaveTextContent('feat/orchestrator-ui');
-    expect(row('maelstrom-alpha')).toHaveTextContent('3');
+    expect(row('northwind-bravo')).toHaveTextContent('feat/db-migrate');
+    expect(row('northwind-bravo')).toHaveTextContent('7');
     expect(row('northwind-delta')).toHaveTextContent('#118');
   });
 
   it('reads the remote column from the PR when there is one, and the push when there is not', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('maelstrom');
+    act(() => {
+      server.change({ kind: 'worktree', ids: ['maelstrom-alpha'] }, (w) => {
+        const alpha = w.worktrees['maelstrom-alpha']!;
+        w.worktrees['maelstrom-alpha'] = { ...alpha, prNumber: 130, prCommits: 4 };
+      });
+    });
 
     // `cli.pr_display` reads the same two fields, so the table and the
     // terminal give one reading of one branch.
     const cell = (id: string) => within(row(id)!).getAllByRole('cell')[4]!;
-    expect(cell('northwind-delta')).toHaveTextContent('4'); // PR open: prCommits
+    await waitFor(() => expect(cell('maelstrom-alpha')).toHaveTextContent('4')); // PR open: prCommits
     expect(cell('maelstrom-bravo')).toHaveTextContent('2'); // no PR: pushedCommits
-    expect(cell('northwind-alpha')).toHaveTextContent(''); // neither
+    expect(cell('_main')).toHaveTextContent(''); // neither
   });
 
   it('offers no close or delete on _main, which holds the main checkout', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('maelstrom');
 
     const main = within(row('_main')!);
     expect(main.queryByRole('button', { name: 'Close' })).toBeNull();
@@ -113,10 +90,9 @@ describe('the worktrees view', () => {
 
   it('closes a worktree: the button rests while the row and the strip show the run', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
+    const { server } = await openWorktrees('northwind');
     // Long enough that the running operation is plain to see.
     server.stepMs = 100;
-    await goToWorktrees(user);
     exitAgent(server, 'a1f3c9e2');
 
     const close = await within(row('northwind-alpha')!).findByRole('button', { name: 'Close' });
@@ -142,8 +118,7 @@ describe('the worktrees view', () => {
 
   it('holds the close while an agent runs in the worktree, and says why', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('northwind');
 
     const alpha = within(row('northwind-alpha')!);
     expect(alpha.getByRole('button', { name: 'Close' })).toBeDisabled();
@@ -156,9 +131,7 @@ describe('the worktrees view', () => {
   });
 
   it('links to the changes and offers Merge once the PR is ready', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('northwind');
 
     const delta = () => within(row('northwind-delta')!);
     expect(delta().getByRole('link', { name: 'Changes' })).toBeInTheDocument();
@@ -174,8 +147,7 @@ describe('the worktrees view', () => {
 
   it('says what the model said when a close is refused', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('maelstrom');
     exitAgent(server, 'b7d2e4a0');
 
     // maelstrom-alpha has 3 dirty files, which the close refuses.
@@ -195,9 +167,8 @@ describe('the worktrees view', () => {
 
   it('says what failed when a sync fails', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
+    const { server } = await openWorktrees('northwind');
     server.world.operationFaults['sync:northwind-alpha'] = 'git rebase exited 128';
-    await goToWorktrees(user);
 
     await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
     await waitFor(() =>
@@ -209,8 +180,7 @@ describe('the worktrees view', () => {
 
   it('asks before it deletes, and the worktree then leaves the world', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('northwind');
     exitAgent(server, 'a1f3c9e2');
 
     const alpha = within(row('northwind-alpha')!);
@@ -231,8 +201,7 @@ describe('the worktrees view', () => {
 
   it('starts a stopped environment, and the button becomes Stop', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('northwind');
 
     await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Start env' }));
     await waitFor(() =>
@@ -244,8 +213,7 @@ describe('the worktrees view', () => {
 
   it('offers Stop, then Restart and the optional services, where an environment runs', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('northwind');
 
     const delta = within(row('northwind-delta')!);
     expect(delta.getByRole('button', { name: 'Stop env' })).toBeInTheDocument();
@@ -257,20 +225,19 @@ describe('the worktrees view', () => {
     ]);
     expect(delta.getByRole('link', { name: 'Dev env' })).toHaveAttribute(
       'href',
-      '/worktrees?panel=devenv/northwind-delta/web',
+      '/projects?panel=devenv/northwind-delta/web',
     );
   });
 
   it('offers Start first where only part of an environment runs', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
+    const { server } = await openWorktrees('northwind');
     act(() => {
       server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
         const delta = w.worktrees['northwind-delta']!;
         w.worktrees['northwind-delta'] = { ...delta, env: { ...delta.env!, state: 'partial' } };
       });
     });
-    await goToWorktrees(user);
 
     const delta = within(row('northwind-delta')!);
     await waitFor(() =>
@@ -286,14 +253,12 @@ describe('the worktrees view', () => {
   });
 
   it('draws a worktree with no env, from a server older than the UI, as stopped', async () => {
-    const user = userEvent.setup();
-    const { server } = await renderApp();
+    const { server } = await openWorktrees('northwind');
     act(() => {
       server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {
         delete w.worktrees['northwind-delta']!.env;
       });
     });
-    await goToWorktrees(user);
 
     const delta = within(row('northwind-delta')!);
     await waitFor(() =>
@@ -304,8 +269,7 @@ describe('the worktrees view', () => {
 
   it('starts an optional service from the menu, and links it beside the app', async () => {
     const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
+    await openWorktrees('northwind');
 
     const delta = within(row('northwind-delta')!);
     await user.click(delta.getByRole('button', { name: 'More actions' }));
@@ -314,11 +278,11 @@ describe('the worktrees view', () => {
     await waitFor(() => expect(delta.getByRole('link', { name: 'ladle' })).toBeInTheDocument());
     expect(delta.getByRole('link', { name: 'ladle' })).toHaveAttribute(
       'href',
-      '/worktrees?panel=devenv/northwind-delta/ladle',
+      '/projects?panel=devenv/northwind-delta/ladle',
     );
     expect(delta.getByRole('link', { name: 'web' })).toHaveAttribute(
       'href',
-      '/worktrees?panel=devenv/northwind-delta/web',
+      '/projects?panel=devenv/northwind-delta/web',
     );
     expect(delta.getByText(/Dev env:/).textContent).toBe('Dev env: web · ladle');
 
@@ -330,8 +294,7 @@ describe('the worktrees view', () => {
 
   it('syncs a worktree with a plain sync', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('northwind');
 
     await user.click(within(row('northwind-alpha')!).getByRole('button', { name: 'Sync' }));
     await waitFor(() =>
@@ -347,8 +310,7 @@ describe('the worktrees view', () => {
 
   it('offers a squash and an autorepair sync from the sync menu', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
+    const { server } = await openWorktrees('northwind');
     const alpha = within(row('northwind-alpha')!);
     const syncBodies = () =>
       server.requests
@@ -374,9 +336,8 @@ describe('the worktrees view', () => {
 
   it('refuses a sync on a closed worktree, as the server does', async () => {
     const user = userEvent.setup();
-    const { server } = await renderApp();
-    await goToWorktrees(user);
-    await user.click(screen.getByRole('checkbox', { name: 'show closed' }));
+    const { server } = await openWorktrees('maelstrom');
+    await user.click(screen.getByRole('checkbox', { name: 'Show closed' }));
     await waitFor(() => expect(row('maelstrom-charlie')).not.toBeNull());
 
     // A closed worktree holds no branch, so it is offered no sync at all.
@@ -394,23 +355,5 @@ describe('the worktrees view', () => {
     );
     await waitFor(() => expect(row('maelstrom-charlie')).toBeNull());
     expect(commandsSince(server, before)).toEqual(['DELETE /api/worktrees/maelstrom-charlie']);
-  });
-
-  it('honours the project filter', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
-
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Project' }), 'northwind');
-    await waitFor(() => expect(row('maelstrom-alpha')).toBeNull());
-    expect(row('northwind-alpha')).not.toBeNull();
-  });
-
-  it('offers no branch filter, whose options come from tasks alone', async () => {
-    const user = userEvent.setup();
-    await renderApp();
-    await goToWorktrees(user);
-
-    expect(screen.queryByRole('combobox', { name: 'Branch' })).toBeNull();
   });
 });

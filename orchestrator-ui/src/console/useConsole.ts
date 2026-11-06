@@ -110,7 +110,8 @@ export function useStripOperations(ops: readonly Operation[]): Operation[] {
 
 /**
  * Go to what an operation acted on: the worktree's card on the desk. A phone
- * has no screen for a worktree's card, so it goes to the worktrees view. The
+ * has no screen for a worktree's card, so it goes to the Worktrees tab of the
+ * project's Project dialog. The
  * console closes, so the target is in view.
  */
 export function useGoToTarget() {
@@ -122,7 +123,7 @@ export function useGoToTarget() {
     (op: Operation) => {
       closeConsole();
       if (narrow) {
-        go({ view: 'worktrees', card: null, panel: null });
+        go({ card: null, panel: null, projectDetail: op.project, projectTab: 'worktrees' });
         return;
       }
       showPane('canvas');

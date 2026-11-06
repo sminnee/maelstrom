@@ -28,13 +28,6 @@
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
-.check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--u-half);
-  font-size: var(--text-sm);
-  color: var(--fg-muted);
-}
 .field select,
 .field input {
   font: inherit;

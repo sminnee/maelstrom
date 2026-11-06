@@ -2,6 +2,7 @@ import { useAppStore } from '../store/store';
 import type { NewWorkSeed } from '../store/uiSlice';
 import type { ProjectId, TaskId } from '../protocol/ids';
 import { currentLoc, useRouter } from './router';
+import type { ProjectTab } from './location';
 import { useGo, useLoc } from './useNav';
 
 /**
@@ -56,13 +57,19 @@ export function useNewWork() {
   };
 }
 
-/** The project detail dialog, which the location's `detail` opens. A close goes back. */
+/**
+ * The **Project dialog**, which the location's `detail` opens on its `dtab` tab. A close goes
+ * back. A tab change replaces the entry: Back closes the dialog, not one tab at a time.
+ */
 export function useProjectDetail() {
-  const { projectDetail } = useLoc();
+  const { projectDetail, projectTab } = useLoc();
   const go = useGo();
   return {
     projectId: projectDetail,
-    open: (projectId: ProjectId) => go({ projectDetail: projectId }),
+    tab: projectTab,
+    open: (projectId: ProjectId, tab: ProjectTab = 'overview') =>
+      go({ projectDetail: projectId, projectTab: tab }),
+    showTab: (tab: ProjectTab) => go({ projectTab: tab }, { replace: true }),
     close: () => go({ projectDetail: null }, { close: true }),
   };
 }

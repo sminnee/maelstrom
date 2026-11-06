@@ -941,7 +941,8 @@ function seededOp(
     Partial<Operation>,
 ): Operation {
   return {
-    project: 'maelstrom',
+    // A worktree id is `<project>-<nato>`.
+    project: o.worktreeId?.slice(0, o.worktreeId.lastIndexOf('-')) ?? 'maelstrom',
     taskId: null,
     agentId: null,
     startedAt: o.steps[0]!.startedAt!,
@@ -1325,7 +1326,7 @@ export const SCENARIOS = {
   operations: {
     about: 'An operation of each ending, and worktrees that close, refuse and fail live.',
     build: operations,
-    screen: at({ view: 'worktrees' }),
+    screen: at({ view: 'projects', projectDetail: 'northwind', projectTab: 'worktrees' }),
   },
   'operations-live': {
     about:

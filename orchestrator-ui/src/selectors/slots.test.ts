@@ -6,20 +6,19 @@ const opening = (): SlotState => ({
   anchors: {
     canvas: 'left',
     list: 'left',
-    worktrees: 'left',
     comms: 'left',
     projects: 'left',
     tabs: 'right',
   },
   slots: { left: 'canvas', right: 'tabs' },
-  paneRecency: ['canvas', 'tabs', 'list', 'worktrees'],
+  paneRecency: ['canvas', 'tabs', 'list', 'comms'],
 });
 
 describe('showPane', () => {
   it('puts the pane in the slot of its anchor, and at the front of the recency', () => {
     const s = showPane(opening(), 'list');
     expect(s.slots).toEqual({ left: 'list', right: 'tabs' });
-    expect(s.paneRecency).toEqual(['list', 'canvas', 'tabs', 'worktrees']);
+    expect(s.paneRecency).toEqual(['list', 'canvas', 'tabs', 'comms']);
   });
 });
 
@@ -41,7 +40,6 @@ describe('togglePane', () => {
       anchors: {
         canvas: 'right',
         list: 'right',
-        worktrees: 'right',
         comms: 'right',
         projects: 'right',
         tabs: 'right',
@@ -63,7 +61,7 @@ describe('moveAnchor', () => {
   });
 
   it('shows a pane that was not showing, on its new side', () => {
-    const s = moveAnchor(opening(), 'worktrees');
-    expect(s.slots).toEqual({ left: 'canvas', right: 'worktrees' });
+    const s = moveAnchor(opening(), 'projects');
+    expect(s.slots).toEqual({ left: 'canvas', right: 'projects' });
   });
 });

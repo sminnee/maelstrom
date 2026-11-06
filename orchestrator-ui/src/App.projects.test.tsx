@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { faultKey } from './fake/operations';
 import { paneItem } from './test/appHelpers';
@@ -191,5 +191,30 @@ describe('the projects view', () => {
       'Could not add demo: Repository not found.',
     );
     expect(row('demo')).toBeNull();
+  });
+
+  it('offers Create task on a project with work, and it opens New work on the project', async () => {
+    const user = userEvent.setup();
+    await renderApp({ url: '/projects?detail=northwind' });
+    const dialog = within(await screen.findByRole('dialog', { name: 'northwind' }));
+
+    await user.click(await dialog.findByRole('button', { name: 'Create task' }));
+
+    const form = within(await screen.findByRole('dialog', { name: 'New work' }));
+    expect(form.getByRole('radio', { name: 'northwind' })).toBeChecked();
+  });
+
+  it("switches the Project dialog's tab in the URL, and Back closes the dialog", async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ url: '/projects' });
+    await user.click(await screen.findByRole('button', { name: 'northwind' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'northwind' }));
+
+    await user.click(dialog.getByRole('tab', { name: 'Worktrees' }));
+    expect(router.state.location.search).toBe('?detail=northwind&dtab=worktrees');
+    expect(dialog.getByTestId('worktree-table')).toBeInTheDocument();
+
+    await act(() => router.navigate(-1));
+    expect(router.state.location.search).toBe('');
   });
 });

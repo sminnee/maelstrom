@@ -282,7 +282,7 @@ Then it enters plan mode and audits the project. It turns the gaps it finds into
 tasks, written as a [`load-many`](tasks.md) plan file — the bulk form suited to many similar
 blocks.
 
-The **Set up** button in a project's detail dialog, in the orchestrator UI's **Projects** tab,
+The **Set up** button in a project's **Project dialog**, in the orchestrator UI's **Projects** tab,
 creates and launches this task. From the shell:
 
 ```bash

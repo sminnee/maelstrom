@@ -5,7 +5,6 @@ import { listProjects } from '../selectors/projects';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { AddProject } from './AddProject';
-import { ProjectDetail } from './ProjectDetail';
 import styles from './ProjectList.module.css';
 
 /** Every project, with its open worktrees, and the way to add one. A row opens its detail. */
@@ -62,7 +61,6 @@ export function ProjectList() {
         </tbody>
       </table>
       {adding && <AddProject onClose={() => setAdding(false)} />}
-      {detail.projectId && <ProjectDetail projectId={detail.projectId} />}
     </div>
   );
 }

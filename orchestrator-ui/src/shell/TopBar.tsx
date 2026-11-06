@@ -18,7 +18,6 @@ import styles from './TopBar.module.css';
 const PANES: { pane: Pane; label: string }[] = [
   { pane: 'canvas', label: 'Desk' },
   { pane: 'list', label: 'Tasks' },
-  { pane: 'worktrees', label: 'Worktrees' },
   { pane: 'comms', label: 'Comms' },
   { pane: 'projects', label: 'Projects' },
   { pane: 'tabs', label: 'Tabs' },
@@ -145,8 +144,8 @@ function Readings() {
 
 /** The narrow layout's way to the filters, with a count of those in force. */
 function FiltersButton({ open, onOpen }: { open: boolean; onOpen: () => void }) {
-  const { view, filters, listFilters, worktreeFilters } = useLoc();
-  const count = activeFilterCount(view, filters, listFilters, worktreeFilters);
+  const { view, filters, listFilters } = useLoc();
+  const count = activeFilterCount(view, filters, listFilters);
   return (
     <AppButton
       variant="quiet"

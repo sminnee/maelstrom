@@ -1,33 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import { makeAgent, makeWorktree, worldWith } from '../fake/fixtures';
-import { noFilters } from './filters';
-import { listWorktrees, noWorktreeFilters } from './worktrees';
+import { noWorktreeFilters, projectWorktrees } from './worktrees';
 
-const filters = noFilters();
+const natos = (rows: ReturnType<typeof projectWorktrees>) => rows.map((r) => r.worktree.nato);
 
-describe('listWorktrees', () => {
-  it('groups worktrees by project, projects in name order', () => {
-    const world = worldWith({
-      worktrees: [
-        makeWorktree({ id: 'zed-alpha', project: 'zed', nato: 'alpha' }),
-        makeWorktree({ id: 'acme-alpha', project: 'acme', nato: 'alpha' }),
-      ],
-    });
-    const groups = listWorktrees(world, filters, noWorktreeFilters());
-    expect(groups.map((g) => g.project)).toEqual(['acme', 'zed']);
-  });
-
-  it('orders worktrees within a project by their nato name', () => {
+describe('projectWorktrees', () => {
+  it('lists only the asked project, by nato name', () => {
     const world = worldWith({
       worktrees: [
         makeWorktree({ id: 'acme-charlie', nato: 'charlie', project: 'acme' }),
+        makeWorktree({ id: 'zed-alpha', nato: 'alpha', project: 'zed' }),
         makeWorktree({ id: 'acme-alpha', nato: 'alpha', project: 'acme' }),
-        makeWorktree({ id: 'acme-bravo', nato: 'bravo', project: 'acme' }),
       ],
     });
-    const [group] = listWorktrees(world, filters, noWorktreeFilters());
-    expect(group!.rows.map((r) => r.worktree.nato)).toEqual(['alpha', 'bravo', 'charlie']);
+    expect(natos(projectWorktrees(world, 'acme', noWorktreeFilters()))).toEqual([
+      'alpha',
+      'charlie',
+    ]);
   });
 
   it('puts _main first, because it is the checkout the others branch from', () => {
@@ -37,48 +27,21 @@ describe('listWorktrees', () => {
         makeWorktree({ id: '_main', nato: '_main', project: 'acme' }),
       ],
     });
-    const [group] = listWorktrees(world, filters, noWorktreeFilters());
-    expect(group!.rows.map((r) => r.worktree.nato)).toEqual(['_main', 'alpha']);
+    expect(natos(projectWorktrees(world, 'acme', noWorktreeFilters()))).toEqual(['_main', 'alpha']);
   });
 
-  it('hides closed worktrees by default', () => {
+  it('hides closed worktrees unless asked', () => {
     const world = worldWith({
       worktrees: [
         makeWorktree({ id: 'acme-alpha', nato: 'alpha', project: 'acme' }),
         makeWorktree({ id: 'acme-bravo', nato: 'bravo', project: 'acme', isClosed: true }),
       ],
     });
-    const [group] = listWorktrees(world, filters, noWorktreeFilters());
-    expect(group!.rows.map((r) => r.worktree.nato)).toEqual(['alpha']);
-  });
-
-  it('shows closed worktrees when asked', () => {
-    const world = worldWith({
-      worktrees: [
-        makeWorktree({ id: 'acme-alpha', nato: 'alpha', project: 'acme' }),
-        makeWorktree({ id: 'acme-bravo', nato: 'bravo', project: 'acme', isClosed: true }),
-      ],
-    });
-    const [group] = listWorktrees(world, filters, { showClosed: true });
-    expect(group!.rows.map((r) => r.worktree.nato)).toEqual(['alpha', 'bravo']);
-  });
-
-  it('drops a project whose every worktree is filtered out', () => {
-    const world = worldWith({
-      worktrees: [makeWorktree({ id: 'acme-alpha', project: 'acme', isClosed: true })],
-    });
-    expect(listWorktrees(world, filters, noWorktreeFilters())).toEqual([]);
-  });
-
-  it('honours the project filter', () => {
-    const world = worldWith({
-      worktrees: [
-        makeWorktree({ id: 'acme-alpha', project: 'acme' }),
-        makeWorktree({ id: 'zed-alpha', project: 'zed' }),
-      ],
-    });
-    const groups = listWorktrees(world, { ...filters, project: 'zed' }, noWorktreeFilters());
-    expect(groups.map((g) => g.project)).toEqual(['zed']);
+    expect(natos(projectWorktrees(world, 'acme', noWorktreeFilters()))).toEqual(['alpha']);
+    expect(natos(projectWorktrees(world, 'acme', { showClosed: true }))).toEqual([
+      'alpha',
+      'bravo',
+    ]);
   });
 });
 
@@ -90,8 +53,7 @@ describe('the tracked agents on a row', () => {
     });
 
   const trackedOn = (agents: ReturnType<typeof makeAgent>[]) => {
-    const [group] = listWorktrees(world(agents), filters, noWorktreeFilters());
-    return group!.rows[0]!.agents;
+    return projectWorktrees(world(agents), 'acme', noWorktreeFilters())[0]!.agents;
   };
 
   it('counts an agent working in the worktree', () => {
@@ -125,7 +87,6 @@ describe('the tracked agents on a row', () => {
       worktrees: [makeWorktree({ id: 'acme-alpha', project: 'acme', sessionCount: 3 })],
       agents: [],
     });
-    const [group] = listWorktrees(world, filters, noWorktreeFilters());
-    expect(group!.rows[0]!.agents).toEqual([]);
+    expect(projectWorktrees(world, 'acme', noWorktreeFilters())[0]!.agents).toEqual([]);
   });
 });

@@ -1,8 +1,7 @@
 import type { Agent, Worktree } from '../protocol/entities';
-import type { Filters } from './filters';
 import type { WorldView } from './world';
 
-/** The Worktrees view's own filters, beside the shared project one. */
+/** The worktree table's own filters. */
 export interface WorktreeFilters {
   /** Whether a parked worktree is listed. Off by default: a closed worktree
    * holds no branch and no work, so it is noise until someone wants to reuse
@@ -23,12 +22,6 @@ export interface WorktreeRow {
    * world knows is working here.
    */
   agents: Agent[];
-}
-
-/** Every worktree of one project, in the order the table draws them. */
-export interface WorktreeGroup {
-  project: string;
-  rows: WorktreeRow[];
 }
 
 /**
@@ -71,33 +64,18 @@ export function byName(a: Worktree, b: Worktree): number {
 }
 
 /**
- * Every worktree the filters allow, grouped by project.
+ * One project's worktrees that the filters allow, in the order the table draws them.
  *
- * Read from the world rather than from what is on the desk, so a worktree
- * nobody is working in still draws — which is the whole reason this view
- * exists. `listEmptyWorktrees` in `graph.ts` reads the world the same way, for
- * the same reason.
+ * Read from the world rather than from the desk, so a worktree nobody works in
+ * still draws. `listEmptyWorktrees` in `graph.ts` reads the world the same way.
  */
-export function listWorktrees(
+export function projectWorktrees(
   world: WorldView,
-  filters: Pick<Filters, 'project'>,
+  project: string,
   worktreeFilters: WorktreeFilters,
-): WorktreeGroup[] {
-  const byProject = new Map<string, Worktree[]>();
-  for (const worktree of Object.values(world.worktrees)) {
-    if (worktree.isClosed && !worktreeFilters.showClosed) continue;
-    if (filters.project && worktree.project !== filters.project) continue;
-    const held = byProject.get(worktree.project);
-    if (held) held.push(worktree);
-    else byProject.set(worktree.project, [worktree]);
-  }
-  return [...byProject.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([project, worktrees]) => ({
-      project,
-      rows: worktrees.sort(byName).map((worktree) => ({
-        worktree,
-        agents: trackedAgents(world, worktree.id),
-      })),
-    }));
+): WorktreeRow[] {
+  return Object.values(world.worktrees)
+    .filter((w) => w.project === project && (worktreeFilters.showClosed || !w.isClosed))
+    .sort(byName)
+    .map((worktree) => ({ worktree, agents: trackedAgents(world, worktree.id) }));
 }

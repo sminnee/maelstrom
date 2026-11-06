@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { filterOptions as optionsFor } from './filterOptions';
+import { filterOptions } from './filterOptions';
 import { noFilters, type Filters } from './filters';
-import { noWorktreeFilters } from './worktrees';
-import type { View } from '../store/uiSlice';
 import {
   makeAgent,
   makeDeskEntry,
@@ -12,13 +10,8 @@ import {
   worldWith,
 } from '../fake/fixtures';
 import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
-import type { WorldView } from './world';
 
 describe('filterOptions', () => {
-  /** The options with closed worktrees hidden, as the Worktrees view opens. */
-  const filterOptions = (world: WorldView, filters: Filters, views: View[]) =>
-    optionsFor(world, filters, views, noWorktreeFilters());
-
   const world = worldWith({
     // riverbend has no task, so the list offers no riverbend.
     projects: [
@@ -102,24 +95,6 @@ describe('filterOptions', () => {
       filterOptions(desk, noFilters(), ['canvas']),
     );
     expect(filterOptions(desk, filters, ['canvas']).projects).toEqual(['northwind']);
-  });
-
-  it('offers the projects of the worktrees the Worktrees view lists, and no branch', () => {
-    const worktrees = worldWith({
-      projects: [makeProject({ id: 'northwind' }), makeProject({ id: 'riverbend' })],
-      worktrees: [
-        makeWorktree({ id: 'maelstrom-alpha', project: 'maelstrom' }),
-        makeWorktree({ id: 'tangier-alpha', project: 'tangier', isClosed: true }),
-      ],
-    });
-    expect(filterOptions(worktrees, noFilters(), ['worktrees'])).toEqual({
-      projects: ['maelstrom'],
-      branches: [],
-    });
-    // "show closed" lists the closed worktree, so its project is offered too.
-    expect(
-      optionsFor(worktrees, noFilters(), ['worktrees'], { showClosed: true }).projects,
-    ).toEqual(['maelstrom', 'tangier']);
   });
 
   it('offers the union when the canvas and the list are both on screen', () => {
