@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from mael_domain.language_servers import LanguageServer, reads, server_for
+from mael_domain.language_servers import (
+    LanguageServer,
+    language_id,
+    reads,
+    server_for,
+)
 from mael_domain.protocol import (
     CodeTarget,
     Definition,
@@ -42,9 +47,6 @@ MAX_REFERENCES = 100
 #: The window pinned when no function or class holds a line.
 WINDOW_ABOVE = 5
 WINDOW_BELOW = 25
-#: The LSP symbol kinds that make a **Fragment**: Class, Method, Constructor, Function.
-_FRAGMENT_KINDS = frozenset({5, 6, 9, 12})
-
 #: The overlay key of the working tree, which has no commit.
 _WORKING_TREE = ""
 
@@ -107,11 +109,12 @@ class LanguageServers:
                 "references": None,
                 "reason": "no_server",
             }
-        spec, command = found
+        spec = found.server
         key = (worktree_id, spec.name)
         server = self._running.get(key)
         if server is None:
-            server = self._running[key] = _Server(LspClient(command, path))
+            client = LspClient(found.command, path, found.options)
+            server = self._running[key] = _Server(client)
         async with server.lock:
             if server.closed:
                 raise LspError(f"{spec.name} stopped: its worktree closed")
@@ -141,6 +144,8 @@ class LanguageServers:
             server.commit, server.opened, server.answered = None, {}, False
             await client.start(FIRST_REQUEST_SECS)
         await self._sync_overlay(server, spec, path, commit, file)
+        if spec.waits_for_load:
+            await client.loaded(FIRST_REQUEST_SECS)
         position = {
             "textDocument": {"uri": (path / file).as_uri()},
             "position": {"line": line - 1, "character": character},
@@ -158,6 +163,10 @@ class LanguageServers:
         references: list[CodeTarget] | None = None
         more = 0
         if any(_holds(loc, path / file, line - 1, character) for loc in found):
+            # The definition was a round trip, so a load that the overlay's
+            # didOpen began has sent its begin by now.
+            if spec.waits_for_load:
+                await client.loaded(FIRST_REQUEST_SECS)
             used = await client.request(
                 "textDocument/references",
                 {**position, "context": {"includeDeclaration": False}},
@@ -176,6 +185,9 @@ class LanguageServers:
         symbols: dict[str, list[dict[str, Any]] | None] = {}
         for target in [*targets, *(references or [])]:
             if target["inRev"] and target["path"] not in symbols:
+                # tsserver answers [] for a file it has not opened.
+                if reads(spec, target["path"]):
+                    await self._open(server, path, commit, target["path"])
                 symbols[target["path"]] = await self._symbols(
                     client, path, target["path"]
                 )
@@ -187,13 +199,13 @@ class LanguageServers:
             reason = "ok"
         answer: Definition = {
             "rev": rev,
-            "targets": [_place(t, symbols.get(t["path"])) for t in targets],
+            "targets": [_place(spec, t, symbols.get(t["path"])) for t in targets],
             "references": None,
             "reason": reason,
         }
         if references is not None:
             answer["references"] = [
-                _place(r, symbols.get(r["path"])) for r in references
+                _place(spec, r, symbols.get(r["path"])) for r in references
             ]
             if more:
                 answer["moreReferences"] = more
@@ -243,22 +255,30 @@ class LanguageServers:
             )
             del server.opened[name]
         for name in sorted(needed - set(server.opened)):
-            text = await rev_text(path, commit, name)
-            if text is None:
-                continue
-            version = server.opened[name] = server.opened.get(name, 0) + 1
-            await server.client.notify(
-                "textDocument/didOpen",
-                {
-                    "textDocument": {
-                        "uri": (path / name).as_uri(),
-                        "languageId": spec.name,
-                        "version": version,
-                        "text": text,
-                    }
-                },
-            )
+            await self._open(server, path, commit, name)
         server.commit = key
+
+    async def _open(
+        self, server: _Server, path: Path, commit: str | None, name: str
+    ) -> None:
+        """Open ``name`` at ``commit``'s text, unless it is open or not in the rev."""
+        if name in server.opened:
+            return
+        text = await rev_text(path, commit, name)
+        if text is None:
+            return
+        server.opened[name] = 1
+        await server.client.notify(
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": (path / name).as_uri(),
+                    "languageId": language_id(name),
+                    "version": 1,
+                    "text": text,
+                }
+            },
+        )
 
     async def _stop_when_idle(self, server: _Server) -> None:
         # The entry stays: the next request starts the client again.
@@ -356,7 +376,9 @@ async def _tracked(
     return tracked[relative]
 
 
-def _place(target: CodeTarget, symbols: list[dict[str, Any]] | None) -> CodeTarget:
+def _place(
+    spec: LanguageServer, target: CodeTarget, symbols: list[dict[str, Any]] | None
+) -> CodeTarget:
     """Set the lines to pin for ``target``: its **Fragment**, else the window.
 
     ``symbols`` is the ``documentSymbol`` result of the target's file; ``None``
@@ -365,7 +387,7 @@ def _place(target: CodeTarget, symbols: list[dict[str, Any]] | None) -> CodeTarg
     if not target["inRev"]:
         return target
     anchor = target["range"]["start"]
-    enclosing = _enclosing(symbols or [], anchor - 1)
+    enclosing = _enclosing(spec, symbols or [], anchor - 1)
     placed: CodeTarget = {
         "path": target["path"],
         "inRev": True,
@@ -382,16 +404,16 @@ def _place(target: CodeTarget, symbols: list[dict[str, Any]] | None) -> CodeTarg
 
 
 def _enclosing(
-    symbols: list[dict[str, Any]], line: int
+    spec: LanguageServer, symbols: list[dict[str, Any]], line: int
 ) -> tuple[LineRange, str] | None:
-    """The innermost function, method or class that holds 0-based ``line``.
+    """The innermost symbol of a **Fragment** kind of ``spec`` that holds 0-based ``line``.
 
     Reads both ``documentSymbol`` shapes: ``DocumentSymbol`` trees, and flat
     ``SymbolInformation`` with a ``containerName``. Returns its 1-based,
     inclusive lines and its dotted name.
     """
     best: tuple[int, LineRange, str] | None = None
-    for name, span in _fragments(symbols, ""):
+    for name, span in _fragments(spec, symbols, ""):
         start = span.get("start", {}).get("line", 0)
         end = span.get("end", {}).get("line", start)
         if start <= line <= end and (best is None or end - start <= best[0]):
@@ -400,9 +422,16 @@ def _enclosing(
 
 
 def _fragments(
-    symbols: list[dict[str, Any]], outer: str
+    spec: LanguageServer,
+    symbols: list[dict[str, Any]],
+    outer: str,
+    depth: int = 0,
 ) -> list[tuple[str, dict[str, Any]]]:
-    """Each symbol of a **Fragment** kind, in tree order, with its dotted name and range."""
+    """Each symbol of a **Fragment** kind, in tree order, with its dotted name and range.
+
+    A kind of ``spec.top_level_kinds`` counts only with no enclosing symbol: a
+    ``const`` inside a function would pin one line.
+    """
     found: list[tuple[str, dict[str, Any]]] = []
     for symbol in symbols:
         name = str(symbol.get("name", ""))
@@ -410,16 +439,23 @@ def _fragments(
             container = symbol.get("containerName")
             dotted = f"{container}.{name}" if container else name
             span = symbol["location"].get("range", {})
+            top_level = not container
         else:
             dotted = f"{outer}.{name}" if outer else name
             span = symbol.get("range", {})
-        counts = symbol.get("kind") in _FRAGMENT_KINDS
+            top_level = depth == 0
+        kind = symbol.get("kind")
+        counts = kind in spec.fragment_kinds or (
+            top_level and kind in spec.top_level_kinds
+        )
         if counts:
             found.append((dotted, span))
         children = symbol.get("children")
         if isinstance(children, list):
             found += _fragments(
+                spec,
                 [c for c in children if isinstance(c, dict)],
                 dotted if counts else outer,
+                depth + 1,
             )
     return found

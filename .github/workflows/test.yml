@@ -129,6 +129,11 @@ jobs:
           uv tool install tangier
           echo "$(uv tool dir --bin)" >> "$GITHUB_PATH"
 
+      # A host tool, not a dependency of this repo: `mael self check-host`
+      # installs it on a host. Pinned here.
+      - name: Install the TypeScript language server
+        run: npm install -g typescript-language-server@4.4.0 typescript@5.9.3
+
       - name: Run e2e tests
         run: uvx tangier gate run e2e --accept ci
 

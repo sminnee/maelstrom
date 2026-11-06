@@ -123,4 +123,5 @@ A bundle's requirements come from `uv.lock`, and its wheels install with `--no-d
 job runs `uv sync --locked`, and a `pyproject.toml` change without `uv lock` fails CI.
 
 The `e2e` gate builds a bundle too, in `tests/test_release_bundle.py`, so its scope takes the
-web inputs, and its CI job installs pnpm and tangier.
+web inputs. Its CI job installs pnpm, tangier, and `typescript-language-server` with
+`typescript`, at pinned versions, for `test_language_servers_e2e.py`.
