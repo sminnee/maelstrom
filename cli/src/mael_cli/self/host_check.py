@@ -15,6 +15,7 @@ from mael_agent.agent_transport import DaemonPaths
 from mael_common.util import harden_path
 from mael_domain.context import read_config_key, set_config_key
 from mael_domain.dev_cert import DevCertError, ensure_dev_cert
+from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.ports import ALLOCATIONS_FILENAME
 from mael_domain.shared_dir import get_shared_dir
 
@@ -685,6 +686,12 @@ HOST_TOOLS = (
         "curl -fsSL https://tailscale.com/install.sh | sh",
     ),
     Tool("tangier", "uv tool install tangier", "uv tool install tangier"),
+    # The orchestrator runs these against any project: a project need not supply one.
+    *(
+        Tool(s.command[0], s.install.darwin, s.install.linux, needs=s.install.needs)
+        for s in LANGUAGE_SERVERS
+        if s.install is not None
+    ),
 )
 
 _TOOLS = {t.name: t for t in HOST_TOOLS}
