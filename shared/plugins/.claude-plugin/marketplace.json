@@ -1,0 +1,21 @@
+{
+  "name": "maelstrom",
+  "owner": {
+    "name": "Tangerine Labs"
+  },
+  "metadata": {
+    "description": "Maelstrom's skills: the core workflow, and Sam Minnée's development practices."
+  },
+  "plugins": [
+    {
+      "name": "maelstrom",
+      "source": "./maelstrom",
+      "description": "The skills the maelstrom orchestrator and the mael workflow need."
+    },
+    {
+      "name": "minnstack",
+      "source": "./minnstack",
+      "description": "Sam Minnée's development practices: design, build, test, review, and writing."
+    }
+  ]
+}

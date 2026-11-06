@@ -1,6 +1,6 @@
 # Attribution
 
-Skills in this directory imported from third-party sources.
+Skills in this plugin imported from third-party sources.
 
 ## mattpocock/skills
 
@@ -8,15 +8,9 @@ Source: https://github.com/mattpocock/skills
 License: MIT (Copyright (c) 2026 Matt Pocock — full text below)
 
 Imported skills:
-- `grilling/` — skills/productivity/grilling/
-- `writing-for-agents/` — skills/productivity/writing-for-agents/
-- `codebase-design/` — skills/engineering/codebase-design/
-- `design-build-test/` — `examples.md` and `mocking.md` from skills/engineering/tdd/ (adapted);
-  `SKILL.md` is new
-- `domain-modeling/` — skills/engineering/domain-modeling/
 - `resolve-rebase-conflicts/` — skills/engineering/resolving-merge-conflicts/ (adapted)
 
-Imported verbatim, unmodified, on 2026-08-07, except the entries marked (adapted).
+Imported on 2026-08-07, and adapted.
 
 ### MIT License text
 
