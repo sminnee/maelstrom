@@ -17,9 +17,12 @@ export interface SystemBody {
   home: string;
   configDir: string;
   projectsDir: string;
+  /** The core plugin's `skills/` dir: the skills each launched agent loads. */
   skillsDir: string;
-  /** The skills maelstrom linked into `skillsDir`, by name. */
+  /** The skills in `skillsDir`, by name. */
   skills: string[];
+  /** Whether Claude Code has the optional `minnstack` plugin installed. */
+  practices: boolean;
 }
 
 /** The install's paths, skills and release. Not part of the world: no notice names it. */

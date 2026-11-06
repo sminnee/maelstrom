@@ -217,8 +217,9 @@ describe('the Welcome dialog', () => {
 
     const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
     expect(await dialog.findByText('~/Projects')).toBeInTheDocument();
-    expect(dialog.getByText('mael, planning, present')).toBeInTheDocument();
-    expect(dialog.getByText('~/.claude/skills')).toBeInTheDocument();
+    expect(dialog.getByText('mael, plan-task, planning, watch-pr')).toBeInTheDocument();
+    expect(dialog.getByText('~/.maelstrom/plugins/maelstrom/skills')).toBeInTheDocument();
+    expect(dialog.getByTestId('welcome-practices')).toHaveTextContent('minnstack');
     expect(dialog.getByText('~/.maelstrom')).toBeInTheDocument();
     expect(dialog.getByTestId('welcome-version')).toHaveTextContent('v0.9.0 (3f2a9c1e7b4d)');
     expect(dialog.getByTestId('welcome-host')).toHaveTextContent('reachable');

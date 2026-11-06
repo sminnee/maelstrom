@@ -1,7 +1,7 @@
 """What the Welcome dialog shows about this install: its paths, skills and version.
 
-Read on each request, because ``mael self setup`` can link a skill or install
-a release while the server runs.
+Read on each request, because a user can install a plugin, and ``mael self
+setup`` can install a release, while the server runs.
 """
 
 import logging
@@ -9,9 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mael_common.util import GLOBAL_CONFIG_DIR
+from mael_agent.harness_model import PRACTICES_PLUGIN
+from mael_common.util import GLOBAL_CONFIG_DIR, read_json
 
 from .release_bundle.layout import ManifestError, running_manifest
+from .shared_dir import core_plugin_dir
 
 logger = logging.getLogger(__name__)
 
@@ -23,39 +25,39 @@ class SystemPaths:
     home: Path
     config_dir: Path
     projects_dir: Path
-    claude_skills_dir: Path
+    #: The skills of the core plugin this code launches agents with.
+    core_skills_dir: Path
+    #: Where Claude Code records the plugins a user installed.
+    claude_plugins_dir: Path
     #: ``sys.prefix`` of the running code: its release names the version.
     prefix: str
 
     @classmethod
     def for_home(cls, home: Path, projects_dir: Path, prefix: str) -> "SystemPaths":
         """The paths of the install under ``home``, as ``mael self setup`` lays them out."""
+        plugin = core_plugin_dir()
         return cls(
             home=home,
             config_dir=home / GLOBAL_CONFIG_DIR,
             projects_dir=projects_dir,
-            claude_skills_dir=home / ".claude" / "skills",
+            # A tree with no core plugin lists no skills.
+            core_skills_dir=(plugin or home / "missing-core-plugin") / "skills",
+            claude_plugins_dir=home / ".claude" / "plugins",
             prefix=prefix,
         )
 
 
-def linked_skills(claude_skills_dir: Path) -> list[str]:
-    """The names in ``claude_skills_dir`` that are live links into a ``shared/skills``.
-
-    ``mael self setup`` writes these links, into a release or a checkout. A real
-    directory or a link to somewhere else is the user's own skill, and a dead
-    link is no skill at all.
-    """
-    if not claude_skills_dir.is_dir():
+def plugin_skills(skills_dir: Path) -> list[str]:
+    """The skill names in a plugin's ``skills/`` dir: each dir with a ``SKILL.md``."""
+    if not skills_dir.is_dir():
         return []
-    names = []
-    for entry in claude_skills_dir.iterdir():
-        if not entry.is_symlink() or not entry.exists():
-            continue
-        parent = entry.resolve().parent
-        if (parent.parent.name, parent.name) == ("shared", "skills"):
-            names.append(entry.name)
-    return sorted(names)
+    return sorted(p.name for p in skills_dir.iterdir() if (p / "SKILL.md").is_file())
+
+
+def practices_installed(claude_plugins_dir: Path) -> bool:
+    """Whether Claude Code lists ``minnstack`` as installed."""
+    installed = read_json(claude_plugins_dir / "installed_plugins.json").get("plugins")
+    return isinstance(installed, dict) and PRACTICES_PLUGIN in installed
 
 
 def system_reply(paths: SystemPaths) -> dict[str, Any]:
@@ -78,6 +80,7 @@ def system_reply(paths: SystemPaths) -> dict[str, Any]:
         "home": str(paths.home),
         "configDir": str(paths.config_dir),
         "projectsDir": str(paths.projects_dir),
-        "skillsDir": str(paths.claude_skills_dir),
-        "skills": linked_skills(paths.claude_skills_dir),
+        "skillsDir": str(paths.core_skills_dir),
+        "skills": plugin_skills(paths.core_skills_dir),
+        "practices": practices_installed(paths.claude_plugins_dir),
     }

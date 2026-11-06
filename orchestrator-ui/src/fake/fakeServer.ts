@@ -133,8 +133,9 @@ export function fakeSystem(): SystemBody {
     home: '/Users/dev',
     configDir: '/Users/dev/.maelstrom',
     projectsDir: '/Users/dev/Projects',
-    skillsDir: '/Users/dev/.claude/skills',
-    skills: ['mael', 'planning', 'present'],
+    skillsDir: '/Users/dev/.maelstrom/plugins/maelstrom/skills',
+    skills: ['mael', 'plan-task', 'planning', 'watch-pr'],
+    practices: true,
   };
 }
 

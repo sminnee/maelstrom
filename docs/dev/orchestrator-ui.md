@@ -319,8 +319,8 @@ reopens the dialog.
 ### The Welcome dialog
 
 `welcome/WelcomeDialog.tsx` reads `GET /api/system` and `GET /api/host`. It shows the projects
-directory, the skills linked into `~/.claude/skills`, the config directory, the version and
-whether the agent host answers. A run with no release manifest reads "development build". Its
+directory, the core plugin's skills, whether `minnstack` is installed, the config directory, the
+version and whether the agent host answers. A run with no release manifest reads "development build". Its
 one action opens Add project in its place.
 
 It opens itself when the world is ready and holds no project. A close sets `welcomeDismissed` in

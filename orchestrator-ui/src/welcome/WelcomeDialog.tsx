@@ -36,6 +36,8 @@ export function WelcomeDialog() {
             <dd className={styles.mono}>{info ? tildePath(info.projectsDir, info.home) : '…'}</dd>
             <dt>Skills</dt>
             <dd>{info ? <Skills info={info} /> : '…'}</dd>
+            <dt>Practices</dt>
+            <dd data-testid="welcome-practices">{info ? <Practices info={info} /> : '…'}</dd>
             <dt>Config</dt>
             <dd className={styles.mono}>{info ? tildePath(info.configDir, info.home) : '…'}</dd>
             <dt>Version</dt>
@@ -73,17 +75,23 @@ export function WelcomeDialog() {
 
 function Skills({ info }: { info: SystemBody }) {
   const dir = <span className={styles.mono}>{tildePath(info.skillsDir, info.home)}</span>;
-  if (info.skills.length === 0)
-    return (
-      <>
-        None linked into {dir}. Run <span className={styles.mono}>mael self setup</span>.
-      </>
-    );
+  if (info.skills.length === 0) return <>None in {dir}.</>;
   return (
     <>
       <span className={styles.mono}>{info.skills.join(', ')}</span>
       <span className={styles.faint}> in </span>
       {dir}
+    </>
+  );
+}
+
+/** The optional `minnstack` plugin: installed, or the command that installs it. */
+function Practices({ info }: { info: SystemBody }) {
+  if (info.practices) return <span className={styles.mono}>minnstack</span>;
+  return (
+    <>
+      Not installed. Run{' '}
+      <span className={styles.mono}>claude plugin install minnstack@maelstrom --scope user</span>.
     </>
   );
 }
