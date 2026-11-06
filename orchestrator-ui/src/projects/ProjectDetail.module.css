@@ -1,10 +1,9 @@
-/* `Dialog` sizes its box for 100 columns. The Worktrees tab holds a wide table, so the dialog
-   takes the screen, as a rendered file does. Not on the narrow layout: there `Dialog` is the whole
-   screen already. */
+/* `Dialog` sizes its box for 100 columns. The Worktrees tab holds a wide table, so the box is
+   wider. No fixed height: the box grows to the `Dialog` cap, and then `.body` scrolls. Not on the
+   narrow layout: there `Dialog` is the whole screen already. */
 @media (--not-narrow) {
   .box {
     width: min(1200px, 100%);
-    height: calc(100% - 40px);
   }
 }
 .body {
