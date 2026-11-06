@@ -15,6 +15,7 @@ from self_cli_support import FakeSupervisor
 
 from mael_cli.cli import cli
 from mael_cli.self.production import Production, agent_path
+from mael_domain.release_bundle.update_job import UpdateRecord, write_record
 
 
 @pytest.fixture
@@ -89,12 +90,59 @@ def test_update(host):
     assert run.endswith(" --tag v0.2.0")
 
 
+def test_update_detach_submits_the_update_job(host):
+    sup, calls, home = host
+    release = home / ".maelstrom" / "install" / "releases" / "v1"
+    release.mkdir(parents=True)
+    (home / ".maelstrom" / "install" / "current").symlink_to(release)
+
+    result = mael("update", "--detach")
+
+    assert result.exit_code == 0, result.output
+    assert [c.split()[:2] for c in sup.calls] == [["submit", "update"]]
+    assert calls == []
+    assert "update.log" in result.output
+
+
+def test_update_detach_without_a_release_exits_1(host):
+    sup, _, _ = host
+
+    result = mael("update", "--detach")
+
+    assert result.exit_code == 1
+    assert "No release is installed" in result.output
+    assert sup.calls == []
+
+
 def test_status(host):
     result = mael("status")
 
     assert result.exit_code == 0, result.output
     assert "Release: none installed" in result.output
     assert "  orchestrator: loaded, pid 7" in result.output
+
+
+def test_status_reports_the_last_update(host):
+    _, _, home = host
+    write_record(
+        home / ".maelstrom" / "install",
+        UpdateRecord(
+            state="failed",
+            pid=1,
+            started_at="t0",
+            finished_at="t1",
+            log="/x/update.log",
+            from_tag="v1",
+            to_tag="v1",
+            exit_code=2,
+        ),
+    )
+
+    result = mael("status")
+
+    assert "Last update: failed (v1 → v1), started t0, ended t1, exit 2" in (
+        result.output
+    )
 
 
 def test_uninstall(host):
