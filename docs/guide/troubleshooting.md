@@ -299,6 +299,19 @@ gh auth status
 gh auth login
 ```
 
+### Add project says "could not read Username for 'https://github.com'"
+
+git has no credentials for GitHub. A gh sign-in does not reach git by itself, and the UI's
+clone cannot ask for a password. `github.orchestrator_token` does not help: the clone does not
+use it. Make gh git's credential helper, then add the project again:
+
+```bash
+gh auth setup-git
+git config --get-urlmatch credential.helper https://github.com   # names gh auth git-credential
+```
+
+`mael self check-host` offers the same fix.
+
 ---
 
 ## Scheduled work
