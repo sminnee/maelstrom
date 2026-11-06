@@ -16,8 +16,10 @@ from mael_common.util import harden_path
 from mael_domain.context import read_config_key, set_config_key
 from mael_domain.dev_cert import DevCertError, ensure_dev_cert
 from mael_domain.ports import ALLOCATIONS_FILENAME
+from mael_domain.shared_dir import get_shared_dir
 
 from .host_service import Run
+from .plugins import Plugins, PluginsError, codex_home_from_env
 from .production import Production
 from .setup import ORCHESTRATOR_URL_KEY, Echo, tailnet_name
 
@@ -256,6 +258,43 @@ def signed_in(result) -> bool:
     return not isinstance(data, dict) or data.get("loggedIn") is not False
 
 
+class PracticesPlugin(HostCheckItem):
+    """The optional ``minnstack`` plugin. Checked only when claude is installed.
+
+    The check runs before setup, so its fix registers the marketplace first.
+    """
+
+    section = "Plugins"
+    name = "minnstack plugin"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return host.which("claude") is not None
+
+    def check(self, host: "HostCheck") -> Finding:
+        if host.plugins().has_practices():
+            return Finding(True, "minnstack is installed")
+        return Finding(False, "minnstack (optional) is not installed")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        def fix() -> None:
+            plugins = host.plugins()
+            try:
+                plugins.register()
+            except PluginsError as exc:
+                plugins.messages.append(f"Warning: {exc}")
+            else:
+                plugins.install_practices()
+            for msg in plugins.messages:
+                host.echo(f"    {msg}")
+
+        return Remedy(
+            "minnstack holds Sam Minnée's development practices: skills to "
+            "design, build, test, review and write. Maelstrom runs without it.",
+            fix=fix,
+            question="Install minnstack for Claude Code and Codex?",
+        )
+
+
 class TailscaleUp(HostCheckItem):
     """This machine is on a tailnet. Checked only when tailscale is installed."""
 
@@ -453,6 +492,7 @@ HOST_ITEMS: tuple[HostCheckItem, ...] = (
         "codex login",
         "codex login --device-auth",
     ),
+    PracticesPlugin(),
     TailscaleUp(),
     TailscaleOperator(),
     DevHost(),
@@ -485,6 +525,9 @@ class HostCheck:
     root: bool = field(default_factory=lambda: os.geteuid() == 0)
     issue_cert: Callable[[str], object] = ensure_dev_cert
     items: Sequence[HostCheckItem] = HOST_ITEMS
+    #: maelstrom's ``shared/``, which holds the plugin marketplace.
+    shared: Path = field(default_factory=get_shared_dir)
+    codex_home: Path | None = field(default_factory=codex_home_from_env)
 
     def __call__(self) -> list[str]:
         """Work through the items. Returns the required items still unmet."""
@@ -529,6 +572,15 @@ class HostCheck:
         after = item.check(self)
         self.echo(f"  {'✓' if after.met else '✗'} {after.text}")
         return after.met
+
+    def plugins(self) -> Plugins:
+        return Plugins(
+            home=self.prod.home,
+            shared=self.shared,
+            run=self.run,
+            which=self.which,
+            codex_home=self.codex_home,
+        )
 
     @property
     def sudo(self) -> list[str]:
