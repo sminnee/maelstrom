@@ -238,14 +238,16 @@ See [pull-requests.md](pull-requests.md) for the detail.
 
 ### Reading the change
 
-You read the pull request's change in the worktree's Changes tab. In a Python file, a name has a
-link cursor. Click it to go to its definition. The tab scrolls to the definition when it shows
+You read the pull request's change in the worktree's Changes tab. In a Python, `.ts` or `.tsx`
+file, a name has a link cursor. Click it to go to its definition. The tab scrolls to the definition when it shows
 it. Otherwise it pins the lines around the definition, or the file that holds it, below the card
 you clicked in. A definition outside the change you read, such as a built-in, only gets a notice.
 
-Names need Pyright's language server: `.venv/bin/pyright-langserver` in the worktree, or
-`pyright-langserver` on `PATH`. A project with `pyright` in its dev dependencies has the first.
-Without either, names in Python files are plain text.
+Names need a language server: `pyright-langserver` for Python, and `typescript-language-server`
+for TypeScript. `mael self check-host` offers to install each one. A project-local binary wins:
+`.venv/bin` or `node_modules/.bin`, in the worktree. The TypeScript server uses the nearest
+`node_modules/typescript` above the file, when there is one. Without a server, names in its
+files are plain text.
 
 ## 5. Close the worktree
 

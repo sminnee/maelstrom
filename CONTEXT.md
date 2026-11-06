@@ -1488,8 +1488,8 @@ the diff stays.
 _Avoid_: Addition, added file, bookmark, attachment
 
 **Fragment**:
-A **Pin** of the lines of one function or class, reached by following a symbol. When no
-function or class holds the target, the pin is a plain range **Pin** around it.
+A **Pin** of the lines of one function or class, or of a top-level TypeScript `const`, reached
+by following a symbol. When none holds the target, the pin is a plain range **Pin** around it.
 _Avoid_: Snippet, excerpt (the wire read), slice
 
 **Reference menu**:
