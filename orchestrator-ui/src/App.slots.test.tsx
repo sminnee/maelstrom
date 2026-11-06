@@ -17,9 +17,9 @@ const slotOf = (testId: string) =>
   screen.getByTestId(testId).closest('[data-slot]')?.getAttribute('data-slot');
 
 describe('the medium layout: one slot', () => {
-  it('draws one menu of six, with the desk in front', async () => {
+  it('draws one menu of five, with the desk in front', async () => {
     await renderApp({ viewport: 'medium' });
-    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Projects', 'Tabs']);
+    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Tabs']);
     expect(isShowing('Desk')).toBe(true);
     expect(isShowing('Tabs')).toBe(false);
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
@@ -51,7 +51,7 @@ describe('the medium layout: one slot', () => {
     // A shift-click on a link opens a new window: this one keeps its view.
     expect(screen.queryByTestId('task-list')).toBeNull();
     resizeTo('wide');
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Projects']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects']);
     expect(items('Right slot')).toEqual(['Tabs']);
   });
 
@@ -91,7 +91,7 @@ describe('the medium layout: one slot', () => {
 describe('the wide layout: two slots', () => {
   it('splits the menu by anchor: the main views left, Tabs right', async () => {
     await renderApp();
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Projects']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects']);
     expect(items('Right slot')).toEqual(['Tabs']);
     expect(slotOf('canvas')).toBe('left');
     expect(slotOf('panel')).toBe('right');
@@ -144,7 +144,7 @@ describe('the wide layout: two slots', () => {
     await user.keyboard('{Shift>}');
     await user.click(item('Tasks'));
     await user.keyboard('{/Shift}');
-    expect(items('Left slot')).toEqual(['Desk', 'Worktrees', 'Comms', 'Projects']);
+    expect(items('Left slot')).toEqual(['Desk', 'Comms', 'Projects']);
     expect(items('Right slot')).toEqual(['Tasks', 'Tabs']);
     // Desk and Tasks now show together.
     expect(slotOf('canvas')).toBe('left');
@@ -159,7 +159,7 @@ describe('the wide layout: two slots', () => {
     await user.click(item('Tabs'));
     await user.keyboard('{/Shift}');
     expect(group('Right slot')).toBeNull();
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Worktrees', 'Comms', 'Projects', 'Tabs']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Tabs']);
   });
 
   it('keeps the panel mounted across an anchor move', async () => {
@@ -195,16 +195,16 @@ describe('the wide layout: two slots', () => {
     expect(screen.getAllByLabelText('Search')).toHaveLength(1);
   });
 
-  it('draws Branch for the desk beside the worktree table, but not for the table alone', async () => {
+  it('draws Branch for the desk beside the Comms view, but not for Comms alone', async () => {
     const user = userEvent.setup();
     await renderApp();
     await user.keyboard('{Shift>}');
-    await user.click(item('Worktrees'));
+    await user.click(item('Comms'));
     await user.keyboard('{/Shift}');
-    expect(screen.getByLabelText('show closed')).toBeInTheDocument();
+    expect(screen.getByTestId('comm-list')).toBeInTheDocument();
     expect(screen.getByLabelText('Branch')).toBeInTheDocument();
     await user.click(item('Desk'));
-    expect(screen.getByLabelText('show closed')).toBeInTheDocument();
+    expect(screen.getByTestId('comm-list')).toBeInTheDocument();
     expect(screen.queryByLabelText('Branch')).toBeNull();
   });
 });
@@ -248,10 +248,10 @@ describe('the view in the URL', () => {
   it('moves to the view a menu item links to, and Back returns', async () => {
     const user = userEvent.setup();
     const { router } = await renderApp({ viewport: 'medium' });
-    expect(item('Worktrees')).toHaveAttribute('href', '/worktrees');
-    await user.click(item('Worktrees'));
-    expect(router.state.location.pathname).toBe('/worktrees');
-    expect(screen.getByTestId('worktree-table')).toBeInTheDocument();
+    expect(item('Comms')).toHaveAttribute('href', '/comms');
+    await user.click(item('Comms'));
+    expect(router.state.location.pathname).toBe('/comms');
+    expect(screen.getByTestId('comm-list')).toBeInTheDocument();
     await act(() => router.navigate(-1));
     expect(router.state.location.pathname).toBe('/desk');
     expect(screen.getByTestId('canvas')).toBeInTheDocument();

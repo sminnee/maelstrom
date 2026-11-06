@@ -2,6 +2,7 @@ import type { AgentCost, Stage } from '../api/milestones';
 import { groupMembers } from '../selectors/documents';
 import { trackedAgents } from '../selectors/worktrees';
 import type { ApiClient } from '../api/http';
+import type { SystemBody } from '../api/system';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
@@ -63,6 +64,8 @@ export interface FakeWorld {
   host: Host | null;
   /** The gate jobs on the machine, as the server last read them from tangier. */
   gateJobs: Record<string, GateJob>;
+  /** What `GET /api/system` answers: the install, not the world. */
+  system: SystemBody;
   /**
    * Each project's Linear issues for the current cycle. Not part of the world
    * the server polls -- the real one reads these straight from Linear -- but
@@ -122,6 +125,18 @@ export interface FakeWorld {
   operationFaults: Record<string, FakeFault>;
 }
 
+/** The install the fake reports. The seed's worktrees live under its `projectsDir`. */
+export function fakeSystem(): SystemBody {
+  return {
+    version: { tag: 'v0.9.0', commit: '3f2a9c1e7b4d', dirty: false },
+    home: '/Users/dev',
+    configDir: '/Users/dev/.maelstrom',
+    projectsDir: '/Users/dev/Projects',
+    skillsDir: '/Users/dev/.claude/skills',
+    skills: ['mael', 'planning', 'present'],
+  };
+}
+
 export function emptyFakeWorld(): FakeWorld {
   return {
     linearIssues: {},
@@ -139,6 +154,7 @@ export function emptyFakeWorld(): FakeWorld {
     desk: {},
     comms: {},
     gateJobs: {},
+    system: fakeSystem(),
     host: {
       id: 'agent-host',
       reachable: true,
@@ -705,6 +721,7 @@ function read(path: string, server: FakeServer): Reply {
     return comm ? ok(comm) : notFound(`comm ${m[1]}`);
   }
   if (pathname === '/api/host') return ok({ host: world.host });
+  if (pathname === '/api/system') return ok(world.system);
   if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }

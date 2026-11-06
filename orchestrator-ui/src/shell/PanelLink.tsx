@@ -45,7 +45,8 @@ export function PanelLink({
 }) {
   const openTab = useAppStore((s) => s.openTab);
   const narrow = useLayoutMode() === 'narrow';
-  const to = useHrefFor({ panel: tab });
+  // The Project dialog is modal, so it would cover the tab: the link closes it. Back reopens it.
+  const to = useHrefFor({ panel: tab, projectDetail: null });
   const linkState = useLinkState();
   if (narrow && tab.kind === 'devenv')
     return (

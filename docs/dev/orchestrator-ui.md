@@ -194,27 +194,26 @@ running, so a task launched from the UI joins the desk as well.
 ## The canvas, the task list and the panel
 
 The canvas is where the user decides. The panel is where the user reads. The task list is where
-the user chooses what the canvas draws. The worktree table is where the user manages the
-worktrees themselves. The Comms view is where the user keeps track of what to tell people outside
-the team. The Projects view is where the user adds a project.
+the user chooses what the canvas draws. The worktree table, in the **Project dialog**, is where
+the user manages one project's worktrees. The Comms view is where the user keeps track of what to
+tell people outside the team. The Projects view is where the user adds a project.
 
 The canvas draws a node when it is on the desk, or it has a live agent. The liveness half is
 what makes running work always visible: an agent shows the moment it starts, before the server's
 own desk entry arrives. It opens near-empty against the real server, because the world holds
 about 700 tasks across every project and most of them are finished. The task list lists every
 task with filters for status, project, branch and text, and each row toggles that task on or off
-the desk. The top bar shows Desk, Tasks, Worktrees, Comms, Projects and Tabs; see "The three layouts". There is one
-filter bar, and it draws the controls of each main view on screen. Project applies to Desk, Tasks
-and Worktrees. The Comms and Projects views do not filter by project, so the bar hides Project
-when they are the only views on screen.
-Branch applies to Desk and Tasks only: a worktree on a branch no work names would silently vanish
-from a table meant to show every one of them. The Project and Branch options are what the views on
+the desk. The top bar shows Desk, Tasks, Comms, Projects and Tabs; see "The three layouts". There is one
+filter bar, and it draws the controls of each main view on screen. Project applies to Desk and
+Tasks. The Comms and Projects views do not filter by project, so the bar hides Project when they
+are the only views on screen.
+Branch applies to Desk and Tasks only. The Project and Branch options are what the views on
 screen draw. `filterOptions` in `selectors/filterOptions.ts` reads the Desk's options off
 `deriveGraph`, so no Desk option filters the canvas to nothing. A selected value stays offered
 across a view switch. A selected branch drops out once no view in the world names it. Desk has an
 Agent status control, which the top bar's agents chip also steps through. Its Has PR choice keeps
 the tasks with a **Registered PR**: the cards that draw a PR chip. Tasks has a status
-control, and Worktrees has "show closed". Desk and Tasks share one Search text, `filters.text`
+control. Desk and Tasks share one Search text, `filters.text`
 (`?q=`).
 A task matches by its id, notebook id or title; a free agent by its id or its drawn title. Every
 `deriveGraph` reader follows it, so the attention chip and the New work project radios narrow
@@ -258,7 +257,7 @@ PR in its **Chain**. A free agent's card shows no PR.
 
 ### The worktree table
 
-`worktrees/WorktreeTable.tsx` draws every worktree, grouped by project, one table per project.
+`worktrees/WorktreeTable.tsx` draws one project's worktrees, in the Project dialog's Worktrees tab.
 
 It is the only surface that shows a closed worktree. The
 canvas draws each open worktree as a **Worktree box**, and the box's label opens the same sync,
@@ -272,7 +271,8 @@ table and the terminal give one reading. "Agents" is the world's agent rows join
 minus subagents and exited rows; it is not `sessionCount`, which is a process sweep and counts a
 shell as readily as an agent.
 
-A closed worktree is listed only when "show closed" is ticked, and reads as parked. `_main` sorts
+A closed worktree is listed only when "Show closed" is ticked, and reads as parked. The box sits
+in the table's toolbar and writes `?closed=1` while the dialog is open. `_main` sorts
 first, because it holds the branch the others are cut from.
 
 Each row draws the shared worktree controls from `worktrees/WorktreeControls.tsx`.
@@ -341,7 +341,7 @@ The merge control is `worktrees/MergeControl.tsx`. It draws "Merge" only when th
 it draws disabled, with a title that says to sync first. It is a `ConfirmButton`, because a
 merge cannot be undone. `WorktreeCommands` draws it first, so every surface that draws the
 worktree commands carries it: the expanded node, the narrow layout's pushed screen, the panel's
-worktree bar and the Worktrees table.
+worktree bar and the worktree table.
 GitHub's refusal shows as the confirming button's title, and the question stays open.
 
 The **Auto-merge** control is `worktrees/AutoMergeControl.tsx`, a switch drawn as the Jig switch
@@ -1600,13 +1600,13 @@ fails on a CSS file that writes a layout breakpoint or names undefined custom me
 that each query names the same layout as the hook. In the suite, `setViewport` in `test/setup.ts` sets the width, the height and the pointer
 kind that the `matchMedia` stub answers from.
 
-**Slots and anchors.** The top bar has six items: Desk, Tasks, Worktrees, Comms, Projects and Tabs. Each item has
+**Slots and anchors.** The top bar has five items: Desk, Tasks, Comms, Projects and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
 `ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-Desk, Tasks, Worktrees, Comms and Projects are links to their view's path; Tabs is a button, because the panel is
+Desk, Tasks, Comms and Projects are links to their view's path; Tabs is a button, because the panel is
 not a location. A click on a view that is not showing moves to its path, and the shell calls
 `showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
 location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,
@@ -1701,7 +1701,7 @@ as its detail screen and the panel tab as a screen over it.
 
 | URL | What it opens |
 | --- | --- |
-| `/desk`, `/tasks`, `/worktrees`, `/comms`, `/projects` | The main view. `/` and any unknown path redirect to `/desk` |
+| `/desk`, `/tasks`, `/comms`, `/projects` | The main view. `/` and any unknown path redirect to `/desk` |
 | `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
 | `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
@@ -2019,7 +2019,7 @@ variable from `:root`, not the property that the wiring sets.
 
 A view that scrolls sideways is not tested either, because jsdom lays nothing out. It is checked
 in a browser on the `long-text` fake scenario at 390px wide: Tasks, Comms, Changes, the node
-detail, the task editor, a document, a session and Worktrees. A failure is an element with
+detail, the task editor, a document, a session and a Project dialog's Worktrees tab. A failure is an element with
 `overflow-x: auto` or `scroll` whose `scrollWidth` exceeds its `clientWidth`, outside a table, a
 `pre` or a diff. That check sees width only: a pill that wraps makes a view taller, so Ladle's
 `UI / Controls` is where a pill is checked.

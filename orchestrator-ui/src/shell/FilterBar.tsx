@@ -25,15 +25,15 @@ const AGENT_STATUS_OPTIONS = Object.entries(AGENT_STATUS_LABELS).map(([value, la
 export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
   const { world, status } = useWorld();
   const showing = useShowing();
-  const { filters, listFilters, worktreeFilters } = useLoc();
+  const { filters, listFilters } = useLoc();
   const go = useGo();
   const setFilters = (patch: Partial<Filters>) => go({ filters: patch });
   const views = useMemo(() => showing.filter((p): p is View => p !== 'tabs'), [showing]);
   const { project, branch } = filters;
   // The canvas options run the graph over every task, so build them only on a change.
   const options = useMemo(
-    () => filterOptions(world, { project, branch }, views, worktreeFilters),
-    [world, project, branch, views, worktreeFilters],
+    () => filterOptions(world, { project, branch }, views),
+    [world, project, branch, views],
   );
   // Not while the world loads: a branch from a copied link names work that has not arrived.
   const stale =
@@ -70,9 +70,7 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
           </select>
         </label>
       )}
-      {/* Only for the Desk and Tasks, which name branches through their work: a
-          worktree on a branch no work names would vanish from a table that is
-          meant to show every one of them. */}
+      {/* Only for the Desk and Tasks, which name branches through their work. */}
       {(showing.includes('canvas') || showing.includes('list')) && (
         <label className={styles.field}>
           <span>Branch</span>
@@ -87,16 +85,6 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
               </option>
             ))}
           </select>
-        </label>
-      )}
-      {showing.includes('worktrees') && (
-        <label className={styles.check}>
-          <input
-            type="checkbox"
-            checked={worktreeFilters.showClosed}
-            onChange={() => go({ worktreeFilters: { showClosed: !worktreeFilters.showClosed } })}
-          />
-          <span>show closed</span>
         </label>
       )}
       {showing.includes('canvas') && (

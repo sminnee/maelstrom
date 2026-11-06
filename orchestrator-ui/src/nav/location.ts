@@ -31,11 +31,18 @@ export interface Loc {
   zone: Zone;
   /** The task the editor is open on. */
   edit: TaskId | null;
-  /** The project the detail dialog is open on. */
+  /** The project the **Project dialog** is open on. */
   projectDetail: ProjectId | null;
+  /** The Project dialog's tab. Read only while `projectDetail` is set. */
+  projectTab: ProjectTab;
   /** Whether the new-work form is open. */
   newWork: boolean;
 }
+
+/** A tab of the Project dialog. */
+export type ProjectTab = 'overview' | 'worktrees';
+const PROJECT_TABS: readonly ProjectTab[] = ['overview', 'worktrees'];
+const DEFAULT_PROJECT_TAB: ProjectTab = 'overview';
 
 /** A change to a location. Filters merge into the current ones. */
 export type LocPatch = Partial<Omit<Loc, 'filters' | 'listFilters' | 'worktreeFilters'>> & {
@@ -66,7 +73,6 @@ export const SCREENS: readonly Screen[] = [
   { path: '/desk/agent/:id', view: 'canvas', card: 'agent' },
   { path: '/desk/worktree/:id', view: 'canvas', card: 'worktree' },
   { path: '/tasks', view: 'list', card: null },
-  { path: '/worktrees', view: 'worktrees', card: null },
   { path: '/comms', view: 'comms', card: null },
   { path: '/projects', view: 'projects', card: null },
 ];
@@ -83,6 +89,7 @@ export function defaultLoc(): Loc {
     zone: DEFAULT_ZONE,
     edit: null,
     projectDetail: null,
+    projectTab: DEFAULT_PROJECT_TAB,
     newWork: false,
   };
 }
@@ -174,6 +181,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
   const q = new URLSearchParams(search);
   const agents = q.get('agents');
   const zone = q.get('zone') as Zone | null;
+  const dtab = q.get('dtab') as ProjectTab | null;
   return {
     view: screen.view,
     // `/desk/task` matches the splat with nothing in it: the desk, with no card.
@@ -192,6 +200,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
     zone: zone && ZONES.includes(zone) ? zone : DEFAULT_ZONE,
     edit: q.get('edit') || null,
     projectDetail: q.get('detail') || null,
+    projectTab: dtab && PROJECT_TABS.includes(dtab) ? dtab : DEFAULT_PROJECT_TAB,
     newWork: q.get('new') === '1',
   };
 }
@@ -222,10 +231,13 @@ export function toHref(loc: Loc): string {
     ['status', statusValue(loc.listFilters.statuses)],
     ['q', loc.filters.text || null],
     ['comm', loc.filters.comm],
-    ['closed', loc.worktreeFilters.showClosed ? '1' : null],
     ['zone', loc.zone !== DEFAULT_ZONE ? loc.zone : null],
     ['edit', loc.edit],
     ['detail', loc.projectDetail],
+    // The tab and the table filter are the dialog's: with the dialog closed they would linger
+    // in every later URL.
+    ['dtab', loc.projectDetail && loc.projectTab !== DEFAULT_PROJECT_TAB ? loc.projectTab : null],
+    ['closed', loc.projectDetail && loc.worktreeFilters.showClosed ? '1' : null],
     ['new', loc.newWork ? '1' : null],
   ];
   const search = params

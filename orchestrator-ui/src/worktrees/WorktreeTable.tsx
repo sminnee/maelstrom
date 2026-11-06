@@ -2,10 +2,11 @@ import { useMemo } from 'react';
 import { useWorld } from '../api/useWorld';
 import { useRefreshWorktrees } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
+import type { ProjectId } from '../protocol/ids';
 import { worktreePr } from '../selectors/cardPr';
-import { listWorktrees } from '../selectors/worktrees';
+import { projectWorktrees } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
-import { useLoc } from '../nav/useNav';
+import { useGo, useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { useUnitOperation } from '../console/useConsole';
@@ -16,21 +17,23 @@ import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeTable.module.css';
 
 /**
- * Every worktree across every project, and the operations over them.
+ * One project's worktrees, and the operations over them. The Project dialog's Worktrees tab
+ * draws it.
  *
  * The rows come from the world, so an idle open worktree is as visible as a
  * busy one, and a closed one can be listed. The canvas draws the open ones as
  * worktree boxes; this is where `mael remove` reaches a button.
  */
-export function WorktreeTable() {
+export function WorktreeTable({ project }: { project: ProjectId }) {
   const { world, status, errors, retry } = useWorld();
-  const { filters, worktreeFilters } = useLoc();
+  const { worktreeFilters } = useLoc();
+  const go = useGo();
   const refresh = useRefreshWorktrees();
   // Re-derived only when the world or the filters move, not on every frame
   // the server publishes.
-  const groups = useMemo(
-    () => listWorktrees(world, filters, worktreeFilters),
-    [world, filters, worktreeFilters],
+  const rows = useMemo(
+    () => projectWorktrees(world, project, worktreeFilters),
+    [world, project, worktreeFilters],
   );
 
   const terminal =
@@ -43,8 +46,8 @@ export function WorktreeTable() {
           Retry
         </AppButton>
       </p>
-    ) : groups.length === 0 ? (
-      <p className={styles.terminal}>No worktree matches these filters.</p>
+    ) : rows.length === 0 ? (
+      <p className={styles.terminal}>No worktree to show.</p>
     ) : null;
 
   return (
@@ -58,33 +61,43 @@ export function WorktreeTable() {
         >
           Refresh
         </AppButton>
+        <label className={styles.check}>
+          <input
+            type="checkbox"
+            checked={worktreeFilters.showClosed}
+            onChange={() =>
+              go(
+                { worktreeFilters: { showClosed: !worktreeFilters.showClosed } },
+                { replace: true },
+              )
+            }
+          />
+          <span>Show closed</span>
+        </label>
       </div>
       {terminal}
-      {groups.map((group) => (
-        <section key={group.project} className={styles.project}>
-          <h2 className={`${styles.heading} wrap`}>{group.project}</h2>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>worktree</th>
-                <th>branch</th>
-                <th>dirty</th>
-                <th>local</th>
-                <th>remote</th>
-                <th>pr</th>
-                <th>links</th>
-                <th>agents</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {group.rows.map(({ worktree, agents }) => (
-                <Row key={worktree.id} worktree={worktree} agents={agents.length} />
-              ))}
-            </tbody>
-          </table>
-        </section>
-      ))}
+      {rows.length > 0 && (
+        <table className={styles.table}>
+          <thead>
+            <tr>
+              <th>worktree</th>
+              <th>branch</th>
+              <th>dirty</th>
+              <th>local</th>
+              <th>remote</th>
+              <th>pr</th>
+              <th>links</th>
+              <th>agents</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ worktree, agents }) => (
+              <Row key={worktree.id} worktree={worktree} agents={agents.length} />
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

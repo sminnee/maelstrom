@@ -9,6 +9,7 @@ export const keys = {
   worktrees: () => ['worktrees'] as const,
   desk: () => ['desk'] as const,
   host: () => ['host'] as const,
+  system: () => ['system'] as const,
   gateJobs: () => ['gateJobs'] as const,
   attention: () => ['attention'] as const,
   tasks: {

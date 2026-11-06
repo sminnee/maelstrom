@@ -1407,7 +1407,7 @@ _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
 
 **Slot**:
 One of the two places in the body, left and right, that draws a top bar item: the desk, the task
-list, the worktree table, the Comms view or the panel. The wide layout draws both slots. A click on a showing item
+list, the Comms view, the Projects view or the panel. The wide layout draws both slots. A click on a showing item
 closes its slot, and the other slot takes the full width. The body is never empty: closing the
 last open slot reopens the left slot on its most recent item. The code calls a top bar item a
 pane.

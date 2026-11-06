@@ -1,5 +1,5 @@
-/* `Dialog` sizes its box for 100 columns. The detail dialog will grow tabs, so it takes the
-   screen now, as a rendered file does. Not on the narrow layout: there `Dialog` is the whole
+/* `Dialog` sizes its box for 100 columns. The Worktrees tab holds a wide table, so the dialog
+   takes the screen, as a rendered file does. Not on the narrow layout: there `Dialog` is the whole
    screen already. */
 @media (--not-narrow) {
   .box {
@@ -26,6 +26,7 @@
 .facts dd {
   margin: 0;
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 /* Mono Means Literal: a branch is a name on disk. */
 .mono {
@@ -36,4 +37,27 @@
 }
 .error {
   composes: error from '../newwork/NewWork.module.css';
+}
+/* The deck list's tab strip: an inset underline marks the active tab. */
+.tabs {
+  display: flex;
+  flex: none;
+  gap: var(--u-2);
+  border-bottom: 1px solid var(--border);
+}
+.tab {
+  padding: var(--u) 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+  border-radius: 0;
+  box-shadow: inset 0 -2px 0 transparent;
+  cursor: pointer;
+}
+.tab[aria-selected='true'] {
+  color: var(--fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }

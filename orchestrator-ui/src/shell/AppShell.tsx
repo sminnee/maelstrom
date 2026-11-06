@@ -8,7 +8,6 @@ import { Panel } from '../panel/Panel';
 import { NewWork } from '../newwork/NewWork';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
-import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { useLayoutMode } from '../layout/useLayoutMode';
 import { useShowing } from '../layout/useShowing';
 import { useLocSync } from '../nav/useLocSync';
@@ -22,6 +21,7 @@ import { usePresence } from '../ui/usePresence';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
+import { ProjectOverlays } from './ProjectOverlays';
 import { TopBar } from './TopBar';
 import styles from './AppShell.module.css';
 
@@ -32,7 +32,7 @@ const MIN_MAIN_STRIP = 48;
 const clamp = (width: number) =>
   Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_MAIN_STRIP, width));
 
-const MAIN_VIEWS: View[] = ['canvas', 'list', 'worktrees', 'comms', 'projects'];
+const MAIN_VIEWS: View[] = ['canvas', 'list', 'comms', 'projects'];
 
 /**
  * The app under the top bar, in one of the three layouts of `LayoutMode`.
@@ -94,8 +94,6 @@ function SlotShell() {
             <section key={view} className={styles.slot} {...slot(view)}>
               {view === 'canvas' ? (
                 <Canvas />
-              ) : view === 'worktrees' ? (
-                <WorktreeTable />
               ) : view === 'comms' ? (
                 <CommList />
               ) : view === 'projects' ? (
@@ -112,6 +110,9 @@ function SlotShell() {
           {drawer.mounted && <Console layout="drawer" open={!drawer.leaving} ref={drawerRef} />}
         </main>
         <ConsoleStrip covered={drawer.mounted} />
+        {/* Before the editor and New work: a modal mounted later sits on top, and both open over
+            the Project dialog. */}
+        <ProjectOverlays />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

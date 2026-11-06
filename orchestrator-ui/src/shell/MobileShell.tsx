@@ -13,7 +13,6 @@ import { nodeTitle } from '../selectors/graph';
 import type { PanelTab } from '../store/uiSlice';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
-import { WorktreeTable } from '../worktrees/WorktreeTable';
 import { SessionTab } from '../session/SessionTab';
 import { useCard } from '../nav/useCard';
 import { useGo, useLoc } from '../nav/useNav';
@@ -26,6 +25,7 @@ import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
 import { FilterBar } from './FilterBar';
 import { HostBanner } from './HostBanner';
+import { ProjectOverlays } from './ProjectOverlays';
 import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
 import { SheetHead, TopBar } from './TopBar';
 import styles from './MobileShell.module.css';
@@ -100,8 +100,6 @@ export function MobileShell() {
             <Screen screen={top} onClose={onClose} />
           ) : view === 'canvas' ? (
             <DeckList />
-          ) : view === 'worktrees' ? (
-            <WorktreeTable />
           ) : view === 'comms' ? (
             <CommList />
           ) : view === 'projects' ? (
@@ -126,6 +124,9 @@ export function MobileShell() {
             <FilterBar layout="stack" />
           </SideSheet>
         )}
+        {/* Before the editor and New work: a modal mounted later sits on top, and both open over
+            the Project dialog. */}
+        <ProjectOverlays />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

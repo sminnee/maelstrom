@@ -47,6 +47,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **The Worktrees view.** The worktree table is now the Worktrees tab of each Project dialog.
+  `/worktrees` redirects to `/desk`.
 - **`~/.maelstrom.yaml` is no longer read.** Move its contents into `~/.maelstrom/config.yaml`.
 - **The markdown task export.** Maelstrom no longer writes tasks to `~/.maelstrom/state/tasks`.
   `mael self setup --rebuild-export` is removed, and `mael self status` no longer reports the

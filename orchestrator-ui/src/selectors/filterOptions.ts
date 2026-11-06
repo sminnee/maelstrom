@@ -3,8 +3,6 @@ import type { Filters } from './filters';
 import { branchKey, noFilters } from './filters';
 import { deriveGraph } from './graph';
 import type { WorldView } from './world';
-import type { WorktreeFilters } from './worktrees';
-import { listWorktrees } from './worktrees';
 
 export interface BranchOption {
   key: string;
@@ -18,7 +16,7 @@ interface Origin {
 }
 
 /** What each view draws, as the projects and branches the filters can match. */
-function originsOf(world: WorldView, view: View, worktreeFilters: WorktreeFilters): Origin[] {
+function originsOf(world: WorldView, view: View): Origin[] {
   switch (view) {
     case 'canvas': {
       // The graph decides what the Desk draws, so the options cannot disagree
@@ -36,12 +34,6 @@ function originsOf(world: WorldView, view: View, worktreeFilters: WorktreeFilter
     }
     case 'list':
       return Object.values(world.tasks).map((t) => ({ project: t.project, branch: t.branch }));
-    case 'worktrees':
-      // The worktrees view has no Branch control.
-      return listWorktrees(world, noFilters(), worktreeFilters).map((group) => ({
-        project: group.project,
-        branch: '',
-      }));
     case 'comms':
       // A comm belongs to no project.
       return [];
@@ -62,12 +54,11 @@ export function filterOptions(
   world: WorldView,
   filters: Pick<Filters, 'project' | 'branch'>,
   views: readonly View[],
-  worktreeFilters: WorktreeFilters,
 ): { projects: string[]; branches: BranchOption[] } {
   const origins = new Map<View, Origin[]>();
   const of = (view: View) => {
     let held = origins.get(view);
-    if (!held) origins.set(view, (held = originsOf(world, view, worktreeFilters)));
+    if (!held) origins.set(view, (held = originsOf(world, view)));
     return held;
   };
   const keyOf = (o: Origin) => (o.branch ? branchKey(o.project, o.branch) : '');

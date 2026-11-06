@@ -15,7 +15,7 @@ import type {
 import type { AgentId } from '../protocol/ids';
 import { isActionable } from '../protocol/phase';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
-import type { FakeWorld } from './fakeServer';
+import { fakeSystem, type FakeWorld } from './fakeServer';
 
 /** The seed is stamped before this moment. */
 export const SEED_TIME = '2026-09-02T09:00:00.000Z';
@@ -698,6 +698,7 @@ body rather than the query builder.
   ];
 
   const world: FakeWorld = {
+    system: fakeSystem(),
     host: {
       id: 'agent-host',
       reachable: true,

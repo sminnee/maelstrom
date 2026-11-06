@@ -11,7 +11,6 @@ describe('the URL of a location', () => {
   it.each<[string, LocPatch]>([
     ['/desk', {}],
     ['/tasks', { view: 'list' }],
-    ['/worktrees', { view: 'worktrees' }],
     ['/comms', { view: 'comms' }],
     ['/desk/task/NORT-12', { card: { kind: 'task', id: 'NORT-12' } }],
     // A task id holds `/`: the task path takes every segment after it.
@@ -38,7 +37,15 @@ describe('the URL of a location', () => {
     ['/tasks?status=all', { view: 'list', listFilters: { statuses: [] } }],
     ['/tasks?q=fix%20%26%20test', { view: 'list', filters: { text: 'fix & test' } }],
     ['/tasks?comm=c2', { view: 'list', filters: { comm: 'c2' } }],
-    ['/worktrees?closed=1', { view: 'worktrees', worktreeFilters: { showClosed: true } }],
+    [
+      '/projects?detail=northwind&dtab=worktrees&closed=1',
+      {
+        view: 'projects',
+        projectDetail: 'northwind',
+        projectTab: 'worktrees',
+        worktreeFilters: { showClosed: true },
+      },
+    ],
     ['/desk?zone=done', { zone: 'done' }],
     ['/tasks?edit=maelstrom/2026-09-22.1', { view: 'list', edit: 'maelstrom/2026-09-22.1' }],
     ['/projects?detail=northwind', { view: 'projects', projectDetail: 'northwind' }],
@@ -63,16 +70,27 @@ describe('the URL of a location', () => {
     expect(parse('/nowhere')).toBeNull();
     expect(parse('/tasks/NORT-12')).toBeNull();
     expect(parse('/desk/agent/a/b')).toBeNull();
+    // No Worktrees view: the worktree table is a Project dialog tab.
+    expect(parse('/worktrees')).toBeNull();
   });
 
   it('reads a task path with no id as the desk', () => {
     expect(parse('/desk/task')).toEqual(defaultLoc());
   });
 
+  it('leaves out the dialog tab and its table filter once the dialog is closed', () => {
+    const open = withLoc(defaultLoc(), {
+      projectDetail: 'northwind',
+      projectTab: 'worktrees',
+      worktreeFilters: { showClosed: true },
+    });
+    expect(toHref(withLoc(open, { projectDetail: null }))).toBe('/desk');
+  });
+
   it('reads a value it does not know as the default', () => {
-    expect(parse('/desk?zone=sideways&agents=asleep&panel=nothing/x&status=bogus')).toEqual(
-      defaultLoc(),
-    );
+    expect(
+      parse('/desk?zone=sideways&agents=asleep&panel=nothing/x&status=bogus&dtab=nope'),
+    ).toEqual(defaultLoc());
   });
 });
 
@@ -81,7 +99,7 @@ describe('withLoc', () => {
     const list = withLoc(defaultLoc(), { view: 'list' });
     const card = withLoc(list, { card: { kind: 'task', id: 'NORT-12' } });
     expect(card.view).toBe('canvas');
-    expect(withLoc(card, { view: 'worktrees' }).card).toBeNull();
+    expect(withLoc(card, { view: 'comms' }).card).toBeNull();
   });
 
   it('merges a filter into the others', () => {

@@ -144,8 +144,15 @@ clone shows git's reason in the dialog.
 launches a task that runs `/setup-project`. That skill makes the dev env start, then audits
 the project. See [Setting up a project](planning.md#setting-up-a-project).
 
-Click a project's row to open its detail dialog. It shows the project's open worktrees, its
-stack tip and its Linear link. Its **Set up** button launches the same task.
+Click a project's row to open its Project dialog. It has two tabs:
+
+- **Overview** shows where `_main` is and where the worktrees go, for example
+  `~/Projects/askastro/askastro-alpha..zulu`. It also shows the stack tip and the Linear link.
+- **Worktrees** lists the project's worktrees, with their sync, environment and close controls.
+
+Its **Set up** button launches the same task. **Create your first task** opens the new-work form
+on the project. The set-up task does not count: the button reads **Create task** once the
+project has any other task.
 
 Both paths clone the repository into a bare-like layout, check main out into `_main`, and
 create the first worktree, **alpha**:

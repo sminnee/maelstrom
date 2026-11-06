@@ -191,7 +191,7 @@ position instead.
 
 ## The environment in the orchestrator
 
-The worktree view, the expanded card and the Worktree card show the same environment control.
+The worktree table in the Project dialog, the expanded card and the Worktree card show the same environment control.
 Its button does what
 the env state asks for: Stop when every core service runs, Start when some or none do. Its menu
 adds Stop when the env is partial, then Restart, then a Start or Stop for each optional service.
