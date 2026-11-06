@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import signal
+import socket
 import ssl
 from pathlib import Path
 from types import SimpleNamespace
@@ -42,7 +43,7 @@ def test_serve_passes_its_flags_to_the_server():
         )
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with(
-        "0.0.0.0", 9000, DEFAULT_LOG_LEVEL, ssl_context=None, web_root=None
+        [("0.0.0.0", None)], 9000, DEFAULT_LOG_LEVEL, web_root=None
     )
 
 
@@ -52,7 +53,7 @@ def test_serve_defaults_to_localhost_and_the_default_port():
     assert result.exit_code == 0, result.output
     # The suite's venv is a worktree's, not an installed release: no UI.
     run_server.assert_called_once_with(
-        DEFAULT_HOST, DEFAULT_PORT, DEFAULT_LOG_LEVEL, ssl_context=None, web_root=None
+        [(DEFAULT_HOST, None)], DEFAULT_PORT, DEFAULT_LOG_LEVEL, web_root=None
     )
 
 
@@ -65,16 +66,98 @@ def test_serve_passes_a_web_root(tmp_path):
     assert run_server.call_args.kwargs["web_root"] == tmp_path
 
 
-def test_serve_reads_its_certificate_from_the_worktree_env(self_signed_cert):
+def serve_public(args: list[str], resolved, env=None):
+    """``serve`` with the public host name resolving to ``resolved``.
+
+    ``resolved`` is a list of addresses, or the error the lookup raises.
+    """
+
+    def resolve(name: str) -> list[str]:
+        if isinstance(resolved, Exception):
+            raise resolved
+        return resolved
+
+    with (
+        patch("mael_orchestrator.cli.run_server") as run_server,
+        patch("mael_orchestrator.cli.resolve_ipv4", resolve),
+    ):
+        result = CliRunner().invoke(cli, ["serve", *args], env=env)
+    return result, run_server
+
+
+def test_serve_speaks_tls_on_the_public_host_and_http_on_loopback(self_signed_cert):
     """``.env`` names the dev certificate, so the service command needs no
-    flags and no shell test for HTTPS."""
+    TLS flags and no shell test for HTTPS."""
     cert, key = self_signed_cert
     env = {"DEV_TLS_CERT": str(cert), "DEV_TLS_KEY": str(key)}
-    with patch("mael_orchestrator.cli.run_server") as run_server:
-        result = CliRunner().invoke(cli, ["serve", "--port", "9000"], env=env)
+
+    result, run_server = serve_public(
+        ["--host", "127.0.0.1", "--public-host", "box.ts.net", "--port", "9000"],
+        ["100.64.1.2", "127.0.0.1", "100.64.1.2"],
+        env=env,
+    )
+
     assert result.exit_code == 0, result.output
-    assert "Serving on https://127.0.0.1:9000" in result.output
-    assert isinstance(run_server.call_args.kwargs["ssl_context"], ssl.SSLContext)
+    (loopback, public), port = run_server.call_args.args[:2]
+    assert loopback == ("127.0.0.1", None)
+    assert public[0] == "100.64.1.2"
+    assert isinstance(public[1], ssl.SSLContext)
+    assert port == 9000
+    assert "Serving on http://127.0.0.1:9000" in result.output
+    assert "Serving on https://box.ts.net:9000 (100.64.1.2)" in result.output
+
+
+def test_serve_adds_no_listener_for_a_loopback_public_host():
+    """A dev env with no ``dev_host:`` passes ``--public-host localhost``."""
+    result, run_server = serve_public(["--public-host", "localhost"], ["127.0.0.1"])
+
+    assert result.exit_code == 0, result.output
+    assert run_server.call_args.args[0] == [(DEFAULT_HOST, None)]
+
+
+def test_serve_refuses_a_certificate_with_no_public_listener(self_signed_cert):
+    cert, key = self_signed_cert
+    env = {"DEV_TLS_CERT": str(cert), "DEV_TLS_KEY": str(key)}
+
+    result, run_server = serve_public(
+        ["--public-host", "localhost"], ["127.0.0.1"], env
+    )
+
+    assert result.exit_code == 2
+    assert "--public-host" in result.output
+    run_server.assert_not_called()
+
+
+def test_serve_with_no_public_host_ignores_the_env_certificate(self_signed_cert):
+    """A shell with a ``dev_https:`` worktree's ``.env`` sourced still serves."""
+    cert, key = self_signed_cert
+    env = {"DEV_TLS_CERT": str(cert), "DEV_TLS_KEY": str(key)}
+
+    result, run_server = serve_public(["--port", "9000"], [], env)
+
+    assert result.exit_code == 0, result.output
+    assert run_server.call_args.args[0] == [(DEFAULT_HOST, None)]
+
+
+def test_serve_refuses_a_public_host_beside_a_wildcard_host():
+    result, run_server = serve_public(
+        ["--host", "0.0.0.0", "--public-host", "box.ts.net"], ["100.64.1.2"]
+    )
+
+    assert result.exit_code == 2
+    assert "--public-host" in result.output
+    run_server.assert_not_called()
+
+
+def test_serve_stops_when_the_public_host_does_not_resolve():
+    """A supervisor restarts the unit, so it tries again once the tailnet is up."""
+    result, run_server = serve_public(
+        ["--public-host", "box.ts.net"], socket.gaierror(8, "nodename not known")
+    )
+
+    assert result.exit_code == 1
+    assert "box.ts.net" in result.output
+    run_server.assert_not_called()
 
 
 def test_serve_refuses_a_certificate_without_its_key(tmp_path):
@@ -399,7 +482,7 @@ def test_serve_sets_up_logging_with_timestamps_before_it_serves():
         patch("mael_orchestrator.cli.serve_app"),
         patch("mael_orchestrator.cli.build_orchestrator"),
     ):
-        run_server(DEFAULT_HOST, DEFAULT_PORT, log_level="INFO")
+        run_server([(DEFAULT_HOST, None)], DEFAULT_PORT, log_level="INFO")
     root = logging.getLogger()
     assert root.level == logging.INFO
     assert root.handlers, "no handler was installed"
@@ -427,7 +510,7 @@ def test_an_exception_that_escapes_a_task_is_logged(capsys):
         patch("mael_orchestrator.cli.build_app"),
         patch("mael_orchestrator.cli.serve_app", new=scenario),
     ):
-        run_server(DEFAULT_HOST, DEFAULT_PORT)
+        run_server([(DEFAULT_HOST, None)], DEFAULT_PORT)
 
     assert captured["handler"] is not None, "no loop exception handler was installed"
 
@@ -468,7 +551,7 @@ def test_a_sigterm_shuts_the_server_down_cleanly():
         patch("mael_orchestrator.cli.build_app"),
         patch("mael_orchestrator.cli.serve_app", new=scenario),
     ):
-        run_server(DEFAULT_HOST, DEFAULT_PORT)
+        run_server([(DEFAULT_HOST, None)], DEFAULT_PORT)
 
     assert stopped == ["cancelled"]
 
@@ -487,7 +570,7 @@ def test_an_unmigrated_state_database_refuses_to_serve(tmp_path, monkeypatch):
         patch("mael_orchestrator.cli.serve_app"),
         pytest.raises(SchemaTooOldError) as exc,
     ):
-        run_server(DEFAULT_HOST, DEFAULT_PORT)
+        run_server([(DEFAULT_HOST, None)], DEFAULT_PORT)
     assert "bin/install" in str(exc.value)
 
 
@@ -529,5 +612,5 @@ def test_a_maelstrom_dir_that_does_not_exist_is_created(tmp_path, monkeypatch):
         patch("mael_orchestrator.cli.serve_app"),
         pytest.raises(SchemaTooOldError),
     ):
-        run_server(DEFAULT_HOST, DEFAULT_PORT)
+        run_server([(DEFAULT_HOST, None)], DEFAULT_PORT)
     assert home.is_dir()

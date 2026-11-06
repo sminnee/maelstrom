@@ -14,7 +14,7 @@ import mimetypes
 import socket
 import ssl
 import subprocess
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -50,6 +50,9 @@ PING_SECS = 15.0
 SHUTDOWN_SECS = 1.0
 #: How often a transcript socket pings, so a proxy keeps it open.
 HEARTBEAT_SECS = 20.0
+
+#: One address the server listens on, and the TLS it speaks there, if any.
+Bind = tuple[str, ssl.SSLContext | None]
 
 #: Close codes a transcript or live feedback socket uses; the client reads them.
 CLOSE_UNKNOWN_ID = 4404
@@ -1609,21 +1612,16 @@ def _int_or_none(raw: str | None) -> int | None:
 
 @asynccontextmanager
 async def serving(
-    app: web.Application,
-    host: str,
-    port: int,
-    *,
-    ssl_context: ssl.SSLContext | None = None,
+    app: web.Application, binds: Sequence[Bind], port: int
 ) -> AsyncIterator[int]:
-    """Serve ``app`` for the length of the block, yielding the bound port.
+    """Serve ``app`` on each bind, on one port, for the length of the block.
 
-    ``port`` 0 picks a free one. An ``ssl_context`` serves HTTPS on it. The
-    socket binds before the orchestrator starts, so a port in use fails at once
-    rather than after the first source reads. A client that connects before
-    those reads finish waits for them.
+    Yields the bound port. ``port`` 0 picks a free one on the first bind, and
+    the others take the same. A bind with an SSL context serves HTTPS. The
+    sockets bind before the orchestrator starts, so a port in use fails at
+    once rather than after the first source reads. A client that connects
+    before those reads finish waits for them.
     """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     # A client that goes away cancels its handler, so a notice stream ends
     # with its reader rather than at the next ping.
     # ``access_log=None`` because the notice stream pings every client every
@@ -1634,27 +1632,29 @@ async def serving(
         shutdown_timeout=SHUTDOWN_SECS,
         access_log=None,
     )
-    started = False
+    # Until a site owns a socket, nothing else closes it on a failure.
+    unowned: list[socket.socket] = []
     try:
-        sock.bind((host, port))
+        socks = []
+        for address, _ in binds:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            unowned.append(sock)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((address, port))
+            port = sock.getsockname()[1]
+            socks.append(sock)
         await runner.setup()
-        await web.SockSite(runner, sock, ssl_context=ssl_context).start()
-        started = True
-        yield sock.getsockname()[1]
+        for sock, (_, ssl_context) in zip(socks, binds, strict=True):
+            await web.SockSite(runner, sock, ssl_context=ssl_context).start()
+            unowned.remove(sock)
+        yield port
     finally:
-        # Until the site owns the socket, nothing else closes it on a failure.
-        if not started:
+        for sock in unowned:
             sock.close()
         await runner.cleanup()
 
 
-async def serve_app(
-    app: web.Application,
-    host: str,
-    port: int,
-    *,
-    ssl_context: ssl.SSLContext | None = None,
-) -> None:
+async def serve_app(app: web.Application, binds: Sequence[Bind], port: int) -> None:
     """Serve until cancelled."""
-    async with serving(app, host, port, ssl_context=ssl_context):
+    async with serving(app, binds, port):
         await asyncio.Event().wait()

@@ -60,7 +60,7 @@ def start_server(table, home) -> Iterator:
         stop = asyncio.Event()
 
         async def serve() -> None:
-            async with serving(build_app(orch), "127.0.0.1", 0) as port:
+            async with serving(build_app(orch), [("127.0.0.1", None)], 0) as port:
                 holder["port"] = port
                 ready.set()
                 await stop.wait()

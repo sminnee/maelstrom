@@ -8,14 +8,16 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 
 import asyncio
 import functools
+import ipaddress
 import logging
 import os
 import signal
+import socket
 import ssl
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import Executor, ThreadPoolExecutor
 from contextlib import suppress
 from pathlib import Path
@@ -70,7 +72,7 @@ from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
 from .gate_source import watch_gates
 from .language_servers import LanguageServers
-from .routes import build_app, serve_app
+from .routes import Bind, build_app, serve_app
 from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
     CloseBlocked,
@@ -79,6 +81,8 @@ from .sources import (
 )
 
 DEFAULT_HOST = "127.0.0.1"
+# Bind addresses that take every interface, so no other listener fits beside.
+WILDCARD_HOSTS = ("0.0.0.0", "::", "")
 DEFAULT_PORT = 8765
 
 log = logging.getLogger(__name__)
@@ -462,17 +466,16 @@ def _log_unhandled(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
 
 
 def run_server(
-    host: str,
+    binds: Sequence[Bind],
     port: int,
     log_level: str = DEFAULT_LOG_LEVEL,
     *,
-    ssl_context: ssl.SSLContext | None = None,
     web_root: Path | None = None,
 ) -> None:
-    """Build the orchestrator and serve it until interrupted.
+    """Build the orchestrator and serve it on each bind until interrupted.
 
-    An ``ssl_context`` serves HTTPS, for a page that is a secure context.
-    A ``web_root`` serves the built UI beside the API.
+    A bind with an SSL context serves HTTPS, for a page that is a secure
+    context. A ``web_root`` serves the built UI beside the API.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
@@ -488,12 +491,7 @@ def run_server(
         # binds to and every later call has to come from the same one.
         await db.check()
         serving = asyncio.ensure_future(
-            serve_app(
-                build_app(orchestrator, web_root=web_root),
-                host,
-                port,
-                ssl_context=ssl_context,
-            )
+            serve_app(build_app(orchestrator, web_root=web_root), binds, port)
         )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
@@ -537,13 +535,48 @@ def run_server(
         db.close()
 
 
+def resolve_ipv4(name: str) -> list[str]:
+    """The IPv4 addresses ``name`` resolves to. Raises ``OSError`` when none."""
+    infos = socket.getaddrinfo(name, None, socket.AF_INET, socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
+
+
+def public_addresses(name: str, resolve: Callable[[str], list[str]]) -> list[str]:
+    """The addresses a ``--public-host`` listener binds: ``name``'s, less loopback.
+
+    Not ``0.0.0.0``: a wildcard takes loopback too, where the plain listener
+    is, and it would serve on any network the machine joins.
+    """
+    found = (a for a in resolve(name) if not ipaddress.ip_address(a).is_loopback)
+    return list(dict.fromkeys(found))
+
+
+def _tls_given_as_option() -> bool:
+    """Whether a TLS option came from the command line, not the environment."""
+    ctx = click.get_current_context()
+    return any(
+        ctx.get_parameter_source(name) == click.core.ParameterSource.COMMANDLINE
+        for name in ("tls_cert", "tls_key")
+    )
+
+
 @click.group("mael-orchestrator")
 def cli() -> None:
     """Serve the world to the orchestrator UI."""
 
 
 @cli.command("serve")
-@click.option("--host", default=DEFAULT_HOST, show_default=True, help="Bind address.")
+@click.option(
+    "--host",
+    default=DEFAULT_HOST,
+    show_default=True,
+    help="Bind address. It serves plain HTTP.",
+)
+@click.option(
+    "--public-host",
+    help="A host name to listen on as well, on each IPv4 address it resolves "
+    "to. Loopback addresses are skipped. This listener alone serves TLS.",
+)
 @click.option(
     "--port", default=DEFAULT_PORT, show_default=True, type=int, help="Bind port."
 )
@@ -575,6 +608,7 @@ def cli() -> None:
 )
 def cmd_serve(
     host: str,
+    public_host: str | None,
     port: int,
     log_level: str,
     tls_cert: str | None,
@@ -585,20 +619,45 @@ def cmd_serve(
 
     The agent host is the daemon ``MAEL_AGENT_ROOT`` names, so a worktree's
     orchestrator talks to that worktree's daemon. The TLS options default to
-    the dev certificate a worktree ``.env`` names under ``dev_https:``.
+    the dev certificate a worktree ``.env`` names under ``dev_https:``, and
+    apply to the ``--public-host`` listener only.
     """
     if web_root is None:
         web_root = installed_web_root(sys.prefix)
+    if public_host and host in WILDCARD_HOSTS:
+        raise click.UsageError(
+            f"--host {host} takes every address, so --public-host cannot bind."
+        )
+    if not public_host and not _tls_given_as_option():
+        # A worktree .env names the certificate under dev_https:, and a serve
+        # with no public listener has no use for it.
+        tls_cert = tls_key = None
     ssl_context = None
     if tls_cert or tls_key:
         if not (tls_cert and tls_key):
             raise click.UsageError("--tls-cert and --tls-key go together.")
         ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         ssl_context.load_cert_chain(tls_cert, tls_key)
+    public: list[str] = []
+    if public_host:
+        try:
+            public = public_addresses(public_host, resolve_ipv4)
+        except OSError as exc:
+            # A supervisor restarts the unit, so a server that starts before
+            # the tailnet is up tries again.
+            click.echo(f"Error: --public-host {public_host}: {exc}", err=True)
+            sys.exit(1)
+    if ssl_context and not public:
+        raise click.UsageError(
+            "--tls-cert and --tls-key need a --public-host that is not loopback."
+        )
+    binds: list[Bind] = [(host, None), *((a, ssl_context) for a in public)]
+    click.echo(f"Serving on http://{host}:{port}", err=True)
     scheme = "https" if ssl_context else "http"
-    click.echo(f"Serving on {scheme}://{host}:{port}", err=True)
+    for address in public:
+        click.echo(f"Serving on {scheme}://{public_host}:{port} ({address})", err=True)
     try:
-        run_server(host, port, log_level, ssl_context=ssl_context, web_root=web_root)
+        run_server(binds, port, log_level, web_root=web_root)
     except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
         # bury it.
