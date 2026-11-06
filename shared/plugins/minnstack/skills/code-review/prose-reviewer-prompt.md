@@ -13,9 +13,9 @@ You are reviewing the **prose** of a whole branch: comments, docstrings, `docs/`
 
 Always:
 
-- `~/.claude/skills/writing-for-humans/SKILL.md` — the standard for docs, READMEs, ADRs,
+- `writing-for-humans/SKILL.md` in the skills directory the parent names — the standard for docs, READMEs, ADRs,
   docstrings and comments. Load it first. It is the yardstick for most of what you review.
-- `~/.claude/skills/writing-for-agents/SKILL.md` — the standard for skills, `AGENTS.md` and
+- `writing-for-agents/SKILL.md` in that directory — the standard for skills, `AGENTS.md` and
   `CLAUDE.md`. Load it when the branch touches any of those. Its rules differ from the human
   ones: it optimises for an agent taking the same process every run, so it weighs context load,
   single source of truth, and pruning harder than readability.
@@ -42,7 +42,7 @@ Review every prose change in it:
 
 - comments and docstrings in source files;
 - `docs/`, README, `CONTEXT.md`, `CHANGELOG.md`, and any other Markdown;
-- skills under `.claude/skills/` or `shared/skills/`;
+- skills under `.claude/skills/` or `shared/plugins/*/skills/`;
 - `.drafts/pr.md` — see **The whole story** below.
 
 You have **free read-only access to the whole repo**. You need it: the duplication sweep reads
