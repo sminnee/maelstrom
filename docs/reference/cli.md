@@ -1305,9 +1305,11 @@ With no monitors configured, these commands fall back to every monitor on the ac
 
 `install.sh` installs or upgrades the release bundle in `~/.maelstrom/install/`, then runs the new
 release's `mael self setup`. It installs uv first when uv is missing. Before it downloads or
-builds, it asks where the projects live when `projects_dir:` is unset, and writes the key. On a
-first install, it runs `mael self check-host` before setup. With `--source`, it runs
-`check-host --dev` from the checkout before the build, because the build needs Node and pnpm. See [host services](../dev/host-services.md#the-installer).
+builds, it asks where the projects live when `projects_dir:` is unset, and writes the key. On
+each install, it runs `mael self check-host --quiet` before setup. With `--source`, it runs
+`check-host --dev --quiet` from the checkout before the build, because the build needs Node and
+pnpm. It installs tangier with `uv tool install tangier` when it is missing, and stops when
+`node` or `pnpm` is still not on PATH. See [host services](../dev/host-services.md#the-installer).
 
 ```bash
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
@@ -1468,7 +1470,7 @@ mode. It looks up tools on the host services' PATH.
 | `--detach` | Run the update in an **Update job** of the OS supervisor, and return at once. The job outlives the restart of the host services. It prints the log path. Refused while another update job runs. |
 
 The `stable` channel downloads that release's `install.sh` and runs it. The `main` channel runs
-`_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install`, builds a
+`_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install --no-migrate`, builds a
 bundle tagged `main-<commit>` and installs it. A tag that runs already is not built again. `install-main.sh` makes `_main` (see
 [above](#install-from-main-install-mainsh)). Either way the installer then runs the new release's
 `mael self setup`.

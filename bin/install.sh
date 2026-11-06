@@ -239,6 +239,19 @@ ensure_uv() {
   command -v uv >/dev/null || die "$hint"
 }
 
+# ensure_tangier: install tangier when it is not on PATH. A source build hashes
+# the components with it. uv is on PATH by now.
+ensure_tangier() {
+  command -v tangier >/dev/null && return 0
+  hint="Install tangier with \`uv tool install tangier\`, put its folder on PATH, then run this again."
+  say "tangier is not on PATH. Installing it..."
+  uv tool install tangier || die "$hint"
+  # Where uv puts a tool's executable.
+  PATH="${UV_TOOL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH"
+  export PATH
+  command -v tangier >/dev/null || die "$hint"
+}
+
 # has_tty: whether a user can answer a question. Under `curl | sh`, stdin is
 # the script, so the questions read /dev/tty.
 has_tty() { (exec </dev/tty) 2>/dev/null; }
@@ -380,9 +393,15 @@ main() {
         env -u MAEL_NOTEBOOK_ROOT MAEL_PRODUCTION=1 uv "$@" || true
       fi
     fi
+    # check-host can decline or fail, so stop here and not after uv sync.
+    ensure_tangier
+    for tool in node pnpm; do
+      command -v "$tool" >/dev/null ||
+        die "$tool is not on PATH. A source install builds the web app with node and pnpm. Run \`MAEL_PRODUCTION=1 uv run --project $source mael self check-host --dev\` to install them, then run this again."
+    done
     say "Installing dependencies in $source..."
-    # The release's own setup migrates the notebook, so this migrates nothing.
-    (cd "$source" && env -u MAEL_NOTEBOOK_ROOT bin/install)
+    # Only the release's own setup migrates the state database.
+    (cd "$source" && env -u MAEL_NOTEBOOK_ROOT bin/install --no-migrate)
     commit="$(git -C "$source" rev-parse HEAD)"
     tag="main-$(printf '%s' "$commit" | cut -c1-12)"
   fi

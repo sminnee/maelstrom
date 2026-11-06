@@ -86,8 +86,9 @@ curl -LsSf https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-
 
 The script asks where your projects live, and clones maelstrom into `<projects_dir>/maelstrom/`,
 with `main` checked out in `_main`. It writes `update_channel: main`. Then it runs `_main`'s own
-`bin/install.sh --source`. A source install needs Node and pnpm, so on a first install that
-script runs `check-host --dev` before the build.
+`bin/install.sh --source`. A source install needs Node, pnpm and tangier, so that script runs
+`check-host --dev --quiet` before the build. It installs tangier itself, and stops when Node or
+pnpm is still missing.
 
 Run the same line again, or run `mael self update`, to pull `_main` and install it again. The
 script does not make `maelstrom-alpha` or `_main`'s `.env`: `mael worktree new` and
