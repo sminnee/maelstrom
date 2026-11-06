@@ -110,18 +110,21 @@ def current_manifest(root: Path) -> Manifest | None:
     return Manifest.read(path) if path.is_file() else None
 
 
-def installed_web_root(prefix: str) -> Path | None:
-    """The ``web`` component of the release whose venv is ``prefix``.
+def running_manifest(prefix: str) -> Manifest | None:
+    """The manifest of the release whose venv is ``prefix``.
 
     ``prefix`` is ``sys.prefix``. ``None`` outside an installed release, such
     as a worktree's ``.venv``.
     """
-    venv = Path(prefix).resolve()
-    path = venv.parent / MANIFEST
-    if not path.is_file():
-        return None
-    version = Manifest.read(path).versions.get("web")
+    path = Path(prefix).resolve().parent / MANIFEST
+    return Manifest.read(path) if path.is_file() else None
+
+
+def installed_web_root(prefix: str) -> Path | None:
+    """The ``web`` component of the release whose venv is ``prefix``, or ``None``."""
+    manifest = running_manifest(prefix)
+    version = None if manifest is None else manifest.versions.get("web")
     if version is None:
         return None
-    web = venv.parents[2] / "components" / "web" / version
+    web = Path(prefix).resolve().parents[2] / "components" / "web" / version
     return web if (web / "index.html").is_file() else None

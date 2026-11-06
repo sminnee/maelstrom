@@ -1468,6 +1468,7 @@ without waiting for the poll.
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty on a server with no tangier |
+| `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skills` names each entry of `skillsDir` that links into a `shared/skills` directory. Read on each request |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |

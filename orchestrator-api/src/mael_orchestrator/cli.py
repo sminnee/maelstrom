@@ -44,6 +44,7 @@ from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
+from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import SqliteTaskAttachmentTable
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import SqliteTaskTable
@@ -375,6 +376,7 @@ def build_orchestrator(
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,
         language_servers=LanguageServers(LANGUAGE_SERVERS),
+        system=SystemPaths.for_home(Path.home(), projects_dir, sys.prefix),
     )
 
 
