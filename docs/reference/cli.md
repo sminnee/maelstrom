@@ -658,15 +658,15 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 
 ## Wiki
 
-The cross-project development-pattern wiki. Pages live beside the task notebook in
-`~/.maelstrom/state/tasks`, so every change is committed. See
+The cross-project development-pattern wiki. Each page is one row in the state database,
+`~/.maelstrom/state/state.db`. See
 [concepts.md](../guide/concepts.md).
 
 | Command | Description |
 |---|---|
 | `mael wiki list` | Print every page with its one-line description. |
 | `mael wiki read PAGE` | Print the raw page content. |
-| `mael wiki update PAGE` | Create or replace a page, and commit it. |
+| `mael wiki update PAGE` | Create or replace a page. |
 
 ```bash
 mael wiki list                                        # every page, with descriptions
@@ -1337,7 +1337,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
 | `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
-| `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the markdown export queue. |
+| `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), and the `mael` shim. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
 | `mael self restart [orchestrator\|agent-daemon]...` | Restart host services through the supervisor. Default: both. A restart of the agent daemon stops its agents; they resume after it. |
 
@@ -1348,7 +1348,7 @@ mael self update                     # install the latest release on the stored 
 mael self update --channel main      # build and install _main
 mael self update --tag v0.2.0rc1     # install one GitHub Release
 mael self restart agent-daemon       # the production daemon picks up new code
-mael self setup --rebuild-export     # repair the host, and re-export every task
+mael self setup                      # repair the host
 ```
 
 **`mael self setup`**
@@ -1357,7 +1357,6 @@ mael self setup --rebuild-export     # repair the host, and re-export every task
 |---|---|
 | `--changed TEXT` | The components that changed, comma-separated. Their host services restart. Default: none, so nothing restarts. |
 | `--source DIRECTORY` | The checkout the release was built from. Links its jig plugin (see [the jig](../guide/jig.md#use-a-local-copy-of-the-plugin)). |
-| `--rebuild-export` | Queue every task for the markdown export, whatever the queue holds. For a file that went missing without its row changing, which no ordinary write re-queues. |
 
 Setup asks for `projects_dir:` when it is unset and a terminal can answer. Without a terminal,
 it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,

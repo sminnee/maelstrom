@@ -34,10 +34,18 @@ release while that section is empty, and retitles it to the version it is releas
 - **`mael doctor` is now `mael project check`**, and checks only the project.
 - **Production reads one config file, `~/.maelstrom/config.yaml`.** Setup moves
   `orchestrator_url:` and `service_path:` up from `~/.maelstrom/state/config.yaml`.
+- **The wiki and the media move into the notebook root.** Each wiki page is a row in `state.db`,
+  and `mael wiki update` no longer commits. The media files are in
+  `~/.maelstrom/state/attachments/`. `mael self setup` moves both out of the old
+  `~/.maelstrom/state/tasks` git repo once.
 
 ### Removed
 
 - **`~/.maelstrom.yaml` is no longer read.** Move its contents into `~/.maelstrom/config.yaml`.
+- **The markdown task export.** Maelstrom no longer writes tasks to `~/.maelstrom/state/tasks`.
+  `mael self setup --rebuild-export` is removed, and `mael self status` no longer reports the
+  export queue. See the troubleshooting guide before you delete that directory.
+- **`_wiki` is no longer a reserved project name.**
 
 ## [0.2.0] - 2026-11-06
 

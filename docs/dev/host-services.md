@@ -55,7 +55,7 @@ line, and one `[components.<name>]` table per component. `bin/build-bundle` writ
 
 With `--source DIR`, the script runs `git pull --ff-only` in `DIR`. Then it runs the checkout's
 own `install.sh`, because the pull can change it. It runs `bin/install` with
-`MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production notebook. Then
+`MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production state database. Then
 `bin/build-bundle` makes a bundle tagged `main-<sha12>`. A tag that runs now is not built again.
 
 ## Setup
@@ -69,7 +69,7 @@ fails the setup.
 |---|---|
 | Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. Asks only when the key is unset and stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
-| Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset |
+| Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
 | Integrate | The Claude skills and hooks, then `harden_global_config` |
 | Shim | Writes `~/.local/bin/mael` |
 | Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |

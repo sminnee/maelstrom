@@ -97,8 +97,7 @@ close touches one checkout. `git_remove` takes both, because `remove_worktree_by
 nothing of its own.
 
 The locks are `flock`, not `asyncio.Lock`. The orchestrator server is not the only writer: a user
-running `mael sync` in a terminal is a peer, and so is another worktree's tooling. `task_store.py`
-and `agent_server.py` lock the same way. The lock file lives under the project's shared
+running `mael sync` in a terminal is a peer, and so is another worktree's tooling. The lock file lives under the project's shared
 `.git/mael-locks/`, which every worktree of the project reaches.
 
 A project with no `.git` locks nothing. The lock protects real git work from real git work, and a

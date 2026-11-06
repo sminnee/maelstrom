@@ -723,8 +723,8 @@ A document that fails to attach is logged, and the stream continues. The documen
 `GET /api/attachments/{project}/{bucket}/{name}` returns a `web.FileResponse`, which answers a
 range request with `206`, so a browser can seek a video.
 
-A bucket file is swept into the next notebook commit. The 50 MB cap limits one file and not the
-total, and a superseded version's media stay in the bucket. Video grows the notebook's git tree.
+The 50 MB cap limits one file and not the total, and a superseded version's media stay in the
+bucket, so video grows the **Attachments directory**.
 
 ## Keeping the world fresh
 
@@ -736,7 +736,7 @@ snapshot and its first live one.
 
 | Source | How | Interval |
 |---|---|---|
-| Tasks | Poll the notebook's git HEAD. On change, read every project's tasks and diff | 2 s |
+| Tasks | Poll the task table's revision. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching or an agent waits on PR news | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
 | Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached. Each done tracked task is then read again, and the ones whose landing moved are pushed | with the worktree read |
@@ -1760,7 +1760,7 @@ A stored ref is not fetchable, so the server rewrites it before a browser sees i
 
 - The token, which names the project the caller passes. Task content and a message typed in
   the UI hold this form.
-- The absolute path under `tasks_root()`, which names its project itself. A task's first prompt
+- The absolute path under `attachments_root()`, which names its project itself. A task's first prompt
   holds this form, because `build_prompt` expanded the token.
 
 Two readers use it:

@@ -18,10 +18,7 @@ template       a reusable recipe; never actionable itself
 
 Changing a task's status changes one field. The id is stable across the change.
 
-Maelstrom also writes every task out as a markdown file at
-`~/.maelstrom/state/tasks/<project>/<status>/<id>.md`, and commits it. Read those files, or search
-them with `grep`; maelstrom never reads them back, so an edit there changes nothing. Use
-`mael task edit` to change a task.
+Use `mael task read` to read a task and `mael task edit` to change one.
 
 ```bash
 mael task add "Add a hello endpoint"

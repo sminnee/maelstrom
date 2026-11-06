@@ -13,9 +13,7 @@ frontmatter fields (`id`, `title`, `parent`, `follows`, `branch`, …) and its p
 in the same row, so a write is one transaction over the whole task.
 
 **Status is a column**: `todo`, `in-progress`, `done`, `template`, and the rest.
-Changing one updates a column; the id is stable across the change. The markdown
-export lays each task out at `<project>/<status>/<id>.md`, which is where the
-folder-per-status layout survives — as a rendering, not as the authority.
+Changing one updates a column; the id is stable across the change.
 
 ## `parent` groups a linear chain = one PR
 

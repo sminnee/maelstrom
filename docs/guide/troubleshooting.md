@@ -151,8 +151,13 @@ removes the fallback, so it can legitimately return nothing.
 ### Task listings look wrong after a manual edit
 
 A task is a row in the state database, so a listing shows what was last written through
-`mael task`. Editing the markdown export at `~/.maelstrom/state/tasks` changes nothing a listing
-reads — that tree is for audit and backup. Use `mael task update` or `mael task edit`.
+`mael task`. Use `mael task update` or `mael task edit`.
+
+An older install kept a markdown copy of each task in a git repo at `~/.maelstrom/state/tasks`.
+Nothing reads or writes it now. `mael self setup` moves the wiki and the media out of it once. It
+leaves a media bucket in place when the target already exists, and skips a wiki file whose path is
+not a legal page id or is not UTF-8. Check that no `<project>/images/` or `_wiki/` file is left,
+then delete the directory.
 
 ---
 
