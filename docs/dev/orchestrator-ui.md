@@ -320,8 +320,16 @@ reopens the dialog.
 
 `welcome/WelcomeDialog.tsx` reads `GET /api/system` and `GET /api/host`. It shows the projects
 directory, the core plugin's skills, whether `minnstack` is installed, the config directory, the
-version and whether the agent host answers. A run with no release manifest reads "development build". Its
-one action opens Add project in its place.
+version, the last **Update job** and whether the agent host answers. A run with no release
+manifest reads "development build". Its main action opens Add project in its place.
+
+`welcome/UpdateRow.tsx` starts an **Update job** after a confirm that counts the live top-level
+agents. `useSystem` then reads `/api/system` every `UPDATE_POLL_MS`: from the click until the job's
+record replaces the old one, and while the record says `running`. The orchestrator restarts in
+the job, so a failed read keeps the last good body. A job that writes no record in `JOB_START_MS`
+reads "did not start". After a job this page started installs a new tag, the row offers Reload,
+because the page still runs the old bundle. A development build (`canUpdate` false) disables
+the button.
 
 It opens itself when the world is ready and holds no project. A close sets `welcomeDismissed` in
 the store, which a reload clears, so it does not open again in that page load. The logo in the

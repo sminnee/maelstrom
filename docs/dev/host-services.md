@@ -32,7 +32,8 @@ sh install.sh --source DIR ─┘                                               
 5. It runs `current/venv/bin/mael self setup --changed <components>`.
 6. Setup brings the host to the state the release wants.
 
-`mael self update` runs `install.sh` for the stored channel. See
+`mael self update` runs `install.sh` for the stored channel. `--detach` runs it in the
+[update job](#the-update-job). See
 [the CLI reference](../reference/cli.md#host-control-mael-self).
 
 ## The installer
@@ -267,6 +268,57 @@ A component's SHA bucket holds its `depends`. A change in `common`, `agent`, `do
 `python-deps` therefore moves `orchestrator` or `agent-daemon` too. On a first install every
 component has changed, so both host services start.
 
+## The update job
+
+`mael self setup` restarts the host services. An update started by one of them, or by an agent of
+the production daemon, would stop with that restart. The **Update job** runs the update apart
+from the host services, as a one-shot unit of the OS supervisor:
+
+| | launchd | systemd |
+|---|---|---|
+| Unit | `nz.tangerinelabs.maelstrom.update`, from `~/.maelstrom/install/update.plist` | transient `maelstrom-update.service` |
+| Start | refused while the job has a pid; else `bootout`, then `bootstrap` of the plist | `systemd-run --user --collect`, which refuses the name while the unit runs |
+| Runs | once, at load: `RunAtLoad` and no `KeepAlive` | once; `--collect` unloads the unit when it ends, failed or not |
+| Early output | `StandardOutPath` is the log | `StandardOutput=append:` the log |
+
+- `launchctl kickstart -k` kills the job's process group, and `systemctl restart` kills the
+  unit's cgroup. A child with `start_new_session=True` escapes the group, not the cgroup. Only a
+  unit of its own survives both.
+- The plist is outside `~/Library/LaunchAgents`. launchd loads that directory at each login,
+  and `RunAtLoad` would run the update again.
+- The job runs `<resolved current>/venv/bin/mael self update --as-job`. The installer moves
+  `current` during the run. The old release stays on disk, so the job's own files do not change.
+- The job holds an flock on `~/.maelstrom/install/update.lock` for its whole run, and so does a
+  foreground `mael self update`. An update that finds the lock held stops and installs nothing.
+  A `bootout` would kill a running launchd job, so `Launchd.submit` refuses while the job has a
+  pid.
+
+`mael self update --detach` submits the job and returns. The Welcome dialog's **Update
+maelstrom** button calls `POST /api/self/update`, which runs that command from the server's own
+venv. The import fence keeps `mael_cli` out of the server, so the server runs the command and
+does not import it. The server refuses on a development build: a checkout, or a release run
+without `MAEL_PRODUCTION=1`. That job would update the production install, not the server.
+
+### The update record
+
+The record is a file, not an **Operation** (see CONTEXT.md, "Update job"). The job writes `~/.maelstrom/install/update.json` through a temp file and a rename
+(`lib/domain/src/mael_domain/release_bundle/update_job.py`):
+
+| Field | Value |
+|---|---|
+| `state` | `running`, `succeeded` or `failed` |
+| `pid` | the job's process |
+| `startedAt`, `finishedAt` | ISO times |
+| `fromTag`, `toTag` | the `current` release before and after |
+| `exitCode` | the installer's exit code |
+| `log` | `~/.maelstrom/logs/update.log`, emptied by each job once it holds the lock |
+
+A reader sees a `running` record whose lock is free as `interrupted`: a reboot or a kill stopped
+the job. The lock decides, not the pid, because a pid can be reused after a reboot. The installer
+moves `current` last, so an interrupted job leaves the old release in place. `--detach` refuses
+while the lock is held. `mael self status` and `GET /api/system`
+report the record.
+
 ## Moving to another host
 
 The production state is `~/.maelstrom/state/state.db` and `~/.maelstrom/state/attachments/`.
@@ -296,6 +348,7 @@ A later change can then carve `self` out into a binary of its own.
 | Suite | Seam |
 |---|---|
 | `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home; `Setup` with fakes |
+| `cli/tests/test_update_job.py` | The update job's unit, `Launchd.submit` and `Systemd.submit` with a recorded `run`, and `run_as_job` with a fake installer |
 | `cli/tests/test_state_archive.py` | Export and `Import` on real migrated SQLite files under `tmp_path`, with a fake supervisor |
 | `cli/tests/test_host_check.py` | `HostCheck` on a fake host, on both platforms |
 | `tests/test_install_main.py` | `install-main.sh` against a local repo with a stub `install.sh`; the layout passes `run_project_check`. `install.sh`'s projects-directory step, and the `check-host` order with `--source` |
@@ -312,5 +365,5 @@ home it is given.
   `_main`, start only the services you need, such as `mael env start web -w maelstrom._main`.
   Each setup stops `_main`'s env-managed orchestrator and daemon.
 - A host-service orchestrator does not renew the dev certificate. Only `mael env start` does.
-- An update run from an agent session of the production daemon stops that agent when the daemon
-  restarts. Run `mael self update` from a shell.
+- The **Update job** has a Linux test of its `systemd-run` argv only. Its survival of a host
+  service restart was checked on macOS alone.

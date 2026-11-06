@@ -54,7 +54,8 @@ the scheduler. See [host services](../dev/host-services.md). The last line names
 orchestrator. Put `~/.local/bin` on your PATH if it is not there already: `check-host` prints
 the line to add.
 
-Run the same line again to upgrade, or run `mael self update`. An upgrade does not run
+Run the same line again to upgrade, run `mael self update`, or press **Update maelstrom** in the
+Welcome dialog. An upgrade does not run
 `check-host`. The installer asks for `projects_dir:` only when the key is unset.
 
 ### On Ubuntu Server
