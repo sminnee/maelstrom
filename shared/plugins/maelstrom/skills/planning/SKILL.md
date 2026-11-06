@@ -23,7 +23,7 @@ Make the plan self-contained:
 - Copy each requirement, constraint, and pointer from the task content into the plan. Do not write "see the task".
 - Explain a project term the first time you use it, or link its `CONTEXT.md` entry. Write out the task's shorthand: ids, codenames, abbreviations.
 
-Keep it terse. Leave out the alternatives you rejected, unless a reviewer would ask about them. Follow `writing-for-humans` for sentence length and vocabulary.
+Keep it terse. Leave out the alternatives you rejected, unless a reviewer would ask about them. Follow `writing-for-humans`, if the skill is available, for sentence length and vocabulary.
 
 When the work is more than one session can do, name the extra tasks in the plan. [task-chains.md](task-chains.md) says how to splice them in after approval.
 
