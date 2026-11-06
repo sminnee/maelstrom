@@ -25,6 +25,7 @@ from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
+from mael_domain.system_info import system_reply
 from mael_domain.worktree_changes import (
     BadPath,
     FileTooLarge,
@@ -140,6 +141,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
     app.router.add_get("/api/host", _host)
+    app.router.add_get("/api/system", _system)
     app.router.add_get("/api/gate-jobs", _gate_jobs)
     app.router.add_get("/api/events", _events)
     app.router.add_get("/api/live-feedback", _live_feedback_socket)
@@ -680,6 +682,19 @@ async def _host(request: web.Request) -> web.Response:
     return web.json_response(
         {"host": orch.world["host"].get(HOST_ID), "loop": orch.loop_watch.reading()}
     )
+
+
+async def _system(request: web.Request) -> web.Response:
+    """The install's paths, linked skills and release, for the Welcome dialog.
+
+    Off the loop: it walks ``~/.claude/skills``.
+    """
+    orch = request.app[ORCH]
+    if orch.system is None:
+        return await _not_implemented(request)
+    paths = orch.system
+    reply = await asyncio.get_running_loop().run_in_executor(None, system_reply, paths)
+    return web.json_response(reply)
 
 
 async def _gate_jobs(request: web.Request) -> web.Response:

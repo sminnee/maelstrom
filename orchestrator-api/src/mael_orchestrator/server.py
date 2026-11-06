@@ -113,6 +113,7 @@ from mael_domain.protocol import (
     group_members,
 )
 from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
+from mael_domain.system_info import SystemPaths
 from mael_domain.task import (
     CODEX_PLAN_FILE,
     STATUS_DONE,
@@ -526,6 +527,7 @@ class Orchestrator:
         ws_queue_limit: int = WS_QUEUE_LIMIT,
         child_detach: float = CHILD_DETACH_SECS,
         language_servers: LanguageServers | None = None,
+        system: SystemPaths | None = None,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -591,6 +593,9 @@ class Orchestrator:
         self.language_servers = (
             language_servers if language_servers is not None else LanguageServers()
         )
+        #: The install's paths, for ``GET /api/system``. ``None`` answers
+        #: ``not_implemented``: a test that does not need the route skips it.
+        self.system = system
         #: The stops of a closed worktree's servers, kept so a stop can await them.
         self._server_stops: set[asyncio.Task[None]] = set()
         #: The operations — see ``CONTEXT.md``, "Operation". Loaded at start;

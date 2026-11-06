@@ -65,6 +65,7 @@ from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.worktree import WorktreeSetup
@@ -12310,3 +12311,32 @@ def test_a_server_that_cannot_add_projects_says_so(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "cannot add projects" in reply.body["error"]["message"]
+
+
+# --- system ------------------------------------------------------------------
+
+
+def test_the_system_route_names_the_installs_paths(harness_factory, tmp_path):
+    """A run from a checkout has no release manifest, so the version is null."""
+    shared = tmp_path / "shared" / "skills"
+    (shared / "mael").mkdir(parents=True)
+    claude = tmp_path / ".claude" / "skills"
+    claude.mkdir(parents=True)
+    (claude / "mael").symlink_to(shared / "mael")
+    system = SystemPaths.for_home(
+        tmp_path, tmp_path / "Projects", str(tmp_path / ".venv")
+    )
+    harness = harness_factory(system=system)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/system")
+
+    assert run(scenario()) == {
+        "version": None,
+        "home": str(tmp_path),
+        "configDir": str(tmp_path / ".maelstrom"),
+        "projectsDir": str(tmp_path / "Projects"),
+        "skillsDir": str(claude),
+        "skills": ["mael"],
+    }
