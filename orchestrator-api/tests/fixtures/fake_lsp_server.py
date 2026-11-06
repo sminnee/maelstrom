@@ -9,7 +9,10 @@ character, and sends a notification with one before each definition answer.
 
 ``<replies>`` is a JSON object: ``definition`` is the answer to every
 ``textDocument/definition``, with ``{root}`` replaced by the ``rootUri``.
-With ``crash_on: n``, the n-th definition request crashes the server, as the
+``references`` is the answer to every ``textDocument/references``, the same
+way, or a JSON-RPC error with ``references_error``. ``document_symbol`` maps a file name to its ``textDocument/documentSymbol``
+answer, ``[]`` by default; a file named in ``symbol_error`` gets a JSON-RPC
+error instead. With ``crash_on: n``, the n-th definition request crashes the server, as the
 method ``fake/crash`` does: it writes to stderr and exits. The method
 ``fake/garbage`` answers with a frame that holds no JSON object, and the
 server stays up.
@@ -107,6 +110,19 @@ while True:
         )
         answer = json.dumps(replies().get("definition")).replace("{root}", root)
         send({"id": message["id"], "result": json.loads(answer)})
+    elif method == "textDocument/references":
+        if replies().get("references_error"):
+            send({"id": message["id"], "error": {"code": -32603, "message": "no"}})
+            continue
+        answer = json.dumps(replies().get("references")).replace("{root}", root)
+        send({"id": message["id"], "result": json.loads(answer)})
+    elif method == "textDocument/documentSymbol":
+        name = message["params"]["textDocument"]["uri"].rsplit("/", 1)[-1]
+        if name in (replies().get("symbol_error") or []):
+            send({"id": message["id"], "error": {"code": -32603, "message": "no"}})
+        else:
+            symbols = (replies().get("document_symbol") or {}).get(name, [])
+            send({"id": message["id"], "result": symbols})
     elif method == "fake/crash":
         crash()
     elif method == "fake/garbage":

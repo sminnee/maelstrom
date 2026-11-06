@@ -8,7 +8,7 @@ world changes; the normaliser and ``agent_view`` reduce with it too.
 """
 
 from collections.abc import Iterable
-from typing import Any, Literal, TypedDict, cast
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 Phase = Literal["shaping", "planning", "executing", "finalising"]
 TaskStatus = Literal["todo", "in-progress", "blocked", "done", "cancelled", "template"]
@@ -256,27 +256,40 @@ class FileExcerpt(TypedDict):
     span: LineSpan
 
 
-class DefinitionTarget(TypedDict):
-    """One place a name is defined."""
+class CodeTarget(TypedDict):
+    """One place a name is defined or used."""
 
     #: Relative to the worktree; absolute for a file outside it, such as typeshed.
     path: str
+    #: The lines to pin: the **Fragment** that holds the name, else a window
+    #: around it. Outside the rev, the name's own lines.
     range: LineRange
     #: The rev holds ``path``. A file outside the worktree, or one the rev does
     #: not track, such as one in ``.venv``, is in no rev.
     inRev: bool
+    #: The 1-based line of the name. Absent: ``range.start``.
+    anchor: NotRequired[int]
+    #: The dotted name of the function, method or class that holds the name,
+    #: such as ``Order.total``. Absent at module level.
+    symbol: NotRequired[str]
 
 
-DefinitionReason = Literal["ok", "no_server", "no_definition"]
+DefinitionReason = Literal["ok", "no_server", "no_definition", "no_references"]
 
 
 class Definition(TypedDict):
-    """``GET /api/worktrees/{id}/definition``: where the name at a position is defined."""
+    """``GET /api/worktrees/{id}/definition``: where a name is defined, and its uses when the click is on the definition."""
 
     rev: str
-    targets: list[DefinitionTarget]
+    targets: list[CodeTarget]
+    #: Each use of the name in the rev, when the click is on its definition.
+    #: ``None`` when the click is on a use.
+    references: list[CodeTarget] | None
+    #: The references past the cap, which ``references`` leaves out.
+    moreReferences: NotRequired[int]
     #: ``no_server``: no **Language server** reads the file. ``no_definition``:
-    #: the server found none.
+    #: the server found none. ``no_references``: the click is on the
+    #: definition, and the rev holds no use of it.
     reason: DefinitionReason
 
 
