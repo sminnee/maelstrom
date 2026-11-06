@@ -41,6 +41,13 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The skills ship as two Claude Code plugins.** `maelstrom` holds the skills maelstrom needs,
+  and each session maelstrom launches loads it from the code that launched it. `minnstack`
+  holds the optional development practices, which you install with
+  `claude plugin install minnstack@maelstrom --scope user`. `mael self setup` removes the old
+  `~/.claude/skills` links, and installs `minnstack` on a host that had them. Codex gets both
+  plugins from the same marketplace. `mael self check-host` offers to install `minnstack`, and
+  the Welcome dialog says whether it is installed.
 - **`/review-project-hygiene` is now `/setup-project`.** It first makes the dev env start: it
   writes `services:` in `.maelstrom.yaml` and proves each service with `mael env start`. Then it
   audits the project against a shorter checklist. The task runs in normal mode, and the skill

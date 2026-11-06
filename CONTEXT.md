@@ -726,7 +726,7 @@ _Avoid_: Log panel, activity feed, drawer (alone), toast
 
 **Welcome dialog**:
 The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
-its version, and whether the agent host answers. It opens by itself on a world with no
+whether **minnstack** is installed, its version, and whether the agent host answers. It opens by itself on a world with no
 **Project**, once per page load, and the logo opens it at any time. Its action starts Add
 project.
 _Avoid_: Onboarding, splash, about box
@@ -1768,6 +1768,18 @@ installs or signs in only after a yes. The install runs it on a first install on
 `mael self setup`, which applies maelstrom's own install, nor `mael project check`,
 which checks one project.
 _Avoid_: doctor, host doctor
+
+**Core plugin**:
+The `maelstrom` plugin in `shared/plugins/`: the skills the orchestrator launches by name and the
+`mael` workflow needs. Each maelstrom launch loads the core plugin of the code that launches it,
+so it needs no global install.
+_Avoid_: core skills, maelstrom skills (for the plugin)
+
+**minnstack**:
+The optional plugin in `shared/plugins/` that holds the development practices, such as
+`design-build-test`, `code-review` and `writing-for-humans`. A user installs it globally. A
+**Core plugin** skill that names a minnstack skill works without it.
+_Avoid_: optional skills
 
 ## Open questions
 
