@@ -54,8 +54,10 @@ script has arrived.
 | The changed components are added to `pending-changed` in the install root before setup runs | Setup deletes the record once the restarts succeed, so a setup that stops early leaves them to the next |
 | The projects directory is resolved before the download or the build, also with `--no-setup` | The question comes first, and setup then finds the key set |
 | The directory is asked for only when `--projects-dir` is not given and `projects_dir:` is unset | `mael self update` cannot pass the flag, because an older release's `install.sh` refuses unknown arguments |
-| `check-host` runs only when there was no `current/manifest.toml` before the install | An update must not prompt, and a tool the user declined would be asked about on each update |
+| `check-host --quiet` runs on each install | A run that failed after the switch made the rerun look like an update, and the check never ran. `--quiet` keeps an update on a met host silent |
 | With `--source`, `check-host --dev` runs before the build, through `uv run --project DIR`, and not again after the switch | `bin/install` and `bin/build-bundle` need `node` and `pnpm`, and the checkout's `mael` needs only uv |
+| With `--source`, the script installs tangier with `uv tool install` when it is missing | The build hashes each component with `tangier changemap sha`, and uv is on PATH already |
+| With `--source`, the script stops before `bin/install` when `node` or `pnpm` is missing | The build needs both, and `check-host`'s exit code is ignored |
 | `check-host`'s exit code is ignored | The host services start without `gh` or `codex` |
 | `check-host` and setup read `/dev/tty` when it opens | Under `curl \| sh`, stdin is the script |
 
@@ -66,8 +68,9 @@ line, and one `[components.<name>]` table per component. `bin/build-bundle` writ
 `COMPONENTS` is in the script and in `layout.py`. Keep the two lists the same.
 
 With `--source DIR`, the script runs `git pull --ff-only` in `DIR`. Then it runs the checkout's
-own `install.sh`, because the pull can change it. It runs `bin/install` with
-`MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production state database. Then
+own `install.sh`, because the pull can change it. It installs tangier when it is missing, and
+stops when `node` or `pnpm` is not on PATH. Then it runs `bin/install --no-migrate` with `MAEL_NOTEBOOK_ROOT` unset, so that only
+setup migrates the production state database. Then
 `bin/build-bundle` makes a bundle tagged `main-<sha12>`. A tag that runs now is not built again.
 
 ### The bootstrap

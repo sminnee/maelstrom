@@ -37,7 +37,11 @@ def home(tmp_path, monkeypatch) -> Path:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    for name in ("MAEL_NOTEBOOK_ROOT", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"):
+    for name in (
+        *("MAEL_NOTEBOOK_ROOT", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"),
+        # Where uv puts a tool: ensure_tangier looks there first.
+        *("UV_TOOL_BIN_DIR", "XDG_BIN_HOME"),
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("GIT_AUTHOR_NAME", "Test")
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.com")
@@ -272,26 +276,145 @@ def test_install_quotes_a_bare_tilde(tmp_path, home):
     assert read_config_key(home / ".maelstrom" / "config.yaml", "projects_dir") == "~"
 
 
-def test_install_source_offers_the_host_tools_before_the_build(tmp_path, home):
-    source = tmp_path / "source"
+def _source(tmp: Path) -> Path:
+    """A checkout whose ``bin/install`` records its arguments, then stops the run."""
+    source = tmp / "source"
     (source / "bin").mkdir(parents=True)
     (source / "bin" / "install").write_text(
-        '#!/bin/sh\necho "bin/install" >>"$STUB_LOG"\nexit 1\n'
+        '#!/bin/sh\necho "bin/install $*" >>"$STUB_LOG"\nexit 1\n'
     )
     (source / "bin" / "install").chmod(0o755)
-    projects = ["--projects-dir", str(tmp_path / "P")]
-    args = ["--source", str(source), "--root", str(tmp_path / "root"), "--no-pull"]
+    return source
 
-    _run(INSTALL, *args, *projects, tmp=tmp_path)
-    calls = _stub_calls(tmp_path)
-    assert calls == [
-        f"uv run --project {source} mael self check-host --dev",
-        "bin/install",
+
+def _stub_tool(tmp: Path, name: str) -> None:
+    (tmp / "tools" / name).write_text("#!/bin/sh\n")
+    (tmp / "tools" / name).chmod(0o755)
+
+
+#: The tools a test stubs or leaves out. A host can have each in /usr/bin.
+BUILD_TOOLS = {"node", "pnpm", "tangier"}
+
+
+def _hide_build_tools(tmp: Path, monkeypatch) -> None:
+    """PATH: the stub tools, then the system's commands without the build tools."""
+    system = tmp / "system"
+    system.mkdir()
+    for folder in (Path("/bin"), Path("/usr/bin")):
+        for command in folder.iterdir():
+            target = system / command.name
+            if command.name not in BUILD_TOOLS and not target.exists():
+                target.symlink_to(command)
+    monkeypatch.setenv("PATH", f"{tmp / 'tools'}{os.pathsep}{system}")
+
+
+def _source_args(tmp: Path) -> list[str]:
+    source = _source(tmp)
+    return [
+        *("--source", str(source), "--root", str(tmp / "root"), "--no-pull"),
+        *("--projects-dir", str(tmp / "P")),
+    ]
+
+
+@pytest.mark.parametrize("installed", [False, True], ids=["first", "rerun"])
+def test_install_source_offers_the_host_tools_before_the_build(
+    tmp_path, home, installed
+):
+    """A rerun after a failed build checks the host too: it once looked like an update."""
+    for tool in BUILD_TOOLS:
+        _stub_tool(tmp_path, tool)
+    args = _source_args(tmp_path)
+    if installed:
+        (tmp_path / "root" / "current").mkdir(parents=True)
+        (tmp_path / "root" / "current" / "manifest.toml").write_text("")
+
+    _run(INSTALL, *args, tmp=tmp_path)
+    # Only setup migrates the production state database.
+    assert _stub_calls(tmp_path) == [
+        f"uv run --project {tmp_path / 'source'} mael self check-host --dev --quiet",
+        "bin/install --no-migrate",
     ]
 
     (tmp_path / "stub.log").unlink()
-    _run(INSTALL, *args, *projects, "--no-setup", tmp=tmp_path)
-    assert _stub_calls(tmp_path) == ["bin/install"]
+    _run(INSTALL, *args, "--no-setup", tmp=tmp_path)
+    assert _stub_calls(tmp_path) == ["bin/install --no-migrate"]
+
+
+@pytest.mark.parametrize("missing", ["node", "pnpm"])
+def test_install_source_stops_before_the_build_without_node_or_pnpm(
+    tmp_path, home, monkeypatch, missing
+):
+    for tool in BUILD_TOOLS - {missing}:
+        _stub_tool(tmp_path, tool)
+    _hide_build_tools(tmp_path, monkeypatch)
+
+    result = _run(INSTALL, *_source_args(tmp_path), tmp=tmp_path)
+
+    assert result.returncode != 0
+    assert f"{missing} is not on PATH" in result.stderr
+    assert not any(c.startswith("bin/install") for c in _stub_calls(tmp_path))
+
+
+def _uv_that_installs_tangier(tmp: Path, then: str) -> None:
+    (tmp / "tools" / "uv").write_text(
+        f'#!/bin/sh\necho "uv $*" >>"$STUB_LOG"\n{then}\n'
+    )
+
+
+def test_install_source_installs_a_missing_tangier_with_uv(tmp_path, home, monkeypatch):
+    for tool in ("node", "pnpm"):
+        _stub_tool(tmp_path, tool)
+    # The stand-in uv puts tangier where uv does: ~/.local/bin, not on PATH.
+    _uv_that_installs_tangier(
+        tmp_path,
+        f'mkdir -p "$HOME/.local/bin" && cp {tmp_path / "tools" / "node"} '
+        '"$HOME/.local/bin/tangier"',
+    )
+    _hide_build_tools(tmp_path, monkeypatch)
+
+    _run(INSTALL, *_source_args(tmp_path), "--no-setup", tmp=tmp_path)
+
+    assert _stub_calls(tmp_path) == [
+        "uv tool install tangier",
+        "bin/install --no-migrate",
+    ]
+
+
+def test_install_source_stops_when_uv_cannot_install_tangier(
+    tmp_path, home, monkeypatch
+):
+    for tool in ("node", "pnpm"):
+        _stub_tool(tmp_path, tool)
+    _uv_that_installs_tangier(tmp_path, "exit 1")
+    _hide_build_tools(tmp_path, monkeypatch)
+
+    result = _run(INSTALL, *_source_args(tmp_path), "--no-setup", tmp=tmp_path)
+
+    assert result.returncode != 0
+    assert "Install tangier with `uv tool install tangier`" in result.stderr
+    assert _stub_calls(tmp_path) == ["uv tool install tangier"]
+
+
+MIGRATE = "uv run python -m mael_domain.state_db.migrate"
+
+
+@pytest.mark.parametrize(("args", "migrates"), [((), True), (("--no-migrate",), False)])
+def test_bin_install_migrates_unless_told_not_to(tmp_path, home, args, migrates):
+    """A source install must not migrate the production state database."""
+    _stub_tool(tmp_path, "pnpm")
+
+    result = _run(REPO / "bin" / "install", *args, tmp=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert (MIGRATE in _stub_calls(tmp_path)) is migrates
+
+
+def test_bin_install_refuses_an_unknown_argument(tmp_path, home):
+    result = _run(REPO / "bin" / "install", "--bogus", tmp=tmp_path)
+
+    assert result.returncode == 1
+    assert "Usage: bin/install [--no-migrate]" in result.stderr
+    assert _stub_calls(tmp_path) == []
 
 
 def test_install_refuses_a_relative_folder(tmp_path, home):
