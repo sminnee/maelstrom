@@ -1,24 +1,20 @@
-"""Tests for the wiki model, against an InMemoryStore.
+"""Tests for the wiki model, over both table backends.
 
-The model is pure — the store is injected — so every test here runs with no git
-and no filesystem.
+The model is pure — the table is injected — so each test runs once over the
+in-memory table and once over the SQLite table.
 """
 
 import pytest
 
 from mael_domain import wiki
-from mael_domain.task_store import InMemoryStore
+from mael_domain.state_db.migrations.wiki import is_page_id
 
 
-@pytest.fixture
-def store() -> InMemoryStore:
-    """The wiki's own key→text store.
-
-    Built here rather than taken from ``conftest``: the shared ``store``
-    fixture is the task *table* now, and the wiki is the one subsystem still
-    on :class:`~mael_domain.task_store.GitFileStore`.
-    """
-    return InMemoryStore()
+@pytest.fixture(params=["memory", "sqlite"])
+def table(request) -> wiki.WikiTable:
+    if request.param == "memory":
+        return wiki.InMemoryWikiTable()
+    return wiki.SqliteWikiTable(request.getfixturevalue("state_db"))
 
 
 PAGE = """---
@@ -56,22 +52,37 @@ def test_normalise_page_rejects_unsafe_paths(given):
         wiki.normalise_page(given)
 
 
-def test_page_key_is_under_the_wiki_prefix():
-    assert (
-        wiki.page_key("dev-patterns/python/pypi") == "_wiki/dev-patterns/python/pypi.md"
-    )
+@pytest.mark.parametrize(
+    "page",
+    [
+        "linting",
+        "dev-patterns/python/pypi",
+        "a.b",
+        "a.md",
+        "x.md/y",
+        ".hidden",
+        "",
+        "a b",
+        ".",
+        "..",
+        "a/../b",
+        "a//b",
+        "a/./b",
+        "a\tb",
+        "dev/*",
+    ],
+)
+def test_the_import_rung_agrees_with_normalise_page(page):
+    """The rung's page-id rule is a copy, so it must not drift from the model's.
 
-
-def test_the_wiki_prefix_is_a_reserved_project_name():
-    """Task keys are ``<project>/<status>/<id>.md``, so the prefix must be reserved.
-
-    Without this, a project named ``_wiki`` would write its tasks into the wiki's
-    key space and they would list as pages. The leading underscore alone does not
-    prevent that — the reserved-name check does.
+    A legal id is one that ``normalise_page`` can produce: ``a.md`` is the id
+    of the page written as ``a.md.md``.
     """
-    from mael_domain.context import RESERVED_PROJECT_NAMES
-
-    assert wiki.WIKI_PREFIX.rstrip("/") in RESERVED_PROJECT_NAMES
+    try:
+        legal = wiki.normalise_page(page + ".md") == page
+    except ValueError:
+        legal = False
+    assert is_page_id(page) == legal
 
 
 # --- description parsing ---
@@ -102,114 +113,66 @@ def test_parse_description_is_empty_without_a_description(text):
 # --- read / write ---
 
 
-def test_write_then_read_round_trips(store: InMemoryStore):
-    wiki.write_page(store, "dev-patterns/python/pypi", PAGE)
-    assert wiki.read_page(store, "dev-patterns/python/pypi") == PAGE
+async def test_write_then_read_round_trips(table):
+    await wiki.write_page(table, "dev-patterns/python/pypi", PAGE)
+    assert await wiki.read_page(table, "dev-patterns/python/pypi") == PAGE
 
 
-def test_read_page_accepts_the_md_suffix(store: InMemoryStore):
-    wiki.write_page(store, "linting", PAGE)
-    assert wiki.read_page(store, "linting.md") == PAGE
+async def test_read_page_accepts_the_md_suffix(table):
+    await wiki.write_page(table, "linting", PAGE)
+    assert await wiki.read_page(table, "linting.md") == PAGE
 
 
-def test_read_page_raises_key_error_when_missing(store: InMemoryStore):
+async def test_read_page_raises_key_error_when_missing(table):
     with pytest.raises(KeyError):
-        wiki.read_page(store, "nope")
+        await wiki.read_page(table, "nope")
 
 
-def test_read_page_raises_value_error_on_an_unsafe_path(store: InMemoryStore):
+async def test_read_page_raises_value_error_on_an_unsafe_path(table):
     with pytest.raises(ValueError):
-        wiki.read_page(store, "../escape")
+        await wiki.read_page(table, "../escape")
 
 
-def test_write_page_returns_the_normalised_id(store: InMemoryStore):
-    assert wiki.write_page(store, "/linting.md", PAGE) == "linting"
+async def test_write_page_raises_value_error_on_an_unsafe_path(table):
+    with pytest.raises(ValueError):
+        await wiki.write_page(table, "../escape", PAGE)
+    assert await table.list() == {}
 
 
-def test_write_page_replaces_the_whole_body(store: InMemoryStore):
-    wiki.write_page(store, "linting", "old\n")
-    wiki.write_page(store, "linting", "new\n")
-    assert wiki.read_page(store, "linting") == "new\n"
+async def test_write_page_returns_the_normalised_id(table):
+    assert await wiki.write_page(table, "/linting.md", PAGE) == "linting"
 
 
-def test_write_page_adds_a_trailing_newline(store: InMemoryStore):
-    wiki.write_page(store, "linting", "no trailing newline")
-    assert wiki.read_page(store, "linting") == "no trailing newline\n"
+async def test_write_page_replaces_the_whole_body(table):
+    await wiki.write_page(table, "linting", "old\n")
+    await wiki.write_page(table, "linting", "new\n")
+    assert await wiki.read_page(table, "linting") == "new\n"
 
 
-def test_write_page_leaves_empty_content_empty(store: InMemoryStore):
-    wiki.write_page(store, "linting", "")
-    assert wiki.read_page(store, "linting") == ""
+async def test_write_page_adds_a_trailing_newline(table):
+    await wiki.write_page(table, "linting", "no trailing newline")
+    assert await wiki.read_page(table, "linting") == "no trailing newline\n"
 
 
-class _RecordingStore(InMemoryStore):
-    """An in-memory store that records the commit message of each write."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.messages: list[str | None] = []
-
-    def write(self, key: str, text: str, *, message: str | None = None) -> None:
-        self.messages.append(message)
-        super().write(key, text, message=message)
-
-
-def test_write_page_commit_message_distinguishes_create_from_update():
-    store = _RecordingStore()
-    wiki.write_page(store, "linting", "a\n")
-    wiki.write_page(store, "linting", "b\n")
-    assert store.messages == ["wiki: create linting", "wiki: update linting"]
+async def test_write_page_leaves_empty_content_empty(table):
+    await wiki.write_page(table, "linting", "")
+    assert await wiki.read_page(table, "linting") == ""
 
 
 # --- listing ---
 
 
-def test_list_pages_is_empty_for_a_fresh_store(store: InMemoryStore):
-    assert wiki.list_pages(store) == []
+async def test_list_pages_is_empty_for_a_fresh_table(table):
+    assert await wiki.list_pages(table) == []
 
 
-def test_list_pages_returns_paths_and_descriptions(store: InMemoryStore):
-    wiki.write_page(store, "dev-patterns/python/pypi", PAGE)
-    wiki.write_page(store, "linting", "# Linting\n")
-    assert wiki.list_pages(store) == [
+async def test_list_pages_returns_paths_and_descriptions_sorted(table):
+    await wiki.write_page(table, "linting", "# Linting\n")
+    await wiki.write_page(table, "dev-patterns/python/pypi", PAGE)
+    assert await wiki.list_pages(table) == [
         wiki.WikiPage(
             path="dev-patterns/python/pypi",
             description="How to publish a package to PyPI",
         ),
         wiki.WikiPage(path="linting", description=""),
     ]
-
-
-def test_list_pages_ignores_non_markdown_keys(store: InMemoryStore):
-    wiki.write_page(store, "linting", PAGE)
-    store.write("_wiki/notes.txt", "not a page")
-    assert [p.path for p in wiki.list_pages(store)] == ["linting"]
-
-
-def test_list_pages_ignores_keys_that_are_not_legal_page_ids(store: InMemoryStore):
-    """The store is a real directory, so a key under the prefix may not be a page.
-
-    A file placed by hand (or by another tool) can carry a name no page id can
-    round-trip to. Listing it would advertise a page that cannot be read.
-    """
-    wiki.write_page(store, "linting", PAGE)
-    store.write("_wiki/a b.md", PAGE)
-    store.write("_wiki/.md", PAGE)
-    store.write("_wiki/../escaped.md", PAGE)
-    assert [p.path for p in wiki.list_pages(store)] == ["linting"]
-
-
-def test_every_listed_page_can_be_read(store: InMemoryStore):
-    """The TOC must not advertise a page that ``read_page`` cannot resolve."""
-    wiki.write_page(store, "dev-patterns/python/pypi", PAGE)
-    store.write("_wiki/a b.md", PAGE)
-    store.write("_wiki/.md", PAGE)
-    for page in wiki.list_pages(store):
-        assert wiki.read_page(store, page.path) is not None
-
-
-def test_list_pages_ignores_task_keys(store: InMemoryStore):
-    """Tasks share the store; they must not appear in the table of contents."""
-    store.write("myproject/todo/1.md", "---\ntitle: A task\n---\n")
-    wiki.write_page(store, "linting", PAGE)
-    assert [p.path for p in wiki.list_pages(store)] == ["linting"]

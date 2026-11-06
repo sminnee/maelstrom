@@ -1,8 +1,9 @@
 """Tests for the rungs that retire the git task notebook.
 
-The attachments-move ladder takes the media out of ``<root>/tasks/`` and
-rewrites the refs to them. Each test runs over a real SQLite file in
-``tmp_path``, so the rung reads the notebook beside it.
+Two ladders take the state out of ``<root>/tasks/``: the wiki ladder imports
+the pages, and the attachments-move ladder moves the media and rewrites the
+refs to them. Each runs over a real SQLite file in ``tmp_path``, so the rung
+reads the notebook beside it.
 """
 
 from mael_domain.state_db.migrate import LADDERS, open_state_db
@@ -38,6 +39,52 @@ def tree(root) -> dict[str, str]:
         for p in root.rglob("*")
         if p.is_file() and p.name != "state.db" and not p.name.startswith("state.db-")
     }
+
+
+# --- the wiki import ---
+
+
+class TestTheWikiImportRung:
+    async def test_pages_import_with_their_bodies(self, tmp_path):
+        write(tmp_path / "tasks/_wiki/linting.md", "# Linting\n")
+        write(tmp_path / "tasks/_wiki/dev-patterns/python/pypi.md", "# PyPI\n")
+
+        db = await migrated(tmp_path)
+        try:
+            rows = {r["id"]: r["body"] for r in await db.read_all("wiki_pages")}
+        finally:
+            db.close()
+
+        assert rows == {
+            "linting": "# Linting\n",
+            "dev-patterns/python/pypi": "# PyPI\n",
+        }
+
+    async def test_files_that_are_not_pages_are_skipped(self, tmp_path):
+        write(tmp_path / "tasks/_wiki/linting.md")
+        write(tmp_path / "tasks/_wiki/a b.md")
+        write(tmp_path / "tasks/_wiki/.md")
+        write(tmp_path / "tasks/_wiki/notes.txt")
+        (tmp_path / "tasks/_wiki/latin.md").write_bytes(b"caf\xe9")
+        # A task beside the wiki is not a page.
+        write(tmp_path / "tasks/p/todo/t1.md")
+
+        db = await migrated(tmp_path)
+        try:
+            ids = [r["id"] for r in await db.read_all("wiki_pages")]
+        finally:
+            db.close()
+
+        assert ids == ["linting"]
+
+    async def test_an_in_memory_database_imports_nothing(self, tmp_path):
+        write(tmp_path / "tasks/_wiki/linting.md")
+        db = open_state_db(":memory:")
+        try:
+            await db.migrate()
+            assert await db.read_all("wiki_pages") == []
+        finally:
+            db.close()
 
 
 # --- the attachments move ---
