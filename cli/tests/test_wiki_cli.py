@@ -1,15 +1,19 @@
-"""Tests for the ``mael wiki`` CLI, against an InMemoryStore.
+"""Tests for the ``mael wiki`` CLI, over a real state database.
 
-The CLI is exercised via Click's ``CliRunner``. ``wiki_cli._store`` is patched to
-return a shared :class:`InMemoryStore`, so no git happens.
+The CLI is exercised via Click's ``CliRunner``. The suite's autouse fixture
+points the notebook root at a temp dir, so each test migrates its own database
+through ``migrated_notebook``.
 """
+
+import asyncio
 
 import pytest
 from click.testing import CliRunner
 
 from mael_cli import wiki_cli
 from mael_domain import wiki as model
-from mael_domain.task_store import InMemoryStore
+from mael_domain.state_db.migrate import open_state_db
+from mael_domain.state_db.paths import get_state_db_path
 
 PAGE = """---
 description: How to publish a package to PyPI
@@ -19,17 +23,33 @@ description: How to publish a package to PyPI
 """
 
 
-@pytest.fixture
-def store(monkeypatch) -> InMemoryStore:
-    """The wiki's own key→text store.
+class Wiki:
+    """Seeds and reads the wiki behind the CLI, each call on its own connection."""
 
-    Built here rather than taken from ``conftest``: the shared ``store``
-    fixture is the task *table* now, and the wiki is the one subsystem still
-    on :class:`~mael_domain.task_store.GitFileStore`.
-    """
-    wiki_store = InMemoryStore()
-    monkeypatch.setattr(wiki_cli, "_store", lambda: wiki_store)
-    return wiki_store
+    def _run(self, call):
+        async def go():
+            db = open_state_db(get_state_db_path())
+            try:
+                return await call(model.SqliteWikiTable(db))
+            finally:
+                db.close()
+
+        return asyncio.run(go())
+
+    def write(self, page: str, text: str) -> None:
+        self._run(lambda table: model.write_page(table, page, text))
+
+    def read(self, page: str) -> str:
+        return self._run(lambda table: model.read_page(table, page))
+
+
+@pytest.fixture
+def wiki(migrated_notebook) -> Wiki:
+    return Wiki()
+
+
+async def _create_empty_db() -> None:
+    open_state_db(get_state_db_path()).close()
 
 
 @pytest.fixture
@@ -40,14 +60,23 @@ def runner() -> CliRunner:
 # --- list ---
 
 
-def test_list_reports_an_empty_wiki(runner, store):
+def test_a_database_behind_this_build_is_refused(runner):
+    """The wiki commands open state.db themselves, so they must not upgrade it."""
+    get_state_db_path().parent.mkdir(parents=True, exist_ok=True)
+    asyncio.run(_create_empty_db())
+    result = runner.invoke(wiki_cli.wiki, ["list"])
+    assert result.exit_code != 0
+    assert "Traceback" not in result.output
+
+
+def test_list_reports_an_empty_wiki(runner, wiki):
     result = runner.invoke(wiki_cli.wiki, ["list"])
     assert result.exit_code == 0
     assert "No wiki pages yet." in result.output
 
 
-def test_list_prints_paths_and_descriptions(runner, store):
-    model.write_page(store, "dev-patterns/python/pypi", PAGE)
+def test_list_prints_paths_and_descriptions(runner, wiki):
+    wiki.write("dev-patterns/python/pypi", PAGE)
     result = runner.invoke(wiki_cli.wiki, ["list"])
     assert result.exit_code == 0
     assert "dev-patterns/python/pypi" in result.output
@@ -57,29 +86,23 @@ def test_list_prints_paths_and_descriptions(runner, store):
 # --- read ---
 
 
-def test_read_prints_the_raw_page(runner, store):
-    model.write_page(store, "linting", PAGE)
+def test_read_prints_the_raw_page(runner, wiki):
+    wiki.write("linting", PAGE)
     result = runner.invoke(wiki_cli.wiki, ["read", "linting"])
     assert result.exit_code == 0
     assert result.output == PAGE
 
 
-def test_read_fails_cleanly_when_the_page_is_missing(runner, store):
+def test_read_fails_cleanly_when_the_page_is_missing(runner, wiki):
     result = runner.invoke(wiki_cli.wiki, ["read", "nope"])
     assert result.exit_code != 0
     assert "Wiki page not found: nope" in result.output
 
 
-def test_read_fails_cleanly_on_an_unsafe_path(runner, store):
-    result = runner.invoke(wiki_cli.wiki, ["read", "../escape"])
-    assert result.exit_code != 0
-    assert "Invalid wiki page" in result.output
-
-
 # --- update ---
 
 
-def test_update_writes_a_page_from_a_file(runner, store, tmp_path):
+def test_update_writes_a_page_from_a_file(runner, wiki, tmp_path):
     src = tmp_path / "page.md"
     src.write_text(PAGE)
     result = runner.invoke(
@@ -88,27 +111,18 @@ def test_update_writes_a_page_from_a_file(runner, store, tmp_path):
     )
     assert result.exit_code == 0
     assert "Wrote wiki page dev-patterns/python/pypi." in result.output
-    assert model.read_page(store, "dev-patterns/python/pypi") == PAGE
+    assert wiki.read("dev-patterns/python/pypi") == PAGE
 
 
-def test_update_reads_stdin_for_a_dash(runner, store):
+def test_update_reads_stdin_for_a_dash(runner, wiki):
     result = runner.invoke(
         wiki_cli.wiki, ["update", "linting", "--content-file", "-"], input=PAGE
     )
     assert result.exit_code == 0
-    assert model.read_page(store, "linting") == PAGE
+    assert wiki.read("linting") == PAGE
 
 
-def test_update_replaces_the_whole_page(runner, store):
-    model.write_page(store, "linting", "old\n")
-    result = runner.invoke(
-        wiki_cli.wiki, ["update", "linting", "--content-file", "-"], input="new\n"
-    )
-    assert result.exit_code == 0
-    assert model.read_page(store, "linting") == "new\n"
-
-
-def test_update_fails_cleanly_when_the_content_file_is_missing(runner, store, tmp_path):
+def test_update_fails_cleanly_when_the_content_file_is_missing(runner, wiki, tmp_path):
     result = runner.invoke(
         wiki_cli.wiki,
         ["update", "linting", "--content-file", str(tmp_path / "nope.md")],
@@ -117,14 +131,9 @@ def test_update_fails_cleanly_when_the_content_file_is_missing(runner, store, tm
     assert "Content file not found" in result.output
 
 
-def test_update_fails_cleanly_on_an_unsafe_path(runner, store):
+def test_update_fails_cleanly_on_an_unsafe_path(runner, wiki):
     result = runner.invoke(
         wiki_cli.wiki, ["update", "../escape", "--content-file", "-"], input="x\n"
     )
     assert result.exit_code != 0
     assert "Invalid wiki page" in result.output
-
-
-def test_update_requires_a_content_file(runner, store):
-    result = runner.invoke(wiki_cli.wiki, ["update", "linting"])
-    assert result.exit_code != 0

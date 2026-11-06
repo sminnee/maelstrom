@@ -31,6 +31,7 @@ from .migrations.spine import SPINE
 from .migrations.task_attachments import TASK_ATTACHMENTS
 from .migrations.task_export import TASK_EXPORT
 from .migrations.tasks import TASKS
+from .migrations.wiki import WIKI
 from .types import Rung, StateDbError, TableSpec
 
 #: Every subsystem's ladder, by name. A subsystem's schema moves without
@@ -45,6 +46,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "comms": COMMS,
     "operations": OPERATIONS,
     "pr_events": PR_EVENTS,
+    "wiki": WIKI,
     # Reads `tasks` and `task_attachments`, so it climbs after both.
     "attachments_move": ATTACHMENTS_MOVE,
 }
@@ -81,6 +83,8 @@ TABLES: dict[str, TableSpec] = {
     # What the PR watch last told each Registered PR's agents. The server's
     # own bookkeeping: nothing draws it.
     "pr_events": TableSpec("pr_events", notifies=False),
+    # The wiki pages. Canonical. Only the CLI reads them, so a write is not news.
+    "wiki_pages": TableSpec("wiki_pages", notifies=False),
 }
 
 
