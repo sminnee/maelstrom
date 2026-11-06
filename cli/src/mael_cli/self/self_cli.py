@@ -4,10 +4,15 @@ Thin commands over :mod:`.setup`, :mod:`.update` and :mod:`.host_service`.
 See ``docs/dev/host-services.md``.
 """
 
+import importlib.metadata
 import os
 import shutil
+import socket
+import sqlite3
 import subprocess
 import sys
+import zipfile
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -27,6 +32,13 @@ from .host_check import HostCheck
 from .host_service import AGENT_DAEMON, ORCHESTRATOR, run_quietly, supervisor
 from .production import SHIM_MARKER, Production, agent_path
 from .setup import Setup, SetupError, all_units, configured_services
+from .state_archive import (
+    ATTACHMENTS,
+    ArchiveError,
+    Import,
+    default_name,
+    export_state,
+)
 from .update import UpdateError, main_checkout, update_main, update_stable
 
 
@@ -228,3 +240,73 @@ def cmd_restart(names: tuple[str, ...]) -> None:
         click.echo(msg)
     if restarted.failed:
         raise click.ClickException(f"{', '.join(restarted.failed)} did not restart.")
+
+
+def _release(prod: Production) -> tuple[str, str | None]:
+    """The release tag and commit, else the package version and no commit."""
+    try:
+        manifest = current_manifest(prod.install_root)
+    except (ManifestError, OSError):
+        manifest = None
+    if manifest is not None:
+        return manifest.tag, manifest.commit
+    return importlib.metadata.version("sminnee-maelstrom"), None
+
+
+@self_group.command("export")
+@click.argument("path", required=False, type=click.Path(dir_okay=False, path_type=Path))
+def cmd_export(path: Path | None) -> None:
+    """Write this host's State archive: one zip to keep, or to move to another host.
+
+    The zip holds the state database and the attachments. It works while the
+    host services run. Default PATH: maelstrom-<host>-<date>.zip in the
+    current directory.
+    """
+    prod = _production()
+    now = datetime.now()
+    host = socket.gethostname().split(".")[0]
+    dest = path or Path.cwd() / default_name(host, now.date())
+    maelstrom, commit = _release(prod)
+    try:
+        export_state(
+            prod.state,
+            dest,
+            host=host,
+            now=now,
+            maelstrom=maelstrom,
+            commit=commit,
+        )
+    except (ArchiveError, StateDbError, OSError) as exc:
+        raise click.ClickException(str(exc)) from exc
+    with zipfile.ZipFile(dest) as zf:
+        count = sum(n.startswith(f"{ATTACHMENTS}/") for n in zf.namelist())
+    click.echo(f"Wrote {dest}: {dest.stat().st_size:,} bytes, {count} attachments.")
+
+
+@self_group.command("import")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option(
+    "--replace",
+    is_flag=True,
+    help="Replace state that is already here. The old state is kept aside in "
+    "a replaced-<time> directory.",
+)
+def cmd_import(path: Path, replace: bool) -> None:
+    """Load the state from a zip that `mael self export` wrote.
+
+    It stops the host services, puts the state in place, migrates it, and
+    starts the services again. The agent daemon stops too, so run this from a
+    shell, not from an agent session.
+    """
+    prod = _production()
+    run = Import(
+        prod=prod,
+        supervisor=supervisor(run_quietly, prod.home),
+        units=_units(prod),
+        echo=click.echo,
+        replace=replace,
+    )
+    try:
+        run(path)
+    except (ArchiveError, StateDbError, OSError, sqlite3.Error) as exc:
+        raise click.ClickException(str(exc)) from exc
