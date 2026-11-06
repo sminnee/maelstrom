@@ -3,17 +3,22 @@
 #
 #   curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
 #
-# Usage: install.sh [--tag TAG | --bundle FILE | --source DIR] [--root DIR] [--no-setup]
+# Usage: install.sh [--tag TAG | --bundle FILE | --source DIR] [--root DIR] [--projects-dir DIR] [--no-setup]
 #
 #   (none)        download the latest GitHub Release
 #   --tag TAG     download the GitHub Release TAG, such as an older one to roll back to
 #   --bundle FILE install a local maelstrom.tar.gz
 #   --source DIR  pull the git checkout DIR, build its bundle, and install that
 #   --root DIR    the install root (default: ~/.maelstrom/install)
-#   --no-setup    run neither `mael self check-host` nor `mael self setup`
+#   --projects-dir DIR
+#                 the directory that holds the projects (default: the
+#                 projects_dir: key, else a question, else ~/Projects)
+#   --no-setup    run neither `mael self check-host` nor `mael self setup`; the
+#                 projects directory is still resolved and written
 #
 # The script needs curl and tar. It installs uv when uv is missing, and uv
-# fetches the Python the venv uses. It places each component version once,
+# fetches the Python the venv uses. Before it downloads or builds, it asks for
+# the projects directory when projects_dir: is unset, and writes the key. It places each component version once,
 # builds the release's venv, and moves `current` with one rename as its last
 # step, so a failure leaves the release that runs as it was. On a first install
 # it then runs `mael self check-host`, which offers the host tools and the
@@ -33,6 +38,8 @@ TARBALL="maelstrom.tar.gz"
 PYTHON="${MAEL_INSTALL_PYTHON:-3.13}"
 # Where the stable channel's bundles are published.
 RELEASES="${MAEL_RELEASE_URL:-https://github.com/sminnee/maelstrom/releases}"
+CONFIG="$HOME/.maelstrom/config.yaml"
+DEFAULT_PROJECTS="~/Projects"
 
 say() { printf '%s\n' "$*"; }
 die() {
@@ -234,6 +241,82 @@ ensure_uv() {
 # the script, so the questions read /dev/tty.
 has_tty() { (exec </dev/tty) 2>/dev/null; }
 
+# --- The projects directory. install-main.sh holds a copy of these functions. ---
+
+# config_value KEY: the value of a top-level key of the config. It reads the
+# subset yaml_scalar writes: a plain value with an optional `# comment`, or a
+# quoted one with \" and \\ escapes. A plain ~ is YAML null, so it reads as unset.
+config_value() {
+  [ -f "$CONFIG" ] || return 0
+  sed -n "s/^$1:[[:space:]]*//p" "$CONFIG" | head -n 1 | sed \
+    -e '/^"/{s/^"\(.*\)".*$/\1/;s/\\"/"/g;s/\\\\/\\/g;b' -e '}' \
+    -e "/^'/{s/^'\\(.*\\)'.*\$/\\1/;b" -e '}' \
+    -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//' -e 's/^~$//'
+}
+
+# yaml_scalar VALUE: VALUE as one YAML scalar, as setup's _yaml_scalar writes
+# it. A bare ~ is quoted, because plain ~ is YAML null.
+yaml_scalar() {
+  case "$1" in
+  "" | "~" | *[!A-Za-z0-9_./~-]*)
+    printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
+    ;;
+  *) printf '%s' "$1" ;;
+  esac
+}
+
+# set_config_key KEY SCALAR: replace the KEY: line of the config, or append one.
+set_config_key() {
+  mkdir -p "$(dirname "$CONFIG")"
+  if [ -f "$CONFIG" ] && grep -q "^$1:" "$CONFIG"; then
+    tmp="$(mktemp "$CONFIG.tmp-XXXXXX")"
+    KEY="$1:" LINE="$1: $2" awk '
+      !done && index($0, ENVIRON["KEY"]) == 1 { print ENVIRON["LINE"]; done = 1; next }
+      { print }' "$CONFIG" >"$tmp"
+    # cat, not mv, so the file keeps its mode.
+    cat "$tmp" >"$CONFIG"
+    rm -f "$tmp"
+  else
+    # A new config is private, as it holds API keys.
+    (
+      umask 077
+      if [ -s "$CONFIG" ] && [ "$(tail -c 1 "$CONFIG")" != "" ]; then
+        printf '\n' >>"$CONFIG"
+      fi
+      printf '%s: %s\n' "$1" "$2" >>"$CONFIG"
+    )
+  fi
+}
+
+# resolve_projects_dir GIVEN: set $projects, the directory as the user spelled
+# it, and $projects_path, the directory with a leading ~ expanded. Write the
+# projects_dir: key when it changes, and make the directory.
+resolve_projects_dir() {
+  stored="$(config_value projects_dir)"
+  projects="${1:-$stored}"
+  if [ -z "$projects" ]; then
+    if has_tty; then
+      printf 'Where do your projects live? [%s] ' "$DEFAULT_PROJECTS" >/dev/tty
+      answer=""
+      read -r answer </dev/tty || true
+      projects="${answer:-$DEFAULT_PROJECTS}"
+    else
+      projects="$DEFAULT_PROJECTS"
+      say "projects_dir: $projects. To change it, edit $CONFIG."
+    fi
+  fi
+  case "$projects" in
+  "~") projects_path="$HOME" ;;
+  "~/"*) projects_path="$HOME/${projects#"~/"}" ;;
+  /*) projects_path="$projects" ;;
+  *) die "projects_dir '$projects' is relative. Give a path that starts with / or ~." ;;
+  esac
+  [ "$projects" = "$stored" ] || set_config_key projects_dir "$(yaml_scalar "$projects")"
+  mkdir -p "$projects_path"
+}
+
+# --- End of the copy. ---
+
 current_tag() {
   if [ -f "$1/current/$MANIFEST" ]; then
     manifest_key "$1/current/$MANIFEST" tag
@@ -245,6 +328,7 @@ main() {
   bundle=""
   source=""
   root="${HOME}/.maelstrom/install"
+  projects_given=""
   setup=1
   pull=1
   while [ $# -gt 0 ]; do
@@ -253,11 +337,12 @@ main() {
     --bundle) bundle="$2"; shift 2 ;;
     --source) source="$2"; shift 2 ;;
     --root) root="$2"; shift 2 ;;
+    --projects-dir) projects_given="$2"; shift 2 ;;
     --no-setup) setup=0; shift ;;
     # Internal: the re-run of a pulled checkout's own installer.
     --no-pull) pull=0; shift ;;
     -h | --help)
-      say "Usage: install.sh [--tag TAG | --bundle FILE | --source DIR] [--root DIR] [--no-setup]"
+      say "Usage: install.sh [--tag TAG | --bundle FILE | --source DIR] [--root DIR] [--projects-dir DIR] [--no-setup]"
       exit 0
       ;;
     *) die "unknown argument: $1" ;;
@@ -269,6 +354,8 @@ main() {
   done
   [ "$given" -le 1 ] || die "give one of --tag, --bundle and --source"
   ensure_uv
+  # Setup then finds projects_dir: set and does not ask.
+  resolve_projects_dir "$projects_given"
   mkdir -p "$root"
   root="$(resolve "$root")"
   # A first install offers the host tools before setup.
@@ -347,7 +434,6 @@ main() {
   fi
   set -- self setup --changed "$changed"
   [ -z "$source" ] || set -- "$@" --source "$source"
-  # Setup asks for projects_dir: when it is unset.
   if has_tty; then
     exec "$mael" "$@" </dev/tty
   fi
