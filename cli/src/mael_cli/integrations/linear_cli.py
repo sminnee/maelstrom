@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from mael_agent.harness_model import TRANSPORT_DAEMON
 from mael_domain.context import resolve_project
 from mael_domain.integrations import linear
 
@@ -93,11 +94,7 @@ def cmd_list_tasks(status):
     default=True,
     help="Launch the planning session immediately (default: run; --no-run creates only).",
 )
-@click.option(
-    "--here",
-    is_flag=True,
-    help="With --run, launch in the current shell (no worktree, no new workspace).",
-)
+@task_cli._harness_options(default=TRANSPORT_DAEMON)
 async def cmd_plan(
     issue_id: str,
     project: str | None,
@@ -114,7 +111,8 @@ async def cmd_plan(
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     run: bool,
-    here: bool,
+    cli: bool,
+    daemon: bool,
 ) -> None:
     """Seed a notebook planning task from a Linear issue.
 
@@ -134,6 +132,7 @@ async def cmd_plan(
     explicit empty value — ``--post-action ''`` — clears the field instead of
     falling back to the planning default, matching ``task add``'s semantics.
     """
+    task_cli.check_run_transport(run, cli, daemon)
     # add_task re-resolves internally; passing the resolved name is idempotent.
     resolved_project = resolve_project(project)
     planned = linear.build_plan_task(
@@ -157,7 +156,7 @@ async def cmd_plan(
         follow_ends=follow_ends,
         content=planned["content"],
         run=run,
-        here=here,
+        cli=cli,
     )
 
 

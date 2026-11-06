@@ -8,8 +8,6 @@ from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
     _isolate_notebook_root,
     _mark_test_commands_production,
     _plain_terminal,
-    caller,
-    fake_cmux,
     migrated_notebook,
     project_with_worktree,
     stamp_honoured,
@@ -37,3 +35,15 @@ def _reset_task_db():
         task_cli._DB.close()
     task_cli._DB = None
     task_cli._CHECKED = False
+
+
+@pytest.fixture(autouse=True)
+def _a_terminal(monkeypatch):
+    """Give each test a terminal, as a user's shell has.
+
+    ``CliRunner`` swaps in pipes, so without this every ``--cli`` launch would be
+    refused. A test of the refusal sets it back to ``False``.
+    """
+    from mael_cli import worktree_launcher
+
+    monkeypatch.setattr(worktree_launcher, "_streams_are_terminals", lambda: True)

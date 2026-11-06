@@ -1,16 +1,12 @@
-"""Worktree launcher — open an editor or launch Claude in a worktree.
+"""Worktree launcher — open an editor or launch an agent in a worktree.
 
-The placement/execution adapter for the worktree subsystem: it composes the
-launch command and places it **inside cmux** — always. ``mael`` starts a Claude
-session by driving the cmux socket; if the app is down it starts it, and if it
-can't be reached it fails rather than running Claude locally. The only path that
-runs Claude in the current terminal is the explicit ``--here`` choice, which
-bypasses this module entirely (``task_cli._run_task`` calls ``exec_cmd``
-directly). See memory ``project-launch-always-via-cmux-socket``.
+The execution adapter for the worktree subsystem. It composes the
+launch command and runs it in one of two places: a daemon-driven agent, whose
+attach command it prints, or the current terminal.
 
 Conceptually it belongs to the CLI/adapter layer of the three-layer split
 documented in ``docs/dev/architecture-patterns.md`` (storage / model / CLI); it is
-carved into its own file so the placement logic stays separate from the flat
+carved into its own file so the launch logic stays separate from the flat
 ``mael`` command handlers, not because it is a fourth architectural layer.
 
 Commands are modelled as a closed ``ShellExpr`` algebra (see ``shell.py``); env
@@ -18,14 +14,13 @@ attaches per-``Command`` so it lands on the right pipe segment structurally, and
 ``shell.py`` owns both the executable argv (``to_argv``) and the human-readable
 form (``describe``).
 
-Import direction: this module imports ``run_cmd`` from the ``shell`` leaf and
-``ensure_cmux_running`` from ``cmux.client``; ``worktree`` must never import this
-module (nothing in it calls the launcher).
+Import direction: this module imports ``run_cmd`` from the ``shell`` leaf;
+``worktree`` must never import this module (nothing in it calls the launcher).
 """
 
 import os
 import subprocess
-from enum import StrEnum
+import sys
 from pathlib import Path
 
 import click
@@ -36,7 +31,6 @@ from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     HARNESS_CODEX,
     HARNESS_OPENCODE,
-    TRANSPORT_CLI,
     TRANSPORT_DAEMON,
     is_driven_agent,
     resolve_model_reference,
@@ -46,33 +40,10 @@ from mael_common.shell import (
     Pipeline,
     ShellExpr,
     command_substitution,
-    describe,
     run_cmd,
 )
-from mael_domain.cmux.client import current_client, ensure_cmux_running
-from mael_domain.cmux.mael_layout import MaelCmux, WorktreeWorkspace
-from mael_domain.cmux.model import TerminalTab
 from mael_domain.config import load_config_or_default
 from mael_domain.shared_dir import agent_prompt_file
-
-
-class AddContext(StrEnum):
-    """The surface from which ``mael add`` was invoked."""
-
-    REGULAR = "regular"
-    CMUX = "cmux"
-    DAEMON = "daemon"
-
-
-def detect_add_context() -> AddContext:
-    """Detect the ``add`` invocation surface.
-
-    A driven agent takes precedence: ``current_client()`` answers any process on
-    the machine while cmux runs, so it cannot tell a driven agent from a pane.
-    """
-    if is_driven_agent():
-        return AddContext.DAEMON
-    return AddContext.CMUX if current_client() else AddContext.REGULAR
 
 
 def start_install_async(worktree_path: Path) -> bool:
@@ -93,11 +64,6 @@ def _announce_started(agent_id: str) -> None:
     click.echo(f"Attach with: mael agent attach {agent_id}")
 
 
-def has_install_command(worktree_path: Path) -> bool:
-    """Whether this worktree configures an install command."""
-    return bool(load_config_or_default(worktree_path).install_cmd)
-
-
 async def start_agent_in_worktree(
     worktree_path: Path,
     *,
@@ -109,7 +75,7 @@ async def start_agent_in_worktree(
     execute_model: str | None = None,
     prompt: str = "",
 ) -> str | None:
-    """Start a driven agent and return its id without placing a cmux client."""
+    """Start a driven agent and return its id."""
     ref = resolve_model_reference(model, permission_mode or "normal")
     if ref.harness != HARNESS_CLAUDE:
         raise ValueError(
@@ -143,70 +109,40 @@ async def start_agent_in_worktree(
     return str(agent_id)
 
 
+NO_TERMINAL_REFUSAL = "--cli needs a terminal, and this process has none. Use --daemon."
+
+
+def _streams_are_terminals() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def has_terminal() -> bool:
+    """Whether this process can run an interactive harness or shell.
+
+    A driven agent has no terminal. Nor has an agent's tool call outside the
+    daemon: its stdin and stdout are pipes, and an exec there hangs the call.
+    """
+    return not is_driven_agent() and _streams_are_terminals()
+
+
 async def launch_add_in_worktree(
     worktree_path: Path,
-    project: str,
-    worktree: str,
     *,
-    context: AddContext,
+    terminal: bool,
     harness: str,
     model: str | None = None,
     execute_model: str | None = None,
     no_agent: bool = False,
 ) -> bool:
-    """Select the agent or shell surface for a prepared ``mael add`` worktree."""
-    install_cmd = load_config_or_default(worktree_path).install_cmd or None
-    if context == AddContext.CMUX:
-        workspace = _worktree_workspace(project, worktree, worktree_path)
-        if workspace is None:
-            return False
-        if no_agent:
-            return workspace.open_for_shell(install_cmd)
-        if harness == TRANSPORT_DAEMON:
-            if not workspace.prepare_install_shell(install_cmd):
-                return False
-            agent_id = await start_agent_in_worktree(
-                worktree_path, model=model, execute_model=execute_model
-            )
-            if not agent_id:
-                return False
-            return workspace.add_agent(
-                TerminalTab(
-                    "Claude",
-                    cwd=str(worktree_path),
-                    command=describe(Command(["mael", "agent", "attach", agent_id])),
-                ),
-            )
-        else:
-            command = Command(build_harness_command(model=model))
-        return workspace.open_for_agent(
-            TerminalTab("Claude", cwd=str(worktree_path), command=describe(command)),
-            install_cmd,
-        )
+    """Start the agent or shell for a prepared ``mael add`` worktree.
 
-    if context == AddContext.DAEMON:
-        if no_agent:
-            return True
-        if harness == TRANSPORT_CLI:
-            if not ensure_cmux_running():
-                return True
-            return await launch_add_in_worktree(
-                worktree_path,
-                project,
-                worktree,
-                context=AddContext.CMUX,
-                harness=harness,
-                model=model,
-                execute_model=execute_model,
-            )
-        agent_id = await start_agent_in_worktree(
-            worktree_path, model=model, execute_model=execute_model
-        )
-        if agent_id:
-            _announce_started(agent_id)
-        return agent_id is not None
-
+    With no ``terminal``, ``--no-agent`` stops after the worktree, and the
+    caller refuses ``--cli`` before it gets here. Otherwise ``--no-agent`` runs
+    a subshell and ``--cli`` runs the harness in this terminal.
+    """
     if no_agent:
+        if not terminal:
+            return True
         result = subprocess.run([os.environ.get("SHELL", "/bin/sh")], cwd=worktree_path)
         return result.returncode == 0
     if harness == TRANSPORT_DAEMON:
@@ -334,47 +270,8 @@ def build_task_launch_line(
     return Command(harness_argv, env=command_env)
 
 
-def open_cmux_workspace(
-    project: str | None,
-    worktree: str | None,
-    worktree_path: Path,
-    command: ShellExpr,
-) -> bool:
-    """Open a cmux workspace that runs ``command`` in pane 0."""
-    if not (project and worktree):
-        return False
-    workspace = _worktree_workspace(project, worktree, worktree_path)
-    if workspace is None:
-        return False
-    install_cmd = load_config_or_default(worktree_path).install_cmd
-    return workspace.open_for_agent(
-        TerminalTab("Claude", cwd=str(worktree_path), command=describe(command)),
-        install_cmd or None,
-    )
-
-
-def _worktree_workspace(
-    project: str, worktree: str, worktree_path: Path
-) -> WorktreeWorkspace | None:
-    """The worktree's cmux workspace, or ``None`` outside cmux."""
-    cmux = MaelCmux.current()
-    return cmux.worktree(project, worktree, str(worktree_path)) if cmux else None
-
-
-def open_claude_workspace(
-    project: str | None,
-    worktree: str | None,
-    worktree_path: Path,
-    command: ShellExpr,
-) -> bool:
-    """Compatibility name for :func:`open_cmux_workspace`."""
-    return open_cmux_workspace(project, worktree, worktree_path, command)
-
-
 async def launch_agent_in_worktree(
     worktree_path: Path,
-    project: str | None,
-    worktree: str | None,
     permission_mode: str | None = None,
     env: dict[str, str] | None = None,
     session_id: str | None = None,
@@ -383,31 +280,15 @@ async def launch_agent_in_worktree(
     model: str | None = None,
     execute_model: str | None = None,
     prompt: str = "",
-    attach: bool = True,
 ) -> bool:
-    """Start a daemon-driven agent, then place a pane that attaches to it.
-
-    The daemon mints the agent id and the pane needs it, so this is two steps,
-    not one: a ``start`` over the daemon socket, then the existing cmux
-    placement with ``mael agent attach <id>`` as its command. Step 2 is still a
-    pure :class:`ShellExpr`, so the build/execute split this module describes
-    holds.
+    """Start a daemon-driven agent and print the command that attaches to it.
 
     ``session_id`` also rides in the agent's env as ``MAEL_TASK_SESSION_ID``,
-    exactly as :func:`build_task_launch_line` does for the pipeline.
-
-    cmux is started between the two steps, not before them: a start that fails
-    must not leave the user with a cmux app they did not have running.
+    exactly as :func:`build_task_launch_line` does for the pipeline. The
+    installer runs in the background once the agent has started.
 
     Returns False when the daemon cannot be reached or answers without an id,
-    after printing the daemon's own reason. The caller's message names cmux, so
-    without the reason here the user is sent to restart a cmux that is fine.
-    False also comes back when cmux cannot be started, and nothing is placed
-    either way — an empty pane would be worse. The agent survives that: it is
-    running, and ``mael agent attach`` reaches it.
-
-    ``attach=False`` stops after the start: no cmux, no pane. The installer
-    runs in the background, since there is no shell pane to run it.
+    after printing the daemon's own reason.
     """
     agent_id = await start_agent_in_worktree(
         worktree_path,
@@ -421,106 +302,6 @@ async def launch_agent_in_worktree(
     )
     if not agent_id:
         return False
-    if not attach:
-        start_install_async(worktree_path)
-        _announce_started(agent_id)
-        return True
-    if not ensure_cmux_running():
-        return False
-    return open_claude_workspace(
-        project,
-        worktree,
-        worktree_path,
-        Command(["mael", "agent", "attach", agent_id]),
-    )
-
-
-async def launch_claude_in_worktree(
-    worktree_path: Path,
-    project: str | None,
-    worktree: str | None,
-    task_id: str | None = None,
-    permission_mode: str | None = None,
-    env: dict[str, str] | None = None,
-    session_id: str | None = None,
-    *,
-    resume: bool = False,
-    model: str | None = None,
-    execute_model: str | None = None,
-    prompt: str = "",
-    harness: str = TRANSPORT_CLI,
-    attach: bool = True,
-) -> bool:
-    """Launch Claude for a worktree, in cmux unless ``attach=False``. True if launched.
-
-    **cmux-or-fail**: start the cmux app if it is down, then place a workspace.
-    There is no local-execvp fallback — running Claude in the current process is
-    the exclusive job of the explicit ``--here`` path, which bypasses this wrapper
-    and calls ``exec_cmd`` with ``cwd=None`` directly.
-    Returns False when cmux can't be started or the placement itself fails; the
-    caller decides what to do (roll a task back to TODO, or raise).
-
-    ``harness`` picks the runner; see ``HARNESSES``. The default ``daemon``
-    hands the whole launch to :func:`launch_agent_in_worktree`. ``prompt`` is
-    the opening prompt, which only the daemon path takes. ``attach=False``
-    also only applies there: the agent starts and no pane is placed.
-
-    On the legacy paths, with ``task_id`` (and ``project``) set, the command is
-    the ``mael task prompt <id> | claude`` pipeline; otherwise it's a plain
-    ``claude`` that just opens the worktree. ``session_id`` pins the
-    deterministic Claude session id on the task path; ``resume`` reattaches an
-    already-started session (``--resume`` vs ``--session-id``). ``model`` pins
-    the session's LLM (``claude --model``). Either way env rides inside the
-    ``ShellExpr``.
-    """
-    if harness == TRANSPORT_DAEMON:
-        # The agent start comes first. cmux is only needed for the pane, and
-        # starting the app before a launch that then fails would leave the user
-        # with a cmux they did not have running.
-        return await launch_agent_in_worktree(
-            worktree_path,
-            project,
-            worktree,
-            permission_mode=permission_mode,
-            env=env,
-            session_id=session_id,
-            resume=resume,
-            model=model,
-            execute_model=execute_model,
-            prompt=prompt,
-            attach=attach,
-        )
-    if execute_model:
-        # A CLI session has no daemon, so no `_approve_plan` and nothing to
-        # switch it. Said rather than dropped silently: the user asked for two
-        # models and would otherwise get one with no sign why.
-        click.echo(
-            f"Ignoring the execute model {execute_model!r}: a --cli session "
-            "has no daemon to switch it when the plan is approved.",
-            err=True,
-        )
-    if not ensure_cmux_running():
-        return False
-    if task_id and project:
-        command: ShellExpr = build_task_launch_line(
-            project,
-            task_id,
-            permission_mode,
-            env=env,
-            session_id=session_id,
-            resume=resume,
-            model=model,
-            harness=None,
-        )
-    else:
-        command = Command(
-            build_harness_command(
-                permission_mode,
-                session_id,
-                resume=resume,
-                model=model,
-                harness=None,
-            ),
-            env=dict(env or {}),
-        )
-    return open_claude_workspace(project, worktree, worktree_path, command)
+    start_install_async(worktree_path)
+    _announce_started(agent_id)
+    return True

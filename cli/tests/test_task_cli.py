@@ -16,8 +16,7 @@ import pytest
 from click.testing import CliRunner
 from domain_fixtures import FakeBuildRuns
 
-from mael_agent.harness_model import TRANSPORT_CLI, TRANSPORT_DAEMON
-from mael_cli import env_cli, task_cli
+from mael_cli import env_cli, task_cli, worktree_launcher
 from mael_cli.integrations.linear_cli import cmd_plan
 from mael_common.shell import describe
 from mael_domain import session_discovery
@@ -78,10 +77,9 @@ def runner() -> CliRunner:
 def launch(monkeypatch, tmp_path):
     """Stub the launch collaborators of ``_run_task``.
 
-    Returns a namespace with the mocked ``setup`` and ``session`` (the
-    worktree-placement wrapper) callables, plus ``exec`` (the --here
-    ``exec_cmd`` peer), and the worktree path the fake
-    setup returns.
+    Returns a namespace with the mocked ``setup`` and ``session`` (the daemon
+    launcher) callables, plus ``exec`` (the ``--cli`` ``exec_cmd`` peer), and
+    the worktree path the fake setup returns.
     """
     project_path = tmp_path / "proj"
     project_path.mkdir()
@@ -94,18 +92,18 @@ def launch(monkeypatch, tmp_path):
     setup = MagicMock(
         return_value=WorktreeSetup(path=wt_path, name="bravo", action="created")
     )
-    # Placement succeeds by default (True) so the task stays IN_PROGRESS; tests
+    # The start succeeds by default (True) so the task stays IN_PROGRESS; tests
     # that exercise the failure path override ``session.return_value = False``.
     # `AsyncMock`: the launcher is awaited now, and it records calls the same way.
     session = AsyncMock(return_value=True)
     exec_cmd = MagicMock()
-    ensure_cmux = MagicMock(return_value=True)
+    install = MagicMock()
     refresh = MagicMock(return_value=EnvRefresh(CopyBackResult(), changed=True))
     monkeypatch.setattr(task_cli, "setup_worktree_for_branch", setup)
     monkeypatch.setattr(env_cli, "refresh_env", refresh)
-    monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
+    monkeypatch.setattr(task_cli, "launch_agent_in_worktree", session)
     monkeypatch.setattr(task_cli, "exec_cmd", exec_cmd)
-    monkeypatch.setattr(task_cli, "ensure_cmux_running", ensure_cmux)
+    monkeypatch.setattr(task_cli, "start_install_async", install)
     # No live session for the task by default — the duplicate-launch pre-check
     # would otherwise sweep live claude processes. Patch the sweep to empty so
     # `for_session_id` finds nothing.
@@ -114,7 +112,7 @@ def launch(monkeypatch, tmp_path):
         setup=setup,
         session=session,
         exec=exec_cmd,
-        ensure_cmux=ensure_cmux,
+        install=install,
         refresh=refresh,
         wt_path=wt_path,
     )
@@ -296,7 +294,7 @@ class TestRun:
             mode="plan",
             content="do the thing",
         )
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
 
         # Core fn called with the task's stored (generated) branch. The model
@@ -309,11 +307,10 @@ class TestRun:
         # Session launched with the right task id / mode / worktree / project.
         # The prompt is produced lazily by `mael task prompt` inside the pipeline,
         # so the launcher gets the id, not the built prompt.
+        assert launch.session.call_args.args[0] == launch.wt_path
         kwargs = launch.session.call_args.kwargs
-        assert kwargs["task_id"] == t.id
         assert kwargs["permission_mode"] == "plan"
-        assert kwargs["project"] == "p"
-        assert kwargs["worktree"] == "bravo"
+        assert kwargs["env"]["MAEL_TASK_ID"] == t.id
         assert f"Running {t.id} on {t.branch}" in result.output
         assert "→ p/bravo (created)" in result.output
 
@@ -348,7 +345,7 @@ class TestRun:
         )
         launch.refresh.side_effect = OSError("boom")
         t = await model.create(store, project="p", title="Plan it")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         assert ".env not refreshed: boom" in result.output
         launch.session.assert_called_once()
@@ -357,40 +354,40 @@ class TestRun:
         self, runner, store, launch
     ):
         t = await model.create(store, project="p", title="Plan it", model="opus")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["model"] == "opus"
 
     async def test_run_without_a_model_passes_the_default(self, runner, store, launch):
         # A task that names no model launches on the default, never on "".
         t = await model.create(store, project="p", title="Plan it")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["model"] == model.DEFAULT_MODEL
 
-    async def test_run_here_passes_the_model_too(
+    async def test_run_cli_passes_the_model_too(
         self, runner, store, launch, monkeypatch
     ):
-        # The --here placement builds its own launch line, so it needs its own
+        # The --cli launch builds its own launch line, so it needs its own
         # coverage: a model set on the task must reach that argv as well.
         calls = []
         monkeypatch.setattr(
             task_cli, "exec_cmd", lambda cmd, **kw: calls.append(describe(cmd))
         )
         t = await model.create(store, project="p", title="Plan it", model="opus")
-        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
         assert result.exit_code == 0, result.output
         assert "--model opus" in calls[0]
 
-    async def test_run_rolls_back_to_todo_when_placement_fails(
+    async def test_run_rolls_back_to_todo_when_the_start_fails(
         self, runner, store, launch
     ):
-        # cmux couldn't be reached, so no session opened. A task that never
+        # The daemon did not start the agent. A task that never
         # launched must not be left in-progress: roll it back to TODO so the
         # next run retries, and log the reason.
         launch.session.return_value = False
         t = await model.create(store, project="p", title="Plan it")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", t.id)).status == model.STATUS_TODO
         assert f"Left {t.id} TODO" in result.output
@@ -444,7 +441,7 @@ class TestRun:
         )
         t = await model.create(store, project="p", title="Plan it")
 
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
 
         assert result.exit_code == 0, result.output
         assert "Push failed" in result.stderr
@@ -459,7 +456,7 @@ class TestRun:
         # create-then-run callers only.
         t = await model.create(store, project="p", title="Existing")
         monkeypatch.setattr(task_cli, "has_claude_transcript", lambda *a: True)
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         assert launch.session.call_args.kwargs["resume"] is True
         assert "(resuming)" in result.output
@@ -482,7 +479,7 @@ class TestRun:
         )
         _patch_live_sessions(monkeypatch, [])
         session = AsyncMock()
-        monkeypatch.setattr(task_cli, "launch_claude_in_worktree", session)
+        monkeypatch.setattr(task_cli, "launch_agent_in_worktree", session)
         result = runner.invoke(task_cli.task, ["run", t.id])
         assert result.exit_code != 0
         assert "not found" in result.output
@@ -516,11 +513,11 @@ class TestDuplicateLaunchPrecheck:
         launch.setup.assert_not_called()
         assert (await model.load(store, "p", t.id)).status == model.STATUS_TODO
 
-    async def test_run_here_also_refuses(self, runner, store, launch, monkeypatch):
+    async def test_run_cli_also_refuses(self, runner, store, launch, monkeypatch):
         t = await model.create(store, project="p", title="t")
         sid = model.session_id_for("p", t.id)
         _patch_live_sessions(monkeypatch, [_live_session(pid=9, session_id=sid)])
-        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
         assert result.exit_code != 0
         assert "already has a live Claude session" in result.output
         launch.exec.assert_not_called()
@@ -533,7 +530,7 @@ class TestDuplicateLaunchPrecheck:
         # re-runnable, so the guard does NOT block.
         t = await model.create(store, project="p", title="t")
         _patch_live_sessions(monkeypatch, [])
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
         assert (await model.load(store, "p", t.id)).status == model.STATUS_IN_PROGRESS
@@ -553,7 +550,7 @@ class TestDuplicateLaunchPrecheck:
             monkeypatch,
             [_live_session(pid=111, cwd=Path("/work/shared"), session_id=two_sid)],
         )
-        result = runner.invoke(task_cli.task, ["run", three.id])
+        result = runner.invoke(task_cli.task, ["run", three.id, "--daemon"])
         assert result.exit_code == 0, result.output
         launch.session.assert_called_once()
         assert (
@@ -791,7 +788,7 @@ class TestBlockTaskOptionsParity:
 class TestNextRun:
     async def test_next_run_runs_the_actionable(self, runner, store, launch):
         a = await model.create(store, project="p", title="a")
-        result = runner.invoke(task_cli.task, ["next", "--run"])
+        result = runner.invoke(task_cli.task, ["next", "--run", "--daemon"])
         assert result.exit_code == 0, result.output
         assert (await model.load(store, "p", a.id)).status == model.STATUS_IN_PROGRESS
         launch.session.assert_called_once()
@@ -803,90 +800,31 @@ class TestNextRun:
         launch.session.assert_not_called()
 
 
-class TestLaunchFromADrivenAgent:
-    """A driven agent's launches start daemon agents and place no cmux pane.
+class TestRunCli:
+    """``--cli`` prepares the worktree, then runs the harness in this shell."""
 
-    A person's launches in a plain terminal keep the CLI in a cmux pane, and so
-    does a driven agent's explicit ``--cli``.
-    """
-
-    @staticmethod
-    async def _invoke(runner, store, tmp_path, command, flags):
-        if command == "run":
-            t = await model.create(store, project="p", title="Go")
-            return runner.invoke(task_cli.task, ["run", t.id, *flags])
-        if command == "next":
-            await model.create(store, project="p", title="Go")
-            return runner.invoke(task_cli.task, ["next", "--run", *flags])
-        raise AssertionError(command)
-
-    @pytest.mark.parametrize("command", ["run", "next"])
-    @pytest.mark.parametrize(
-        ("driven", "harness", "attach"),
-        [
-            pytest.param(True, TRANSPORT_DAEMON, False, id="driven-agent"),
-            pytest.param(False, TRANSPORT_CLI, True, id="plain-terminal"),
-        ],
-    )
-    async def test_launch_transport_and_pane(
-        self,
-        runner,
-        store,
-        launch,
-        monkeypatch,
-        tmp_path,
-        command,
-        driven,
-        harness,
-        attach,
-    ):
-        if driven:
-            monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
-        result = await self._invoke(runner, store, tmp_path, command, [])
-        assert result.exit_code == 0, result.output
-        kwargs = launch.session.call_args.kwargs
-        assert (kwargs["harness"], kwargs["attach"]) == (harness, attach)
-
-    @pytest.mark.parametrize("command", ["run", "next"])
-    async def test_a_driven_agents_cli_flag_still_asks_for_the_cli(
-        self, runner, store, launch, monkeypatch, tmp_path, command
-    ):
-        # --cli is an explicit request. The CLI launcher places its pane whatever
-        # `attach` says, so only the harness carries the choice.
-        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
-        result = await self._invoke(runner, store, tmp_path, command, ["--cli"])
-        assert result.exit_code == 0, result.output
-        assert launch.session.call_args.kwargs["harness"] == TRANSPORT_CLI
-
-
-class TestRunHere:
-    async def test_run_here_skips_worktree_and_execs_in_cwd(
-        self, runner, store, launch
-    ):
+    async def test_prepares_the_worktree_and_execs_there(self, runner, store, launch):
         t = await model.create(
             store, project="p", title="Plan it", command="plan-task", mode="plan"
         )
-        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
+        # A real exec never returns, so a write placed after it never lands.
+        launch.exec.side_effect = SystemExit(0)
+        result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
         assert result.exit_code == 0, result.output
 
-        # No worktree reconciliation; the worktree-placement wrapper is unused.
-        launch.setup.assert_not_called()
+        # The worktree is set up as for a daemon launch; the daemon is unused.
+        assert launch.setup.call_args.args[2] == t.branch
         launch.session.assert_not_called()
-
-        # Task still moves to in-progress (parity with --run).
+        launch.install.assert_called_once_with(launch.wt_path)
         assert (await model.load(store, "p", t.id)).status == model.STATUS_IN_PROGRESS
 
-        # Replace-execs the launch pipeline in the current shell (cwd=None) with
-        # task env. The env rides on the ``claude`` Command (right of the pipe) so
-        # the interactive session inherits it — a front prefix would only reach
+        # Replace-execs the launch pipeline in the worktree with task env. The
+        # env rides on the ``claude`` Command (right of the pipe) so the
+        # interactive session inherits it — a front prefix would only reach
         # ``mael task prompt``.
         launch.exec.assert_called_once()
-        command = launch.exec.call_args.args[0]
-        # Orphan task self-parents, so MAEL_TASK_PARENT rides alongside the id.
-        # The deterministic --session-id pins the task's Claude session and is
-        # also exported as MAEL_TASK_SESSION_ID, the key it was launched under.
         sid = model.session_id_for("p", t.id)
-        assert describe(command) == (
+        assert describe(launch.exec.call_args.args[0]) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
             f"MAEL_TASK_SESSION_ID={sid} "
@@ -894,48 +832,134 @@ class TestRunHere:
             f"--session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs
-        assert kwargs["cwd"] is None
+        assert kwargs["cwd"] == launch.wt_path
         assert kwargs["env"]["MAEL_TASK_ID"] == t.id
-        assert kwargs["env"]["MAEL_TASK_PARENT"] == t.id
-        # exec_cmd is the exec path: calling it replaces this process.
-        launch.exec.assert_called_once()
-        assert f"Running {t.id} here (current shell)" in result.output
+        assert f"Running {t.id} on {t.branch}" in result.output
 
-    async def test_run_here_says_it_cannot_switch_the_execute_model(
-        self, runner, store, launch
+    async def test_resumes_from_the_worktrees_transcript(
+        self, runner, store, launch, monkeypatch
     ):
-        # --here runs the harness in this shell with no daemon between, so
+        # The transcript lives under the worktree the session runs in, not
+        # under the shell's cwd.
+        looked_in = []
+
+        def has_transcript(path, _sid):
+            looked_in.append(path)
+            return True
+
+        monkeypatch.setattr(task_cli, "has_claude_transcript", has_transcript)
+        t = await model.create(store, project="p", title="Existing")
+        result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
+        assert result.exit_code == 0, result.output
+        assert looked_in == [launch.wt_path]
+        assert "--resume" in describe(launch.exec.call_args.args[0])
+
+    async def test_says_it_cannot_switch_the_execute_model(self, runner, store, launch):
+        # --cli runs the harness in this shell with no daemon between, so
         # nothing performs the switch. Said rather than dropped silently: the
         # user asked for two models and would otherwise get one with no sign why.
         t = await model.create(
             store, project="p", title="Here", mode="plan", execute_model="sonnet"
         )
-        # --cli explicitly: `--here` refuses the daemon transport, which is the
-        # environment's default here.
-        result = runner.invoke(task_cli.task, ["run", t.id, "--here", "--cli"])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
         assert result.exit_code == 0, result.output
         assert "Ignoring the execute model 'sonnet'" in result.output
 
-    async def test_run_here_falls_back_to_the_legacy_runner(
-        self, runner, store, launch
-    ):
-        # --here means "run in this shell". A daemon-driven agent runs in the
-        # daemon, so the default harness has no meaning here and the launch
-        # falls back to a plain `claude` pipeline.
-        t = await model.create(store, project="p", title="Here", mode="auto")
-        result = runner.invoke(task_cli.task, ["run", t.id, "--here"])
-        assert result.exit_code == 0, result.output
-        assert "claude --permission-mode" in describe(launch.exec.call_args.args[0])
-
-    async def test_next_run_here(self, runner, store, launch):
+    async def test_next_run_cli_execs_in_the_worktree(self, runner, store, launch):
         a = await model.create(store, project="p", title="a")
-        result = runner.invoke(task_cli.task, ["next", "--run", "--here"])
+        result = runner.invoke(task_cli.task, ["next", "--run", "--cli"])
         assert result.exit_code == 0, result.output
-        launch.setup.assert_not_called()
         launch.session.assert_not_called()
         assert (await model.load(store, "p", a.id)).status == model.STATUS_IN_PROGRESS
-        assert launch.exec.call_args.kwargs["cwd"] is None
+        assert launch.exec.call_args.kwargs["cwd"] == launch.wt_path
         assert launch.exec.call_args.kwargs["env"]["MAEL_TASK_ID"] == a.id
+
+    @pytest.mark.parametrize("command", ["run", "next"])
+    async def test_a_driven_agent_refuses_cli(
+        self, runner, store, launch, monkeypatch, command
+    ):
+        # A driven agent has no terminal for the harness to run in.
+        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
+        t = await model.create(store, project="p", title="Go")
+        args = ["run", t.id] if command == "run" else ["next", "--run"]
+        result = runner.invoke(task_cli.task, [*args, "--cli"])
+        assert result.exit_code != 0
+        assert "this process has none" in result.output
+        launch.setup.assert_not_called()
+        launch.exec.assert_not_called()
+        assert (await model.load(store, "p", t.id)).status == model.STATUS_TODO
+
+    async def test_a_process_with_no_terminal_refuses_the_default(
+        self, runner, store, launch, monkeypatch
+    ):
+        # An agent's tool call outside the daemon: no MAEL_HARNESS_TYPE, so the
+        # default is --cli, but its stdin and stdout are pipes.
+        monkeypatch.setattr(worktree_launcher, "_streams_are_terminals", lambda: False)
+        t = await model.create(store, project="p", title="Go")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code != 0
+        assert "Use --daemon" in result.output
+        launch.setup.assert_not_called()
+        launch.exec.assert_not_called()
+
+    async def test_a_driven_agent_launches_on_the_daemon(
+        self, runner, store, launch, monkeypatch
+    ):
+        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
+        t = await model.create(store, project="p", title="Go")
+        result = runner.invoke(task_cli.task, ["run", t.id])
+        assert result.exit_code == 0, result.output
+        launch.session.assert_called_once()
+        launch.exec.assert_not_called()
+
+    def test_here_is_removed(self, runner, store, launch):
+        result = runner.invoke(task_cli.task, ["run", "x", "--here"])
+        assert result.exit_code == 2
+        assert "--here was removed; --cli runs in this shell." in result.output
+
+
+class TestAddRunCli:
+    """``task add --run --cli`` makes the task on the server, then runs it here."""
+
+    @pytest.fixture
+    def server(self, monkeypatch):
+        """A stand-in orchestrator that answers the create with ``taskId``."""
+        client = MagicMock()
+        monkeypatch.setattr(task_cli.OrchestratorClient, "from_config", lambda: client)
+        monkeypatch.setattr(task_cli, "_wait_for_operation", MagicMock())
+        return client
+
+    async def test_runs_the_new_task_in_its_worktree(
+        self, runner, store, launch, server
+    ):
+        t = await model.create(store, project="p", title="New")
+        server.post.return_value = {"taskId": f"p/{t.id}", "operationId": "op-1"}
+        result = runner.invoke(
+            task_cli.task, ["add", "New", "-p", "p", "--run", "--cli"]
+        )
+        assert result.exit_code == 0, result.output
+        # The server only creates it: the launch runs in this shell.
+        assert "launch" not in server.post.call_args.args[1]
+        launch.session.assert_not_called()
+        assert launch.exec.call_args.kwargs["cwd"] == launch.wt_path
+        assert "--session-id" in describe(launch.exec.call_args.args[0])
+
+    @pytest.mark.parametrize(
+        ("args", "env", "message"),
+        [
+            (["--cli"], None, "--cli and --daemon need --run"),
+            (["--run", "--cli"], "daemon", "this process has none"),
+        ],
+    )
+    def test_refuses_before_it_makes_the_task(
+        self, runner, launch, server, monkeypatch, args, env, message
+    ):
+        if env:
+            monkeypatch.setenv("MAEL_HARNESS_TYPE", env)
+        result = runner.invoke(task_cli.task, ["add", "New", "-p", "p", *args])
+        assert result.exit_code != 0
+        assert message in result.output
+        server.post.assert_not_called()
 
 
 class TestPrompt:
@@ -1142,7 +1166,7 @@ class TestEnvThreading:
             store, project="p", title="Parent task", parent="linear.ME-1"
         )
         t = await model.create(store, project="p", title="Child", parent="linear.ME-1")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         env = launch.session.call_args.kwargs["env"]
         assert env["MAEL_TASK_ID"] == t.id
@@ -1152,7 +1176,7 @@ class TestEnvThreading:
         # A parentless task self-parents so the chain it emits nests under it
         # and shares its branch, rather than each child becoming a fresh orphan.
         t = await model.create(store, project="p", title="Orphan")
-        result = runner.invoke(task_cli.task, ["run", t.id])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--daemon"])
         assert result.exit_code == 0, result.output
         env = launch.session.call_args.kwargs["env"]
         assert env["MAEL_TASK_ID"] == t.id
@@ -1336,44 +1360,21 @@ class TestAddScheduled:
         assert env["MAEL_TASK_ID"] == "maintenance.2026-06-18"
         assert env["MAEL_TASK_PARENT"] == "maintenance.2026-06-18"
 
-    @pytest.mark.parametrize(
-        ("flags", "harness", "attach", "cmux_starts"),
-        [
-            ([], TRANSPORT_DAEMON, False, 0),
-            (["--cli"], TRANSPORT_CLI, True, 1),
-        ],
-        ids=["daemon-default", "cli"],
-    )
-    async def test_run_attempts_every_due_run_on_its_harness(
-        self,
-        runner,
-        store,
-        monkeypatch,
-        launch,
-        frozen_now,
-        flags,
-        harness,
-        attach,
-        cmux_starts,
+    async def test_run_attempts_every_due_run_on_the_daemon(
+        self, runner, store, monkeypatch, launch, frozen_now
     ):
         # Two due templates fire in one --run pass, and BOTH runs are attempted.
-        # The env names the CLI, to prove the daemon default ignores it.
+        # The env names the CLI, to prove the daemon ignores it.
         monkeypatch.setenv("MAEL_HARNESS_TYPE", "cli")
         for tmpl_id in ("maint-a", "maint-b"):
             await _make_template(store, id=tmpl_id)
-        result = runner.invoke(
-            task_cli.task, ["add-scheduled", "-p", "p", "--run", *flags]
-        )
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
         assert result.exit_code == 0, result.output
-        assert launch.ensure_cmux.call_count == cmux_starts
         launched = sorted(
-            (c.kwargs["task_id"], c.kwargs["harness"], c.kwargs["attach"])
-            for c in launch.session.call_args_list
+            c.kwargs["env"]["MAEL_TASK_ID"] for c in launch.session.call_args_list
         )
-        assert launched == [
-            ("maint-a.2026-06-18", harness, attach),
-            ("maint-b.2026-06-18", harness, attach),
-        ]
+        assert launched == ["maint-a.2026-06-18", "maint-b.2026-06-18"]
+        launch.exec.assert_not_called()
 
     async def test_a_refused_run_does_not_abandon_the_next(
         self, runner, store, launch, frozen_now
@@ -1385,36 +1386,24 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p", "--run"])
         assert result.exit_code == 0, result.output
         assert "warning: maint-a.2026-06-18" in result.output
-        launched = [c.kwargs["task_id"] for c in launch.session.call_args_list]
+        launched = [
+            c.kwargs["env"]["MAEL_TASK_ID"] for c in launch.session.call_args_list
+        ]
         assert launched == ["maint-b.2026-06-18"]
 
-    @pytest.mark.parametrize(
-        ("flags", "message"),
-        [
-            (["--cli", "--daemon"], "--cli conflicts with --daemon"),
-            (["--here", "--daemon"], "--here cannot use --daemon"),
-        ],
-    )
-    def test_conflicting_harness_flags_are_refused(
-        self, runner, store, launch, flags, message
-    ):
+    def test_conflicting_harness_flags_are_refused(self, runner, store, launch):
         result = runner.invoke(
-            task_cli.task, ["add-scheduled", "-p", "p", "--run", *flags]
+            task_cli.task, ["add-scheduled", "-p", "p", "--run", "--cli", "--daemon"]
         )
         assert result.exit_code != 0
-        assert message in result.output
+        assert "--cli conflicts with --daemon" in result.output
         launch.session.assert_not_called()
 
-    async def test_here_run_still_execs_and_skips_ensure_cmux(
-        self, runner, store, launch, frozen_now
-    ):
-        # `--run --here` runs Claude in the current shell (execvp), so it must
-        # NOT start the cmux app and NOT go through the workspace launcher.
-        await _make_template(store)
+    def test_run_cli_is_refused(self, runner, store, launch):
+        # --run can fire several runs, and a --cli exec runs only one.
         result = runner.invoke(
-            task_cli.task, ["add-scheduled", "-p", "p", "--run", "--here"]
+            task_cli.task, ["add-scheduled", "-p", "p", "--run", "--cli"]
         )
-        assert result.exit_code == 0, result.output
-        launch.ensure_cmux.assert_not_called()
+        assert result.exit_code != 0
+        assert "--cli runs one in this shell" in result.output
         launch.session.assert_not_called()
-        launch.exec.assert_called_once()

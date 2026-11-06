@@ -1,7 +1,7 @@
 """What a task launch settles before anything runs.
 
 The model half of launching a task, shared by ``mael task run`` (which then
-places a session in cmux or the current shell) and the orchestrator server
+starts a daemon agent or runs the CLI in the current shell) and the orchestrator server
 (which then asks the agent host to start an agent). Both derive the same
 session id, environment, permission mode, branch and prompt from the task,
 and refuse for the same two reasons: a live session already holds the task,

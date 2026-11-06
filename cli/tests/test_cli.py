@@ -40,8 +40,8 @@ class TestNonProductionWarning:
         monkeypatch.delenv("MAEL_PRODUCTION")
         monkeypatch.setenv("MAEL_AGENT_ROOT", "/tmp/agent")
         monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", "/tmp/notebook")
-        with patch("mael_cli.cli.ensure_cmux_running", return_value=True):
-            result = CliRunner().invoke(cli, ["cmux", "status"])
+        with patch("mael_cli.cli._read_worktrees", return_value=([], [])):
+            result = CliRunner().invoke(cli, ["list-all"])
 
         assert result.exit_code == 0, result.output
         assert result.stderr == (
@@ -50,8 +50,8 @@ class TestNonProductionWarning:
         )
 
     def test_production_commands_do_not_warn(self):
-        with patch("mael_cli.cli.ensure_cmux_running", return_value=True):
-            result = CliRunner().invoke(cli, ["cmux", "status"])
+        with patch("mael_cli.cli._read_worktrees", return_value=([], [])):
+            result = CliRunner().invoke(cli, ["list-all"])
 
         assert result.exit_code == 0, result.output
         assert "non-production" not in result.output
@@ -670,9 +670,6 @@ class TestCmdAddRecycle:
         closed_wt = MagicMock(path=worktree_path)
 
         stack.enter_context(patch("mael_cli.cli.resolve_context", return_value=ctx))
-        stack.enter_context(
-            patch("mael_cli.cli.detect_add_context", return_value="regular")
-        )
         # The recycle collaborators now run inside worktree.setup_worktree_for_branch.
         stack.enter_context(
             patch(
@@ -719,9 +716,6 @@ class TestCmdAddRecycle:
                 "mael_cli.cli.extract_worktree_name_from_folder",
                 return_value="bravo",
             )
-        )
-        stack.enter_context(
-            patch("mael_cli.cli.detect_add_context", return_value="regular")
         )
         stack.enter_context(patch("mael_cli.cli.launch_add_in_worktree"))
 
@@ -772,11 +766,6 @@ class TestCmdAddRecycle:
                     new_state=new_state,
                 ),
             )
-            ensure_browser = stack.enter_context(
-                patch(
-                    "mael_cli.env_cli.ensure_cmux_browser",
-                )
-            )
             print_status = stack.enter_context(
                 patch(
                     "mael_cli.env_cli.print_service_status",
@@ -788,7 +777,6 @@ class TestCmdAddRecycle:
             assert result.exit_code == 0, result.output
             assert "web (pid 100): stopped" in result.output
             assert "Environment stopped for proj/bravo." in result.output
-            ensure_browser.assert_called_once_with(new_state, project_path, "bravo")
             print_status.assert_called_once_with("proj", "bravo", project_path)
 
     def test_recycle_refuses_when_the_refresh_fails(self, tmp_path):
@@ -825,8 +813,7 @@ class TestCmdAddExistingBranch:
     def _setup(self, stack, tmp_path, existing=True):
         """Patch cmd_add so an existing worktree is (or isn't) found.
 
-        cmd_add defers cmux placement to launch_claude_in_worktree (mocked
-        here), so the cmux layers are never reached and need no patching.
+        cmd_add defers the launch to launch_add_in_worktree (mocked here).
         Returns (existing_wt_path, mocks dict).
         """
         project_path = tmp_path / "proj"
@@ -842,11 +829,8 @@ class TestCmdAddExistingBranch:
         )
 
         stack.enter_context(patch("mael_cli.cli.resolve_context", return_value=ctx))
-        stack.enter_context(
-            patch("mael_cli.cli.detect_add_context", return_value="regular")
-        )
-        # cmd_add now defers entirely to the shared launcher for reuse: it always
-        # calls setup_worktree_for_branch (the core fn) then launch_claude_in_worktree.
+        # cmd_add always calls setup_worktree_for_branch (the core fn), then
+        # launch_add_in_worktree.
         # The core fn reads find_worktree_by_branch / extract_worktree_name_from_folder
         # from the worktree namespace.
         stack.enter_context(
@@ -938,12 +922,7 @@ class TestCmdAddExistingBranch:
             mocks["launch_add_in_worktree"].assert_called_once()
 
     def test_existing_worktree_reuses_via_launcher(self, tmp_path):
-        """Existing worktree → reused (no git touch); the launcher places it.
-
-        Reuse-as-tab now lives entirely in the shared launcher
-        (launch_claude_in_worktree), so cmd_add just hands the reused worktree
-        to it — it never touches git/install itself.
-        """
+        """Existing worktree → reused (no git touch); the launcher starts it."""
         from contextlib import ExitStack
 
         with ExitStack() as stack:
@@ -954,9 +933,7 @@ class TestCmdAddExistingBranch:
 
             mocks["launch_add_in_worktree"].assert_called_once_with(
                 existing_wt,
-                "proj",
-                "bravo",
-                context="regular",
+                terminal=True,
                 harness="cli",
                 model=None,
                 execute_model=None,
@@ -966,27 +943,19 @@ class TestCmdAddExistingBranch:
             # cmd_add no longer runs install itself; the launcher owns it.
             mocks["run_install_cmd"].assert_not_called()
 
-    def test_not_in_cmux_starts_session(self, tmp_path):
-        """Not in cmux + existing worktree → reused, no create_worktree."""
+    def test_a_driven_agent_refuses_cli(self, tmp_path, monkeypatch):
+        """A driven agent has no terminal to run the CLI in."""
         from contextlib import ExitStack
 
+        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
         with ExitStack() as stack:
-            existing_wt, mocks = self._setup(stack, tmp_path)
+            _, mocks = self._setup(stack, tmp_path, existing=False)
 
-            result = CliRunner().invoke(cli, ["add", "feat-x"])
-            assert result.exit_code == 0, result.output
-
-            mocks["launch_add_in_worktree"].assert_called_once_with(
-                existing_wt,
-                "proj",
-                "bravo",
-                context="regular",
-                harness="cli",
-                model=None,
-                execute_model=None,
-                no_agent=False,
-            )
+            result = CliRunner().invoke(cli, ["add", "feat-x", "--cli"])
+            assert result.exit_code == 2
+            assert "this process has none" in result.output
             mocks["create_worktree"].assert_not_called()
+            mocks["launch_add_in_worktree"].assert_not_called()
 
     def test_no_existing_worktree_creates(self, tmp_path):
         """No existing worktree → falls through to the create path (regression)."""
@@ -1037,9 +1006,6 @@ class TestCmdAddSync:
                 )
             )
             stack.enter_context(patch("mael_cli.cli.get_app_url", return_value=None))
-            stack.enter_context(
-                patch("mael_cli.cli.detect_add_context", return_value="regular")
-            )
             launch = stack.enter_context(patch("mael_cli.cli.launch_add_in_worktree"))
             result = CliRunner().invoke(cli, ["add", "feat-x"])
         return result, launch
@@ -1311,26 +1277,6 @@ class TestCmdSyncAutorepair:
         assert "Starting autorepair" in result.output
 
 
-class TestCmuxStatus:
-    """`mael cmux status` reports whether ensure_cmux_running succeeds."""
-
-    def test_ok_when_cmux_reachable(self):
-        with (
-            patch("mael_cli.cli.ensure_cmux_running", return_value=True),
-            patch.dict(os.environ, {"CMUX_SOCKET_PATH": "/tmp/c.sock"}),
-        ):
-            result = CliRunner().invoke(cli, ["cmux", "status"])
-            assert result.exit_code == 0, result.output
-            assert "cmux OK" in result.output
-            assert "/tmp/c.sock" in result.output
-
-    def test_errors_when_cmux_unreachable(self):
-        with patch("mael_cli.cli.ensure_cmux_running", return_value=False):
-            result = CliRunner().invoke(cli, ["cmux", "status"])
-            assert result.exit_code != 0
-            assert "not reachable" in result.output
-
-
 class TestProjectAdd:
     """Tests for `mael project add`."""
 
@@ -1507,8 +1453,8 @@ class TestCreateProjectIntegration:
 
         launched = {}
 
-        def fake_launch(path, project=None, worktree=None, **kwargs):
-            launched.update(path=path, project=project, worktree=worktree)
+        def fake_launch(path, **kwargs):
+            launched.update(path=path)
             return True
 
         config = MagicMock(projects_dir=projects, open_command="code")
@@ -1516,7 +1462,6 @@ class TestCreateProjectIntegration:
             patch("mael_cli.cli.load_global_config", return_value=config),
             patch("mael_domain.context.load_global_config", return_value=config),
             patch("mael_cli.cli.create_project_repo", return_value=str(upstream)),
-            patch("mael_cli.cli.detect_add_context", return_value="regular"),
             patch("mael_cli.cli.launch_add_in_worktree", side_effect=fake_launch),
             patch("mael_cli.cli.start_install_async", return_value=False),
         ):
@@ -1541,8 +1486,7 @@ class TestCreateProjectIntegration:
             text=True,
         ).stdout.strip()
         assert branch == "feat/start-project"
-        assert launched["project"] == "demo"
-        assert launched["worktree"] == "alpha"
+        assert launched["path"] == alpha
 
     def test_the_worktree_carries_the_seed_and_generated_files(self, tmp_path):
         _, projects, _ = self._run(tmp_path)
@@ -1583,7 +1527,7 @@ class TestCreateProjectIntegration:
         assert result.exit_code == 0, result.output
         assert (projects / "other").exists()
         assert str(projects / "other" / "other-alpha") in result.output
-        assert launched["project"] == "other"
+        assert launched["path"] == projects / "other" / "other-alpha"
         assert (projects / "other" / "other-alpha").exists()
 
 
@@ -1872,9 +1816,6 @@ class TestAddHarness:
                         path=project_path / "proj-bravo", name="bravo", action="created"
                     ),
                 )
-            )
-            stack.enter_context(
-                patch("mael_cli.cli.detect_add_context", return_value="regular")
             )
             launch = stack.enter_context(patch("mael_cli.cli.launch_add_in_worktree"))
             launch.return_value = True

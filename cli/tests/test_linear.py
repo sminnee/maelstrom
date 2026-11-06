@@ -192,6 +192,18 @@ class TestCmdPlan:
         assert result.exit_code == 0, result.output
         assert mock_add.call_args.kwargs["execute_model"] == "sonnet"
 
+    @patch("mael_domain.integrations.linear.get_issue")
+    @patch("mael_cli.task_cli.add_task")
+    def test_plan_forwards_cli(self, mock_add, mock_get):
+        mock_get.return_value = {
+            "identifier": "NORT-1",
+            "title": "T",
+            "description": "",
+        }
+        result = ThreadedCliRunner().invoke(linear, ["plan", "NORT-1", "--cli"])
+        assert result.exit_code == 0, result.output
+        assert mock_add.call_args.kwargs["cli"] is True
+
 
 class TestCmdCreateTask:
     """Tests for cmd_create_task command."""
