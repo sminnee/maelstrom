@@ -24,6 +24,11 @@ GLOBAL_CONFIG_FILENAME = "config.yaml"
 UPDATE_CHANNELS = ("stable", "main")
 UPDATE_CHANNEL_KEY = "update_channel"
 
+#: The installed orchestrator's port. It is the port `_main`'s env-managed
+#: orchestrator had (`main_port_base: 277`, index 2), so bookmarks and clients
+#: that dial it keep working.
+PRODUCTION_ORCHESTRATOR_PORT = 2772
+
 
 #: A bare host name or IPv4 address: no scheme, port, path or whitespace.
 _HOST_NAME = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?")
@@ -56,7 +61,8 @@ class GlobalConfig:
     #: Serve dev envs over HTTPS with a tailnet certificate. Needs ``dev_host``.
     dev_https: bool = False
     #: The orchestrator server the thin CLI commands call, such as
-    #: ``https://host:3220``. ``None`` means those commands refuse.
+    #: ``https://host:3220``. ``None`` means those commands refuse. Production
+    #: derives it: see :attr:`derived_orchestrator_url`.
     orchestrator_url: str | None = None
     linear_api_key: str | None = None
     sentry_api_key: str | None = None
@@ -84,6 +90,11 @@ class GlobalConfig:
     def dev_scheme(self) -> str:
         """``https`` when dev envs serve TLS, else ``http``."""
         return "https" if self.tls_host else "http"
+
+    @property
+    def derived_orchestrator_url(self) -> str:
+        """The installed orchestrator's URL: the dev host and scheme, on its port."""
+        return f"{self.dev_scheme}://{self.url_host}:{PRODUCTION_ORCHESTRATOR_PORT}"
 
     @classmethod
     def default(cls) -> "GlobalConfig":
@@ -206,7 +217,8 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
     There are two cases:
 
     - **Production**: the root is ``~/.maelstrom/state``. The config is
-      ``~/.maelstrom/config.yaml``, and nothing else.
+      ``~/.maelstrom/config.yaml``, and nothing else. ``orchestrator_url`` is
+      not read: it is derived from ``dev_host`` and ``dev_https``.
     - **A dev environment**: any other root, such as
       ``~/.maelstrom/playpen/kilo``. Its own ``config.yaml``, if it has one,
       overlays the production file key by key. ``orchestrator_url`` comes from
@@ -219,7 +231,9 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
     if root_dir is None:
         return GlobalConfig.from_dict({**production, "orchestrator_url": None})
     if is_production_root(root_dir):
-        return GlobalConfig.from_dict(production)
+        config = GlobalConfig.from_dict({**production, "orchestrator_url": None})
+        config.orchestrator_url = config.derived_orchestrator_url
+        return config
     dev_env = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
     return GlobalConfig.from_dict({**production, "orchestrator_url": None, **dev_env})
 

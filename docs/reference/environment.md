@@ -178,7 +178,7 @@ that lack the key.
 | `MAEL_REPO_URL` | `https://github.com/sminnee/maelstrom.git` | The repo `install-main.sh` clones, such as a fork. |
 | `MAEL_PRODUCTION` | — | Suppresses the non-production environment warning. The PATH `mael` shim, which `mael self setup` writes, sets it, and so do the host services. Worktree `uv run mael` commands leave it unset and print their agent daemon root and State database root. |
 | `ORCHESTRATOR_URL` | `http://localhost:8765` | Where the web dev server proxies `/api` to: the orchestrator's REST routes and its per-agent sockets. Read by `vite.config.ts`, which also passes its port to the dev bundle as `VITE_ORCHESTRATOR_PORT` for the change stream — see [orchestrator-ui.md](../dev/orchestrator-ui.md). |
-| `ORCHESTRATOR_PORT` | — | The port this worktree's orchestrator serves on, allocated into its `.env`. To point `mael` at a server, set the global `orchestrator_url:`. See [configuration.md](configuration.md). |
+| `ORCHESTRATOR_PORT` | — | The port this worktree's orchestrator serves on, allocated into its `.env`. To point `mael` at it, set `orchestrator_url:` in the worktree's notebook root `config.yaml`. See [configuration.md](configuration.md). |
 | `EDITOR` | `vi` | Editor for `mael task edit` and `mael task add --edit`. |
 | `TMPDIR` | system temp | Scratch directory for artifact downloads. |
 

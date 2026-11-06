@@ -298,9 +298,9 @@ uptimerobot:
 |---|---|---|---|
 | `projects_dir` | path | `~/Projects` | Base directory for projects. `~` expands. `install.sh` writes it from `--projects-dir`, or asks for it when it is unset. Without a terminal, it writes `~/Projects`. |
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
-| `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
-| `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Run `mael env reset` in a worktree after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
-| `orchestrator_url` | string | set by `mael self setup` | The URL of the orchestrator server on this machine, such as `https://desk.tailnet.ts.net:2772`. For production, read from `~/.maelstrom/config.yaml`. A dev environment reads it only from its own notebook root's `config.yaml`; see below. When it is unset, `mael self setup` writes it to `~/.maelstrom/config.yaml`. The host is `dev_host:`, else this machine's tailnet name, else `localhost`. The scheme is `https` only when `dev_https:` is on and the dev certificate names that host. The port is 2772. Setup leaves a value you set alone. On each setup, the `orchestrator` host service binds to the URL's port: on `127.0.0.1` for `localhost`, else on `0.0.0.0`, with TLS for `https`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no value, or with no server on it, these commands fail. Restart the server with `mael self restart orchestrator`. The client does not verify the server's TLS certificate. |
+| `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. The installed orchestrator also listens on this host; run `mael self setup` after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
+| `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Under it, the installed orchestrator serves TLS on the dev host, and `mael self setup` renews the certificate. Run `mael env reset` in a worktree, and `mael self setup`, after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
+| `orchestrator_url` | string | — | The URL of a dev environment's orchestrator server, in that environment's own notebook root `config.yaml`; see below. Production does not read it from `~/.maelstrom/config.yaml`: it derives the URL from `dev_host:` and `dev_https:`, as `https://desk.tailnet.ts.net:2772` or `http://localhost:2772`. The port is 2772. `mael self setup` deletes a stored value. The installed orchestrator serves plain HTTP on `127.0.0.1:2772`, and, with `dev_host:` set, a second listener on the dev host's addresses, with TLS under `dev_https:`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no server on it, these commands fail. Restart the server with `mael self restart orchestrator`. The client does not verify the server's TLS certificate. |
 | `service_path` | string | set by `mael self setup` | The `PATH` of the host services and the scheduler. Read from `~/.maelstrom/config.yaml`. The first setup writes it: `~/.local/bin`, then the `PATH` setup ran with, less any venv `bin`, then the system directories. Later setups reuse it, so a setup from another shell restarts nothing. Edit it to change the units' `PATH`, then run `mael self setup`. |
 | `update_channel` | string | `stable` | Where `mael self update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self update --channel` writes this line and keeps the rest of the file. `install-main.sh` writes `main`. |
 | `linear.api_key` | string | — | Linear API key. |
@@ -350,15 +350,11 @@ directory such as `~/.maelstrom/playpen/kilo` for a dev environment. The root ho
 `~/.maelstrom/config.yaml`. A dev environment's root can hold a `config.yaml` that overlays the
 global file. Each key it sets replaces the global key, and the other keys stay.
 
-`orchestrator_url:` is the exception. It names the server of one notebook. For production, the
-global file names it, and `mael self setup` writes it there. A dev environment reads it from its
-own notebook root's `config.yaml` alone. A dev environment with no `config.yaml` of its own has no
-server, and the `mael task` commands that call one fail. They never reach the production server.
-
-```yaml
-# ~/.maelstrom/config.yaml
-orchestrator_url: https://desk.tailnet.ts.net:2772   # written by mael self setup
-```
+`orchestrator_url:` is the exception. It names the server of one notebook. Production derives
+it from `dev_host:` and `dev_https:`, and does not read the key. A dev environment reads it from
+its own notebook root's `config.yaml` alone. A dev environment with no `config.yaml` of its own
+has no server, and the `mael task` commands that call one fail. They never reach the production
+server.
 
 ```yaml
 # ~/.maelstrom/playpen/kilo/config.yaml

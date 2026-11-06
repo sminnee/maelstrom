@@ -432,7 +432,7 @@ main() {
   export MAEL_PRODUCTION=1
   # A source install ran the check before the build.
   if [ "$first" = 1 ] && [ -z "$source" ]; then
-    # Setup writes orchestrator_url: from dev_host:, which the check sets. Its
+    # Setup binds the orchestrator from dev_host:, which the check sets. Its
     # exit code is ignored: the host services start without gh or codex.
     set -- self check-host
     if has_tty; then

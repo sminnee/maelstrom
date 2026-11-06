@@ -91,7 +91,7 @@ fails the setup.
 |---|---|
 | Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. The installer writes the key, so this asks only on a host whose key was removed after the install, when stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
-| Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
+| Migrate | Migrates `state/state.db`, moves `service_path:` up from an older `state/config.yaml` and writes it when it is unset, and deletes a stored `orchestrator_url:`. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
 | Integrate | The Claude sandbox exclusions, then the plugins (see [Skills and plugins](#skills-and-plugins)), then `harden_global_config` |
 | Shim | Writes `~/.local/bin/mael` |
 | Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |
@@ -108,18 +108,25 @@ both.
 
 ### The orchestrator URL
 
-Clients dial `orchestrator_url:` from `~/.maelstrom/config.yaml`. For the production root,
-`~/.maelstrom/state`, `load_config_at()` reads that file alone: the root holds only the notebook.
-For every other notebook root it drops the global key, so a dev environment never reaches the
-real server. Setup moves `orchestrator_url:` and `service_path:` from an older
-`~/.maelstrom/state/config.yaml` up, and names anything else left in that file. It writes a
-default URL when there is none.
-[configuration.md](../reference/configuration.md) gives the rules for the default and the bind.
-`ORCHESTRATOR_DEFAULT_PORT` in `setup.py` holds the port.
+The production URL is derived, not stored: `GlobalConfig.derived_orchestrator_url` builds it
+from `dev_host:` and `dev_https:`, on `PRODUCTION_ORCHESTRATOR_PORT` (2772). For the production
+root, `~/.maelstrom/state`, `load_config_at()` reads `~/.maelstrom/config.yaml` alone, ignores an
+`orchestrator_url:` in it, and sets the derived URL. For every other notebook root it drops the
+global key, so a dev environment never reaches the real server. Setup deletes a stored
+`orchestrator_url:`, which an older setup wrote. When the stored value differs from the derived
+one, setup prints both.
 
-Setup writes the key once, so a client never calls `tailscale` on each command. Each setup reads
-the key back and renders the orchestrator unit's `--host`, `--port` and TLS variables from it.
-The last line of setup names the URL.
+One pair of keys drives both the clients and the unit, so the two cannot drift. Each setup
+renders the orchestrator unit from the same config:
+
+- `--host 127.0.0.1`: plain HTTP on loopback, always.
+- `--public-host <dev_host:>`, when `dev_host:` is set: a second listener on the addresses the
+  name resolves to.
+- `DEV_TLS_CERT` and `DEV_TLS_KEY` under `dev_https:`. They apply to the public listener only.
+
+Under `dev_https:`, setup also runs `tailscale cert`, which renews the dev certificate when fewer
+than 30 days remain. A changed certificate restarts the orchestrator, which reads it only at
+start. A failed issue is a warning, and setup goes on. The last line of setup names the URL.
 
 ### The production environment
 
@@ -159,9 +166,9 @@ in the list.
 | `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
 | `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |
 
-**The check runs before setup.** Setup writes `orchestrator_url:` once, from `dev_host:` and
-`dev_https:`. The check sets those two keys, so it must come first. A `dev_host:` set after setup
-does not change the URL: the check names the key to edit.
+**The check runs before setup.** Setup renders the orchestrator unit from `dev_host:` and
+`dev_https:`, and the check sets those two keys, so it must come first. A key set after setup
+takes effect at the next `mael self setup`.
 
 **Tools are probed on the host services' PATH**, `agent_path()`. The question is whether the
 agents find a tool. `cmd_check_host` also puts that PATH in its own environment, so a step finds
