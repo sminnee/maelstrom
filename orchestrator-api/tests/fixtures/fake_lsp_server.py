@@ -11,15 +11,22 @@ character, and sends a notification with one before each definition answer.
 ``textDocument/definition``, with ``{root}`` replaced by the ``rootUri``.
 ``references`` is the answer to every ``textDocument/references``, the same
 way, or a JSON-RPC error with ``references_error``. ``document_symbol`` maps a file name to its ``textDocument/documentSymbol``
-answer, ``[]`` by default; a file named in ``symbol_error`` gets a JSON-RPC
+answer, ``[]`` by default, and ``[]`` for a file not open, as tsserver does; a file named in ``symbol_error`` gets a JSON-RPC
 error instead. With ``crash_on: n``, the n-th definition request crashes the server, as the
 method ``fake/crash`` does: it writes to stderr and exits. The method
 ``fake/garbage`` answers with a frame that holds no JSON object, and the
-server stays up.
+server stays up. The notifications ``fake/load`` and ``fake/loaded`` send the
+``begin`` and the ``end`` of a work-done progress, as tsserver does for its
+project load.
+
+With ``load_secs: s``, the fake loads a project as tsserver does: the first
+``didOpen`` sends a progress ``begin``, and its ``end`` follows ``s`` seconds
+later. Until the ``end``, ``references`` answers ``[]``.
 """
 
 import json
 import sys
+import threading
 import time
 
 reader = sys.stdin.buffer
@@ -28,6 +35,10 @@ log_path, replies_path = sys.argv[1], sys.argv[2]
 root = ""
 next_id = 0
 definitions = 0
+opened = set()
+loading = None
+loaded = threading.Event()
+sending = threading.Lock()
 
 
 def read_message():
@@ -49,6 +60,11 @@ def read_message():
 
 
 def send(message):
+    with sending:
+        _send(message)
+
+
+def _send(message):
     body = json.dumps({"jsonrpc": "2.0", **message}, ensure_ascii=False).encode()
     frame = b"Content-Length: %d\r\n\r\n" % len(body) + body
     # Cut inside the first multibyte character, else in the middle of the body.
@@ -111,18 +127,50 @@ while True:
         answer = json.dumps(replies().get("definition")).replace("{root}", root)
         send({"id": message["id"], "result": json.loads(answer)})
     elif method == "textDocument/references":
+        if (
+            load_secs := replies().get("load_secs")
+        ) is not None and not loaded.is_set():
+            send({"id": message["id"], "result": []})
+            continue
         if replies().get("references_error"):
             send({"id": message["id"], "error": {"code": -32603, "message": "no"}})
             continue
         answer = json.dumps(replies().get("references")).replace("{root}", root)
         send({"id": message["id"], "result": json.loads(answer)})
+    elif method == "textDocument/didOpen":
+        opened.add(message["params"]["textDocument"]["uri"])
+        if loading is None and (load_secs := replies().get("load_secs")) is not None:
+            progress = {"method": "$/progress", "params": {"token": "load"}}
+            send({**progress, "params": {"token": "load", "value": {"kind": "begin"}}})
+
+            def end():
+                loaded.set()
+                send(
+                    {**progress, "params": {"token": "load", "value": {"kind": "end"}}}
+                )
+
+            loading = threading.Timer(load_secs, end)
+            loading.start()
+    elif method == "textDocument/didClose":
+        opened.discard(message["params"]["textDocument"]["uri"])
     elif method == "textDocument/documentSymbol":
-        name = message["params"]["textDocument"]["uri"].rsplit("/", 1)[-1]
-        if name in (replies().get("symbol_error") or []):
+        uri = message["params"]["textDocument"]["uri"]
+        name = uri.rsplit("/", 1)[-1]
+        if uri not in opened:
+            send({"id": message["id"], "result": []})
+        elif name in (replies().get("symbol_error") or []):
             send({"id": message["id"], "error": {"code": -32603, "message": "no"}})
         else:
             symbols = (replies().get("document_symbol") or {}).get(name, [])
             send({"id": message["id"], "result": symbols})
+    elif method in ("fake/load", "fake/loaded"):
+        kind = "begin" if method == "fake/load" else "end"
+        send(
+            {
+                "method": "$/progress",
+                "params": {"token": "load", "value": {"kind": kind}},
+            }
+        )
     elif method == "fake/crash":
         crash()
     elif method == "fake/garbage":
