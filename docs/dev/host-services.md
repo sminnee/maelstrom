@@ -216,6 +216,19 @@ A component's SHA bucket holds its `depends`. A change in `common`, `agent`, `do
 `python-deps` therefore moves `orchestrator` or `agent-daemon` too. On a first install every
 component has changed, so both host services start.
 
+## Moving to another host
+
+The production state is `~/.maelstrom/state/state.db` and `~/.maelstrom/state/attachments/`.
+`mael self export` and `mael self import` move both as one **State archive**
+(`cli/src/mael_cli/self/state_archive.py`). The steps are in `docs/reference/cli.md`.
+
+The import checks the whole zip first, and the extracted database too, so a bad archive changes
+nothing. It checks the root again after the stop, because a unit can write before it stops. It extracts to
+`state/.import-<pid>/`, so each swap is a rename on one filesystem. It stops every unit,
+the scheduler too, so nothing writes during the swap. It migrates after the swap, on the real
+path, because a rung receives the database's directory as its root. A `finally` applies the
+units again, so a failed migration does not leave the host without its orchestrator.
+
 ## The `self` fence
 
 All `mael self` code is in `cli/src/mael_cli/self/`. Two import-linter contracts in
@@ -232,6 +245,7 @@ A later change can then carve `self` out into a binary of its own.
 | Suite | Seam |
 |---|---|
 | `cli/tests/test_self_cli.py` | One smoke test per `mael self` command, with a fake supervisor and a tmp home; `Setup` with fakes |
+| `cli/tests/test_state_archive.py` | Export and `Import` on real migrated SQLite files under `tmp_path`, with a fake supervisor |
 | `cli/tests/test_host_check.py` | `HostCheck` on a fake host, on both platforms |
 | `tests/test_install_main.py` | `install-main.sh` against a local repo with a stub `install.sh`; the layout passes `run_project_check`. `install.sh`'s projects-directory step, and the `check-host` order with `--source` |
 | `tests/test_release_bundle.py` (e2e) | A real bundle, installed with real uv and `--no-setup`, then served |

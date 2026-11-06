@@ -12,6 +12,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`mael self export` and `mael self import` move the state to another host.** Export writes
+  the State database and the Attachments directory to one zip while the host services run.
+  Import checks the zip, stops the host services, puts the state in place, migrates it, and
+  starts them again. `--replace` keeps the old state in `state/replaced-<time>/`.
 - **A fresh install opens on the Welcome dialog.** It shows the projects directory, the linked
   skills, the config directory, the version and whether the agent host answers. **Add your first
   project** opens Add project. Click the logo to open it again.

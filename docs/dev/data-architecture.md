@@ -88,7 +88,8 @@ Maelstrom authors the data. The write is the authoritative act, so a lost row is
 
 A canonical table needs a backup story, a versioned migration, and no recovery step that
 rebuilds it from nothing. That last rule is what separates it from a cached table, and it must
-be hard to break by accident.
+be hard to break by accident. The backup story is `mael self export`, which writes the
+**State archive**.
 
 Tasks, the desk and agents are canonical. A task's row carries its prose, not a pointer to prose
 elsewhere: splitting a row across two stores is what makes a rollback partial.
