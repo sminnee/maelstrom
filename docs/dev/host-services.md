@@ -166,6 +166,7 @@ in the list.
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
 | `GitIdentity` | Required. A global `user.name` and `user.email`. The fix asks for each, with the `gh api user` values as defaults |
+| `GitCredentials` | When gh is signed in: git's credential helper for `https://github.com` is gh's. Offers `gh auth setup-git`. A gh sign-in does not reach git by itself, and an HTTPS clone with no terminal then fails. Another helper is unmet too: macOS's `osxkeychain` default may hold nothing |
 | `DockerRunning` | With `docker` on the host: `docker info` answers. Offers `open -a Docker`, `systemctl enable --now docker`, or, for a refused socket, `usermod -aG docker` |
 | `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
 | `AgentBrowserSkill` | With `agent-browser` on the host: its skill in `~/.agents/skills` and `~/.claude/skills`, installed with the `skills` CLI |
