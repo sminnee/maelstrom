@@ -16,12 +16,14 @@ import pytest
 from mael_cli.self.host_check import HOST_TOOLS, HostCheck
 from mael_cli.self.production import Production
 from mael_domain.dev_cert import DevCertError
+from mael_domain.language_servers import LANGUAGE_SERVERS
 
 PLATFORMS = ["darwin", "linux"]
 #: A met host: every tool on the default list, and the package manager.
 BASE_TOOLS = {
     *("brew", "apt-get", "git", "gh", "uv", "claude", "lsof"),
     *("codex", "tailscale", "tangier"),
+    *(s.command[0] for s in LANGUAGE_SERVERS),
 }
 
 
@@ -205,6 +207,19 @@ def test_an_optional_tool_is_not_unmet(home):
 
     assert host.check() == []
     assert any("tangier" in q for q in host.asked)
+
+
+@pytest.mark.parametrize("platform", PLATFORMS)
+def test_each_language_server_is_an_optional_tool(home, platform):
+    host = FakeHost(home, platform=platform, answer=False)
+    host.tools -= {"pyright-langserver", "typescript-language-server", "node"}
+
+    assert host.check() == []
+    assert "pyright-langserver (optional) is missing" in host.text
+    assert "uv tool install pyright" in host.text
+    assert "typescript-language-server (optional) is missing" in host.text
+    assert "npm install -g typescript-language-server typescript" in host.text
+    assert "That needs node, which is missing too" in host.text
 
 
 def test_codex_without_node_offers_node_first(home):

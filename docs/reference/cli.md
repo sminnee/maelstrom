@@ -1421,8 +1421,9 @@ The check runs these steps in order:
 1. **Package manager.** `brew` on macOS, `apt-get` on Linux. Without Homebrew, it prints the
    Homebrew install line and skips every `brew` command.
 2. **Tools.** Required: `git`, `gh`, `uv`, `claude`, `lsof`. Optional: `codex`, `tailscale`,
-   `tangier`. For a missing tool, it prints the install command, and runs it after a yes. Codex
-   installs through npm, so a yes to `codex` without Node installs Node first.
+   `tangier`, and the language servers `pyright-langserver` and `typescript-language-server`.
+   For a missing tool, it prints the install command, and runs it after a yes. Codex and the
+   TypeScript server install through npm, so a yes to either without Node installs Node first.
 3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the

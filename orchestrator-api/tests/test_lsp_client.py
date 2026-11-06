@@ -1,5 +1,6 @@
 """The stdio LSP client, observed through a stand-in language server."""
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -50,12 +51,14 @@ async def test_the_handshake_answers_the_servers_requests_then_says_initialized(
         {"uri": fake.root.as_uri(), "name": "worktree"}
     ]
     # The symbol tree, not the flat list: a Fragment's dotted name needs it.
+    # Work-done progress: tsserver reports its project load only with it.
     assert initialize["params"]["capabilities"] == {
+        "window": {"workDoneProgress": True},
         "textDocument": {
             "definition": {"linkSupport": True},
             "references": {},
             "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
-        }
+        },
     }
     # The server's three requests, answered in order: a configuration item
     # each gets null, and the others get null.
@@ -97,6 +100,35 @@ async def test_a_definition_round_trip_reads_split_frames_with_multibyte_bodies(
         await client.stop()
 
     assert result == [{**location, "uri": f"{fake.root.as_uri()}/café.py"}]
+
+
+async def test_loaded_waits_for_the_end_of_each_load(fake):
+    client = LspClient(fake.command, fake.root)
+    try:
+        await client.start(timeout=10)
+        # tsserver loads each project of a solution-style tsconfig on its own.
+        for _project in ("app", "node"):
+            await client.notify("fake/load", None)
+            # A round trip: the fake has sent the begin before this answer.
+            await client.request("fake/ping", None, timeout=10)
+            waiting = asyncio.create_task(client.loaded(timeout=10))
+            await client.request("fake/ping", None, timeout=10)
+            assert not waiting.done()
+            await client.notify("fake/loaded", None)
+            await asyncio.wait_for(waiting, 10)
+    finally:
+        await client.stop()
+
+
+async def test_loaded_gives_up_on_a_server_that_reports_no_progress(fake):
+    client = LspClient(fake.command, fake.root)
+    try:
+        await client.start(timeout=10)
+        await client.loaded(timeout=0.01)
+        # It gives up: the next wait returns at once.
+        await asyncio.wait_for(client.loaded(timeout=60), 1)
+    finally:
+        await client.stop()
 
 
 @pytest.mark.parametrize(

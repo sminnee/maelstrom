@@ -17,6 +17,8 @@ On a first install, `mael self check-host` offers every other tool.
 | [Codex](https://github.com/openai/codex) (`codex`) | A second agent. It installs through npm, so it needs Node. | No |
 | [Tailscale](https://tailscale.com/) | Reaches the orchestrator and the dev servers from other devices, over HTTPS. | No |
 | [tangier](https://pypi.org/project/tangier/) | Runs a project's gates. | No |
+| `pyright-langserver` | Follows a name in a Python file of the Changes tab to its definition. | No |
+| `typescript-language-server` | The same for a `.ts` or `.tsx` file. It installs through npm, so it needs Node. | No |
 | [cmux](https://github.com/sminnee/cmux) | Opens a worktree's terminal from the orchestrator UI. macOS only; install it from its README. | No |
 
 A release install needs no Node and no pnpm: the bundle carries the built web UI.
