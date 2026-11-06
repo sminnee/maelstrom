@@ -79,8 +79,11 @@ LEGACY_CONFIG_FILENAME = ".maelstrom.yaml"
 
 
 def _yaml_scalar(value: str) -> str:
-    """``value`` as one YAML scalar: plain when it is a simple path, else quoted."""
-    if re.fullmatch(r"[\w./~-]+", value):
+    """``value`` as one YAML scalar: plain when it is a simple path, else quoted.
+
+    A bare ``~`` is quoted, because plain ``~`` is YAML null.
+    """
+    if value != "~" and re.fullmatch(r"[\w./~-]+", value):
         return value
     return json.dumps(value)
 
