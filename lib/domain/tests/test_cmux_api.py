@@ -1,10 +1,6 @@
 """Tests for the typed cmux API (api.py): the CLI parsing, and the fake's contract."""
 
-from unittest.mock import patch
-
-import pytest
-
-from mael_domain.cmux.api import CliCmuxApi, FakeCmux, Pane, Surface, Workspace
+from mael_domain.cmux.api import CliCmuxApi, FakeCmux, Surface, Workspace
 from mael_domain.cmux.client import RecordingCmuxClient
 
 _JSON = ("--json", "--id-format", "both")
@@ -29,27 +25,6 @@ _WORKSPACES_JSON = """{
       "selected" : false
     },
     {"title" : "no ref", "id" : "0FFABC6C-AF74-47E1-89BF-39EE7F1A0E2E"}
-  ]
-}"""
-
-_PANES_JSON = """{
-  "workspace_ref" : "workspace:79",
-  "panes" : [
-    {
-      "selected_surface_ref" : "surface:535",
-      "id" : "D4C9DDF2-8B5D-4D7F-A87D-71F27D88274A",
-      "ref" : "pane:241",
-      "index" : 1,
-      "surface_refs" : ["surface:535"]
-    },
-    {
-      "selected_surface_ref" : "surface:536",
-      "focused" : true,
-      "id" : "E1551BFA-B9A9-4E5A-863B-053B3E937AD9",
-      "ref" : "pane:240",
-      "index" : 0,
-      "surface_refs" : ["surface:534", "surface:536"]
-    }
   ]
 }"""
 
@@ -80,12 +55,6 @@ _PANELS_JSON = """{
 }"""
 
 
-@pytest.fixture(autouse=True)
-def _no_split_settle():
-    with patch("mael_domain.cmux.api.time.sleep"):
-        yield
-
-
 def _api(responses=None):
     client = RecordingCmuxClient(responses)
     return CliCmuxApi(client), client
@@ -107,26 +76,6 @@ class TestCliReads:
                 "myproject-bravo",
             ),
         ]
-
-    def test_list_panes_left_to_right(self):
-        api, _ = _api(
-            {(*_JSON, "list-panes", "--workspace", "workspace:79"): _PANES_JSON}
-        )
-        assert api.list_panes("workspace:79") == [
-            Pane("pane:240", "E1551BFA-B9A9-4E5A-863B-053B3E937AD9", 0, "surface:536"),
-            Pane("pane:241", "D4C9DDF2-8B5D-4D7F-A87D-71F27D88274A", 1, "surface:535"),
-        ]
-
-    def test_list_panes_of_the_callers_workspace(self):
-        api, client = _api()
-        api.list_panes(None)
-        assert client.calls == [(*_JSON, "list-panes")]
-
-    def test_a_pane_with_no_selected_surface_gives_its_first(self):
-        reply = '{"panes": [{"ref": "pane:1", "id": "P", "index": 0,'
-        reply += ' "surface_refs": ["surface:7", "surface:8"]}]}'
-        api, _ = _api(lambda *args: reply)
-        assert api.list_panes(None) == [Pane("pane:1", "P", 0, "surface:7")]
 
     def test_list_surfaces_in_workspace_order(self):
         api, _ = _api(
@@ -154,24 +103,15 @@ class TestCliReads:
     def test_a_failed_read_is_empty(self):
         api, _ = _api()
         assert api.list_workspaces() == []
-        assert api.list_panes("workspace:1") == []
-        assert api.list_surfaces(None) == []
-        assert api.browser_url("surface:1") is None
+        assert api.list_surfaces("workspace:1") == []
 
     def test_a_read_that_is_not_json_is_empty(self):
         api, _ = _api(lambda *args: "workspace:1  myproject-alpha")
         assert api.list_workspaces() == []
-        assert api.list_panes(None) == []
-
-    def test_browser_url(self):
-        api, _ = _api(
-            {("browser", "get-url", "--surface", "surface:5"): "http://localhost:3000"}
-        )
-        assert api.browser_url("surface:5") == "http://localhost:3000"
 
 
 class TestCliWrites:
-    """Each write sends the argv the layout has always sent."""
+    """Each write sends the argv cmux expects."""
 
     def test_new_workspace(self):
         api, client = _api({("new-workspace", "--command", "cd /wt"): "OK workspace:1"})
@@ -179,92 +119,19 @@ class TestCliWrites:
         assert api.new_workspace("cd /other") is None
         assert client.calls[0] == ("new-workspace", "--command", "cd /wt")
 
-    def test_new_surface_terminal(self):
-        api, client = _api(lambda *args: "OK surface:99 pane:0 workspace:13")
-        assert api.new_surface("terminal", "pane:0", "workspace:13") == "surface:99"
-        assert client.calls == [
-            (
-                "new-surface",
-                "--type",
-                "terminal",
-                "--pane",
-                "pane:0",
-                "--workspace",
-                "workspace:13",
-            )
-        ]
-
-    def test_new_surface_browser(self):
-        api, client = _api(lambda *args: "OK surface:200 pane:2 workspace:13")
-        assert api.new_surface("browser", "pane:2", None, url="http://x") == (
-            "surface:200"
-        )
-        assert client.calls == [
-            (
-                "new-surface",
-                "--type",
-                "browser",
-                "--pane",
-                "pane:2",
-                "--url",
-                "http://x",
-            )
-        ]
-
-    def test_new_surface_failure(self):
-        api, _ = _api()
-        assert api.new_surface("terminal", None, "workspace:1") is None
-
-    def test_send(self):
-        api, client = _api(lambda *args: "OK")
-        assert api.send("surface:9", "workspace:1", "ls\n")
-        assert api.send(None, "workspace:1", "claude\n")
-        assert client.calls == [
-            (
-                "send",
-                "--surface",
-                "surface:9",
-                "--workspace",
-                "workspace:1",
-                "--",
-                "ls\n",
-            ),
-            ("send", "--workspace", "workspace:1", "--", "claude\n"),
-        ]
-
     def test_the_other_writes(self):
         api, client = _api(lambda *args: "OK")
         assert api.rename_workspace("workspace:1", "myproject-alpha")
-        assert api.new_split("surface:5", "right", "workspace:1")
-        assert api.rename_tab("surface:5", "Claude")
-        assert api.browser_goto("surface:5", "http://x")
-        assert api.close_surface("surface:5")
+        assert api.rename_tab("surface:5", "Terminal")
         assert api.close_workspace("workspace:1")
-        assert api.select_workspace("workspace:1")
-        assert api.focus_pane("pane:0", "workspace:1")
-        assert api.focus_surface("surface:5", None)
         assert client.calls == [
             ("rename-workspace", "--workspace", "workspace:1", "myproject-alpha"),
-            (
-                "new-split",
-                "right",
-                "--surface",
-                "surface:5",
-                "--workspace",
-                "workspace:1",
-            ),
-            ("rename-tab", "--surface", "surface:5", "Claude"),
-            ("browser", "--surface", "surface:5", "goto", "http://x"),
-            ("close-surface", "--surface", "surface:5"),
+            ("rename-tab", "--surface", "surface:5", "Terminal"),
             ("close-workspace", "--workspace", "workspace:1"),
-            ("select-workspace", "--workspace", "workspace:1"),
-            ("focus-pane", "--pane", "pane:0", "--workspace", "workspace:1"),
-            ("focus-panel", "--panel", "surface:5"),
         ]
 
     def test_a_failed_write_is_false(self):
         api, _ = _api()
-        assert api.send("surface:1", None, "x") is False
         assert api.close_workspace("workspace:1") is False
 
 
@@ -275,36 +142,12 @@ class TestFakeCmux:
         cmux = FakeCmux()
         ref = cmux.new_workspace("cd /wt")
         assert ref is not None
-        (pane,) = cmux.list_panes(ref)
         (surface,) = cmux.list_surfaces(ref)
         assert surface.type == "terminal"
-        assert pane.selected_surface == surface.ref
-        assert cmux.sent == [(surface.ref, "cd /wt\n")]
+        assert cmux.commands == ["cd /wt"]
 
-    def test_a_split_adds_a_pane_with_one_terminal(self):
-        cmux = FakeCmux().with_workspace("w", [["Claude"], ["Terminal"]])
-        ref = cmux.list_workspaces()[0].ref
-        first = cmux.list_panes(ref)[0].selected_surface
-        assert first is not None
-        assert cmux.new_split(first, "right", ref)
-        assert cmux.tabs("w") == [["Claude"], [""], ["Terminal"]]
-
-    def test_closing_a_panes_last_tab_removes_the_pane(self):
-        cmux = FakeCmux().with_workspace("w", [["Claude"], ["Terminal", "Terminal"]])
-        assert cmux.close_surface(cmux.surface_ref("w", 1, 1))
-        assert cmux.tabs("w") == [["Claude"], ["Terminal"]]
-        assert cmux.close_surface(cmux.surface_ref("w", 1))
-        assert cmux.tabs("w") == [["Claude"]]
-
-    def test_a_surface_in_another_workspace_is_not_found(self):
-        cmux = FakeCmux().with_workspace("a").with_workspace("b")
+    def test_surfaces_are_listed_per_workspace(self):
+        cmux = FakeCmux().with_workspace("a").with_workspace("b", [["x"], ["y"]])
         a, b = (w.ref for w in cmux.list_workspaces())
-        surface = cmux.list_surfaces(a)[0].ref
-        assert cmux.send(surface, b, "ls\n") is False
-        assert cmux.send(surface, a, "ls\n") is True
-
-    def test_none_is_the_current_workspace(self):
-        cmux = FakeCmux().with_workspace("a").with_workspace("b", current=True)
-        assert [s.ref for s in cmux.list_surfaces(None)] == [
-            s.ref for s in cmux.list_surfaces(cmux.list_workspaces()[1].ref)
-        ]
+        assert [s.title for s in cmux.list_surfaces(a)] == ["Terminal"]
+        assert [s.title for s in cmux.list_surfaces(b)] == ["x", "y"]

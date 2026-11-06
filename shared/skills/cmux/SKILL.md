@@ -9,7 +9,7 @@ Use cmux only when `CMUX_WORKSPACE_ID` is set and `MAEL_HARNESS_TYPE` is not `da
 
 Commands are non-blocking. Do not attempt cmux when the socket is absent or pass `--json`.
 
-The standard worktree layout is: pane 0 Claude, pane 1 shell, pane 2 browsers. A workspace is a window, a pane is a split, and a surface is a tab.
+A workspace is a window, a pane is a split, and a surface is a tab.
 
 ```bash
 # Browser or terminal; add --workspace <workspace_ref> when needed.

@@ -22,7 +22,6 @@ from mael_agent.harness_model import (
 from mael_cli import __version__
 from mael_common.cli_async import AsyncGroup
 from mael_domain.base_store import GitConfigBaseStore
-from mael_domain.cmux.client import ensure_cmux_running, resolve_socket_path
 from mael_domain.context import (
     load_global_config,
     resolve_context,
@@ -1646,31 +1645,6 @@ def cmd_tidy_branches(project):
 # --- Subcommand groups ---
 
 
-@cli.group("cmux")
-def cmux_cli() -> None:
-    """Inspect the cmux integration."""
-
-
-@cmux_cli.command("status")
-def cmd_cmux_status() -> None:
-    """Report whether mael can place a Claude session into cmux.
-
-    Runs the same ``ensure_cmux_running`` probe the launcher uses — starting the
-    app if it's down — and reports the outcome. Exits non-zero when cmux can't be
-    reached, so it doubles as a health check for scheduled runs.
-    """
-    # Report the path the probe actually uses, which defaults when the env var
-    # is unset — so the diagnostic never claims "unset" for a socket it did try.
-    socket_path = resolve_socket_path()
-    if ensure_cmux_running():
-        click.echo(f"cmux OK (socket: {socket_path})")
-        return
-    raise click.ClickException(
-        f"cmux is not reachable and could not be started (socket: {socket_path})"
-    )
-
-
-cli.add_command(cmux_cli)
 cli.add_command(comms)
 cli.add_command(env_cli)
 cli.add_command(git_cli)

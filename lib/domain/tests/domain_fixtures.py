@@ -39,36 +39,18 @@ def _block_real_cmux():
 def _plain_terminal(monkeypatch):
     """Run every test as a person in a plain terminal.
 
-    A developer who runs the suite from a cmux pane, or from a driven agent,
-    has ``CMUX_WORKSPACE_ID`` or ``MAEL_HARNESS_TYPE`` set. Both change which
-    transport a launch takes and whether a browser opens. A test that needs
-    either sets it.
+    A developer who runs the suite from a driven agent has ``MAEL_HARNESS_TYPE``
+    set, which refuses a ``--cli`` launch. A test that needs it sets it.
     """
-    monkeypatch.delenv("CMUX_WORKSPACE_ID", raising=False)
     monkeypatch.delenv("MAEL_HARNESS_TYPE", raising=False)
 
 
 @pytest.fixture
-def fake_cmux(monkeypatch):
-    """A running cmux, in memory, and a caller in one of its panes; see docs/dev/cmux.md."""
-    monkeypatch.setenv("CMUX_WORKSPACE_ID", "fake-workspace")
+def fake_cmux():
+    """A running cmux, in memory; see docs/dev/cmux.md."""
     cmux = FakeCmux()
     with patch.object(MaelCmux, "current", return_value=MaelCmux(cmux)):
         yield cmux
-
-
-#: The callers ``MaelCmux.for_caller()`` tells apart. Only the first is in a pane.
-IN_A_PANE, DRIVEN_AGENT, PLAIN_TERMINAL = "in-a-pane", "driven-agent", "plain-terminal"
-
-
-@pytest.fixture(params=[IN_A_PANE, DRIVEN_AGENT, PLAIN_TERMINAL])
-def caller(request, fake_cmux, monkeypatch):
-    """Run the test once per caller of a running ``fake_cmux``; yields the caller's name."""
-    if request.param == DRIVEN_AGENT:
-        monkeypatch.setenv("MAEL_HARNESS_TYPE", "daemon")
-    elif request.param == PLAIN_TERMINAL:
-        monkeypatch.delenv("CMUX_WORKSPACE_ID")
-    return request.param
 
 
 @pytest.fixture(autouse=True)
