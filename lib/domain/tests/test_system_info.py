@@ -3,6 +3,7 @@
 import json
 
 from mael_domain.release_bundle.layout import MANIFEST, Manifest
+from mael_domain.release_bundle.update_job import UpdateRecord, write_record
 from mael_domain.system_info import (
     SystemPaths,
     plugin_skills,
@@ -59,3 +60,53 @@ def test_the_version_is_the_running_releases(tmp_path):
 def test_no_manifest_or_a_broken_one_has_no_version(tmp_path):
     assert _version(tmp_path, None) is None
     assert _version(tmp_path / "broken", "format = 1\ntag = ") is None
+
+
+def _reply(tmp_path, *, release: bool, production: bool):
+    prefix = tmp_path / ".venv"
+    if release:
+        prefix = tmp_path / "releases" / "v1" / "venv"
+        prefix.parent.mkdir(parents=True)
+        Manifest(tag="v1", commit="abc", dirty=False).write(prefix.parent / MANIFEST)
+    paths = SystemPaths.for_home(
+        tmp_path, tmp_path / "Projects", str(prefix), production=production
+    )
+    return system_reply(paths)
+
+
+def test_only_an_installed_release_run_as_a_host_service_can_update(tmp_path):
+    assert _reply(tmp_path / "a", release=True, production=True)["canUpdate"] is True
+    assert _reply(tmp_path / "b", release=True, production=False)["canUpdate"] is False
+    assert _reply(tmp_path / "c", release=False, production=True)["canUpdate"] is False
+
+
+def test_the_update_channel_comes_from_the_global_config(tmp_path):
+    assert _reply(tmp_path / "a", release=False, production=False)["updateChannel"] == (
+        "stable"
+    )
+    config = tmp_path / "b" / ".maelstrom" / "config.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("update_channel: main\n")
+
+    assert _reply(tmp_path / "b", release=False, production=False)["updateChannel"] == (
+        "main"
+    )
+
+
+def test_the_last_update_is_in_the_reply(tmp_path):
+    assert _reply(tmp_path / "a", release=False, production=False)["update"] is None
+    install = tmp_path / "b" / ".maelstrom" / "install"
+    write_record(install, UpdateRecord("succeeded", 7, "t0", "/l"))
+
+    update = _reply(tmp_path / "b", release=False, production=False)["update"]
+
+    assert update == {
+        "state": "succeeded",
+        "pid": 7,
+        "startedAt": "t0",
+        "finishedAt": None,
+        "fromTag": None,
+        "toTag": None,
+        "exitCode": None,
+        "log": "/l",
+    }
