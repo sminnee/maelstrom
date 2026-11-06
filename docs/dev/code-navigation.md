@@ -110,19 +110,44 @@ drag. Tokens are made per run of rows between two marks or chunk edges, while th
 
 ## The language server
 
-A click on a name in a Python card follows it. The flow is: the click, the `/definition` route,
-the worktree's **Language server**, then a scroll, a **Pin** or a **Reference menu**.
+A click on a name in a Python or TypeScript card follows it. The flow is: the click, the
+`/definition` route, the file's **Language server**, then a scroll, a **Pin** or a **Reference
+menu**.
 
 ### The list
 
 Maelstrom hardcodes its servers in `mael_domain.language_servers.LANGUAGE_SERVERS`. Each entry is
-a name, a command and globs. The one entry is `pyright`, with the glob `**/*.py`. A project does
-not configure them.
+a name, a command, globs and an install command. A project does not configure them.
 
-`server_for(worktree_path, file)` picks the first entry whose globs match the file. It resolves the
-command in the worktree's `.venv/bin` first, then on `PATH`. With neither, the file is not
-navigable. The `.venv` binary runs the project's own interpreter; `uv run` would sync on each
-start.
+| Entry | Command | Globs |
+|---|---|---|
+| `pyright` | `pyright-langserver --stdio` | `**/*.py` |
+| `typescript` | `typescript-language-server --stdio` | `**/*.ts`, `**/*.tsx` |
+
+`server_for(worktree_path, file)` picks the first entry whose globs match the file, and returns a
+`Resolved`: the entry, the command and the `initializationOptions`.
+
+**Each server reads the whole worktree, as VS Code's do.** The root is always the worktree.
+tsserver finds the nearest `tsconfig.json` of each open file itself, and holds each project it
+finds in one process. A solution-style `tsconfig.json` with `references` works. An open file's
+rev text applies to every project that includes it, so an import across folders reads the rev
+too. In this repo, `orchestrator-ui/vite.config.ts` imports from `vite-plugin-mael-jig/`.
+
+**A bare command resolves in the worktree, then on `PATH`.** It tries `.venv/bin/<name>`, then
+`node_modules/.bin/<name>`. With none, the file is not navigable. A project-local binary wins, so
+a project keeps its pinned version. The `.venv` binary runs the project's own interpreter;
+`uv run` would sync on each start.
+
+**The TypeScript server uses the project's TypeScript.** An entry's `local_runtime` names a file
+to find from the clicked file's folder up to the worktree. For TypeScript, that file is
+`node_modules/typescript/lib/tsserver.js`. The nearest one goes to the server as
+`initializationOptions.tsserver.path`, as VS Code's `typescript.tsdk` setting does. With none,
+`typescript-language-server` uses the global `typescript`. The click that starts the server picks
+the version, and the server keeps it until it stops.
+
+**Each server is a host tool.** The orchestrator runs it against any project, so a project need
+not supply it. `mael self check-host` derives one optional tool from each entry's install
+command. A new server is one entry.
 
 The server decides what a card can navigate. `FileDiff` and `FileExcerpt` carry `navigable`, set
 from `server_for`. The client needs no glob matcher and no language names.
@@ -132,7 +157,10 @@ from `server_for`. The client needs no glob matcher and no language names.
 The server runs on the working tree, but the reviewer reads the rev's new side. The **Rev
 overlay** closes that gap. Before each request, `LanguageServers` reads `git diff --name-only <commit>`
 and keeps the files the server's globs match. It opens each one at its rev text, through
-`didOpen`, and it always opens the file of the click.
+`didOpen`, and it always opens the file of the click. tsserver loads the project of each open
+file, so a rev that changes files in many projects loads each of them. The `languageId` comes
+from the file's suffix: `python`, `typescript`, or `typescriptreact` for `.tsx`, which tsserver
+needs to parse JSX.
 
 | Case                                  | What `LanguageServers` does                         |
 | ------------------------------------- | --------------------------------------------------- |
@@ -155,7 +183,16 @@ three LSP requests, under one lock hold, so all of them read the same **Rev over
 2. `textDocument/references`, with `includeDeclaration: false`, only when the click is on the
    definition. It waits up to 30 s, because pyright reads the whole project for it.
 3. `textDocument/documentSymbol`, once for each distinct path the rev holds among the targets
-   and references.
+   and references. Each file the server reads is opened first, at its rev text: tsserver answers
+   `[]` for a file it has not opened.
+
+tsserver loads its project in the background after the first `didOpen`. Until the load ends,
+`references` answers `[]`, and the menu would say there are no uses. A solution-style
+`tsconfig.json` loads each referenced project on its own. The TypeScript entry sets
+`waits_for_load`: `LanguageServers` waits until no work-done progress is open, up to 30 s. It
+waits after the overlay sync, and again before `references`, because a `didOpen` can begin a new
+load. `LspClient` asks for that progress in `initialize`. A wait that times out logs a warning,
+and the next wait returns at once until the server begins a load.
 
 The click is on the definition when a target in the clicked file has a name range that holds
 the click's line and character. The name range is `targetSelectionRange`, else `range`. Only the
@@ -163,7 +200,14 @@ server has the character ranges, so the server decides.
 
 A target's `range` is its **Fragment**: the innermost Class, Method, Constructor or Function
 symbol (kinds 5, 6, 9 and 12) that holds the name's line. A use in a method pins the method, not
-its class. When no such symbol holds the line, such as for a module-level constant, `range` is
+its class.
+
+The TypeScript entry also counts a top-level Variable or Constant (kinds 13 and 14).
+tsserver reports `export const Foo = () => …` as one of those, not as a Function. The kinds count
+only for a symbol with no enclosing symbol: a `const` inside a function would otherwise be the
+innermost Fragment and pin one line. The pyright entry does not count them.
+
+When no Fragment holds the line, such as for a Python module-level constant, `range` is
 5 lines above the name to 25 lines below it, clipped at line 1. The excerpt read and the flow
 clip the end. A target outside the rev keeps the name's own lines.
 
@@ -206,6 +250,6 @@ To go to a target, the tab uses its `anchor`, else `range.start`:
 2. The language-server bridge, for Python, and a click that goes to a definition.
 3. Fragments: the enclosing function or class of a target, from `documentSymbol`, and the
    **Reference menu**, from `references`. Hover type stays with the **Symbol card**.
-4. The TypeScript server for `orchestrator-ui`.
+4. The TypeScript server, rooted at the nearest `tsconfig.json`.
 
 Rename, code actions, diagnostics, editing and old-side spans are out of scope.
