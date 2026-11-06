@@ -1055,6 +1055,10 @@ def validate_command(
             return _err("unknown_id", f"No project {project}")
         return None
 
+    if kind == "self.update":
+        # The server checks the install itself: the world does not hold it.
+        return None
+
     if kind in ("operation.seen", "operation.retry"):
         operation_id = cmd.get("operationId", "")
         operation = world["operations"].get(operation_id)

@@ -8,6 +8,7 @@ replies.
 
 import asyncio
 import json
+import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -63,6 +64,7 @@ from mael_domain.language_servers import LanguageServer
 from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
+from mael_domain.release_bundle.layout import MANIFEST, Manifest
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.system_info import SystemPaths
@@ -12331,6 +12333,7 @@ def test_the_system_route_names_the_installs_paths(harness_factory, tmp_path):
         core_skills_dir=skills,
         claude_plugins_dir=tmp_path / ".claude" / "plugins",
         prefix=str(tmp_path / ".venv"),
+        install_root=tmp_path / ".maelstrom" / "install",
     )
     harness = harness_factory(system=system)
 
@@ -12346,4 +12349,75 @@ def test_the_system_route_names_the_installs_paths(harness_factory, tmp_path):
         "skillsDir": str(skills),
         "skills": ["mael"],
         "practices": False,
+        "update": None,
+        "updateChannel": "stable",
+        "canUpdate": False,
     }
+
+
+def _installed_system(tmp_path, *, production: bool) -> SystemPaths:
+    """An installed release's paths: a manifest beside the venv."""
+    venv = tmp_path / "releases" / "v1" / "venv"
+    venv.parent.mkdir(parents=True)
+    Manifest(tag="v1", commit="abc", dirty=False).write(venv.parent / MANIFEST)
+    return SystemPaths.for_home(
+        tmp_path, tmp_path / "Projects", str(venv), production=production
+    )
+
+
+class FakeUpdateStart:
+    """Stands in for ``mael self update --detach``."""
+
+    def __init__(self, returncode: int = 0, stderr: str = ""):
+        self.calls = 0
+        self.returncode = returncode
+        self.stderr = stderr
+
+    async def __call__(self):
+        self.calls += 1
+        return subprocess.CompletedProcess([], self.returncode, "", self.stderr)
+
+
+def _post_update(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/self/update")
+
+    return run(scenario())
+
+
+def test_a_development_build_refuses_to_update(harness_factory, tmp_path):
+    """``canUpdate`` false never runs the CLI. ``test_system_info`` owns the rule."""
+    start = FakeUpdateStart()
+    system = _installed_system(tmp_path, production=False)
+    harness = harness_factory(system=system, start_update=start)
+
+    reply = _post_update(harness)
+
+    assert reply.status == 409
+    assert "development build" in reply.body["error"]["message"]
+    assert start.calls == 0
+
+
+def test_an_installed_server_starts_the_update_job(harness_factory, tmp_path):
+    start = FakeUpdateStart()
+    harness = harness_factory(
+        system=_installed_system(tmp_path, production=True), start_update=start
+    )
+
+    reply = _post_update(harness)
+
+    assert reply.status == 202
+    assert start.calls == 1
+
+
+def test_a_refused_update_detach_is_refused_with_its_message(harness_factory, tmp_path):
+    start = FakeUpdateStart(1, "Error: An update is running (pid 7).\n")
+    harness = harness_factory(
+        system=_installed_system(tmp_path, production=True), start_update=start
+    )
+
+    reply = _post_update(harness)
+
+    assert reply.status == 409
+    assert reply.body["error"]["message"] == "Error: An update is running (pid 7)."
