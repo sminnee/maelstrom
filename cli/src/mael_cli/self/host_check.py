@@ -21,7 +21,7 @@ from mael_domain.shared_dir import get_shared_dir
 from .host_service import Run
 from .plugins import Plugins, PluginsError, codex_home_from_env
 from .production import Production
-from .setup import ORCHESTRATOR_URL_KEY, Echo, tailnet_name
+from .setup import Echo
 
 HOMEBREW_INSTALL = (
     '/bin/bash -c "$(curl -fsSL '
@@ -347,6 +347,20 @@ class TailscaleOperator(HostCheckItem):
         )
 
 
+def tailnet_name(run: Run) -> str | None:
+    """This machine's tailnet DNS name, or ``None`` without a working tailscale."""
+    result = run(["tailscale", "status", "--json"])
+    if result.returncode != 0:
+        return None
+    try:
+        name = json.loads(result.stdout)["Self"]["DNSName"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    if not isinstance(name, str):
+        return None
+    return name.rstrip(".") or None
+
+
 class DevHost(HostCheckItem):
     """``dev_host:`` names this machine. Checked only on a running tailnet."""
 
@@ -366,18 +380,10 @@ class DevHost(HostCheckItem):
         if name is None:
             return None
         config = host.prod.config
-
-        def fix() -> None:
-            set_config_key(config, "dev_host", name)
-            if read_config_key(config, ORCHESTRATOR_URL_KEY):
-                host.echo(
-                    f"    {ORCHESTRATOR_URL_KEY} in {config} keeps its host. Edit "
-                    "it to use the tailnet name."
-                )
-
         return Remedy(
-            f"This machine's tailnet name is {name}.",
-            fix=fix,
+            f"This machine's tailnet name is {name}. Run `mael self setup` after, "
+            "so the orchestrator listens on it.",
+            fix=lambda: set_config_key(config, "dev_host", name),
             question=f"Set dev_host to {name}?",
         )
 

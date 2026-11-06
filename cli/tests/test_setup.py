@@ -11,8 +11,10 @@ import pytest
 import yaml
 from self_cli_support import FakeSupervisor
 
+from mael_cli.self.host_service import ORCHESTRATOR
 from mael_cli.self.production import Production
 from mael_cli.self.setup import Setup, SetupError
+from mael_domain.dev_cert import DevCertError, cert_paths
 
 
 @dataclass
@@ -24,6 +26,10 @@ class SetupRun:
     answer: str = ""
     asked: list[str] = field(default_factory=list)
     output: list[str] = field(default_factory=list)
+    supervisor: FakeSupervisor = field(default_factory=FakeSupervisor)
+    #: What the fake ``tailscale cert`` writes, or the error it raises.
+    cert: bytes | DevCertError = b"cert"
+    issued: list[str] = field(default_factory=list)
 
     @property
     def config(self) -> Path:
@@ -36,7 +42,7 @@ class SetupRun:
 
         Setup(
             prod=Production(self.home),
-            supervisor=FakeSupervisor(),
+            supervisor=self.supervisor,
             run=lambda argv: subprocess.CompletedProcess(argv, 1, "", ""),
             echo=self.output.append,
             inherited_path="/usr/bin",
@@ -45,7 +51,21 @@ class SetupRun:
             install_plugins=lambda: [],
             interactive=self.interactive,
             prompt=prompt,
+            issue_cert=self.issue_cert,
         )()
+
+    def issue_cert(self, host: str) -> None:
+        self.issued.append(host)
+        if isinstance(self.cert, DevCertError):
+            raise self.cert
+        cert, key = cert_paths(host)
+        cert.parent.mkdir(parents=True, exist_ok=True)
+        cert.write_bytes(self.cert)
+        key.write_bytes(b"key")
+
+    @property
+    def orchestrator(self):
+        return next(s for s in self.supervisor.applied if s.name == ORCHESTRATOR)
 
 
 @pytest.fixture
@@ -96,8 +116,8 @@ def test_setup_moves_the_production_keys_to_the_global_config(bare_home):
     moved = run.config.read_text()
     run()
 
-    assert "orchestrator_url: https://box:2772\n" in moved
     assert "service_path: /bin\n" in moved
+    assert "orchestrator_url" not in moved
     assert not state.exists()
     assert run.config.read_text() == moved
 
@@ -117,17 +137,15 @@ def test_setup_names_what_is_left_in_the_old_notebook_config(bare_home):
 def test_setup_keeps_the_global_value_when_both_files_set_a_key(bare_home):
     run = SetupRun(bare_home)
     run.config.parent.mkdir()
-    run.config.write_text(
-        f"projects_dir: {bare_home / 'src'}\norchestrator_url: https://new:2772\n"
-    )
+    run.config.write_text(f"projects_dir: {bare_home / 'src'}\nservice_path: /new\n")
     state = bare_home / ".maelstrom" / "state" / "config.yaml"
     state.parent.mkdir()
-    state.write_text("orchestrator_url: https://old:2772\n")
+    state.write_text("service_path: /old\n")
 
     run()
 
-    assert "orchestrator_url: https://new:2772\n" in run.config.read_text()
-    assert "https://old" not in run.config.read_text()
+    assert "service_path: /new\n" in run.config.read_text()
+    assert "/old" not in run.config.read_text()
     assert not state.exists()
 
 
@@ -177,3 +195,65 @@ def test_setup_quotes_a_bare_tilde_projects_dir(bare_home):
     run()
 
     assert yaml.safe_load(run.config.read_text())["projects_dir"] == "~"
+
+
+TLS_CONFIG = "projects_dir: ~/Projects\ndev_host: box.ts.net\ndev_https: true\n"
+
+
+def test_setup_replaces_a_stored_url_with_the_one_dev_host_names(bare_home):
+    """An older setup wrote ``http://localhost`` before ``dev_https:`` was on."""
+    run = SetupRun(bare_home)
+    run.config.parent.mkdir()
+    run.config.write_text(TLS_CONFIG + "orchestrator_url: http://localhost:2772/\n")
+
+    run()
+
+    assert "orchestrator_url" not in run.config.read_text()
+    assert any(
+        "http://localhost:2772/" in line and "https://box.ts.net:2772" in line
+        for line in run.output
+    )
+    argv = run.orchestrator.argv
+    assert argv[argv.index("--host") + 1] == "127.0.0.1"
+    assert argv[argv.index("--public-host") + 1] == "box.ts.net"
+    cert, key = cert_paths("box.ts.net")
+    assert run.orchestrator.env["DEV_TLS_CERT"] == str(cert)
+    assert run.orchestrator.env["DEV_TLS_KEY"] == str(key)
+    assert run.output[-1].endswith("runs at https://box.ts.net:2772.")
+
+
+def test_setup_without_a_dev_host_serves_loopback_only(bare_home):
+    run = SetupRun(bare_home)
+
+    run()
+
+    assert "--public-host" not in run.orchestrator.argv
+    assert "DEV_TLS_CERT" not in run.orchestrator.env
+    assert run.issued == []
+
+
+@pytest.mark.parametrize(("old", "restarted"), [(b"old", True), (b"cert", False)])
+def test_a_renewed_certificate_restarts_the_orchestrator(bare_home, old, restarted):
+    """The server reads its certificate once, at start."""
+    run = SetupRun(bare_home, supervisor=FakeSupervisor(start_on_apply=False))
+    run.config.parent.mkdir()
+    run.config.write_text(TLS_CONFIG)
+    cert, _ = cert_paths("box.ts.net")
+    cert.parent.mkdir(parents=True)
+    cert.write_bytes(old)
+
+    run()
+
+    assert run.issued == ["box.ts.net"]
+    assert (f"restart {ORCHESTRATOR}" in run.supervisor.calls) is restarted
+
+
+def test_a_certificate_that_does_not_issue_is_named_and_setup_finishes(bare_home):
+    run = SetupRun(bare_home, cert=DevCertError("tailscale cert box.ts.net failed"))
+    run.config.parent.mkdir()
+    run.config.write_text(TLS_CONFIG)
+
+    run()
+
+    assert any("tailscale cert box.ts.net failed" in line for line in run.output)
+    assert run.output[-1].startswith("Setup complete.")

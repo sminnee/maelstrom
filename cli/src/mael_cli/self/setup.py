@@ -15,17 +15,18 @@ import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from mael_domain.context import (
     GLOBAL_CONFIG_FILENAME,
+    PRODUCTION_ORCHESTRATOR_PORT,
+    GlobalConfig,
     harden_global_config,
     load_config_file,
     read_config_key,
     remove_config_key,
     set_config_key,
 )
-from mael_domain.dev_cert import cert_paths
+from mael_domain.dev_cert import DevCertError, cert_paths, ensure_dev_cert
 from mael_domain.env import load_env_state, stop_env
 from mael_domain.env_store import JsonEnvStore
 from mael_domain.shared_dir import get_shared_dir
@@ -53,11 +54,8 @@ from .production import (
 )
 from .update import JIG_PACKAGE, MAELSTROM_PROJECT, link_jig
 
-#: The orchestrator's port when setup picks the URL. It is the port `_main`'s
-#: env-managed orchestrator had (`main_port_base: 277`, index 2), so bookmarks
-#: and clients that dial it keep working.
-ORCHESTRATOR_DEFAULT_PORT = 2772
-
+#: The key an older setup wrote. Production now derives the URL, so setup
+#: deletes it.
 ORCHESTRATOR_URL_KEY = "orchestrator_url"
 
 #: The files of the production notebook that relocation moves. The WAL files go
@@ -96,36 +94,20 @@ class SetupError(RuntimeError):
     """Setup could not bring the host to the state the release wants."""
 
 
-@dataclass(frozen=True)
-class OrchestratorBind:
-    """How the orchestrator host service listens, read from its URL."""
-
-    host: str
-    port: int
-    tls: tuple[Path, Path] | None = None
-
-    @classmethod
-    def from_url(cls, url: str) -> "OrchestratorBind":
-        parts = urlsplit(url)
-        host = parts.hostname or "localhost"
-        try:
-            port = parts.port or ORCHESTRATOR_DEFAULT_PORT
-        except ValueError as exc:
-            raise SetupError(f"{ORCHESTRATOR_URL_KEY} {url!r} has a bad port") from exc
-        local = host in ("localhost", "127.0.0.1")
-        tls = cert_paths(host) if parts.scheme == "https" else None
-        return cls(host="127.0.0.1" if local else "0.0.0.0", port=port, tls=tls)
-
-
 def host_services(
-    prod: Production, bind: OrchestratorBind, inherited_path: str
+    prod: Production, config: GlobalConfig, inherited_path: str
 ) -> list[HostService]:
-    """The orchestrator and the agent daemon, as the supervisor runs them."""
+    """The orchestrator and the agent daemon, as the supervisor runs them.
+
+    The orchestrator serves plain HTTP on loopback. ``dev_host:`` adds a public
+    listener, which speaks TLS under ``dev_https:``.
+    """
     env = production_env(prod, inherited_path)
     orchestrator_env = dict(env)
-    if bind.tls is not None:
-        cert, key = bind.tls
+    if config.tls_host is not None:
+        cert, key = cert_paths(config.tls_host)
         orchestrator_env |= {"DEV_TLS_CERT": str(cert), "DEV_TLS_KEY": str(key)}
+    public = ("--public-host", config.dev_host) if config.dev_host else ()
     return [
         HostService(
             name=ORCHESTRATOR,
@@ -133,9 +115,10 @@ def host_services(
                 str(prod.bin / "mael-orchestrator"),
                 "serve",
                 "--host",
-                bind.host,
+                "127.0.0.1",
+                *public,
                 "--port",
-                str(bind.port),
+                str(PRODUCTION_ORCHESTRATOR_PORT),
             ),
             env=orchestrator_env,
             cwd=prod.state,
@@ -164,9 +147,8 @@ def scheduler(prod: Production, inherited_path: str) -> HostService:
 
 
 def configured_services(prod: Production, inherited_path: str) -> list[HostService]:
-    """The host services, with the bind the global config names."""
-    bind = OrchestratorBind.from_url(orchestrator_url(prod) or "http://localhost")
-    return host_services(prod, bind, inherited_path)
+    """The host services, with the listeners the global config names."""
+    return host_services(prod, load_config_file(prod.config), inherited_path)
 
 
 def all_units(prod: Production, inherited_path: str) -> list[HostService]:
@@ -174,41 +156,15 @@ def all_units(prod: Production, inherited_path: str) -> list[HostService]:
     return [*configured_services(prod, inherited_path), scheduler(prod, inherited_path)]
 
 
-def orchestrator_url(prod: Production) -> str | None:
+def orchestrator_url(prod: Production) -> str:
     """The URL the production notebook's clients dial, from the global config."""
-    return load_config_file(prod.config).orchestrator_url
+    return load_config_file(prod.config).derived_orchestrator_url
 
 
 def restarts_for(changed: Sequence[str]) -> list[str]:
     """The host services the changed components restart, in a fixed order."""
     names = {name for c in changed for name in RESTARTED_BY.get(c, ())}
     return [n for n in (ORCHESTRATOR, AGENT_DAEMON) if n in names]
-
-
-def tailnet_name(run: Run) -> str | None:
-    """This machine's tailnet DNS name, or ``None`` without a working tailscale."""
-    result = run(["tailscale", "status", "--json"])
-    if result.returncode != 0:
-        return None
-    try:
-        name = json.loads(result.stdout)["Self"]["DNSName"]
-    except (ValueError, KeyError, TypeError):
-        return None
-    if not isinstance(name, str):
-        return None
-    return name.rstrip(".") or None
-
-
-def default_orchestrator_url(prod: Production, run: Run) -> str:
-    """The URL setup writes when the user set none.
-
-    The host is ``dev_host:``, else the tailnet name, else ``localhost``. The
-    scheme is ``https`` only when the dev certificate names that host.
-    """
-    config = load_config_file(prod.config)
-    host = config.dev_host or tailnet_name(run) or "localhost"
-    scheme = "https" if config.tls_host == host else "http"
-    return f"{scheme}://{host}:{ORCHESTRATOR_DEFAULT_PORT}"
 
 
 def _stop_main_services(echo: Echo) -> None:
@@ -249,6 +205,8 @@ class Setup:
     install_plugins: Callable[[], list[str]] | None = None
     harden: Callable[[], list[str]] = harden_global_config
     link_jig: Callable[[Path, Echo], None] = link_jig
+    #: Issues or renews the dev certificate for a host.
+    issue_cert: Callable[[str], object] = ensure_dev_cert
     #: Whether a user can answer a question, so setup may ask one.
     interactive: bool = False
     prompt: Prompt = lambda text, default: default
@@ -352,13 +310,20 @@ class Setup:
         Path(projects).expanduser().mkdir(parents=True, exist_ok=True)
 
     def migrate(self) -> None:
-        """Migrate ``state.db``, and give the config its orchestrator URL and unit PATH."""
+        """Migrate ``state.db``, delete the stored orchestrator URL, store the unit PATH."""
         self.echo("Migrating the state database...")
         asyncio.run(migrate_state_db(self.prod.state / "state.db"))
-        if orchestrator_url(self.prod) is None:
-            url = default_orchestrator_url(self.prod, self.run)
-            set_config_key(self.prod.config, ORCHESTRATOR_URL_KEY, url)
-            self.echo(f"  {ORCHESTRATOR_URL_KEY}: {url}")
+        stored = read_config_key(self.prod.config, ORCHESTRATOR_URL_KEY)
+        if stored is not None:
+            remove_config_key(self.prod.config, ORCHESTRATOR_URL_KEY)
+            derived = orchestrator_url(self.prod)
+            if str(stored).strip().rstrip("/") == derived:
+                self.echo(f"  Removed {ORCHESTRATOR_URL_KEY}: it is derived now.")
+            else:
+                self.echo(
+                    f"  Removed {ORCHESTRATOR_URL_KEY} {stored}. Maelstrom now runs "
+                    f"at {derived}, from dev_host: and dev_https:."
+                )
         stored = store_service_path(self.prod, self.inherited_path)
         if stored is not None:
             self.echo(f"  {SERVICE_PATH_KEY}: {stored}")
@@ -406,17 +371,20 @@ class Setup:
         if pending.is_file():
             changed |= {c for c in pending.read_text().strip().split(",") if c}
         self.stop_main_services(self.echo)
-        specs = configured_services(self.prod, self.inherited_path)
+        config = load_config_file(self.prod.config)
+        renewed = self.renew_cert(config.tls_host)
+        specs = host_services(self.prod, config, self.inherited_path)
         orchestrator = specs[0].env
         for var in ("DEV_TLS_CERT", "DEV_TLS_KEY"):
             if var in orchestrator and not Path(orchestrator[var]).is_file():
                 self.echo(
-                    f"  Warning: {ORCHESTRATOR_URL_KEY} is https, and "
-                    f"{orchestrator[var]} is missing. Run `mael env start` once to "
-                    "issue the dev certificate."
+                    f"  Warning: dev_https: is on, and {orchestrator[var]} is "
+                    "missing, so the orchestrator cannot serve TLS."
                 )
         applied = self.supervisor.apply(specs)
         wanted = restarts_for(sorted(changed))
+        if renewed and ORCHESTRATOR not in wanted:
+            wanted.insert(0, ORCHESTRATOR)
         restart = [
             s for s in specs if s.name in wanted and s.name not in applied.started
         ]
@@ -429,6 +397,27 @@ class Setup:
             self.failed += result.failed
         if not self.failed:
             pending.unlink(missing_ok=True)
+
+    def renew_cert(self, host: str | None) -> bool:
+        """Issue or renew the dev certificate for ``host``, the TLS host.
+
+        Returns whether the certificate changed, so the orchestrator restarts
+        onto it. A failure is named and does not stop setup.
+        """
+        if host is None:
+            return False
+        cert, _ = cert_paths(host)
+        before = cert.read_bytes() if cert.is_file() else None
+        try:
+            self.issue_cert(host)
+        except DevCertError as exc:
+            self.echo(f"  Warning: the dev certificate was not renewed. {exc}")
+            return False
+        after = cert.read_bytes() if cert.is_file() else None
+        if after == before:
+            return False
+        self.echo(f"  Renewed the dev certificate for {host}.")
+        return True
 
     def schedule(self) -> None:
         """Install the hourly scheduler. It is always on."""

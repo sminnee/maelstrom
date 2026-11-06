@@ -19,7 +19,7 @@ installer stopped when uv was missing. Nothing checked or installed the other to
 - **`install.sh` runs it on a first install only**: when there was no `current/manifest.toml`
   before the install. The user runs it again by hand. The installer ignores its exit code,
   because the host services start without `gh` or `codex`.
-- **It runs before setup.** Setup writes `orchestrator_url:` once, from `dev_host:` and
+- **It runs before setup.** Setup binds the orchestrator from `dev_host:` and
   `dev_https:`, and the check sets those keys.
 - **It asks before each change.** For a missing tool, it prints the `brew` or `apt-get` command,
   and runs it after a yes. Without a tty, it asks nothing and only reports.
@@ -42,6 +42,7 @@ installer stopped when uv was missing. Nothing checked or installed the other to
 
 - One line takes a fresh macOS or Ubuntu Server 24.04 host to running host services.
 - The install ends with the orchestrator URL, from setup's last line.
-- A `dev_host:` set after the first setup does not change `orchestrator_url:`. The check names
-  the key to edit.
+- A `dev_host:` set after the first setup takes effect at the next setup. As first written, setup
+  wrote `orchestrator_url:` once and the key then drifted from `dev_host:`. Production now derives
+  the URL from `dev_host:` and `dev_https:`, and setup deletes a stored key.
 - cmux is not on the checklist. It is macOS only.

@@ -8,13 +8,17 @@ from mael_cli.self.host_service import Applied, ServiceStatus
 @dataclass
 class FakeSupervisor:
     calls: list[str] = field(default_factory=list)
+    #: Whether ``apply`` reports each unit as started, as on a first install.
+    start_on_apply: bool = True
+    applied: list = field(default_factory=list)
 
     def _record(self, verb, specs):
         self.calls.append(f"{verb} {' '.join(s.name for s in specs)}")
 
     def apply(self, specs):
         self._record("apply", specs)
-        return Applied(started=[s.name for s in specs])
+        self.applied += specs
+        return Applied(started=[s.name for s in specs] if self.start_on_apply else [])
 
     def remove(self, specs):
         self._record("remove", specs)

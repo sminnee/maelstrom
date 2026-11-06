@@ -188,9 +188,8 @@ from the task notebook, `list-all` and the agent host. See
 [the orchestrator server](../dev/orchestrator-server.md) for the server and its wire protocol.
 
 The `mael task` commands `show`, `read`, `list` and `status` also call this server. The
-`orchestrator` host service runs it, and `mael self setup` writes
-[`orchestrator_url:`](../reference/configuration.md#a-dev-environments-own-config) when it is
-unset. See [host services](../dev/host-services.md).
+`orchestrator` host service runs it, at the URL that `dev_host:` and `dev_https:` give. See
+[`orchestrator_url:`](../reference/configuration.md#a-dev-environments-own-config). See [host services](../dev/host-services.md).
 
 ### Dev environments — isolated services
 

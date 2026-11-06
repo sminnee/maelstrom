@@ -501,17 +501,29 @@ class TestNotebookRootConfig:
 
     def test_the_production_root_reads_only_the_global_file(self, home, monkeypatch):
         monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom" / "state"))
-        self.write(
-            home / ".maelstrom",
-            "projects_dir: /home/me/Projects\norchestrator_url: https://real:3220\n",
-        )
+        self.write(home / ".maelstrom", "projects_dir: /home/me/Projects\n")
         # A file an older setup left in the notebook root is not read.
-        self.write(home / ".maelstrom" / "state", "orchestrator_url: https://old:1\n")
+        self.write(home / ".maelstrom" / "state", "projects_dir: /old\n")
 
-        config = load_global_config()
+        assert load_global_config().projects_dir == Path("/home/me/Projects")
 
-        assert config.orchestrator_url == "https://real:3220"
-        assert config.projects_dir == Path("/home/me/Projects")
+    @pytest.mark.parametrize(
+        ("keys", "url"),
+        [
+            ("", "http://localhost:2772"),
+            ("dev_host: box.ts.net\n", "http://box.ts.net:2772"),
+            ("dev_host: box.ts.net\ndev_https: true\n", "https://box.ts.net:2772"),
+        ],
+        ids=["no-dev-host", "dev-host", "dev-https"],
+    )
+    def test_the_production_root_derives_its_server_from_the_dev_host(
+        self, home, monkeypatch, keys, url
+    ):
+        """A stored ``orchestrator_url:`` is ignored, so the two cannot drift."""
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom" / "state"))
+        self.write(home / ".maelstrom", keys + "orchestrator_url: http://stale:1\n")
+
+        assert load_global_config().orchestrator_url == url
 
     def test_no_notebook_root_names_no_server(self, home, monkeypatch):
         monkeypatch.delenv("MAEL_NOTEBOOK_ROOT", raising=False)

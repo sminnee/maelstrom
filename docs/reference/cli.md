@@ -818,11 +818,11 @@ runs it as the `orchestrator` host service. In a maelstrom checkout, run it with
 
 | Command | Description |
 |---|---|
-| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (default `127.0.0.1`), `--port` (default `8765`), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag), `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (plain HTTP; default `127.0.0.1`), `--public-host` (a host name to listen on as well, on each IPv4 address it resolves to, less loopback; `serve` exits when it does not resolve), `--port` (default `8765`; both listeners share it), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS on the `--public-host` listener only, and need one; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag; with no `--public-host`, `serve` ignores the two variables). `--public-host` cannot go with a wildcard `--host` such as `0.0.0.0`, `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 uv run mael-orchestrator serve                     # http://127.0.0.1:8765
-uv run mael-orchestrator serve --port 3072         # what mael env start runs, on the worktree's port
+uv run mael-orchestrator serve --port 3072         # loopback only, on the worktree's port
 uv run mael-orchestrator serve --log-level warning # quieter: drop the per-command trace
 ```
 
@@ -1381,8 +1381,8 @@ mael self import maelstrom-old-2026-11-06.zip   # load it on the new host
 
 The installer writes `projects_dir:`. Setup asks for it only when the key is unset and a terminal
 can answer. Without a terminal, it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
-migrates `state.db`, writes `orchestrator_url:` when it is unset (see
-[configuration.md](configuration.md)), installs the Claude integration, the plugins (see below) and the `mael` shim, then
+migrates `state.db`, deletes a stored `orchestrator_url:` (see
+[configuration.md](configuration.md)), renews the dev certificate under `dev_https:`, installs the Claude integration, the plugins (see below) and the `mael` shim, then
 loads the host services and the scheduler. Its last line names the orchestrator URL. It
 restarts only the host services whose components or unit files changed. See
 [host services](../dev/host-services.md#setup) for each step and its order.

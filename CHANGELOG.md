@@ -53,6 +53,11 @@ release while that section is empty, and retitles it to the version it is releas
   `~/.claude/skills` links, and installs `minnstack` on a host that had them. Codex gets both
   plugins from the same marketplace. `mael self check-host` offers to install `minnstack`, and
   the Welcome dialog says whether it is installed.
+- **The installed orchestrator follows `dev_host:` and `dev_https:`.** It no longer reads
+  `orchestrator_url:` from `~/.maelstrom/config.yaml`, and `mael self setup` deletes the key. The
+  URL is `https://<dev_host>:2772` under `dev_https:`, else `http://<dev_host or localhost>:2772`.
+  The orchestrator serves plain HTTP on `127.0.0.1`, and TLS only on the dev host. Setup renews
+  the dev certificate, and restarts the orchestrator when it changed.
 - **`/review-project-hygiene` is now `/setup-project`.** It first makes the dev env start: it
   writes `services:` in `.maelstrom.yaml` and proves each service with `mael env start`. Then it
   audits the project against a shorter checklist. The task runs in normal mode, and the skill
