@@ -245,6 +245,7 @@ class TestBuildStartPayload:
             execute_model="sonnet",
             prompt="do the thing",
             system_prompt_file=Path("/s/agent-prompt.md"),
+            plugin_dir=Path("/s/plugins/maelstrom"),
         ) == {
             "cmd": "start",
             "cwd": "/wt/alpha",
@@ -256,6 +257,7 @@ class TestBuildStartPayload:
             "env": {"MAEL_TASK_ID": "t1", "MAEL_TASK_PARENT": "t1"},
             "resume": True,
             "system_prompt_file": "/s/agent-prompt.md",
+            "plugin_dirs": ["/s/plugins/maelstrom"],
         }
 
     def test_taskless_launch_is_just_the_cwd(self):
@@ -309,14 +311,18 @@ def test_a_bare_plan_review_falls_back_to_the_last_message():
 # --- resume -------------------------------------------------------------------
 
 
-def test_a_resume_carries_the_text_and_the_prompt_file():
+def test_a_resume_carries_the_text_the_prompt_file_and_the_plugin():
     assert build_resume_payload(
-        "a1", text="carry on", system_prompt_file=Path("/s/agent-prompt.md")
+        "a1",
+        text="carry on",
+        system_prompt_file=Path("/s/agent-prompt.md"),
+        plugin_dir=Path("/s/plugins/maelstrom"),
     ) == {
         "cmd": "resume",
         "id": "a1",
         "text": "carry on",
         "system_prompt_file": "/s/agent-prompt.md",
+        "plugin_dirs": ["/s/plugins/maelstrom"],
     }
 
 

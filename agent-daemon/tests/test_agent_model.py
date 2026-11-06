@@ -337,6 +337,16 @@ def test_argv_without_a_system_prompt_file_omits_the_flag():
     assert "--append-system-prompt-file" not in build_agent_argv()
 
 
+def test_argv_names_one_plugin_dir_flag_per_dir():
+    argv = build_agent_argv(plugin_dirs=["/shared/plugins/maelstrom", "/other"])
+    flags = [argv[i + 1] for i, arg in enumerate(argv) if arg == "--plugin-dir"]
+    assert flags == ["/shared/plugins/maelstrom", "/other"]
+
+
+def test_argv_without_plugin_dirs_omits_the_flag():
+    assert "--plugin-dir" not in build_agent_argv()
+
+
 def test_argv_pins_a_session_id_when_given():
     argv = build_agent_argv(session_id="dead-beef")
     assert argv[argv.index("--session-id") + 1] == "dead-beef"
@@ -443,6 +453,7 @@ def test_spec_round_trips_through_plain_json():
         last_status="idle",
         stopped_at_shutdown=True,
         system_prompt_file="/shared/agent-prompt.md",
+        plugin_dirs=["/shared/plugins/maelstrom"],
     )
     # The record is the resume contract, so a field it drops is one a restarted
     # daemon would approve the plan without.

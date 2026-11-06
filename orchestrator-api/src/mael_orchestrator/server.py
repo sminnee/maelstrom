@@ -112,7 +112,11 @@ from mael_domain.protocol import (
     World,
     group_members,
 )
-from mael_domain.shared_dir import agent_prompt_file, investigation_prompt_file
+from mael_domain.shared_dir import (
+    agent_prompt_file,
+    core_plugin_dir,
+    investigation_prompt_file,
+)
 from mael_domain.system_info import SystemPaths
 from mael_domain.task import (
     CODEX_PLAN_FILE,
@@ -3575,6 +3579,7 @@ class Orchestrator:
                     model=command.get("model") or None,
                     execute_model=command.get("executeModel") or None,
                     system_prompt_file=prompt_file,
+                    plugin_dir=core_plugin_dir(),
                 )
                 reply = await self.daemon.request(payload)
                 agent_id = reply.get("id") if "error" not in reply else None
@@ -3674,7 +3679,10 @@ class Orchestrator:
         evidence the agent is back, and the operation's refresh reads it.
         """
         payload = build_resume_payload(
-            agent_id, text=text, system_prompt_file=agent_prompt_file()
+            agent_id,
+            text=text,
+            system_prompt_file=agent_prompt_file(),
+            plugin_dir=core_plugin_dir(),
         )
         refused = await self._ask_host(payload)
         if refused:

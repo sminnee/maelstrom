@@ -25,6 +25,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose \
        --permission-prompt-tool stdio --forward-subagent-text --replay-user-messages \
        --include-partial-messages \
        --append-system-prompt-file <shared>/agent-prompt.md \
+       --plugin-dir <shared>/plugins/maelstrom \
        [--permission-mode auto]
 ```
 
@@ -43,6 +44,7 @@ Eight flags matter, and two of them are easy to miss:
 | `--replay-user-messages` | **Load-bearing.** Makes the child echo every `user` turn it reads from stdin back on stdout, marked `isReplay`. Without it a `say` never reaches the transcript. Confirmed against v2.1.261. |
 | `--include-partial-messages` | Makes the child send a message in chunks while it writes it, as `stream_event` lines. The session tab draws the partial message from them. See "A partial message" below. Confirmed against v2.1.287. |
 | `--append-system-prompt-file` | Teaches the child the markers the orchestrator reads: `<note>`, `<doc-file>`, `<image>`, `<milestone>`, `<link rel="gh-pr">`, `<live-feedback>`, `<user-attention>`. The client names the file in `start` or `resume`. Omitted when no file is named. |
+| `--plugin-dir` | One per dir in `plugin_dirs`: the core plugin, so the agent gets the skills of the code that launched it. A dir that is gone is left off. See [Skills and plugins](host-services.md#skills-and-plugins). |
 
 The markers are taught on the launch rather than in a general skill because only a driven agent
 has an orchestrator to read one. A skill that loads everywhere would teach the vocabulary to
@@ -846,7 +848,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 
 | `cmd` | Request fields | Ok reply |
 |---|---|---|
-| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume`, `system_prompt_file` | `{"ok": true, "id": "<agent id>"}` |
+| `start` | `cwd`; optional `prompt`, `mode`, `model`, `session`, `env`, `resume`, `system_prompt_file`, `plugin_dirs` | `{"ok": true, "id": "<agent id>"}` |
 | `list` | optional `scope` (`running`, `stopped` or `all`; default `running`), optional `cwd` | `{"agents": [<row>, …]}`, each row as `mael agent list --json` prints |
 | `show` | `id` | `{"agent": <detail>}`, as `mael agent show --json` prints |
 | `say` | `id`, `text`; optional `attachments` | `{"ok": true}` |
@@ -858,7 +860,7 @@ Every request carries `cmd`. Every reply is either an ok reply or `{"error": "<m
 | `set-mode` | `id`, `mode` (`plan`, `normal` or `auto`) | `{"ok": true, "mode": "<mode>"}` |
 | `recover` | `id` | `{"ok": true, "cleared": true}`, plus `"warning"` when the record names neither a plan file nor a prompt |
 | `stop` | `id` | `{"ok": true}` |
-| `resume` | `id`; optional `text`, `system_prompt_file` | `{"ok": true, "id": "<agent id>"}` |
+| `resume` | `id`; optional `text`, `system_prompt_file`, `plugin_dirs` | `{"ok": true, "id": "<agent id>"}` |
 | `attach` | `id`; optional `from`, `epoch` | A stream; see below |
 | `ping` | none | `{"daemon": {…}}`: `pid`, `version`, `executable`, `source_tree`, `root`, `socket_path`, `spec_dir`, `started_at`, `agents` |
 | `shutdown` | none | `{"ok": true}`, then the daemon stops |
@@ -997,6 +999,9 @@ default nudge. See "The resume rules". The record's `system_prompt_file` wins wh
 exists, because it can carry more than the markers every client sends: an investigation's file
 also has its rules. A `system_prompt_file` in the request is used only when the record has none,
 or its file is gone.
+
+`plugin_dirs` takes the other rule: the request's win, and the record's are used only when the
+request has none. The code that resumes the agent is the code its skills must match.
 
 `start` and `resume` both report the spawn, not the run. A child that dies straight after
 spawning — a bad `--model`, an expired login, a `--resume` Claude will not accept — is reported
@@ -1322,6 +1327,7 @@ writes one record per agent to `<root>/agents/<agent-id>.json`, holding exactly 
 | `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only. `set-mode` rewrites `permission_mode`, so a resume keeps the mode the agent was moved to |
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
 | `system_prompt_file` | The marker prompt the client named. A restore respawns with it, and no client is there to name it again |
+| `plugin_dirs` | The core plugin the client named, for the same reason |
 | `status` | `running`, `exited` or `stopped`. Only a `stopped` record is invisible to a default `list` |
 | `exit_code` | So `list` still reports the exit after a daemon restart |
 | `pid` | The child, while the record is `running`; `None` once it is known to be gone, so a dead record never names a pid the system has reused. How the next daemon tells a live child from a dead one |

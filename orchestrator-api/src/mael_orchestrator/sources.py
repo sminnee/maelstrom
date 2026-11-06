@@ -50,7 +50,7 @@ from mael_domain.protocol import (
     Worktree,
 )
 from mael_domain.session_discovery import LiveSessionSet
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.task_launch import (
     LaunchBlocked,
     LaunchPlan,
@@ -719,6 +719,7 @@ class NotebookTaskSource:
             # session is a thread the router finds by session id, if one ran.
             resume=codex or self.has_transcript(setup.path, plan.session_id),
             system_prompt_file=agent_prompt_file(),
+            plugin_dir=core_plugin_dir(),
         )
 
     async def rollback(self, prepared: PreparedLaunch) -> None:

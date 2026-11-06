@@ -12,7 +12,7 @@ shape.
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import MISSING, asdict, dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
@@ -53,6 +53,7 @@ def build_agent_argv(
     model: str | None = None,
     resume: bool = False,
     system_prompt_file: str | None = None,
+    plugin_dirs: Sequence[str] = (),
 ) -> list[str]:
     """The ``claude`` argv for a daemon-driven agent.
 
@@ -90,6 +91,9 @@ def build_agent_argv(
     client's marker prompt; omitted when empty. See "The mechanism" in
     ``docs/dev/agent-daemon.md`` for why it is a flag and a path.
 
+    Each of ``plugin_dirs`` becomes one ``--plugin-dir``: the client's core
+    plugin, so the agent gets the skills of the code that launched it.
+
     ``permission_mode`` is maelstrom's word. ``normal`` is the absence of the
     flag rather than a value it takes, so it emits nothing: ``claude`` refuses
     ``--permission-mode normal``.
@@ -110,6 +114,8 @@ def build_agent_argv(
     ]
     if system_prompt_file:
         argv += ["--append-system-prompt-file", system_prompt_file]
+    for plugin_dir in plugin_dirs:
+        argv += ["--plugin-dir", plugin_dir]
     if permission_mode and permission_mode != NORMAL:
         argv += ["--permission-mode", permission_mode]
     if model:
@@ -303,6 +309,9 @@ class AgentSpec:
     #: an internal respawn — a restore, or a stray the gc resumes — teaches the
     #: child the same markers with no client to ask.
     system_prompt_file: str = ""
+    #: The ``--plugin-dir`` paths the client named. Kept for the same reason as
+    #: ``system_prompt_file``.
+    plugin_dirs: list[str] = field(default_factory=list)
     status: str = SPEC_RUNNING
     exit_code: int | None = None
     pid: int | None = None
@@ -332,6 +341,7 @@ def spec_from_dict(data: dict[str, Any]) -> AgentSpec:
             values[f.name] = data[f.name]
     # A copy, so the spec does not share the caller's mapping.
     values["env"] = dict(values.get("env", {}))
+    values["plugin_dirs"] = list(values.get("plugin_dirs", []))
     return AgentSpec(**values)
 
 

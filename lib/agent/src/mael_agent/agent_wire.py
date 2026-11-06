@@ -315,6 +315,7 @@ def build_start_payload(
     execute_model: str | None = None,
     prompt: str = "",
     system_prompt_file: Path | None = None,
+    plugin_dir: Path | None = None,
 ) -> dict[str, Any]:
     """The daemon's ``start`` command for a launch. Pure.
 
@@ -329,6 +330,9 @@ def build_start_payload(
 
     ``system_prompt_file`` is the file that teaches the child the markers.
     Callers pass :func:`~mael_domain.shared_dir.agent_prompt_file`.
+
+    ``plugin_dir`` is the core plugin, sent as ``plugin_dirs``. Callers pass
+    :func:`~mael_domain.shared_dir.core_plugin_dir`.
     """
     # `resume` is always sent: False means "claim a fresh session", which is a
     # decision, not an omission. Every other falsy field means "the caller did
@@ -352,11 +356,17 @@ def build_start_payload(
         payload["env"] = dict(env)
     if system_prompt_file:
         payload["system_prompt_file"] = str(system_prompt_file)
+    if plugin_dir:
+        payload["plugin_dirs"] = [str(plugin_dir)]
     return payload
 
 
 def build_resume_payload(
-    agent_id: str, *, text: str = "", system_prompt_file: Path | None = None
+    agent_id: str,
+    *,
+    text: str = "",
+    system_prompt_file: Path | None = None,
+    plugin_dir: Path | None = None,
 ) -> dict[str, Any]:
     """The daemon's ``resume`` command. Pure.
 
@@ -364,13 +374,16 @@ def build_resume_payload(
     (see "The resume rules" in ``docs/dev/agent-daemon.md``).
     ``system_prompt_file`` fills in for a record with none, or one whose file
     is gone; a recorded file that exists wins (see ``resume`` in
-    ``docs/dev/agent-daemon.md``).
+    ``docs/dev/agent-daemon.md``). ``plugin_dir`` is the opposite: the
+    request's dir wins, and the record's fills in when the request has none.
     """
     payload: dict[str, Any] = {"cmd": "resume", "id": agent_id}
     if text:
         payload["text"] = text
     if system_prompt_file:
         payload["system_prompt_file"] = str(system_prompt_file)
+    if plugin_dir:
+        payload["plugin_dirs"] = [str(plugin_dir)]
     return payload
 
 

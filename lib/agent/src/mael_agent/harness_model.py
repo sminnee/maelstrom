@@ -119,6 +119,22 @@ def _mode_args(harness: str, mode: str) -> tuple[str, ...]:
     return args + ("-c", f"approvals_reviewer={options['approvalsReviewer']}")
 
 
+#: The core plugin, as both harnesses name it from the ``maelstrom`` marketplace.
+CORE_PLUGIN = "maelstrom@maelstrom"
+#: The optional plugin of development practices, from the same marketplace.
+PRACTICES_PLUGIN = "minnstack@maelstrom"
+
+#: The Codex config that enables the core plugin for one thread. Setup installs
+#: it disabled, because Codex has no ``--plugin-dir``. It must be a nested
+#: table: a dotted key with the quoted ``"maelstrom@maelstrom"`` segment is
+#: accepted and ignored.
+CODEX_CORE_PLUGIN_CONFIG = {"plugins": {CORE_PLUGIN: {"enabled": True}}}
+
+#: :data:`CODEX_CORE_PLUGIN_CONFIG` as a ``codex -c`` value. An inline table
+#: merges into the user's ``plugins``; it does not replace it.
+CODEX_CORE_PLUGIN_ARG = f'plugins={{"{CORE_PLUGIN}"={{enabled=true}}}}'
+
+
 def codex_thread_start_options(mode: str) -> dict[str, str]:
     """Map Maelstrom's Agent mode onto Codex thread-start settings.
 

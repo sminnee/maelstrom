@@ -73,6 +73,14 @@ def prompt_file(monkeypatch, tmp_path):
     return path
 
 
+@pytest.fixture(autouse=True)
+def plugin_dir(monkeypatch, tmp_path):
+    """The core plugin every start and resume names, for the same reason."""
+    path = tmp_path / "plugins" / "maelstrom"
+    monkeypatch.setattr(agent_cli, "core_plugin_dir", lambda: path)
+    return path
+
+
 def run_cli(argv: list[str], replies: list[dict] | None = None, resolve=None):
     """Drive `mael agent` through the fake transport, and return (result, client).
 
@@ -382,12 +390,18 @@ def test_tail_follow_ends_when_the_agent_has_exited():
     assert "Hello there, friend" in result.output
 
 
-def test_resume_sends_the_agent_id(prompt_file):
+def test_resume_sends_the_agent_id(prompt_file, plugin_dir):
     result, client = run_cli(["resume", "a1"], [{"ok": True, "id": "a1"}])
     assert result.exit_code == 0
-    # The prompt file rides along: the record may predate the daemon keeping one.
+    # The prompt file rides along: the record may predate the daemon keeping
+    # one. The plugin rides along so the agent gets this code's skills.
     assert client.calls == [
-        {"cmd": "resume", "id": "a1", "system_prompt_file": str(prompt_file)}
+        {
+            "cmd": "resume",
+            "id": "a1",
+            "system_prompt_file": str(prompt_file),
+            "plugin_dirs": [str(plugin_dir)],
+        }
     ]
 
 

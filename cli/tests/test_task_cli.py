@@ -803,7 +803,10 @@ class TestNextRun:
 class TestRunCli:
     """``--cli`` prepares the worktree, then runs the harness in this shell."""
 
-    async def test_prepares_the_worktree_and_execs_there(self, runner, store, launch):
+    async def test_prepares_the_worktree_and_execs_there(
+        self, runner, store, launch, monkeypatch
+    ):
+        monkeypatch.setattr(task_cli, "core_plugin_dir", lambda: Path("/core"))
         t = await model.create(
             store, project="p", title="Plan it", command="plan-task", mode="plan"
         )
@@ -829,7 +832,7 @@ class TestRunCli:
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
             f"MAEL_TASK_SESSION_ID={sid} "
             "claude --permission-mode plan --model opus "
-            f"--session-id {sid}"
+            f"--plugin-dir /core --session-id {sid}"
         )
         kwargs = launch.exec.call_args.kwargs
         assert kwargs["cwd"] == launch.wt_path

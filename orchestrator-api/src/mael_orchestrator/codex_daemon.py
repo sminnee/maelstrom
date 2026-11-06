@@ -5,6 +5,7 @@ every method, and what each becomes.
 """
 
 import asyncio
+import copy
 import logging
 import uuid
 from collections import deque
@@ -32,6 +33,7 @@ from mael_agent.codex_wire import (
     approval_of,
 )
 from mael_agent.harness_model import (
+    CODEX_CORE_PLUGIN_CONFIG,
     HARNESS_CODEX,
     ModelReference,
     codex_thread_start_options,
@@ -680,8 +682,13 @@ def _merge_usage_windows(
 
 
 def _thread_settings(payload: dict[str, Any]) -> dict[str, Any]:
-    """The instructions and environment a thread starts or resumes with."""
-    settings: dict[str, Any] = {}
+    """The instructions, environment and core plugin a thread starts or resumes with.
+
+    See "Skills and plugins" in
+    ``docs/dev/host-services.md``.
+    """
+    config: dict[str, Any] = copy.deepcopy(CODEX_CORE_PLUGIN_CONFIG)
+    settings: dict[str, Any] = {"config": config}
     prompt_file = str(payload.get("system_prompt_file") or "")
     if prompt_file:
         try:
@@ -690,10 +697,8 @@ def _thread_settings(payload: dict[str, Any]) -> dict[str, Any]:
             raise RuntimeError(f"could not read {prompt_file}: {error}") from error
     env = payload.get("env")
     if isinstance(env, dict) and env:
-        settings["config"] = {
-            "shell_environment_policy": {
-                "set": {str(k): str(v) for k, v in env.items()}
-            }
+        config["shell_environment_policy"] = {
+            "set": {str(k): str(v) for k, v in env.items()}
         }
     return settings
 
