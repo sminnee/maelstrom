@@ -16,9 +16,8 @@ Two backends are provided:
   :func:`mael_common.util.atomic_write_json`), so a crash mid-write can never leave
   a truncated state file.
 
-Unlike :class:`~mael_domain.task_store.TaskStore` there is no ``transaction()``:
-env has no batched-multi-key call site, so the per-key atomic write is the whole
-contract.
+There is no ``transaction()``: env has no batched-multi-key call site, so the
+per-key atomic write is the whole contract.
 """
 
 import json

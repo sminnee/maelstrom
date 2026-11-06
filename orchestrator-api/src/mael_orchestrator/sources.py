@@ -518,12 +518,12 @@ class WorktreeSource(Protocol):
 
 
 class NotebookTaskSource:
-    """Tasks read from a :class:`~mael_domain.task_store.TaskStore` through the model.
+    """Tasks read from a :class:`~mael_domain.task_table.TaskTable` through the model.
 
-    Works over an ``InMemoryStore`` in tests and a ``GitFileStore`` in
+    Works over an ``InMemoryTaskTable`` in tests and a ``SqliteTaskTable`` in
     production; only the injected collaborators differ. ``projects`` names the
-    projects to read. ``version`` defaults to the store's head, which an
-    in-memory store never moves, so a test supplies its own counter.
+    projects to read. ``version`` is the table's revision unless a test
+    supplies its own counter.
     """
 
     def __init__(

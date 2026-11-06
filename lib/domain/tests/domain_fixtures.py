@@ -75,14 +75,14 @@ def caller(request, fake_cmux, monkeypatch):
 def _isolate_notebook_root(monkeypatch, tmp_path):
     """Keep every test off the developer's real task notebook.
 
-    Every notebook path — ``state.db``, ``desk.json`` and the task export —
+    Every notebook path — ``state.db``, ``desk.json`` and the attachments —
     hangs off ``MAEL_NOTEBOOK_ROOT``, and a developer's shell sets it to a live
     root. An unpinned test would read *and write* the real notebook.
 
     Replaces a fixture that patched ``get_maelstrom_dir`` on
     ``state_db.paths``. That module reads the root rather than the home
     directory now, so one pinned variable covers what the patch did and the
-    store's own ``tasks_root`` besides — which the patch never reached.
+    attachments directory besides — which the patch never reached.
 
     Autouse and set rather than deleted: the root has no fallback, so an absent
     one would make every task test fail on the refusal instead of exercising
@@ -138,7 +138,7 @@ async def state_db():
     """A migrated in-memory state database, closed when the test ends.
 
     Four suites open one the same way. What each builds on top differs — a task
-    table, a desk store, an export queue — so only the database is shared; the
+    table, a desk store, an attachment table — so only the database is shared; the
     store fixtures stay with the contracts they exercise.
     """
     from mael_domain.state_db.migrate import open_state_db

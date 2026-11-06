@@ -42,12 +42,10 @@ from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.release_bundle.layout import installed_web_root
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.state_db.paths import get_notebook_path, get_state_db_path
+from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
 from mael_domain.task_attachments import SqliteTaskAttachmentTable
-from mael_domain.task_export import SqliteExportQueue, TaskExporter
 from mael_domain.task_launch import LaunchBlocked
-from mael_domain.task_store import GitFileStore
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree import (
     WorktreeSetup,
@@ -373,17 +371,6 @@ def build_orchestrator(
         comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
         pr_ledger=SqlitePrLedgerStore(state_db),
-        # The one drainer. A CLI write queues its export and exits, so the
-        # server is what writes the tree — which is also what leaves one writer
-        # against the notebook's git repo rather than a process per command.
-        exporter=TaskExporter(
-            SqliteExportQueue(state_db),
-            table,
-            GitFileStore(root=get_notebook_path()),
-            # The store takes a cross-process lock and shells out to git, so
-            # its calls run off the loop the server answers sockets on.
-            executor=executor,
-        ),
         executor=executor,
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,

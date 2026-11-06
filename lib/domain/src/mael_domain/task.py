@@ -16,10 +16,9 @@ surface is async for reversibility rather than for I/O — see
 (serialisation, id shapes, prompt building) stay sync: they have no table to
 reach and no await point to yield at.
 
-The git-committed markdown tree at ``~/.maelstrom/tasks`` is now an *export*,
-for audit and backup only. :meth:`Task.to_markdown` and
-:meth:`Task.from_markdown` survive as the render and import functions; they are
-no longer the storage format.
+:meth:`Task.to_markdown` and :meth:`Task.from_markdown` render a task for
+``mael task read``, ``mael task edit`` and the draft files. They are not the
+storage format.
 """
 
 import os
@@ -227,27 +226,6 @@ def is_safe_id(id: str) -> bool:
     if not id or id in (".", ".."):
         return False
     return re.fullmatch(r"[A-Za-z0-9._-]+", id) is not None
-
-
-def task_key(project: str, status: str, id: str) -> str:
-    """Build the export path for a task. Raises ``ValueError`` on an unsafe part.
-
-    The markdown export lays tasks out as ``<project>/<status>/<id>.md``, so this
-    survives for the exporter and for ``mael project mv``. It is not how a task
-    is looked up: that is :meth:`~mael_domain.task_table.TaskTable.load`.
-
-    All three parts are checked, because all three are joined onto the export
-    root and written. ``project`` and ``status`` reach here from stored rows
-    rather than from the wire today, so this is the guard holding that true
-    rather than one catching a live attack.
-    """
-    if not is_safe_id(id):
-        raise ValueError(f"Unsafe task id: {id!r}")
-    if not is_safe_id(project):
-        raise ValueError(f"Unsafe project name: {project!r}")
-    if status not in VALID_STATUSES:
-        raise ValueError(f"Unknown status: {status!r}")
-    return f"{project}/{status}/{id}.md"
 
 
 # --- Task dataclass ---
@@ -561,9 +539,8 @@ def allocate_run_id(template_id: str, date: str) -> str:
     Distinct from the numeric :func:`allocate_child_id`: a scheduled run is keyed
     by the boundary date it satisfies (e.g. ``maintenance.2026-06-18``), so the
     id is both meaningful and idempotent — re-firing the same boundary produces
-    the same id, which the caller skips if it already exists. Raises
-    ``ValueError`` (via :func:`task_key` callers) only when the result is unsafe;
-    a date-keyed id is ``is_safe_id``-legal.
+    the same id, which the caller skips if it already exists. A date-keyed id is
+    ``is_safe_id``-legal.
     """
     return f"{template_id}.{date}"
 

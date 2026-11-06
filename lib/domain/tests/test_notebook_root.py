@@ -57,11 +57,7 @@ class TestNotebookRootHasNoFallback:
 
 
 class TestTheNotebookPathsFollowTheRoot:
-    """`state.db`, the desk and the task export all hang off the one root.
-
-    `get_notebook_path` duplicates the export path deliberately (its docstring
-    says why). Both move, or the two answer about different notebooks.
-    """
+    """`state.db` and the attachments directory both hang off the one root."""
 
     def test_the_state_db_follows_the_root(self, monkeypatch):
         from mael_domain.state_db.paths import get_state_db_path
@@ -69,23 +65,8 @@ class TestTheNotebookPathsFollowTheRoot:
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
         assert get_state_db_path() == Path("/tmp/nb/state.db")
 
-    def test_the_notebook_export_follows_the_root(self, monkeypatch):
-        from mael_domain.state_db.paths import get_notebook_path
+    def test_the_attachments_directory_follows_the_root(self, monkeypatch):
+        from mael_domain.state_db.paths import attachments_root
 
         monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
-        assert get_notebook_path() == Path("/tmp/nb/tasks")
-
-    def test_the_store_root_follows_the_root(self, monkeypatch):
-        from mael_domain.task_store import tasks_root
-
-        monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
-        assert tasks_root() == Path("/tmp/nb/tasks")
-
-    def test_the_two_task_paths_agree(self, monkeypatch):
-        """They resolve the same directory by different routes. Moving one and
-        not the other desynchronises the export from its importer."""
-        from mael_domain.state_db.paths import get_notebook_path
-        from mael_domain.task_store import tasks_root
-
-        monkeypatch.setenv(NOTEBOOK_ROOT_ENV, "/tmp/nb")
-        assert get_notebook_path() == tasks_root()
+        assert attachments_root() == Path("/tmp/nb/attachments")

@@ -172,8 +172,7 @@ class StateDb:
             # WAL keeps a reader from blocking the writer across processes.
             # An in-memory database journals in memory and refuses it.
             conn.execute("PRAGMA journal_mode=WAL")
-        # Replaces GitFileStore's hand-rolled flock poll: a contended writer
-        # waits rather than raising SQLITE_BUSY.
+        # A contended writer waits rather than raising SQLITE_BUSY.
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA foreign_keys=ON")
         # Chosen, not defaulted: NORMAL is durable under WAL against a process

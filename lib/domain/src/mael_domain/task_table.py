@@ -28,11 +28,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
-from mael_common.util import now_iso
-
-from . import task_export as export
 from .state_db.db import StateDb, Txn
-from .task import Task, creation_order, session_id_for, task_key
+from .task import Task, creation_order, session_id_for
 
 #: The table this store writes, as declared in
 #: :data:`mael_domain.state_db.migrate.TABLES`.
@@ -391,21 +388,10 @@ class SqliteTaskTable(TaskTable):
         )
 
     async def save(self, task: Task) -> None:
-        """Write the row, and queue its markdown export in the same cut.
-
-        The enqueue is here rather than in :mod:`mael_domain.task`, because this
-        is the only place a task row is written: a caller cannot save a task
-        and miss the export. :meth:`StateDb.transact` nests, so a save inside a
-        caller's own transaction queues inside it too, and a rollback takes
-        both.
-        """
+        """Write the row, unless it already holds what ``task`` would write."""
         id = row_id(task.project, task.id)
         columns = columns_for(task)
         async with self._db.transact() as txn:
-            # The status the row had before this write, which is the path the
-            # export tree still holds a file at. A status move is one save, so
-            # without this the queue would name the new path for both and the
-            # file at the old status would never be unlinked.
             stored = await self._db.read(TABLE, id)
             # ``id`` and ``revision`` are the database's own columns: the key
             # this row was read by, and the cut it was written in. Neither is
@@ -421,43 +407,18 @@ class SqliteTaskTable(TaskTable):
                 == columns
             )
             if unchanged:
-                # Nothing moved, so nothing is queued. The upsert below would
-                # be a no-op anyway, but the enqueue carries a fresh timestamp
-                # and so would always look like a change — bumping the counter
-                # for a write that changed nothing, which is what an idle poll
-                # relies on never happening.
+                # A write that changed nothing must not bump the counter: an
+                # idle poll relies on that never happening.
                 return
-            was = stored["status"] if stored is not None else task.status
             txn.upsert(TABLE, id, **columns)
-            export.enqueue(
-                txn,
-                id,
-                path=task_key(task.project, was, task.id),
-                deleted=False,
-                queued_at=now_iso(),
-            )
 
     async def delete(self, project: str, id: str) -> None:
-        """Remove the row, and queue the unlink of the file it had.
-
-        The row is read before it goes: a delete leaves nothing to render, so
-        the path it occupied is recorded now or the file is orphaned. Reading
-        inside the transaction rather than before it means a concurrent write
-        cannot move the task between the read and the delete.
-        """
+        """Remove the row. A task that is not there is a no-op."""
         key = row_id(project, id)
         async with self._db.transact() as txn:
-            row = await self._db.read(TABLE, key)
-            if row is None:
+            if await self._db.read(TABLE, key) is None:
                 return
             txn.delete(TABLE, key)
-            export.enqueue(
-                txn,
-                key,
-                path=task_key(project, row["status"], id),
-                deleted=True,
-                queued_at=now_iso(),
-            )
 
     async def find_by_session_id(self, session_id: str) -> Task | None:
         if not session_id:

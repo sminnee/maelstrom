@@ -4,7 +4,6 @@ Thin commands over :mod:`.setup`, :mod:`.update` and :mod:`.host_service`.
 See ``docs/dev/host-services.md``.
 """
 
-import asyncio
 import os
 import shutil
 import subprocess
@@ -13,7 +12,7 @@ from pathlib import Path
 
 import click
 
-from mael_common.util import get_maelstrom_dir, now_iso
+from mael_common.util import get_maelstrom_dir
 from mael_domain.context import (
     GLOBAL_CONFIG_FILENAME,
     UPDATE_CHANNELS,
@@ -21,11 +20,7 @@ from mael_domain.context import (
     set_update_channel,
 )
 from mael_domain.release_bundle.layout import ManifestError, current_manifest
-from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.types import StateDbError
-from mael_domain.task import task_key
-from mael_domain.task_export import Queued, SqliteExportQueue
-from mael_domain.task_table import TABLE as TASKS_TABLE
 
 from . import schedule_launchd
 from .host_check import HostCheck
@@ -64,12 +59,7 @@ def self_group() -> None:
     type=click.Path(file_okay=False, path_type=Path),
     help="The checkout the release was built from. Links its jig plugin.",
 )
-@click.option(
-    "--rebuild-export",
-    is_flag=True,
-    help="Queue every task for the markdown export, whatever the queue holds.",
-)
-def cmd_setup(changed: str, source: Path | None, rebuild_export: bool) -> None:
+def cmd_setup(changed: str, source: Path | None) -> None:
     """Bring this host to the state the current release wants.
 
     `install.sh` runs it after each install. Run it yourself to repair a host.
@@ -90,33 +80,6 @@ def cmd_setup(changed: str, source: Path | None, rebuild_export: bool) -> None:
         run()
     except (StateDbError, SetupError) as exc:
         raise click.ClickException(str(exc)) from exc
-    if rebuild_export:
-        queued = asyncio.run(_rebuild_export_queue(prod.state / "state.db"))
-        click.echo(f"Queued {queued} task(s) for export.")
-
-
-async def _rebuild_export_queue(path: Path) -> int:
-    """Queue every task row, and return how many were queued.
-
-    A task write queues its own export, so this is for the file that went
-    missing without the row moving. The path is each task's current one.
-    """
-    db = open_state_db(path)
-    try:
-        await db.check()
-        entries = [
-            Queued(
-                id=row["id"],
-                path=task_key(row["project"], row["status"], row["task_id"]),
-                deleted=False,
-                queued_at=now_iso(),
-            )
-            for row in await db.read_all(TASKS_TABLE)
-        ]
-        await SqliteExportQueue(db).queue_all(entries)
-    finally:
-        db.close()
-    return len(entries)
 
 
 def _run_interactive(argv) -> int:
@@ -225,38 +188,6 @@ def cmd_status() -> None:
         click.echo(f"  {unit.name}: {state}{pid}{last}")
         click.echo(f"    log: {sup.log_hint(unit)}")
     click.echo(f"Shim: {prod.shim}")
-    _echo_export_queue(prod.state / "state.db")
-
-
-def _echo_export_queue(path: Path) -> None:
-    """What the markdown export still owes the files.
-
-    The orchestrator drains the queue, so a depth that does not fall means the
-    server is down or its drain is failing. The oldest entry tells a busy
-    notebook from a drain that stopped.
-    """
-    if not path.exists():
-        click.echo(f"Export queue: no notebook at {path}")
-        return
-
-    async def read() -> tuple[int, str | None]:
-        db = open_state_db(path)
-        try:
-            await db.check()
-            queue = SqliteExportQueue(db)
-            return await queue.depth(), await queue.oldest()
-        finally:
-            db.close()
-
-    try:
-        depth, oldest = asyncio.run(read())
-    except StateDbError as exc:
-        click.echo(f"Export queue: {exc}")
-        return
-    if not depth:
-        click.echo("Export queue: up to date")
-    else:
-        click.echo(f"Export queue: owes {depth} task(s), the oldest since {oldest}")
 
 
 @self_group.command("uninstall")

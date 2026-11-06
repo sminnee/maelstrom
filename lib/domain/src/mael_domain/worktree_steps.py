@@ -176,8 +176,7 @@ def scope_lock(
 
     ``flock`` rather than an :class:`asyncio.Lock`: the server is not the only
     writer. A user running ``mael sync`` in a terminal is a peer, and so is
-    another worktree's tooling. This follows ``task_store.py`` and
-    ``agent_server.py``, which lock the same way.
+    another worktree's tooling.
 
     Deliberately not :func:`mael_common.util.locked_file`: that is a read/rewrite
     transaction over a file's contents. Nothing is stored here — the file is
