@@ -59,7 +59,7 @@ from mael_domain.landing import (
     tracked_tasks,
 )
 from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
-from mael_domain.language_servers import LanguageServer
+from mael_domain.language_servers import LanguageServer, LocalRuntime
 from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
@@ -9370,6 +9370,7 @@ class FakeLanguageServer:
         document_symbol=None,
         symbol_error=(),
         references_error=False,
+        load_secs=0.0,
     ) -> None:
         folder.mkdir()
         self.log = folder / "log.jsonl"
@@ -9383,6 +9384,7 @@ class FakeLanguageServer:
                     "document_symbol": document_symbol or {},
                     "symbol_error": list(symbol_error),
                     "references_error": references_error,
+                    "load_secs": load_secs,
                 }
             )
         )
@@ -9393,8 +9395,21 @@ class FakeLanguageServer:
             str(replies),
         )
         self.idle = asyncio.Event()
+        # A second server, shaped as the TypeScript one is. Both run the same
+        # fake, which logs to the same file.
         self.servers = LanguageServers(
-            [LanguageServer("fake", self.command, ("**/*.py",))], sleep=self._sleep
+            [
+                LanguageServer("fake", self.command, ("**/*.py",)),
+                LanguageServer(
+                    "fake-ts",
+                    self.command,
+                    ("**/*.ts", "**/*.tsx"),
+                    top_level_kinds=frozenset({13, 14}),
+                    waits_for_load=True,
+                    local_runtime=LocalRuntime("sdk/server.js", ("sdk", "path")),
+                ),
+            ],
+            sleep=self._sleep,
         )
 
     async def _sleep(self, _secs: float) -> None:
@@ -9430,9 +9445,9 @@ class FakeLanguageServer:
             if m.get("method") in ("textDocument/didOpen", "textDocument/didClose")
         ]
 
-    async def stopped(self, timeout: float = 5.0) -> None:
+    async def stopped(self, timeout: float = 5.0, count: int = 1) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
-        while "exit" not in self.methods():
+        while self.methods().count("exit") < count:
             assert asyncio.get_running_loop().time() < deadline, self.methods()
             await asyncio.sleep(0.02)
 
@@ -9667,6 +9682,147 @@ def test_a_definition_no_function_holds_pins_the_window_around_it(
             "anchor": 40,
             "inRev": True,
         }
+    ]
+
+
+# A top-level const arrow function on 1-based lines 1-10, with a const in it on
+# line 4, and a top-level constant on line 21.
+_TS_HIERARCHICAL = [
+    _symbol("Foo", 13, 0, 9, [_symbol("inner", 14, 3, 3)]),
+    _symbol("LIMIT", 14, 20, 20),
+]
+_TS_FLAT = [
+    _flat_symbol("Foo", 13, 0, 9),
+    _flat_symbol("inner", 14, 3, 3, "Foo"),
+    _flat_symbol("LIMIT", 14, 20, 20),
+]
+
+
+@pytest.mark.parametrize("symbols", [_TS_HIERARCHICAL, _TS_FLAT], ids=["tree", "flat"])
+def test_a_top_level_const_is_a_fragment_and_a_nested_one_is_not(
+    harness_factory, tmp_path, symbols
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition=[
+            {"uri": "{root}/ui/a.ts", "range": _fake_range(3)},
+            {"uri": "{root}/ui/a.ts", "range": _fake_range(20)},
+        ],
+        document_symbol={"a.ts": symbols},
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    (repo / "ui").mkdir()
+    create_commit(repo, "ui/tsconfig.json", "{}\n", "feat: ui")
+    create_commit(repo, "ui/a.ts", "export const Foo = () => 1;\n", "feat: a")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "ui/a.ts", 30, 0))
+
+    # The nested const would pin line 4 alone: the whole of Foo is the Fragment.
+    assert run(scenario())["targets"] == [
+        {
+            "path": "ui/a.ts",
+            "range": {"start": 1, "end": 10},
+            "anchor": 4,
+            "symbol": "Foo",
+            "inRev": True,
+        },
+        {
+            "path": "ui/a.ts",
+            "range": {"start": 21, "end": 21},
+            "symbol": "LIMIT",
+            "inRev": True,
+        },
+    ]
+
+
+def test_a_cold_first_click_waits_for_the_project_load_to_list_uses(
+    harness_factory, tmp_path
+):
+    # tsserver answers references with [] until its project load ends.
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/ui/a.ts", "range": _fake_range(0)},
+        references=[{"uri": "{root}/ui/b.ts", "range": _fake_range(2)}],
+        load_secs=0.3,
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    (repo / "ui").mkdir()
+    create_commit(repo, "ui/tsconfig.json", "{}\n", "feat: ui")
+    create_commit(repo, "ui/a.ts", "export const a = 1;\n", "feat: a")
+    create_commit(repo, "ui/b.ts", "\n\na;\n", "feat: b")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "ui/a.ts", 1, 1))
+
+    answer = run(scenario())
+    assert answer["reason"] == "ok"
+    assert [r["path"] for r in answer["references"]] == ["ui/b.ts"]
+
+
+def test_one_server_per_language_reads_every_folder_of_the_worktree(
+    harness_factory, tmp_path
+):
+    fake = FakeLanguageServer(tmp_path / "lsp")
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    for name in ("ui/a.ts", "ui/b.tsx", "jig/c.ts", "models.py"):
+        (repo / name).parent.mkdir(exist_ok=True)
+        (repo / name).write_text("// new\n")
+    git(repo, "add", ".")
+    git(repo, "commit", "-m", "feat: two folders")
+    sha = git(repo, "rev-parse", "HEAD").stdout.strip()
+    # Each differs from the sha. ui/ imports from jig/, so the TypeScript
+    # server needs jig/c.ts at the sha too.
+    for name in ("ui/a.ts", "jig/c.ts", "models.py"):
+        (repo / name).write_text("// moved\n")
+    # The nearest runtime above the file of the first click.
+    (repo / "sdk").mkdir()
+    (repo / "sdk/server.js").write_text("")
+    (repo / "ui/sdk").mkdir()
+    runtime = repo / "ui/sdk/server.js"
+    runtime.write_text("")
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json(_definition_query(sha, "ui/b.tsx"))
+            await api.get_json(_definition_query(sha, "orders.py"))
+            await api.get_json(_definition_query(sha, "jig/c.ts"))
+            harness.worktrees.worktrees[0] = {
+                **harness.worktrees.worktrees[0],
+                "isClosed": True,
+            }
+            assert (await api.post("/api/worktrees/refresh")).status < 300
+            await fake.stopped(count=2)
+
+    run(scenario())
+    assert [
+        (p["rootUri"], p.get("initializationOptions")) for p in fake.asked("initialize")
+    ] == [
+        (repo.as_uri(), {"sdk": {"path": str(runtime)}}),
+        (repo.as_uri(), None),
+    ]
+    opened = [
+        (
+            p["textDocument"]["uri"].removeprefix(repo.as_uri() + "/"),
+            p["textDocument"]["languageId"],
+        )
+        for p in fake.asked("textDocument/didOpen")
+    ]
+    # The click on jig/c.ts opens nothing: its server holds it already.
+    assert opened == [
+        ("jig/c.ts", "typescript"),
+        ("ui/a.ts", "typescript"),
+        ("ui/b.tsx", "typescriptreact"),
+        ("models.py", "python"),
+        ("orders.py", "python"),
     ]
 
 
