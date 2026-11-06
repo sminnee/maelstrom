@@ -153,9 +153,7 @@ _Avoid_: Ticket, issue, job
 
 **Status**:
 A column on the task row. The six statuses are `todo`, `in-progress`, `blocked`, `done`,
-`cancelled` and `template`. Changing one is a single-column update, not a move. The **Task
-export** lays a task out under its status, which is a rendering of the column rather than the
-authority for it.
+`cancelled` and `template`. Changing one is a single-column update, not a move.
 _Avoid_: State, folder
 
 **Parent**:
@@ -1657,9 +1655,10 @@ are progressive.
 _Avoid_: Async, background, deferred
 
 **State database**:
-The SQLite database at `~/.maelstrom/state.db` holding every canonical and cached table. One
-file, so one transaction and one revision counter cover them all. It holds the desk and the tasks.
-The install script creates and upgrades it; every other open refuses a schema it cannot read.
+The SQLite database at `<notebook root>/state.db` holding every canonical and cached table. One
+file, so one transaction and one revision counter cover them all. It holds the desk, the tasks
+and the **Wiki**. The install script creates and upgrades it; every other open refuses a schema it
+cannot read.
 _Avoid_: Cache, store, db
 
 **Revision**:
@@ -1671,31 +1670,29 @@ leaves it where it was. It is not an **Epoch**: an epoch names one life of a str
 revision orders writes within one database.
 _Avoid_: Version, sequence, generation, epoch
 
-**Task export**:
-The git-committed markdown tree at `~/.maelstrom/tasks`, written from the task table by a queued
-worker. It exists for audit and for reading a task in an editor: nothing reads it on any code
-path, and it never runs on a write path. A task write queues its export in the same transaction,
-and the orchestrator drains that queue — so a write that rolls back exports nothing, and a CLI
-process never writes the tree.
-_Avoid_: Notebook, mirror, backup
-
 ## Knowledge stores
 
 **Task notebook**:
-Every task maelstrom knows, as rows in the **State database**. The **Task export** renders it to
-markdown at `~/.maelstrom/tasks`, where the **Wiki** and task attachments also live.
+Every task maelstrom knows, as rows in the **State database**. A task's media attachments are in
+the **Attachments directory**.
 
 **Wiki**:
-Curated markdown pages for design patterns that apply to more than one project. The wiki fills
-the gap that per-project memory and a repo's own `docs/` both leave open.
+Curated markdown pages for design patterns that apply to more than one project, one row each in
+the `wiki_pages` table of the **State database**. The wiki fills the gap that per-project memory
+and a repo's own `docs/` both leave open.
 
 **Attachment**:
 Something the task notebook stores for one task. There are two kinds. A media attachment is an
-image or a video under `<project>/images/<bucket>/`. An **Attached document** is a row in the
+image or a video in the **Attachments directory**, under `<project>/images/<bucket>/`. An **Attached document** is a row in the
 `task_attachments` table. Task content and the body of an attached document reference a media
 attachment by a `{{MAEL_TASK_DIR}}` token, which expands to an absolute path at launch. A brief
 from Linear and a screenshot pasted into the orchestrator UI are both media attachments.
 _Avoid_: Upload, file, asset
+
+**Attachments directory**:
+The plain directory `<notebook root>/attachments/` that holds every media attachment. The
+`{{MAEL_TASK_DIR}}` token expands to `<notebook root>/attachments/<project>`.
+_Avoid_: Task repo, notebook repo, images folder
 
 **Bucket**:
 The directory that groups one piece of work's attachments. A task uses its notebook id, a

@@ -345,10 +345,10 @@ slack:
 ### A dev environment's own config
 
 `MAEL_NOTEBOOK_ROOT` names the notebook root: `~/.maelstrom/state` for production, and a
-directory such as `~/.maelstrom/playpen/kilo` for a dev environment. `~/.maelstrom/state` holds
-only the notebook: production has one config file, `~/.maelstrom/config.yaml`. A dev
-environment's root can hold a `config.yaml` that overlays the global file. Each key it sets
-replaces the global key, and the other keys stay.
+directory such as `~/.maelstrom/playpen/kilo` for a dev environment. The root holds `state.db` and the
+`attachments/` directory. Production has one config file,
+`~/.maelstrom/config.yaml`. A dev environment's root can hold a `config.yaml` that overlays the
+global file. Each key it sets replaces the global key, and the other keys stay.
 
 `orchestrator_url:` is the exception. It names the server of one notebook. For production, the
 global file names it, and `mael self setup` writes it there. A dev environment reads it from its

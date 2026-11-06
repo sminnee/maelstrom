@@ -124,7 +124,10 @@ nothing draws it, so a write to it is not news for a client.
 
 An **Attached document** is canonical too. Its row in `task_attachments` carries the markdown, and no
 source can rebuild it once the worktree that held the file is closed. Its media are files in the
-task's **Bucket**, which the notebook's git tree holds.
+task's **Bucket**, in the **Attachments directory**.
+
+The `wiki_pages` table is canonical too. A row is one **Wiki** page: its page id and its whole
+markdown body. Only `mael wiki` reads it, so a write to it is not news for a client.
 
 The `task_steps` table is canonical too. It holds each **Landing** step a task reached, and when
 the server recorded it. GitHub could rebuild the steps, but not the record times that
@@ -145,19 +148,6 @@ The link from a task to its comms is not a table. It is the task row's `comms` c
 list like `follows`. So a link change is a task write, and it sends a task notice. A join table
 was the other choice. The column won because `task.create` already copies a parent's fields; see
 tasks.md, "What a child inherits".
-
-Tasks also keep a git-committed markdown export at `tasks/` in the notebook root,
-`~/.maelstrom/state/tasks` in production. Nothing reads it on
-any code path, so losing it costs history rather than data, and the reader that wants a task's
-prose queries the table.
-
-The export never runs on the write path: a task write enqueues, and the orchestrator drains.
-See [`task_export.py`](../../lib/domain/src/mael_domain/task_export.py) for why the queue is a table in the
-same database.
-
-Two rules keep it honest. The queue **drains on shutdown**, so a clean stop loses nothing. And
-falling behind is **visible** — `mael self status` reports the depth and the oldest
-entry, because silence is the failure mode to design against.
 
 ### Cached
 
@@ -257,7 +247,8 @@ see, not a question only the refresher can answer.
 ## One database
 
 All of it lives in one SQLite database, `state.db` in the notebook root. In production that is
-`~/.maelstrom/state/state.db`, and `mael self setup` migrates it on each install.
+`~/.maelstrom/state/state.db`, and `mael self setup` migrates it on each install. The media
+files are in the **Attachments directory**, `attachments/` beside it.
 
 One file gives one transaction, so a canonical write and its derived rows commit or roll back
 together. That alone removes the bug class `promote` works around today. It also gives one

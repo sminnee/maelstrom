@@ -99,8 +99,8 @@ and `mael sentry list-issues`.
 `subprocess` and `click.echo` live only in the CLI/adapter layer. Model functions
 take their inputs as arguments (including the injected store) and return data or
 raise — they don't read the environment, shell out, or print. Because the model
-only touches the injected store, it can be exercised against an `InMemoryStore`
-with no git and no filesystem (see the task unit tests).
+only touches the injected store, it can be exercised against an in-memory table
+such as `InMemoryTaskTable`, with no database and no filesystem (see the task unit tests).
 
 A model that must report while it runs takes a line callback instead of
 printing: `warn: Callable[[str], None]` in
@@ -226,8 +226,6 @@ paths is a coroutine.
 
 That rule stops at the I/O. A pure function has no await point to yield at, so
 `async def` on one buys nothing and costs an `await` at every call site.
-`GitFileStore` stays sync for a stronger reason: it holds a cross-process
-`flock`, which is hostile to being made async, and it is not a bottleneck.
 
 **[`state_db/`](../../lib/domain/src/mael_domain/state_db/) is the exception, and the
 reason is reversibility rather than I/O.** Its public surface is `async def`

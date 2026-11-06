@@ -53,9 +53,9 @@ no domain in the package split below.
 | Class | Commands | Why |
 |---|---|---|
 | **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch), `task add/promote/load-many` | The state is the server's. Both sides already call the same domain function. |
-| **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
+| **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `wiki list/read/update` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
 | **C. Stays local** | `self *`, `project check`, `cmux status`, `session info/list`, `task edit`, `comms edit` with no options, `task add --run --here`, `task add --edit`, `task load-many --run --here`, `agent attach/tail` | Bootstrap must work with the server down: `self setup` installs it, and `self restart orchestrator` restarts it. The rest use the TTY or `$EDITOR`, or exec into the caller's shell. |
-| **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `base/stack-tip/promote/eject`, `wiki *`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
+| **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `base/stack-tip/promote/eject`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
 | **E. Already a thin client** | `agent show/say/run/approve/…` | They speak the agent daemon's wire contract. |
 
 ## Done

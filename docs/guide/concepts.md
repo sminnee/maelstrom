@@ -100,10 +100,10 @@ task's content *is* the plan, and the session implements that plan directly.
 
 The notebook is a database maelstrom keeps for itself. Each task is one record, and **its
 status is a field on it** — `todo`, `in-progress`, `blocked`, `done`, `cancelled` or
-`template`. See [Tasks](tasks.md) for the markdown export that mirrors it.
+`template`. See [Tasks](tasks.md).
 
-Two of the six statuses park a task rather than track its progress. A `template/` task is a
-recipe to duplicate from. A `blocked/` task is one you parked by hand. Maelstrom never launches
+Two of the six statuses park a task rather than track its progress. A `template` task is a
+recipe to duplicate from. A `blocked` task is one you parked by hand. Maelstrom never launches
 either, whatever their `follows` say.
 
 Three ideas describe how tasks relate. **Their separability is the single most important
@@ -133,13 +133,13 @@ project level. Knowledge is therefore unified across the worktrees of one projec
 across projects. A repo's own `docs/` is scoped to that repo. Neither can hold a pattern that
 belongs to no single project.
 
-Pages live in the same git-backed store as the task notebook, under a reserved prefix, so
-every change is committed and can be rolled back. The store is local, with no remote sync.
+Each page is one row in the state database, beside the tasks. The database is local, with no
+remote sync.
 
 A page is markdown with a one-line `description:` in its frontmatter. `mael wiki list`
 prints the path and the description of every page, which is how an agent finds the right
 page without reading all of them. `mael wiki read` prints a page, and `mael wiki update`
-replaces one and commits it.
+replaces one.
 
 Page paths are free-form. The convention is `dev-patterns/<language-or-area>/<topic>`, for
 example `dev-patterns/python/pypi-publication`. Maelstrom does not enforce it.
