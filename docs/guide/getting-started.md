@@ -136,9 +136,14 @@ Use the HTTPS URL. Agents push with a token over HTTPS, so an SSH remote breaks 
 unattended session. `mael project add` clones the URL you give it and does not rewrite
 the protocol.
 
-The orchestrator UI does the same from its **Projects** tab. Press **Add project** and give
-the git URL. The clone runs as an operation, and the new row shows when it ends. A failed
-clone shows git's reason in the dialog.
+The orchestrator UI does the same. On a fresh install with no project, the UI opens the
+**Welcome dialog**. It shows where projects go, which skills `mael self setup` linked, where the
+config is, the version and whether the agent host answers. Press **Add your first project**.
+Later, press **Add project** in the **Projects** tab, or click the logo to see the Welcome dialog
+again.
+
+Give the git URL. The clone runs as an operation. A failed clone shows git's reason in the
+dialog. When the clone ends, the **Project dialog** of the new project opens.
 
 **Set up after adding** is on by default. When the clone ends, the dialog creates and
 launches a task that runs `/setup-project`. That skill makes the dev env start, then audits

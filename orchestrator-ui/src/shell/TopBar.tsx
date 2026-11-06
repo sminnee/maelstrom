@@ -5,7 +5,7 @@ import { useAppStore } from '../store/store';
 import type { Pane, Side, View } from '../store/uiSlice';
 import { Link } from 'react-router';
 import { useLinkState, useGo, useHrefFor, useLoc } from '../nav/useNav';
-import { useNewWork } from '../nav/useOverlays';
+import { useNewWork, useWelcome } from '../nav/useOverlays';
 import { AgentsChip } from './AgentsChip';
 import { GatesChip } from './GatesChip';
 import { AttentionChip } from './AttentionChip';
@@ -51,6 +51,7 @@ export function TopBar({
   filters?: { open: boolean; onOpen: () => void };
 }) {
   const newWork = useNewWork();
+  const welcome = useWelcome();
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
   if (narrow && strip) {
@@ -110,8 +111,15 @@ export function TopBar({
     <header className={styles.bar} data-testid="top-bar">
       {/* The mark is decoration: the word beside it already names the app. */}
       <h1 className={styles.brand}>
-        <img src="/logo.svg" alt="" className={styles.mark} />
-        maelstrom
+        <button
+          type="button"
+          className={`bareButton ${styles.brandButton}`}
+          aria-label="About maelstrom"
+          onClick={welcome.open}
+        >
+          <img src="/logo.svg" alt="" className={styles.mark} />
+          maelstrom
+        </button>
       </h1>
       <PaneMenu side={mode === 'wide' ? 'left' : null} />
       <FilterBar />

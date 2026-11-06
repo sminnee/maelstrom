@@ -726,6 +726,19 @@ The drawer at the foot of the orchestrator UI that lists **Operations**: a one-l
 running and **Unseen** ones when closed, and the history with each log by step when open.
 _Avoid_: Log panel, activity feed, drawer (alone), toast
 
+**Welcome dialog**:
+The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
+its version, and whether the agent host answers. It opens by itself on a world with no
+**Project**, once per page load, and the logo opens it at any time. Its action starts Add
+project.
+_Avoid_: Onboarding, splash, about box
+
+**Project dialog**:
+The orchestrator UI dialog for one **Project**. Its Overview tab shows where `_main` and the
+worktrees are on disk. Its Worktrees tab holds the worktree table, the one surface that lists a
+closed worktree. Add project opens it when a clone ends.
+_Avoid_: Project detail, project page, Worktrees view
+
 ## Dev environments
 
 **Environment**:

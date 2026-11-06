@@ -1,23 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useWorld } from '../api/useWorld';
-import { useProjectDetail } from '../nav/useOverlays';
+import { useAddProjectDialog, useProjectDetail } from '../nav/useOverlays';
 import { listProjects } from '../selectors/projects';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
-import { AddProject } from './AddProject';
 import styles from './ProjectList.module.css';
 
 /** Every project, with its open worktrees, and the way to add one. A row opens its detail. */
 export function ProjectList() {
   const { world, status } = useWorld();
-  const [adding, setAdding] = useState(false);
+  const addProject = useAddProjectDialog();
   const detail = useProjectDetail();
   const rows = useMemo(() => listProjects(world), [world]);
 
   return (
     <div className={styles.view} data-testid="project-list">
       <div className={styles.toolbar}>
-        <AppButton icon={actionIcon('new')} onClick={() => setAdding(true)}>
+        <AppButton icon={actionIcon('new')} onClick={addProject.open}>
           Add project
         </AppButton>
       </div>
@@ -60,7 +59,6 @@ export function ProjectList() {
           )}
         </tbody>
       </table>
-      {adding && <AddProject onClose={() => setAdding(false)} />}
     </div>
   );
 }

@@ -18,6 +18,15 @@
   margin: 0;
   letter-spacing: 0.02em;
 }
+.brandButton {
+  display: flex;
+  align-items: center;
+  gap: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  color: inherit;
+  cursor: pointer;
+}
 .mark {
   /* As tall as the bar's buttons. */
   width: var(--control);

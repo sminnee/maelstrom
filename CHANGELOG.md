@@ -12,10 +12,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
-- **A project row opens a detail dialog.** The dialog shows the project's open worktrees, its
-  stack tip and its Linear link. The URL holds it as `?detail=<project>`, so a reload reopens
-  it.
-- **Set up a project from the UI.** The detail dialog's **Set up** button creates and launches a
+- **A fresh install opens on the Welcome dialog.** It shows the projects directory, the linked
+  skills, the config directory, the version and whether the agent host answers. **Add your first
+  project** opens Add project. Click the logo to open it again.
+- **A project row opens its Project dialog.** Overview shows where `_main` and the worktrees are,
+  the stack tip and the Linear link, and **Create your first task**. Worktrees holds the
+  project's worktree table. When a clone ends, the new project's Project dialog opens. The URL
+  holds it as `?detail=<project>&dtab=worktrees`, so a reload reopens it.
+- **Set up a project from the UI.** The Project dialog's **Set up** button creates and launches a
   task that runs `/setup-project`. **Add project** does the same after the clone, unless you
   clear its **Set up after adding** box.
 - **`mael self check-host` takes a fresh macOS or Ubuntu Server 24.04 host to a working one.** It
