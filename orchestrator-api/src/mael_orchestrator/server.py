@@ -13,6 +13,8 @@ import functools
 import inspect
 import logging
 import os
+import subprocess
+import sys
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
 from concurrent.futures import Executor
@@ -33,6 +35,7 @@ from mael_agent.agent_wire import (
 )
 from mael_agent.harness_model import HARNESS_CODEX
 from mael_common.image import MAX_BYTES, is_image
+from mael_common.shell import run_cmd_async
 from mael_common.util import now_iso
 from mael_domain import comms as comms_model
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
@@ -117,7 +120,7 @@ from mael_domain.shared_dir import (
     core_plugin_dir,
     investigation_prompt_file,
 )
-from mael_domain.system_info import SystemPaths
+from mael_domain.system_info import SystemPaths, can_update
 from mael_domain.task import (
     CODEX_PLAN_FILE,
     STATUS_DONE,
@@ -232,6 +235,14 @@ def _kilo(tokens: int) -> str:
 
 def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+async def _start_update_job() -> subprocess.CompletedProcess:
+    """``mael self update --detach``, from the venv this server runs in."""
+    mael = Path(sys.executable).parent / "mael"
+    return await run_cmd_async(
+        [str(mael), "self", "update", "--detach"], check=False, quiet=True, timeout=60
+    )
 
 
 #: Each command that runs as an operation: its kind, the ``WorktreeSource``
@@ -532,6 +543,8 @@ class Orchestrator:
         child_detach: float = CHILD_DETACH_SECS,
         language_servers: LanguageServers | None = None,
         system: SystemPaths | None = None,
+        start_update: Callable[[], Awaitable[subprocess.CompletedProcess]]
+        | None = None,
     ) -> None:
         self.tasks = tasks
         self.worktrees = worktrees
@@ -600,6 +613,10 @@ class Orchestrator:
         #: The install's paths, for ``GET /api/system``. ``None`` answers
         #: ``not_implemented``: a test that does not need the route skips it.
         self.system = system
+        #: Starts an **Update job** and returns at once. The default runs
+        #: ``mael self update --detach`` from this server's own venv: the
+        #: import fence keeps the CLI out of the server.
+        self.start_update = start_update or _start_update_job
         #: The stops of a closed worktree's servers, kept so a stop can await them.
         self._server_stops: set[asyncio.Task[None]] = set()
         #: The operations — see ``CONTEXT.md``, "Operation". Loaded at start;
@@ -2349,6 +2366,7 @@ class Orchestrator:
             "worktree.refresh": self._refresh_worktrees_now,
             "operation.seen": self._mark_seen,
             "operation.retry": self._retry,
+            "self.update": self._self_update,
         }
         handler = handlers.get(kind)
         if handler is None:
@@ -3907,6 +3925,31 @@ class Orchestrator:
         if isinstance(plan, dict):
             return plan
         return await self._begin(again, plan, record)
+
+    async def _self_update(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start an **Update job**, which outlives this server's restart.
+
+        Refused unless :func:`can_update`.
+        """
+        if self.system is None:
+            return _refused("not_implemented", "This server has no install")
+        allowed = await asyncio.get_running_loop().run_in_executor(
+            self.executor, can_update, self.system
+        )
+        if not allowed:
+            return _refused(
+                "cannot_update",
+                "This is a development build, not the host service: mael self "
+                "update would update the production install, not this server.",
+            )
+        try:
+            result = await self.start_update()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return _refused("cannot_update", f"mael self update --detach: {exc}")
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout or "").strip()
+            return _refused("cannot_update", message or f"exit {result.returncode}")
+        return {"ok": True, "result": {}}
 
     async def _set_auto_merge(self, command: dict[str, Any]) -> dict[str, Any]:
         """Turn **Auto-merge** on or off, and answer once the world holds the result.

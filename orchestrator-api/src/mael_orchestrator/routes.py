@@ -69,6 +69,7 @@ STATUS_FOR_CODE = {
     "stale_request": 409,
     "wrong_wait_kind": 409,
     "stale_version": 409,
+    "cannot_update": 409,
     "not_implemented": 501,
     "language_server_failed": 502,
 }
@@ -172,6 +173,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_post("/api/tasks/infer", _infer_task)
     app.router.add_post("/api/tasks", _create_task)
     app.router.add_post("/api/projects", _add_project)
+    app.router.add_post("/api/self/update", _self_update)
     app.router.add_post("/api/tasks/promote", _promote_tasks)
     app.router.add_post("/api/tasks/load-many", _load_many_tasks)
     app.router.add_get("/api/linear/issues", _linear_issues)
@@ -1145,6 +1147,13 @@ async def _linear_plan(request: web.Request) -> web.StreamResponse:
     """Plan a Linear issue. It reads Linear and names a branch, so it runs as an operation."""
     return await _command(
         request, lambda body: {**body, "type": "linear.plan"}, status=202
+    )
+
+
+async def _self_update(request: web.Request) -> web.StreamResponse:
+    """Start an **Update job**. ``202``: the job restarts this server as it runs."""
+    return await _command(
+        request, lambda body: {**body, "type": "self.update"}, status=202
     )
 
 
