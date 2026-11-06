@@ -11,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Circle,
+  CircleArrowDown,
   CircleDot,
   CirclePlay,
   ExternalLink,
@@ -97,6 +98,7 @@ const ICONS = {
   sync: RefreshCw,
   terminal: SquareTerminal,
   terminate: OctagonX,
+  update: CircleArrowDown,
   unlink: Link2Off,
   view: Eye,
 } satisfies Record<string, LucideIcon>;

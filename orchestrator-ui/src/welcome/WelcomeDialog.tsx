@@ -1,11 +1,21 @@
+import { useEffect, useState } from 'react';
 import { useHost } from '../api/host';
-import { useSystem, type SystemBody } from '../api/system';
+import {
+  JOB_START_MS,
+  awaitingJob,
+  jobStalled,
+  useSystem,
+  type StartedJob,
+  type SystemBody,
+} from '../api/system';
+import { isLive } from '../selectors/graph';
 import { tildePath } from '../protocol/paths';
 import { useWorld } from '../api/useWorld';
 import { useAddProjectDialog, useWelcome } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { UpdateRow } from './UpdateRow';
 import styles from './WelcomeDialog.module.css';
 
 /** The **Welcome dialog**. `shell/ProjectOverlays.tsx` decides when it opens itself. */
@@ -13,10 +23,21 @@ export function WelcomeDialog() {
   const welcome = useWelcome();
   const addProject = useAddProjectDialog();
   const { world } = useWorld();
-  const system = useSystem();
+  const [startedJob, setStartedJob] = useState<StartedJob>();
+  const system = useSystem({ startedJob });
   const host = useHost();
   const firstProject = Object.keys(world.projects).length === 0;
   const info = system.data;
+  // A subagent stops and resumes with its parent: count the top-level agents.
+  const liveAgents = Object.values(world.agents).filter((a) => !a.parent && isLive(a)).length;
+  useEffect(() => {
+    if (!startedJob || startedJob.stalled) return;
+    const timer = setTimeout(
+      () => setStartedJob((job) => job && { ...job, stalled: true }),
+      JOB_START_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [startedJob]);
   const reachable = host.data?.host?.reachable;
 
   return (
@@ -26,7 +47,8 @@ export function WelcomeDialog() {
         <p className={styles.lede}>
           maelstrom runs coding agents in parallel, each in its own worktree of a project.
         </p>
-        {system.isError ? (
+        {/* A failed read keeps the last good body: an update restarts the server. */}
+        {system.isError && !info ? (
           <p className={styles.faint} role="alert">
             Could not read the install: {system.error.message}
           </p>
@@ -43,6 +65,21 @@ export function WelcomeDialog() {
             <dt>Version</dt>
             <dd className={styles.mono} data-testid="welcome-version">
               {info ? versionWords(info) : '…'}
+            </dd>
+            <dt>Update</dt>
+            <dd>
+              {info ? (
+                <UpdateRow
+                  info={info}
+                  liveAgents={liveAgents}
+                  awaiting={awaitingJob(info, startedJob)}
+                  stalled={jobStalled(info, startedJob)}
+                  startedHere={startedJob !== undefined}
+                  onStarted={() => setStartedJob({ after: info.update?.startedAt ?? null })}
+                />
+              ) : (
+                '…'
+              )}
             </dd>
             <dt>Agent host</dt>
             <dd data-testid="welcome-host">

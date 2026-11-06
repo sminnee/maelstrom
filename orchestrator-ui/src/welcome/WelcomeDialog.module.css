@@ -31,3 +31,14 @@
 .faint {
   color: var(--fg-faint);
 }
+.update {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--u);
+}
