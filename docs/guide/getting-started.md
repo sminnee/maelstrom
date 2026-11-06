@@ -17,7 +17,7 @@ On a first install, `mael self check-host` offers every other tool.
 | [Codex](https://github.com/openai/codex) (`codex`) | A second agent. It installs through npm, so it needs Node. | No |
 | [Tailscale](https://tailscale.com/) | Reaches the orchestrator and the dev servers from other devices, over HTTPS. | No |
 | [tangier](https://pypi.org/project/tangier/) | Runs a project's gates. | No |
-| [cmux](https://github.com/sminnee/cmux) | Shows sessions in workspaces. macOS only; install it from its README. | No |
+| [cmux](https://github.com/sminnee/cmux) | Opens a worktree's terminal from the orchestrator UI. macOS only; install it from its README. | No |
 
 A release install needs no Node and no pnpm: the bundle carries the built web UI.
 
@@ -64,8 +64,8 @@ because Ubuntu's own `nodejs` is v18. Tailscale runs `sudo tailscale up`, and ma
 operator, so that `tailscale cert` runs without sudo.
 
 cmux is not available on Linux. Agents run under the agent daemon, and the orchestrator UI shows
-them. A `mael` command that opens a cmux pane reports that it cannot reach cmux. The agent runs
-anyway, and `mael agent attach` reaches it.
+them. `mael agent attach` reaches each one. The orchestrator's `cmux` link refuses with "cmux
+could not make the terminal".
 
 ### Install from main
 
@@ -210,8 +210,8 @@ WORKTREE_NUM=0
 
 Once alpha is busy, the next `mael add` creates **bravo**, and so on.
 
-By default `mael add` also launches a Claude session in a cmux workspace. Pass `--open` to
-open your editor instead.
+By default `mael add` also runs a Claude session in your terminal, in the new worktree. Pass
+`--daemon` to start it on the agent daemon instead, or `--open` to open your editor.
 
 ## 6. Start the services
 
@@ -243,9 +243,9 @@ mael env stop         # stop the services
 mael task add "Add a hello endpoint" --run
 ```
 
-This creates a task and launches a Claude session in a cmux workspace with three panes:
-Claude, a shell, and browsers. New tasks default to **plan mode**, so the session plans
-with you before it writes code.
+This creates a task and starts a Claude session on the agent daemon. The orchestrator UI shows
+it, and `mael agent attach <id>` opens it in your terminal. New tasks default to **plan mode**,
+so the session plans with you before it writes code.
 
 For an unattended session that implements straight away:
 
@@ -253,10 +253,10 @@ For an unattended session that implements straight away:
 mael task add "Bump the pinned pyright" --mode auto --run
 ```
 
-To run in your current shell instead of a cmux workspace:
+To run in your current shell instead of on the agent daemon:
 
 ```bash
-mael task add "Quick fix" --run --here
+mael task add "Quick fix" --run --cli
 ```
 
 Watch what is running:

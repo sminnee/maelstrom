@@ -268,6 +268,6 @@ A task relaunch resumes the task session's newest thread, in the launch's worktr
 
 - The `mael agent` CLI talks to the Claude daemon socket only. Codex threads live in the
   orchestrator. See [cli-over-api.md](cli-over-api.md).
-- The cmux daemon launcher refuses non-Claude models.
+- The CLI's daemon launcher refuses non-Claude models.
 - Codex subagent threads are not shown.
 - Codex reports no price and no account usage.

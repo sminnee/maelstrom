@@ -44,6 +44,12 @@ release while that section is empty, and retitles it to the version it is releas
   and `mael wiki update` no longer commits. The media files are in
   `~/.maelstrom/state/attachments/`. `mael self setup` moves both out of the old
   `~/.maelstrom/state/tasks` git repo once.
+- **A launch places no cmux pane.** A `--daemon` launch prints `mael agent attach <id>`, and the
+  orchestrator UI shows the agent. `--cli` prepares the task's worktree, then runs the model CLI
+  in your shell there. `mael add`, `mael task run` and `mael task next --run` still default to
+  `--cli`, so they now take over your shell. A process with no terminal refuses `--cli`. `load-many --run`
+  and `add-scheduled --run` refuse it too. `mael task add` and `mael linear plan` take `--cli`
+  and `--daemon`.
 
 ### Removed
 
@@ -52,6 +58,9 @@ release while that section is empty, and retitles it to the version it is releas
   `mael self setup --rebuild-export` is removed, and `mael self status` no longer reports the
   export queue. See the troubleshooting guide before you delete that directory.
 - **`_wiki` is no longer a reserved project name.**
+- **`--here`.** Use `--cli`, which now runs in your shell.
+- **`mael cmux status` and `mael env open`.** Maelstrom no longer starts cmux, lays out a
+  three-pane workspace, or opens the app or a PR in a cmux browser.
 
 ## [0.2.0] - 2026-11-06
 

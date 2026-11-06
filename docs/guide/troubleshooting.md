@@ -7,7 +7,7 @@ sections, this page is organised by subsystem — find the heading that matches 
 
 ```bash
 mael project check     # project health, with automatic fixes
-mael cmux status       # can maelstrom reach cmux?
+mael self status       # are the host services, the agent daemon among them, up?
 mael list              # what every worktree is doing — see listing.md
 mael session list      # live Claude sessions
 mael task reconcile    # do tasks and sessions agree?
@@ -51,24 +51,17 @@ assumes `main`.
 
 ### A session will not launch
 
-Maelstrom places sessions in cmux and **fails rather than falling back** to a local shell.
-So a launch failure usually means cmux is unreachable.
+A `--daemon` launch, or `mael task add --run`, starts the agent on the agent daemon. When the
+daemon cannot start it, the launch prints the daemon's reason and leaves the task TODO. Check the host services:
 
 ```bash
-mael cmux status
+mael self status
 ```
 
-This starts cmux if it is down and exits non-zero when it cannot be reached. Then check the
-socket:
+To work without the daemon for one session, run the model CLI in your shell:
 
 ```bash
-echo $CMUX_SOCKET_PATH      # default is ~/.local/state/cmux/cmux.sock
-```
-
-To work without cmux for one session, use the escape hatch:
-
-```bash
-mael task run <id> --here
+mael task run <id> --cli
 ```
 
 ### "A session is already live for this task"

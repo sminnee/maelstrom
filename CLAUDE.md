@@ -46,8 +46,8 @@ See `docs/dev/` for architecture and design docs:
   where test support lives, and how fakes get their replies.
 - `docs/dev/dead-code.md` — the vulture and knip gates: why each runs twice, and where a false
   positive goes.
-- `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the idempotent
-  `ensure_*` verbs, and the pane 0/1/2 convention.
+- `docs/dev/cmux.md` — how the `cmux/` package drives cmux: the three layers, the worktree
+  terminal link, and closing a workspace.
 - `docs/dev/agent-daemon.md` — driving agents over a stream-json pipe: the flags, the event
   vocabulary, the reply shapes, and teleport.
 - `docs/dev/orchestrator-ui.md` — the `orchestrator-ui/` canvas app: its four layers, how it reads
@@ -74,8 +74,8 @@ change behaviour a user can see, and update it in the same change:
 
 ## Architecture
 
-Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
-workspaces, git worktrees to isolate code, and Claude Code as its agent. It has its own
+Maelstrom is an orchestration layer for multi-agent development. It uses git worktrees to
+isolate code, Claude Code as its agent, and an orchestrator UI to show every agent. It has its own
 task notebook and its own dev environment manager. Worktrees use NATO phonetic alphabet
 names (alpha, bravo, charlie, …) in a bare-like repository structure.
 

@@ -1,11 +1,11 @@
-# Maelstrom: multi-agent development with cmux and Claude Code
+# Maelstrom: multi-agent development with Claude Code
 
 One agent on one branch is easy. Several at once is not. Each agent needs its own working
 directory, its own database and ports, and somewhere you can watch it. Something has to track
 what each one is doing, and in what order.
 
-Maelstrom automates that. It uses cmux to manage workspaces, git worktrees to isolate code,
-and Claude Code as its agent. Integrations with Linear, Sentry and GitHub keep the workflow
+Maelstrom automates that. It uses git worktrees to isolate code, Claude Code as its agent, and
+an orchestrator UI to show every agent. Integrations with Linear, Sentry and GitHub keep the workflow
 streamlined. Maelstrom adds two things of its own. A task notebook tracks what each agent is
 doing and in what order. A dev environment manager gives each worktree isolated services and
 ports. It is a highly opinionated Swiss-army knife.
@@ -70,8 +70,8 @@ mael add feature/avatar-upload
 # Start the project's services in that worktree.
 mael env start
 
-# Launch an agent session. It opens in its own cmux workspace,
-# in plan mode, and plans the work with you first.
+# Launch an agent session. It runs on the agent daemon, shows in the
+# orchestrator UI, starts in plan mode, and plans the work with you first.
 mael task add "Add avatar upload" --run
 
 # See what is running.
@@ -90,7 +90,7 @@ Each component earns its place by the role it plays in the loop.
 
 | Component | Role |
 |---|---|
-| [cmux](docs/guide/cmux-workspaces.md) | Manages workspaces — where sessions run and where you watch them |
+| [Orchestrator UI](docs/guide/concepts.md#the-orchestrator-ui-and-server) | Shows every agent, and where you watch and answer them |
 | [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
@@ -98,9 +98,9 @@ Each component earns its place by the role it plays in the loop.
 | [Dev environments](docs/guide/dev-environments.md) | Isolated services and ports per worktree |
 | [Linear / Sentry / GitHub](docs/guide/integrations.md) | Streamline the workflow |
 
-Sessions run in cmux workspaces. Maelstrom drives the cmux socket, starts cmux if it is
-down, and fails rather than running an agent somewhere you cannot find it. `--here` is the
-deliberate local-shell escape hatch.
+`mael task add --run` starts an agent on the agent daemon, and the orchestrator UI shows it.
+`mael agent attach <id>` opens it in your terminal. `mael add` and `mael task run` run the model
+CLI in your shell by default.
 
 ## Documentation
 
@@ -111,7 +111,6 @@ deliberate local-shell escape hatch.
 | [Concepts](docs/guide/concepts.md) | What maelstrom is for, and how the pieces fit together |
 | [Getting started](docs/guide/getting-started.md) | Install → first worktree → first agent session |
 | [The multi-agent workflow](docs/guide/multi-agent-workflow.md) | The core loop: plan → chain → parallel sessions → PR |
-| [cmux workspaces](docs/guide/cmux-workspaces.md) | Workspaces, the three-pane layout, `--here` |
 | [Worktrees](docs/guide/worktrees.md) | Lifecycle, naming, recycling, close vs remove |
 | [Reading `mael list`](docs/guide/listing.md) | What each column means, and where each fact comes from |
 | [Dev environments](docs/guide/dev-environments.md) | `services:`, engines, ports, `.env` |

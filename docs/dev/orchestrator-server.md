@@ -526,8 +526,8 @@ request. The run that read it live terminated the agent, so a resumed agent is n
 
 ### Approving a task set
 
-A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A cmux session gates on the
-user saying yes in the chat. The orchestrator UI has no chat, so the document's Approve button is
+A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A session in a terminal gates on
+the user saying yes in the chat. The orchestrator UI has no chat, so the document's Approve button is
 what runs the promote; otherwise approval would be advice the agent may ignore rather than a gate.
 
 A verdict names the document the user clicked, and settles every current member of its review
@@ -1135,7 +1135,7 @@ project could pick the same name.
 
 A task that has already run owns its session id, and claiming that id again is refused. So the
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
-`resume` on the `start` when it does. That is the same switch `mael task run` makes for a pane.
+`resume` on the `start` when it does. That is the same switch `mael task run` makes.
 
 A Codex launch always sets `resume`. The router resumes the newest Codex thread on the task
 session id, keeping its record's start time. It starts a fresh thread when none ran, or when Codex
@@ -1233,7 +1233,7 @@ user takes a task off with **Off desk**.
   When a shared prompt file is missing, the server refuses the start before the operation
   begins: without its rules an investigation is an ordinary free agent.
 
-Not built: the opencode harness, and the cmux placement the CLI does.
+Not built: the opencode harness.
 
 ## Closing a worktree
 
