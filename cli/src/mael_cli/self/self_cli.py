@@ -25,11 +25,18 @@ from mael_domain.context import (
     set_update_channel,
 )
 from mael_domain.release_bundle.layout import ManifestError, current_manifest
+from mael_domain.release_bundle.update_job import read_record, update_lock
 from mael_domain.state_db.types import StateDbError
 
 from . import schedule_launchd
 from .host_check import HostCheck
-from .host_service import AGENT_DAEMON, ORCHESTRATOR, run_quietly, supervisor
+from .host_service import (
+    AGENT_DAEMON,
+    ORCHESTRATOR,
+    SubmitError,
+    run_quietly,
+    supervisor,
+)
 from .production import SHIM_MARKER, Production, agent_path
 from .setup import Setup, SetupError, all_units, configured_services
 from .state_archive import (
@@ -39,7 +46,15 @@ from .state_archive import (
     default_name,
     export_state,
 )
-from .update import UpdateError, main_checkout, update_main, update_stable
+from .update import (
+    UpdateError,
+    main_checkout,
+    run_as_job,
+    submit_update,
+    update_job_spec,
+    update_main,
+    update_stable,
+)
 
 
 def _units(prod: Production):
@@ -148,11 +163,21 @@ def cmd_check_host(dev: bool) -> None:
     help="Install this GitHub Release, such as a pre-release or an older "
     "version to roll back to. Stable channel only.",
 )
-def cmd_update(channel: str | None, tag: str | None) -> None:
+@click.option(
+    "--detach",
+    is_flag=True,
+    help="Run the update as an update job of the OS supervisor, which outlives "
+    "the restart of the host services, and return at once. Use it from an "
+    "agent session.",
+)
+@click.option("--as-job", is_flag=True, hidden=True)
+def cmd_update(
+    channel: str | None, tag: str | None, detach: bool, as_job: bool
+) -> None:
     """Install the latest release of maelstrom, then run its setup.
 
-    A restart of the agent daemon stops the agents it runs, so run this from a
-    shell, not from an agent session.
+    A restart of the agent daemon stops the agents it runs. Without --detach,
+    run this from a shell, not from an agent session.
     """
     stored = channel is not None
     channel = channel or load_global_config().update_channel
@@ -161,14 +186,27 @@ def cmd_update(channel: str | None, tag: str | None) -> None:
     if stored:
         set_update_channel(get_maelstrom_dir() / GLOBAL_CONFIG_FILENAME, channel)
         click.echo(f"Update channel: {channel}")
-    try:
+    prod = _production()
+
+    def install(run) -> int:
         if channel == "stable":
-            code = update_stable(tag, subprocess.run)
-        else:
-            code = update_main(
-                main_checkout(load_global_config().projects_dir), subprocess.run
-            )
-    except UpdateError as exc:
+            return update_stable(tag, run)
+        return update_main(main_checkout(load_global_config().projects_dir), run)
+
+    if as_job:
+        raise SystemExit(run_as_job(prod.install_root, prod.update_log, install))
+    try:
+        if detach:
+            spec = update_job_spec(prod, os.environ.get("PATH", ""), tag)
+            submit_update(supervisor(run_quietly, prod.home), spec, prod)
+            click.echo(f"Update job started ({channel}). Log: {prod.update_log}")
+            click.echo("Run `mael self status` to see its result.")
+            return
+        with update_lock(prod.install_root) as locked:
+            if not locked:
+                raise UpdateError("An update job is running. See `mael self status`.")
+            code = install(subprocess.run)
+    except (UpdateError, SubmitError) as exc:
         raise click.ClickException(str(exc)) from exc
     if code != 0:
         raise click.ClickException(f"install.sh failed (exit {code}).")
@@ -200,6 +238,15 @@ def cmd_status() -> None:
         click.echo(f"  {unit.name}: {state}{pid}{last}")
         click.echo(f"    log: {sup.log_hint(unit)}")
     click.echo(f"Shim: {prod.shim}")
+    record = read_record(prod.install_root)
+    if record is not None:
+        tags = f"{record.from_tag or '?'} → {record.to_tag or '?'}"
+        ended = f", ended {record.finished_at}" if record.finished_at else ""
+        code = f", exit {record.exit_code}" if record.exit_code is not None else ""
+        click.echo(
+            f"Last update: {record.state} ({tags}), started {record.started_at}{ended}{code}"
+        )
+        click.echo(f"  log: {record.log}")
 
 
 @self_group.command("uninstall")

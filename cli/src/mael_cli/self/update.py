@@ -1,17 +1,33 @@
-"""``mael self update``, and the jig link of a source install.
+"""``mael self update``, the **Update job**, and the jig link of a source install.
 
 An update is ``bin/install.sh``: the release's own copy on the stable channel,
 and ``_main``'s copy on the main channel. The installer ends by running the new
-release's ``mael self setup``. See ``docs/dev/host-services.md``.
+release's ``mael self setup``, which restarts the host services. An update that
+must outlive that restart runs as an **Update job**: a one-shot unit of the OS
+supervisor. See ``docs/dev/host-services.md``.
 """
 
+import os
 import shutil
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
+from mael_domain.release_bundle.layout import ManifestError, current_manifest
+from mael_domain.release_bundle.update_job import (
+    UpdateRecord,
+    lock_held,
+    read_record,
+    update_lock,
+    write_record,
+)
 from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
+
+from .host_service import HostService, Supervisor
+from .production import Production, production_env
 
 #: Where the stable channel's bundles and installers are published.
 RELEASES = "https://github.com/sminnee/maelstrom/releases"
@@ -99,3 +115,128 @@ def update_main(main: Path, run: Callable[..., subprocess.CompletedProcess]) -> 
             f"Make it with `curl -LsSf {INSTALL_MAIN_URL} | sh`."
         )
     return run(["sh", str(main / "bin" / INSTALLER), "--source", str(main)]).returncode
+
+
+#: The one-shot unit's name: launchd label ``nz.tangerinelabs.maelstrom.update``,
+#: systemd unit ``maelstrom-update``.
+UPDATE_JOB = "update"
+#: The job's plist, outside ``~/Library/LaunchAgents``. See :class:`HostService`.
+UPDATE_PLIST = "update.plist"
+
+
+def update_job_spec(
+    prod: Production, inherited_path: str, tag: str | None
+) -> HostService:
+    """The one-shot unit that runs ``mael self update --as-job``.
+
+    It runs the resolved release, not ``current``: the installer moves
+    ``current`` during the run, and the old release stays on disk.
+    """
+    current = prod.install_root / "current"
+    if not current.exists():
+        raise UpdateError(
+            f"No release is installed at {current}. Run `mael self update` "
+            "without --detach."
+        )
+    mael = current.resolve() / "venv" / "bin" / "mael"
+    return HostService(
+        name=UPDATE_JOB,
+        argv=(
+            str(mael),
+            "self",
+            "update",
+            "--as-job",
+            *(["--tag", tag] if tag else []),
+        ),
+        env=production_env(prod, inherited_path),
+        oneshot=True,
+        plist=prod.install_root / UPDATE_PLIST,
+        cwd=prod.maelstrom,
+        log=prod.update_log,
+    )
+
+
+def submit_update(supervisor: Supervisor, spec: HostService, prod: Production) -> None:
+    """Start the **Update job** ``spec``. Refuses while an update runs."""
+    if lock_held(prod.install_root):
+        record = read_record(prod.install_root)
+        where = f" Follow it in {record.log}." if record else ""
+        raise UpdateError(f"An update is running.{where}")
+    supervisor.submit(spec)
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def _current_tag(install_root: Path) -> str | None:
+    try:
+        manifest = current_manifest(install_root)
+    except (ManifestError, OSError, ValueError, KeyError):
+        return None
+    return None if manifest is None else manifest.tag
+
+
+#: Runs the update with the given ``run``, and returns the installer's exit code.
+Install = Callable[[Callable[..., subprocess.CompletedProcess]], int]
+
+
+def run_as_job(
+    install_root: Path,
+    log: Path,
+    install: Install,
+    pid: int | None = None,
+    now: Callable[[], str] = _now,
+    sleep: Callable[[float], None] = time.sleep,
+) -> int:
+    """The body of the **Update job**: run ``install``, and record it.
+
+    The update lock holds for the whole run. A job that finds another update
+    holding it writes no record and installs nothing. Returns the exit code.
+    """
+    pid = os.getpid() if pid is None else pid
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with update_lock(install_root, sleep) as locked, open(log, "a") as out:
+        if not locked:
+            out.write("Another update is running; this job stops.\n")
+            return 1
+        # The log holds this run alone. It is emptied only under the lock, so
+        # a refused job cannot empty the log of the one that runs.
+        out.truncate(0)
+        started = UpdateRecord(
+            state="running",
+            pid=pid,
+            started_at=now(),
+            log=str(log),
+            from_tag=_current_tag(install_root),
+        )
+        write_record(install_root, started)
+        out.write(f"Update started at {started.started_at} (pid {pid}).\n")
+        out.flush()
+
+        def run(argv, **_kwargs) -> subprocess.CompletedProcess:
+            out.flush()
+            return subprocess.run(
+                argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT
+            )
+
+        try:
+            code = install(run)
+        except UpdateError as exc:
+            out.write(f"{exc}\n")
+            code = 1
+        out.write(f"Update ended with exit {code}.\n")
+        write_record(
+            install_root,
+            UpdateRecord(
+                state="succeeded" if code == 0 else "failed",
+                pid=pid,
+                started_at=started.started_at,
+                log=str(log),
+                from_tag=started.from_tag,
+                to_tag=_current_tag(install_root),
+                finished_at=now(),
+                exit_code=code,
+            ),
+        )
+        return code

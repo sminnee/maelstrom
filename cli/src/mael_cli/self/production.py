@@ -11,6 +11,7 @@ from pathlib import Path
 from mael_agent.agent_transport import ROOT_ENV
 from mael_domain.context import GLOBAL_CONFIG_FILENAME, read_config_key, set_config_key
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
+from mael_domain.release_bundle.layout import INSTALL_DIRNAME
 
 #: The PATH of the units, stored in the global config by the first setup. A setup from another shell then writes the same unit files,
 #: and restarts nothing.
@@ -37,7 +38,7 @@ class Production:
 
     @property
     def install_root(self) -> Path:
-        return self.maelstrom / "install"
+        return self.maelstrom / INSTALL_DIRNAME
 
     @property
     def state(self) -> Path:
@@ -57,6 +58,11 @@ class Production:
     @property
     def service_logs(self) -> Path:
         return self.maelstrom / "logs" / "service"
+
+    @property
+    def update_log(self) -> Path:
+        """The log of the last **Update job**."""
+        return self.maelstrom / "logs" / "update.log"
 
     @property
     def shim(self) -> Path:
