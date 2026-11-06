@@ -8,7 +8,7 @@ A chain is 1–5 plan-mode tasks. Each task is one piece of the problem, and its
 
 - 5 is the cap. When the work is large, make each task broader. A task's plan mode can add more tasks later.
 - Make each task a vertical slice: it ships its own tests and behaviour a user can see. Re-cut a layer-shaped or test-only split.
-- When the tasks share design context, put it in an ADR (`docs/adr/`, format in `domain-modeling/ADR-FORMAT.md`) or a design doc. Write it in this session, or make writing it the first bullet of the first task. Later tasks link it.
+- When the tasks share design context, put it in an ADR (`docs/adr/`, format in `domain-modeling/ADR-FORMAT.md` if that skill is available) or a design doc. Write it in this session, or make writing it the first bullet of the first task. Later tasks link it.
 
 ## Drafts
 
