@@ -39,9 +39,12 @@ The installer does these steps:
 
 `check-host` checks each tool in the table above. For a missing tool, it prints the `brew` or
 `apt-get` command, and runs it after a yes. Then it checks the sign-ins to `gh`, `claude` and
-`codex`, and offers each login. When Tailscale is installed, it offers to connect the machine,
+`codex`, and offers each login. When git does not sign in to GitHub through gh, it offers
+`gh auth setup-git`. When Tailscale is installed, it offers to connect the machine,
 to set `dev_host:` to the tailnet name, and to issue a certificate for `dev_https:`. Run
-`mael self check-host` again at any time. A met item asks nothing.
+`mael self check-host` again at any time. A met item asks nothing. Each install asks again
+about a missing required item, but not about an optional item you said no to. Run
+`mael self check-host` to be asked about every item again.
 
 To answer the question from a script, pass the directory:
 

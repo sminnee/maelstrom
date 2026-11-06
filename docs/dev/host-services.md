@@ -165,6 +165,7 @@ in the list.
 | `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
+| `GitCredentials` | When gh is signed in: git's credential helper for `https://github.com` is gh's. Offers `gh auth setup-git`. A gh sign-in does not reach git by itself, and an HTTPS clone with no terminal then fails. Another helper is unmet too: macOS's `osxkeychain` default may hold nothing |
 | `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
 | `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
 | `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |

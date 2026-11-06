@@ -1430,7 +1430,9 @@ The check runs these steps in order:
 3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
-   login.
+   login. When gh is signed in but git does not sign in to GitHub through gh, it offers
+   `gh auth setup-git`. Without it, an HTTPS clone from the UI's Add project can fail with
+   "could not read Username".
 5. **Plugins**, when `claude` is installed. It offers to install `minnstack`, the optional
    development-practice skills, into Claude Code, and into Codex when it is there.
 6. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale

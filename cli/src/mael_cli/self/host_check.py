@@ -40,6 +40,13 @@ _GH_APT = (
     " && sudo apt-get update && sudo apt-get install -y gh"
 )
 
+#: The URL git's credential helper is looked up for.
+GITHUB_URL = "https://github.com"
+#: Makes gh git's credential helper for GitHub.
+SETUP_GIT = "gh auth setup-git"
+#: What the helper ``SETUP_GIT`` writes holds.
+GH_HELPER = "gh auth git-credential"
+
 _NODESOURCE = (
     "curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -"
     " && sudo apt-get install -y nodejs"
@@ -249,6 +256,43 @@ class SignIn(HostCheckItem):
         )
 
 
+class GitCredentials(HostCheckItem):
+    """git signs in to github.com through gh. Checked only when gh is signed in.
+
+    A gh sign-in does not reach git by itself: ``gh auth setup-git`` is the
+    remedy. Another helper does not meet the item, because the check cannot
+    tell one that holds a token from macOS's empty ``osxkeychain`` default.
+    """
+
+    section = "Sign-ins"
+    name = "git credentials"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return (
+            host.which("git") is not None
+            and host.which("gh") is not None
+            and signed_in(host.run(["gh", "auth", "status"]))
+        )
+
+    def check(self, host: "HostCheck") -> Finding:
+        result = host.run(
+            ["git", "config", "--get-urlmatch", "credential.helper", GITHUB_URL]
+        )
+        helper = result.stdout.strip() if result.returncode == 0 else ""
+        if GH_HELPER in helper:
+            return Finding(True, "git signs in to GitHub with gh")
+        if helper:
+            return Finding(False, f"git signs in to GitHub with {helper}, not gh")
+        return Finding(False, "git has no credentials for github.com")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        return Remedy(
+            f"Let git use the gh sign-in with: {SETUP_GIT}",
+            fix=lambda: host.run_interactive(SETUP_GIT.split()),
+            question="Let git use the gh sign-in?",
+        )
+
+
 def signed_in(result) -> bool:
     """Whether a status command says signed in: exit 0, and no ``loggedIn: false``."""
     if result.returncode != 0:
@@ -301,7 +345,7 @@ class TailscaleUp(HostCheckItem):
     """This machine is on a tailnet. Checked only when tailscale is installed."""
 
     section = "Tailscale"
-    name = "dev_https"
+    name = "tailnet"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.which("tailscale") is not None
@@ -324,7 +368,7 @@ class TailscaleOperator(HostCheckItem):
     """On Linux, the user runs ``tailscale cert`` without sudo, as the dev env does."""
 
     section = "Tailscale"
-    name = "dev_host"
+    name = "tailscale operator"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.platform == "linux" and host.which("tailscale") is not None
@@ -369,7 +413,7 @@ class DevHost(HostCheckItem):
     """``dev_host:`` names this machine. Checked only on a running tailnet."""
 
     section = "Tailscale"
-    name = "tailnet"
+    name = "dev_host"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.which("tailscale") is not None and host.tailscale_running()
@@ -397,7 +441,7 @@ class DevHttps(HostCheckItem):
     """``dev_https:`` is set. Turning it on issues the tailnet certificate first."""
 
     section = "Tailscale"
-    name = "tailscale operator"
+    name = "dev_https"
 
     def applies(self, host: "HostCheck") -> bool:
         return DevHost().applies(host) and bool(
@@ -510,6 +554,7 @@ HOST_ITEMS: tuple[HostCheckItem, ...] = (
     SignIn(
         "gh", ("gh", "auth", "status"), "gh auth login", "gh auth login", required=True
     ),
+    GitCredentials(),
     SignIn(
         "claude",
         ("claude", "auth", "status"),
