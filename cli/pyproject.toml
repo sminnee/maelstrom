@@ -14,6 +14,7 @@ dependencies = [
     "click>=8.2",
     "textual>=8.2.8,<9",
     "pydantic>=2.13.5",
+    "tomlkit>=0.13",
 ]
 
 [project.urls]

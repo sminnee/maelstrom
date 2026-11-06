@@ -91,7 +91,7 @@ fails the setup.
 | Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. The installer writes the key, so this asks only on a host whose key was removed after the install, when stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
 | Migrate | Migrates `state/state.db`, moves `orchestrator_url:` and `service_path:` up from an older `state/config.yaml`, and writes each when it is unset. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
-| Integrate | The Claude skills and hooks, then `harden_global_config` |
+| Integrate | The Claude sandbox exclusions, then the plugins (see [Skills and plugins](#skills-and-plugins)), then `harden_global_config` |
 | Shim | Writes `~/.local/bin/mael` |
 | Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |
 | Units | Stops `_main`'s env-managed orchestrator and daemon, then writes and loads the host service units |
@@ -174,6 +174,56 @@ missing, or `gh` or `claude` is signed out.
 
 `mael project check` keeps the worktree `.env` permissions. The files under `~/.maelstrom` are the
 host check's.
+
+## Skills and plugins
+
+The skills ship as two plugins in one local plugin marketplace, `shared/plugins/`:
+
+| Plugin | Holds | How an agent gets it |
+|---|---|---|
+| `maelstrom`, the **core plugin** | The skills the orchestrator launches by name, and the `mael` workflow | Each maelstrom launch loads it |
+| `minnstack` | The development practices: design, build, test, review, writing | The user installs it globally |
+
+**Each launch loads the core plugin of the code that launches it.** The client passes
+`core_plugin_dir()` from `mael_domain/shared_dir.py`. The daemon puts it on the `claude` argv
+as `--plugin-dir`, as it does with `system_prompt_file`; the daemon cannot import `mael_domain`.
+The pane launcher and the headless rebase repair add the same flag. So a worktree's dev
+orchestrator runs that worktree's skills, and a skill edit can be tested before it merges. A
+`--plugin-dir` copy replaces a global install of the same plugin for that session.
+
+**Codex has no `--plugin-dir`.** Setup installs the core plugin into Codex disabled. Each
+maelstrom thread start and resume enables it with a `config` override,
+`CODEX_CORE_PLUGIN_CONFIG` in `mael_agent/harness_model.py`. The pane passes the same override
+as `-c`. The override must be a nested table: Codex accepts a dotted key with the quoted
+`"maelstrom@maelstrom"` segment and ignores it. Codex copies a plugin into its cache, so a Codex
+agent runs the skills of the last setup, not of its worktree.
+
+A plugin skill is namespaced, as `/maelstrom:plan-task`. The bare `/plan-task` still resolves,
+because each skill sets `name:` and no other skill has that name. `shared/tests/test_shared_skills.py`
+guards both rules.
+
+### The setup step
+
+`Plugins.setup()` in `cli/src/mael_cli/self/plugins.py` runs these steps:
+
+1. **Remove the old links.** Each symlink in `~/.claude/skills/` and `~/.agents/skills/` whose
+   target is in a `shared/skills/` dir goes, broken or not. These links would take the bare
+   skill names. Other links and real dirs stay.
+2. **Move the stable path.** `~/.maelstrom/plugins` points at this release's `shared/plugins/`,
+   moved with one rename.
+3. **Register the marketplace.** Claude Code gets
+   `claude plugin marketplace add ~/.maelstrom/plugins` once. It keeps the path as given and reads
+   the plugins in place, so each new release reaches a global install at the next session
+   start. Codex gets the path written into `[marketplaces.maelstrom]` in `config.toml`, because
+   `codex plugin marketplace add` stores the resolved path, which the next release moves.
+4. **Refresh Codex.** `codex plugin add` runs for the core plugin and for each enabled
+   `@maelstrom` plugin, to refresh the cached copy. The core plugin then goes back to
+   `enabled = false`, unless the user had set it to `true`.
+5. **Keep the practices.** When step 1 removed a `minnstack` skill link, setup installs
+   `minnstack@maelstrom`, so an upgrading host keeps those skills.
+
+Without `claude`, setup warns and goes on. Without `codex`, it skips the Codex steps: Codex is
+optional. The `config.toml` edits use `tomlkit`, which keeps the user's keys, order and comments.
 
 ## The units
 
