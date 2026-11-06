@@ -35,7 +35,7 @@ Do not name an output directory `CLAUDE-SECURITY-*`. The `claude-security` plugi
    - Pass it through the guard, and use only the guard's output from here on:
 
      ```bash
-     target=$(~/.claude/skills/security-test/target-guard.sh "$url") || exit 1
+     target=$("<this skill's directory>/target-guard.sh" "$url") || exit 1
      ```
 
      When the guard refuses, stop and show its reason. Never scan another host.

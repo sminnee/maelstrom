@@ -13,7 +13,7 @@ report in the exact shape specified below. You have read-only access to the repo
 
 Always:
 
-- `~/.claude/skills/code-review/review-guide.md` — the cross-project review baseline: what to
+- `review-guide.md` in the `code-review` skill's directory, which the parent names — the cross-project review baseline: what to
   look for and what not to report. Load it first.
 - `CLAUDE.md` at the repo root if present.
 

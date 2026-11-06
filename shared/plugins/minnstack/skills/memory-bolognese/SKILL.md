@@ -20,6 +20,6 @@ Parallelise verification and present one evidence-backed verdict table for appro
 
 The index and store move together: each retained entry has one index line, and each deleted entry loses its line in the same commit. Verify this after any commit that changes either. If the index remains over its threshold after the sweep, report it; do not delete genuine user preferences to meet a number.
 
-Put facts needed always in concise context. Put subsystem facts in the matching skill or README. Put cross-project patterns in the mael wiki. Edit cross-project skills in `shared/skills/`, never their installed copy. Keep memories about the user; put durable codebase facts in the repository when learned.
+Put facts needed always in concise context. Put subsystem facts in the matching skill or README. Put cross-project patterns in the mael wiki. Edit cross-project skills in `shared/plugins/*/skills/`, never their installed copy. Keep memories about the user; put durable codebase facts in the repository when learned.
 
 Give gotchas an existing, relevant destination before creating a new file. Working-style feedback belongs in cross-project skills, not a project memory store.
