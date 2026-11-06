@@ -18,6 +18,7 @@ from mael_cli.self.host_check import (
     HostCheck,
     chrome_glob,
     chrome_profile_text,
+    declined_items,
 )
 from mael_cli.self.production import Production
 from mael_domain.dev_cert import DevCertError
@@ -166,7 +167,7 @@ class FakeHost:
     def config(self) -> Path:
         return self.home / ".maelstrom" / "config.yaml"
 
-    def check(self, dev: bool = False) -> list[str]:
+    def check(self, dev: bool = False, quiet: bool = False) -> list[str]:
         if self.practices:
             self.install_practices("claude")
             self.install_practices("codex")
@@ -183,6 +184,7 @@ class FakeHost:
             echo=self.output.append,
             prompt=self.prompt,
             dev=dev,
+            quiet=quiet,
             caller_path=self.caller_path or str(self.home / ".local" / "bin"),
             user="sam",
             root=False,
@@ -251,6 +253,8 @@ def test_without_a_tty_it_asks_and_runs_nothing(home):
 
     assert host.asked == [] and host.ran == []
     assert unmet == ["gh", "claude sign-in"]
+    # No one said no, so a later run with a tty asks.
+    assert declined_items(host.config) == set()
 
 
 def test_an_optional_tool_is_not_unmet(home):
@@ -385,6 +389,36 @@ def test_a_met_host_asks_nothing(home, platform):
 
     assert host.check() == []
     assert host.asked == [] and host.ran == []
+
+
+def test_quiet_prints_only_the_unmet_items(home):
+    host = FakeHost(home)
+    host.signed_out = {"gh"}
+    host.answer = False
+
+    assert host.check(quiet=True) == ["gh sign-in"]
+    assert host.output[:2] == ["Sign-ins:", "  ✗ gh is signed out"]
+    assert "✓" not in host.text and "Tools:" not in host.text
+
+
+def test_quiet_skips_an_optional_item_declined_before(home):
+    host = FakeHost(home, answer=False)
+    host.tools -= {"tangier", "gh"}
+    host.check()
+    assert declined_items(host.config) == {"tangier"}
+
+    # A required item is asked again; the declined optional one is not.
+    host.asked.clear()
+    host.output.clear()
+    host.check(quiet=True)
+    assert host.asked == ["Install gh?"]
+    assert "tangier" not in host.text
+
+    # Without --quiet it is asked again, and a yes forgets the no.
+    host.answer = True
+    host.check()
+    assert "Install tangier?" in host.asked
+    assert declined_items(host.config) == set()
 
 
 def test_it_tightens_the_secret_files(home):
