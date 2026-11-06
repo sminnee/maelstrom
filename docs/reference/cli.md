@@ -1434,7 +1434,9 @@ The check runs these steps in order:
 3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
-   login.
+   login. When gh is signed in but git does not sign in to GitHub through gh, it offers
+   `gh auth setup-git`. Without it, an HTTPS clone from the UI's Add project can fail with
+   "could not read Username".
 5. **Git identity.** Required. Without a global `user.name` and `user.email`, no agent can
    commit. It asks for each, with the `gh` account's name and email as the default.
 6. **Docker**, when installed. When the daemon does not answer, it offers to start it: Docker

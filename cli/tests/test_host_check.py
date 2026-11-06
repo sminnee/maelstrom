@@ -48,6 +48,8 @@ class FakeHost:
     signed_out: set[str] = field(default_factory=set)
     #: Status commands that exit 0 but report ``loggedIn: false``.
     quietly_signed_out: set[str] = field(default_factory=set)
+    #: What ``git config --get-urlmatch credential.helper`` prints; empty is none.
+    credential_helper: str = "!gh auth git-credential"
     tailscale_state: str = "Running"
     operator: str = "sam"
     #: What each command the check runs interactively installs or does.
@@ -100,6 +102,9 @@ class FakeHost:
         if argv[:3] == ["tailscale", "debug", "prefs"]:
             out = {"OperatorUser": self.operator}
             return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+        if argv[:3] == ["git", "config", "--get-urlmatch"]:
+            code = 0 if self.credential_helper else 1
+            return subprocess.CompletedProcess(argv, code, self.credential_helper, "")
         if argv[:3] == ["git", "config", "--global"]:
             if len(argv) == 5:
                 self.git_config[argv[3]] = argv[4]
@@ -127,6 +132,8 @@ class FakeHost:
     def run_interactive(self, argv) -> int:
         cmd = argv[-1] if argv[:2] == ["sh", "-c"] else " ".join(argv)
         self.ran.append(cmd)
+        if cmd == "gh auth setup-git":
+            self.credential_helper = "!gh auth git-credential"
         if cmd in self.installs:
             self.tools.add(self.installs[cmd])
         if cmd == SKILL_COMMAND:
@@ -342,6 +349,41 @@ def test_a_signed_out_gh_signs_in_after_a_yes(home):
     host.check()
 
     assert "gh auth login" in host.ran
+
+
+def test_git_with_no_credential_helper_gets_the_gh_one_after_a_yes(home):
+    """Else an HTTPS clone with no terminal fails: "could not read Username"."""
+    host = FakeHost(home, credential_helper="")
+
+    assert host.check() == []
+
+    assert host.ran == ["gh auth setup-git"]
+    assert "git has no credentials for github.com" in host.text
+    assert "git signs in to GitHub with gh" in host.text
+
+
+def test_git_with_another_credential_helper_is_offered_the_gh_one(home):
+    """macOS's git ships an osxkeychain helper that may hold nothing."""
+    host = FakeHost(home, credential_helper="osxkeychain")
+
+    host.check()
+
+    assert "git signs in to GitHub with osxkeychain, not gh" in host.text
+    assert host.ran == ["gh auth setup-git"]
+
+
+@pytest.mark.parametrize("gh", ["missing", "signed out"])
+def test_git_credentials_are_not_offered_without_a_gh_sign_in(home, gh):
+    """``gh auth setup-git`` fails then, and a no would hide the item for good."""
+    host = FakeHost(home, credential_helper="", answer=False)
+    if gh == "missing":
+        host.tools.discard("gh")
+    else:
+        host.signed_out = {"gh"}
+
+    host.check()
+
+    assert "Let git use the gh sign-in?" not in host.asked
 
 
 def test_a_status_that_exits_0_but_says_signed_out_is_unmet(home):
