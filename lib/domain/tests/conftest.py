@@ -7,7 +7,6 @@ from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
     _isolate_notebook_root,
     _mark_test_commands_production,
     _plain_terminal,
-    caller,
     collapsible_project,
     fake_cmux,
     fake_tailscale,
