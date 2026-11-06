@@ -1,18 +1,15 @@
-"""Image attachments in the task repo.
+"""Image attachments in the attachments directory.
 
 One mechanism for every image that reaches an agent, whatever brought it in.
 An image downloaded from a Linear brief and a screenshot pasted into the
 orchestrator UI are the same thing once the bytes are in hand: a file in the
-git-backed task repo, and a portable token in the task's content. Only the
+attachments directory, and a portable token in the task's content. Only the
 source differs, so only the source lives with its caller — the naming,
 de-duping, directory layout and token minting are here.
 
 The token is :data:`~mael_domain.task.MAEL_TASK_DIR_TOKEN`, which
 ``task.build_prompt`` expands to an absolute path at launch. That is what lets
-the agent ``Read`` the file while the stored ``.md`` stays machine-independent.
-
-Files are written untracked; the caller's next notebook commit sweeps them in
-via ``git add -A``.
+the agent ``Read`` the file while the stored content stays machine-independent.
 """
 
 import hashlib
@@ -21,7 +18,7 @@ from pathlib import Path
 
 from mael_common.image import MAX_BYTES, image_extension, is_image
 
-from . import task_store
+from .state_db import paths
 
 
 def is_bare_name(value: object) -> bool:
@@ -38,7 +35,7 @@ def _bare_name(value: str, what: str) -> str:
 
     Every segment of an attachment path arrives from a client: ``project`` and
     ``bucket`` off a multipart body or a URL, ``name`` off a URL. A separator or
-    a ``..`` segment in any of them reaches outside the task repo, so all three
+    a ``..`` segment in any of them reaches outside the attachments directory, so all three
     are held to one rule. Refused rather than sanitised: a caller that meant a
     path has a bug worth hearing about.
     """
@@ -58,9 +55,9 @@ def bucket_dir(project: str, bucket: str) -> Path:
         ValueError: ``project`` or ``bucket`` is not a bare path segment.
     """
     # Looked up through the module rather than bound at import, so a test that
-    # points ``tasks_root`` at a temp dir reaches this too.
+    # points ``attachments_root`` at a temp dir reaches this too.
     return (
-        task_store.tasks_root()
+        paths.attachments_root()
         / _bare_name(project, "project")
         / "images"
         / _bare_name(bucket, "bucket")
@@ -68,7 +65,7 @@ def bucket_dir(project: str, bucket: str) -> Path:
 
 
 def save_attachment(project: str, bucket: str, data: bytes, *, name: str = "") -> str:
-    """Write one image into the task repo and return its portable token.
+    """Write one image into the attachments directory and return its portable token.
 
     ``name`` is a hint only: it seeds the filename stem and backs up the
     extension sniff. Linear passes the URL's last segment (a UUID) so a
@@ -101,7 +98,7 @@ def save_attachment(project: str, bucket: str, data: bytes, *, name: str = "") -
 
 
 #: The largest image or video an attached document stores. A short screen recording
-#: is under this; the cap is here so one capture cannot fill the notebook repo.
+#: is under this; the cap is here so one capture cannot fill the attachments directory.
 MAX_MEDIA_BYTES = 50 * 1024 * 1024
 
 
@@ -135,7 +132,7 @@ def _video_extension(name: str, data: bytes) -> str | None:
 
 
 def save_media(project: str, bucket: str, source: Path) -> str:
-    """Copy one image or video into the task repo and return its portable token.
+    """Copy one image or video into the attachments directory and return its portable token.
 
     :func:`save_attachment` takes the bytes of an upload: an image, up to
     5 MB. This takes a file an attached document names: an image or a video, up
@@ -216,7 +213,10 @@ def attachment_urls(markdown: str, project: str) -> str:
     """``markdown`` with each attachment ref rewritten to the route that serves it.
 
     The token takes its project from ``project``; an absolute path under
-    ``tasks_root()`` names its own. Only the prefix of a ref's target changes:
+    ``attachments_root()`` names its own. So does one under the old git notebook,
+    ``<root>/tasks/``: a prompt sent before the media moved holds that path, and
+    the transcript that keeps it is not ours to rewrite. Only the prefix of a
+    ref's target changes:
     the route checks the bucket and the name when the browser asks. A path in
     prose or code stays as written, so the reader sees what was sent.
     """
@@ -225,8 +225,14 @@ def attachment_urls(markdown: str, project: str) -> str:
     markdown = markdown.replace(
         f"]({MAEL_TASK_DIR_TOKEN}/images/", f"]({ROUTE}/{project}/"
     )
-    root = re.escape(str(task_store.tasks_root()))
-    return re.sub(rf"\]\({root}/([^/\s()]+)/images/", rf"]({ROUTE}/\1/", markdown)
+    roots = "|".join(
+        re.escape(str(root))
+        for root in (
+            paths.attachments_root(),
+            paths.notebook_path(paths.notebook_root()),
+        )
+    )
+    return re.sub(rf"\]\((?:{roots})/([^/\s()]+)/images/", rf"]({ROUTE}/\1/", markdown)
 
 
 def resolve_attachment(project: str, bucket: str, name: str) -> Path:

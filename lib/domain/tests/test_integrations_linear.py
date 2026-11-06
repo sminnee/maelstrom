@@ -147,7 +147,8 @@ class TestLocalizeDescriptionImages:
 
     def _patch_root(self, monkeypatch, tmp_path):
         monkeypatch.setattr(
-            "mael_domain.task_store.tasks_root", lambda: tmp_path / "tasks"
+            "mael_domain.state_db.paths.attachments_root",
+            lambda: tmp_path / "attachments",
         )
         monkeypatch.setattr(linear_mod, "get_linear_api_key", lambda: "lin_key")
 
@@ -166,7 +167,7 @@ class TestLocalizeDescriptionImages:
         mock_req.assert_called_once()
         assert mock_req.call_args.kwargs["headers"] == {"Authorization": "lin_key"}
 
-        image_dir = tmp_path / "tasks" / "proj" / "images" / "NORT-1"
+        image_dir = tmp_path / "attachments" / "proj" / "images" / "NORT-1"
         written = list(image_dir.iterdir())
         assert len(written) == 1
         assert written[0].suffix == ".png"  # sniffed from magic bytes
@@ -190,7 +191,7 @@ class TestLocalizeDescriptionImages:
 
         assert result == desc
         mock_req.assert_not_called()
-        assert not (tmp_path / "tasks" / "proj" / "images").exists()
+        assert not (tmp_path / "attachments" / "proj" / "images").exists()
 
     def test_failed_download_keeps_original_url(self, tmp_path, monkeypatch):
         self._patch_root(monkeypatch, tmp_path)
@@ -213,7 +214,7 @@ class TestLocalizeDescriptionImages:
             f"warning: could not download image {url}: HTTP Error 404: gone; "
             "leaving the original URL in the brief"
         ]
-        assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
+        assert not (tmp_path / "attachments" / "proj" / "images" / "NORT-1").exists()
 
     def test_duplicate_url_downloaded_once(self, tmp_path, monkeypatch):
         self._patch_root(monkeypatch, tmp_path)
@@ -229,7 +230,7 @@ class TestLocalizeDescriptionImages:
 
         # One download, one file, both refs rewritten to the same token.
         assert mock_req.call_count == 1
-        image_dir = tmp_path / "tasks" / "proj" / "images" / "NORT-1"
+        image_dir = tmp_path / "attachments" / "proj" / "images" / "NORT-1"
         assert len(list(image_dir.iterdir())) == 1
         assert result.count("{{MAEL_TASK_DIR}}/images/NORT-1/") == 2
 
@@ -255,7 +256,7 @@ class TestLocalizeDescriptionImages:
         assert result == desc
         assert len(warnings) == 1
         assert warnings[0].startswith(f"warning: could not store image {url}: ")
-        assert not (tmp_path / "tasks" / "proj" / "images" / "NORT-1").exists()
+        assert not (tmp_path / "attachments" / "proj" / "images" / "NORT-1").exists()
 
 
 class TestCreateComment:

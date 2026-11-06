@@ -40,7 +40,7 @@ from mael_common.shell import run_cmd
 from mael_common.util import now_iso
 
 from . import task_metadata_generator
-from .task_store import tasks_root
+from .state_db.paths import attachments_root
 
 if TYPE_CHECKING:
     # Only needed for annotations, so keep these type-checking-only and
@@ -1689,10 +1689,10 @@ def default_branch(
     return f"task/{id}"
 
 
-# Portable placeholder for the task's per-project repo dir, written into stored
-# task content (e.g. by `mael linear plan` for localized image paths) and
+# Portable placeholder for the task's per-project attachments dir, written into
+# stored task content (e.g. by `mael linear plan` for localized image paths) and
 # expanded to a concrete absolute path at prompt-build time. Kept machine-
-# independent in the `.md` so a re-clone on a different home dir still resolves.
+# independent so content moved to a host with a different home dir still resolves.
 # Shared with the writer (integrations/linear.py) — keep the two in sync.
 MAEL_TASK_DIR_TOKEN = "{{MAEL_TASK_DIR}}"
 
@@ -1700,12 +1700,12 @@ MAEL_TASK_DIR_TOKEN = "{{MAEL_TASK_DIR}}"
 def _expand_task_dir(task: Task) -> str:
     """Expand ``{{MAEL_TASK_DIR}}`` in the task content to its absolute path.
 
-    The token resolves to the task's per-project repo root
-    (``~/.maelstrom/tasks/<project>``). Pure string substitution — no filesystem
-    access — so committed content stays portable while a launched session sees a
-    concrete path it can ``Read``.
+    The token resolves to the task's per-project attachments directory
+    (``<notebook root>/attachments/<project>``). Pure string substitution — no
+    filesystem access — so stored content stays portable while a launched
+    session sees a concrete path it can ``Read``.
     """
-    task_dir = str(tasks_root() / task.project)
+    task_dir = str(attachments_root() / task.project)
     return task.content.replace(MAEL_TASK_DIR_TOKEN, task_dir)
 
 
@@ -1732,7 +1732,7 @@ def build_prompt(task: Task, harness: str = HARNESS_CLAUDE) -> str:
     execute), except in plan mode, where the head is ``/planning <title>``.
     The trailing ``\\n\\n<content>`` is omitted when the task has no content.
     Any ``{{MAEL_TASK_DIR}}`` token in the content is expanded to the task's
-    absolute repo dir.
+    absolute attachments dir.
 
     Codex reads a slash command as text, so a ``codex`` harness names the
     skill in words, and a plan-mode task gets :data:`CODEX_PLAN_HANDOFF`.

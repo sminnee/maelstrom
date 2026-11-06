@@ -33,7 +33,12 @@ def desk_json_path(root: Path) -> Path:
 
 
 def notebook_path(root: Path) -> Path:
-    """Where a markdown task notebook is kept, under ``root``."""
+    """Where the old git task notebook is kept, under ``root``.
+
+    Read by the migration rungs that import from it, and by
+    :func:`mael_domain.attachments.attachment_urls`, which still maps a ref to
+    it in a transcript recorded before the media moved.
+    """
     return root / "tasks"
 
 
@@ -47,3 +52,17 @@ def get_notebook_path() -> Path:
         NotebookRootUnset: If the environment names no notebook root.
     """
     return notebook_path(notebook_root())
+
+
+def attachments_path(root: Path) -> Path:
+    """Where the attachments directory is kept, under ``root``."""
+    return root / "attachments"
+
+
+def attachments_root() -> Path:
+    """The attachments directory under the environment's notebook root.
+
+    Raises:
+        NotebookRootUnset: If the environment names no notebook root.
+    """
+    return attachments_path(notebook_root())
