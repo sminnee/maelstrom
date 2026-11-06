@@ -6,7 +6,6 @@ from pathlib import Path
 import click
 
 from mael_common.util import format_uptime
-from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.config import load_config_or_default
 from mael_domain.context import ResolvedContext, resolve_context
 from mael_domain.env import (
@@ -23,13 +22,12 @@ from mael_domain.env import (
     refresh_env,
     restart_changed,
     restart_services,
-    save_env_state,
     start_env,
     stop_all_envs,
     stop_env,
 )
 from mael_domain.env_store import JsonEnvStore
-from mael_domain.ports import get_app_url, wait_for_port
+from mael_domain.ports import get_app_url
 from mael_domain.worktree import update_claude_local_md
 from mael_domain.worktree_model import CopyBackResult, get_worktree_folder_name
 
@@ -146,31 +144,6 @@ def print_copy_back_result(result: CopyBackResult, project_path: Path) -> None:
             click.echo(f"  +{c.key}={c.resolved_parent_value}", err=True)
 
 
-def ensure_cmux_browser(
-    state: EnvState,
-    project_path: Path,
-    worktree: str,
-    service: str | None = None,
-) -> None:
-    """Ensure a cmux browser pane exists for this env's app URL.
-
-    ``service`` restricts the search to one service's own ports, so a named
-    start waits on that service's port and opens a browser only when the service
-    is web-facing.
-    """
-    app_info = get_app_url(project_path, worktree, service=service)
-    if not app_info:
-        return
-    url, _ = app_info
-    port = int(url.rsplit(":", 1)[1])
-    wait_for_port(port)
-    cmux = MaelCmux.for_caller()
-    ref = cmux.worktree(state.project, worktree).show_app_browser(url) if cmux else None
-    if ref:
-        state.cmux_browser_surface = ref
-        save_env_state(make_store(), state)
-
-
 def _env_service_columns(state: EnvState) -> tuple[str, str]:
     """Return (running_services, stopped_services) as comma-separated names."""
     store = make_store()
@@ -243,7 +216,6 @@ def refresh_worktree_env(
     if refresh.changed:
         click.echo(f"Regenerated .env for {project}/{wt_name}.")
     if refresh.new_state is not None:
-        ensure_cmux_browser(refresh.new_state, project_path, wt_name)
         print_service_status(project, wt_name, project_path)
     return refresh
 
@@ -320,33 +292,6 @@ def print_service_status(
     draw_table(rows, ["SERVICE", "PID", "STATUS", "LOG"])
 
 
-@env.command("open")
-@deprecated_target_argument
-@worktree_option
-def env_open(worktree_opt, target):
-    """Open the browser pane for a running environment."""
-    try:
-        ctx = resolve_context(
-            _worktree_target(worktree_opt, target),
-            require_project=True,
-            require_worktree=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    assert ctx.project is not None
-    assert ctx.worktree is not None
-    assert ctx.project_path is not None
-
-    state = load_env_state(make_store(), ctx.project, ctx.worktree)
-    if not state:
-        raise click.ClickException(
-            f"No running environment for {ctx.project}/{ctx.worktree}."
-        )
-
-    ensure_cmux_browser(state, ctx.project_path, ctx.worktree)
-
-
 @env.command("start")
 @click.argument("service", required=False, default=None)
 @click.option(
@@ -373,7 +318,7 @@ def env_start(service, skip_install, worktree_opt):
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
     try:
-        state = start_env(
+        start_env(
             make_store(),
             ctx.project,
             ctx.worktree,
@@ -383,8 +328,6 @@ def env_start(service, skip_install, worktree_opt):
         )
     except (RuntimeError, ValueError) as e:
         raise click.ClickException(str(e))
-
-    ensure_cmux_browser(state, ctx.project_path, ctx.worktree, service=service_name)
 
     print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 
@@ -426,14 +369,6 @@ def env_stop(service, worktree_opt):
     assert ctx.project is not None
     assert ctx.worktree is not None
     assert ctx.project_path is not None
-
-    # Close the cmux browser pane, but only on a full stop — a named stop must
-    # leave the pane showing the main app alone.
-    if service_name is None:
-        app_info = get_app_url(ctx.project_path, ctx.worktree)
-        cmux = MaelCmux.for_caller() if app_info else None
-        if app_info and cmux:
-            cmux.worktree(ctx.project, ctx.worktree).hide_app_browser(app_info[0])
 
     try:
         messages = stop_env(
@@ -498,7 +433,7 @@ def env_restart(service, install, changed, worktree_opt):
         return
 
     try:
-        messages, state = restart_services(
+        messages, _ = restart_services(
             store,
             ctx.project,
             ctx.worktree,
@@ -510,8 +445,6 @@ def env_restart(service, install, changed, worktree_opt):
         raise click.ClickException(str(e))
     if messages:
         _report_stop(ctx.project, ctx.worktree, messages, service_name)
-
-    ensure_cmux_browser(state, ctx.project_path, ctx.worktree, service=service_name)
 
     print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 

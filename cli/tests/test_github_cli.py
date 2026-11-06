@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 from click.testing import CliRunner
-from domain_fixtures import IN_A_PANE
 
 from mael_cli import github_cli, task_cli
 from mael_cli.cli import cli
@@ -136,12 +135,10 @@ class TestCreatePrRegisters:
         with (
             patch("mael_cli.github_cli.resolve_context") as mock_ctx,
             patch("mael_cli.github_cli.create_pr", return_value=pushed),
-            patch("mael_cli.github_cli._open_pr_in_cmux") as opened,
         ):
             mock_ctx.return_value.worktree_path = None
             mock_ctx.return_value.project = None
             result = CliRunner().invoke(cli, ["gh", "create-pr"])
-        self.opened = opened.called
         return result
 
     def test_the_running_task_registers_the_pr(self, tasks, monkeypatch):
@@ -168,7 +165,6 @@ class TestCreatePrRegisters:
         result = self._push(PushedPr("https://github.com/o/r/pull/9", 9, True))
         assert result.exit_code == 0, result.output
         assert "Task not found: nope" in result.output
-        assert self.opened
 
 
 class TestFormatSize:
@@ -281,33 +277,11 @@ class TestGhCliRegistration:
                 "mael_cli.github_cli.create_pr",
                 return_value=PushedPr("https://example/pr", 0, True),
             ) as mock_create,
-            patch("mael_cli.github_cli._open_pr_in_cmux"),
         ):
             mock_ctx.return_value.worktree_path = None
             result = CliRunner().invoke(cli, ["gh", "create-pr", *args])
         assert result.exit_code == 0, result.output
         return mock_create.call_args.kwargs
-
-    def test_create_pr_recycles_the_github_browser_tab_only_in_a_pane(
-        self, fake_cmux, caller
-    ):
-        fake_cmux.with_workspace(
-            "myproject-alpha",
-            [["Claude"], ["Terminal"], [("browser", "https://github.com/o")]],
-        )
-        with (
-            patch("mael_cli.github_cli.resolve_context") as mock_ctx,
-            patch(
-                "mael_cli.github_cli.create_pr",
-                return_value=PushedPr("https://github.com/o/r/pull/9", 9, True),
-            ),
-        ):
-            mock_ctx.return_value.worktree_path = None
-            result = CliRunner().invoke(cli, ["gh", "create-pr"])
-        assert result.exit_code == 0, result.output
-        pr = "https://github.com/o/r/pull/9"
-        expected = pr if caller == IN_A_PANE else "https://github.com/o"
-        assert fake_cmux.tabs("myproject-alpha")[2] == [expected]
 
     def test_create_pr_passes_autorepair_through(self):
         assert self._run_create_pr(["--autorepair"])["autorepair"] is True
@@ -352,7 +326,6 @@ class TestGhCliRegistration:
                 "mael_cli.github_cli.create_pr",
                 return_value=PushedPr("https://example/pr", 0, True),
             ),
-            patch("mael_cli.github_cli._open_pr_in_cmux"),
             patch("mael_cli.github_cli.current_branch_or_none", return_value=branch),
             patch("mael_cli.orchestrator_client.tell_orchestrator") as told,
         ):
@@ -380,7 +353,6 @@ class TestGhCliRegistration:
                 "mael_cli.github_cli.create_pr",
                 return_value=PushedPr("https://example/pr", 0, True),
             ),
-            patch("mael_cli.github_cli._open_pr_in_cmux"),
         ):
             mock_ctx.return_value.worktree_path = tmp_path
             result = CliRunner().invoke(cli, ["gh", "create-pr"])
@@ -408,7 +380,6 @@ class TestCreatePrErrorHandling:
         with (
             patch("mael_cli.github_cli.resolve_context") as mock_ctx,
             patch("mael_cli.github_cli.create_pr", side_effect=error),
-            patch("mael_cli.github_cli._open_pr_in_cmux"),
         ):
             mock_ctx.return_value.worktree_path = None
             return CliRunner().invoke(cli, ["gh", "create-pr"])

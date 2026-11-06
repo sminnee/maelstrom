@@ -1043,7 +1043,6 @@ class TestStartEnvNamedServices:
                         started_at="2025-01-01T00:00:00+00:00",
                     ),
                 ],
-                cmux_browser_surface="surface-1",
             ),
         )
 
@@ -1053,7 +1052,6 @@ class TestStartEnvNamedServices:
 
         assert [s.name for s in state.services] == ["web", "ladle"]
         assert state.started_at == "2025-01-01T00:00:00+00:00"
-        assert state.cmux_browser_surface == "surface-1"
 
     @patch("mael_domain.env.save_shared_state")
     @patch("mael_domain.env.save_env_state")

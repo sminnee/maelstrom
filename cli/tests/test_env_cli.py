@@ -5,11 +5,9 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
-from domain_fixtures import IN_A_PANE
 
 from mael_cli.cli import cli
 from mael_cli.env_cli import (
-    ensure_cmux_browser,
     print_service_status,
     resolve_service,
 )
@@ -190,102 +188,6 @@ class TestEnvStart:
         result = runner.invoke(cli, ["env", "start"])
         assert result.exit_code != 0
         assert "Worktree not found" in result.output
-
-
-class TestEnvStartBrowserDedup:
-    """Tests for cmux browser placement in env start.
-
-    The recycle-vs-open behaviour is tested in test_mael_layout.py, so here we
-    just assert the app URL opens and its surface is stored.
-    """
-
-    @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
-    @patch("mael_cli.env_cli.load_env_state")
-    @patch("mael_cli.env_cli.get_env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_shows_app_browser_only_in_a_pane(
-        self,
-        mock_ctx,
-        mock_start,
-        mock_status,
-        mock_load,
-        mock_app,
-        mock_save,
-        tmp_path,
-        fake_cmux,
-        caller,
-    ):
-        """The app URL opens in the caller's pane, and its surface is stored.
-
-        cmux runs in every case. Only a caller in one of its panes gets a browser.
-        """
-        fake_cmux.with_workspace("proj-bravo", [["Claude"], ["Terminal"]])
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        mock_load.return_value = _make_state()
-        mock_start.return_value = _make_state()
-        mock_status.return_value = [_make_status()]
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "start"])
-        assert result.exit_code == 0
-        in_a_pane = caller == IN_A_PANE
-        browser = [["http://localhost:3000"]] if in_a_pane else []
-        assert fake_cmux.tabs("proj-bravo") == [["Claude"], ["Terminal"], *browser]
-        stored = [c.args[1].cmux_browser_surface for c in mock_save.call_args_list]
-        assert stored == ([fake_cmux.surface_ref("proj-bravo", 2)] if in_a_pane else [])
-
-    @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
-    @patch("mael_cli.env_cli.load_env_state", return_value=None)
-    @patch("mael_cli.env_cli.get_env_status")
-    @patch("mael_cli.env_cli.start_env")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_no_cmux_skips_browser(
-        self,
-        mock_ctx,
-        mock_start,
-        mock_status,
-        mock_load,
-        mock_app,
-        mock_save,
-        tmp_path,
-    ):
-        """Outside cmux, no surface is stored."""
-        ctx = _mock_ctx_with_path(tmp_path)
-        mock_ctx.return_value = ctx
-        mock_start.return_value = _make_state()
-        mock_status.return_value = [_make_status()]
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "start"])
-        assert result.exit_code == 0
-
-
-class TestEnvStopBrowser:
-    """Tests for browser close on env stop."""
-
-    @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
-    @patch("mael_cli.env_cli.stop_env")
-    @patch("mael_cli.env_cli.resolve_context")
-    def test_closes_browser_on_stop_only_in_a_pane(
-        self, mock_ctx, mock_stop, mock_app, fake_cmux, caller
-    ):
-        """The app's browser tab closes, but only for a caller in a cmux pane."""
-        browser = [("browser", "http://localhost:3000")]
-        fake_cmux.with_workspace("proj-bravo", [["Claude"], browser])
-        mock_ctx.return_value = MagicMock(
-            project="proj", worktree="bravo", project_path=Path("/proj")
-        )
-        mock_stop.return_value = ["web (pid 100): stopped"]
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ["env", "stop"])
-        assert result.exit_code == 0
-        kept = [] if caller == IN_A_PANE else [["http://localhost:3000"]]
-        assert fake_cmux.tabs("proj-bravo") == [["Claude"], *kept]
 
 
 class TestEnvStatus:
@@ -975,14 +877,10 @@ class TestEnvStartNamedService:
 class TestEnvStopNamedService:
     """Tests for `mael env stop <service>`."""
 
-    @patch("mael_cli.env_cli.get_app_url", return_value=("http://localhost:3000", True))
     @patch("mael_cli.env_cli.stop_env")
     @patch("mael_cli.env_cli.resolve_context")
-    def test_partial_stop_leaves_browser_alone(
-        self, mock_ctx, mock_stop, mock_app, fake_cmux
-    ):
-        """A named stop does not close the main app's browser pane."""
-        fake_cmux.with_workspace("proj-bravo", [[("browser", "http://localhost:3000")]])
+    def test_stops_only_the_named_service(self, mock_ctx, mock_stop):
+        """A named stop passes the one service to stop_env."""
         mock_ctx.return_value = MagicMock(
             project="proj",
             worktree="bravo",
@@ -994,41 +892,10 @@ class TestEnvStopNamedService:
         runner = CliRunner()
         result = runner.invoke(cli, ["env", "stop", "ladle"])
         assert result.exit_code == 0
-        assert fake_cmux.tabs("proj-bravo") == [["http://localhost:3000"]]
         assert "Service stopped for proj/bravo: ladle." in result.output
         mock_stop.assert_called_once_with(
             ANY, "proj", "bravo", services=["ladle"], worktree_path=Path("/proj/bravo")
         )
-
-
-class TestEnsureCmuxBrowserPort:
-    """The browser pane waits on the port it is about to open."""
-
-    @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.wait_for_port")
-    @patch("mael_cli.env_cli.get_app_url")
-    def test_waits_on_the_app_url_port(self, mock_app, mock_wait, mock_save):
-        """It waits on the URL's own port, not the worktree's first port."""
-        mock_app.return_value = ("http://localhost:3002", True)
-        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo")
-        mock_wait.assert_called_once_with(3002)
-
-    @patch("mael_cli.env_cli.save_env_state")
-    @patch("mael_cli.env_cli.wait_for_port")
-    @patch("mael_cli.env_cli.get_app_url")
-    def test_passes_service_through(self, mock_app, mock_wait, mock_save):
-        """A named service restricts the URL search to that service."""
-        mock_app.return_value = ("http://localhost:3005", True)
-        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo", service="ladle")
-        mock_app.assert_called_once_with(Path("/proj"), "bravo", service="ladle")
-        mock_wait.assert_called_once_with(3005)
-
-    @patch("mael_cli.env_cli.wait_for_port")
-    @patch("mael_cli.env_cli.get_app_url", return_value=None)
-    def test_no_web_port_opens_nothing(self, mock_app, mock_wait):
-        """A service with no web port neither waits nor opens a pane."""
-        ensure_cmux_browser(_make_state(), Path("/proj"), "bravo", service="worker")
-        mock_wait.assert_not_called()
 
 
 class TestEnvStatusDeclaredServices:
@@ -1318,12 +1185,12 @@ class TestEnvTargetsMain:
 
 
 class TestEnvWorktreeTarget:
-    """`status`, `reset` and `open` take the target with -w, as the other verbs do.
+    """`status` and `reset` take the target with -w, as the other verbs do.
 
     Their positional TARGET stays as a deprecated alias.
     """
 
-    VERBS = ["status", "reset", "open"]
+    VERBS = ["status", "reset"]
 
     def _invoke(self, args):
         # Stop at the resolve: the target it was given is the observable.
