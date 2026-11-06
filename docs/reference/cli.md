@@ -1356,6 +1356,8 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), and the `mael` shim. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
 | `mael self restart [orchestrator\|agent-daemon]...` | Restart host services through the supervisor. Default: both. A restart of the agent daemon stops its agents; they resume after it. |
+| `mael self export [PATH]` | Write this host's [State archive](../../CONTEXT.md): one zip of the state database and the attachments. It runs while the host services run. See below. |
+| `mael self import PATH [--replace]` | Load a State archive into this host. It stops the host services, then starts them again. See below. |
 
 ```bash
 mael self status                     # run this first when a host service or a scheduled task fails
@@ -1365,6 +1367,8 @@ mael self update --channel main      # build and install _main
 mael self update --tag v0.2.0rc1     # install one GitHub Release
 mael self restart agent-daemon       # the production daemon picks up new code
 mael self setup                      # repair the host
+mael self export                     # write maelstrom-<host>-<date>.zip here
+mael self import maelstrom-old-2026-11-06.zip   # load it on the new host
 ```
 
 **`mael self setup`**
@@ -1430,6 +1434,55 @@ bundle tagged `main-<commit>` and installs it. A tag that runs already is not bu
 
 Run it from a shell, not from an agent of the production daemon. The daemon restart stops
 that agent.
+
+**`mael self export`**
+
+| Argument | Description |
+|---|---|
+| `PATH` | Where to write the zip. It must not exist. Default: `maelstrom-<host>-<date>.zip` in the current directory. |
+
+The zip holds `manifest.json`, `state.db` and each regular file under `attachments/`. The export
+copies the database through SQLite's backup API, so it sees every committed write, also one that
+is only in the WAL (write-ahead log) file. It skips a symlink. A failed export leaves no zip.
+
+The zip does not carry these:
+
+- the host config, `~/.maelstrom/config.yaml`
+- the agent transcripts in `~/.claude`
+- the daemon root, `~/.maelstrom/state/daemon/`
+
+**`mael self import`**
+
+| Option | Description |
+|---|---|
+| `--replace` | Replace state that is already here. The old `state.db`, its WAL files and `attachments/` move to `~/.maelstrom/state/replaced-<YYYYMMDD-HHMMSS>/`. The import prints the path. Delete it when you are done. |
+
+The import reads the whole zip before it changes the disk. It refuses these:
+
+- a zip from a newer build: its format or a schema version is above this build's
+- an entry with an absolute path, a `..` part or a symlink, or an entry outside the three names
+  above
+- a file that is not a zip, or a zip with no `manifest.json` or no `state.db`
+- a `state.db` that is not a SQLite database
+- a host that holds state, without `--replace`
+
+A host holds state when its database has a row in a table that is not a cache, such as a task,
+a comm, a wiki page or an agent, or when its attachments directory is not empty. The empty database that `mael self setup` creates does not
+count, so a new host needs no `--replace`.
+
+Then it stops the host services and the scheduler, puts the state in place, migrates it, and
+starts them again. They start again also when a step fails. Run it from a shell, not from an
+agent session: the agent daemon stops.
+
+To move to a new host:
+
+1. On the old host, run `mael self export`.
+2. On the new host, install maelstrom. `install.sh` runs `mael self setup`, which creates an
+   empty `state.db`.
+3. On the new host, run `mael self import <zip>`.
+
+Task rows keep their absolute worktree paths. A host with another home directory or another
+`projects_dir:` does not find those worktrees.
 
 A worktree's own database is not production's. `bin/install` creates and upgrades it as the
 project's `install_cmd`: on each worktree open, on `mael env start` and on

@@ -1710,6 +1710,11 @@ The plain directory `<notebook root>/attachments/` that holds every media attach
 `{{MAEL_TASK_DIR}}` token expands to `<notebook root>/attachments/<project>`.
 _Avoid_: Task repo, notebook repo, images folder
 
+**State archive**:
+The zip that `mael self export` writes and `mael self import` reads. It holds the **State
+database** and the **Attachments directory**, and a manifest of their schema versions.
+_Avoid_: Backup, dump, snapshot
+
 **Bucket**:
 The directory that groups one piece of work's attachments. A task uses its notebook id, a
 Linear issue its identifier, an agent tied to no task `agent-<id>`, and a task that does not
