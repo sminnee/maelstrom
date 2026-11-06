@@ -5,7 +5,9 @@ launchd or systemd. ``tests/test_release_bundle.py`` installs a real bundle.
 """
 
 import os
+import sqlite3
 import subprocess
+import zipfile
 
 import pytest
 from click.testing import CliRunner, Result
@@ -120,3 +122,52 @@ def test_the_old_host_commands_are_gone(command):
     result = CliRunner().invoke(cli, [command, "--help"])
 
     assert "No such command" in result.output
+
+
+@pytest.fixture
+def exported(host, tmp_path, monkeypatch):
+    """`mael self export` run in ``tmp_path`` on a host with one wiki page."""
+    assert mael("setup").exit_code == 0
+    db = host[2] / ".maelstrom" / "state" / "state.db"
+    with sqlite3.connect(db) as conn:
+        conn.execute("INSERT INTO wiki_pages (id, revision) VALUES ('p', 1)")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("mael_cli.self.self_cli.socket.gethostname", lambda: "old.lan")
+    return mael("export")
+
+
+def test_export(exported, tmp_path):
+    assert exported.exit_code == 0, exported.output
+    (archive,) = tmp_path.glob("maelstrom-old-*.zip")
+    assert exported.output == (
+        f"Wrote {archive}: {archive.stat().st_size:,} bytes, 0 attachments.\n"
+    )
+
+
+def test_export_refusal_exits_1(exported, tmp_path):
+    (archive,) = tmp_path.glob("maelstrom-old-*.zip")
+
+    result = mael("export", str(archive))
+
+    assert result.exit_code == 1
+    assert "exists" in result.output
+
+
+def test_import_with_replace(exported, tmp_path, host):
+    (archive,) = tmp_path.glob("maelstrom-old-*.zip")
+
+    result = mael("import", "--replace", str(archive))
+
+    assert result.exit_code == 0, result.output
+    assert list((host[2] / ".maelstrom" / "state").glob("replaced-*"))
+
+
+def test_import_refusal_exits_1(host, tmp_path):
+    archive = tmp_path / "x.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("notes.txt", "x")
+
+    result = mael("import", str(archive))
+
+    assert result.exit_code == 1
+    assert "has no manifest.json" in result.output
