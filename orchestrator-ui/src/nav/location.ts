@@ -37,6 +37,10 @@ export interface Loc {
   projectTab: ProjectTab;
   /** Whether the new-work form is open. */
   newWork: boolean;
+  /** Whether the **Welcome dialog** is open, as the logo opens it. */
+  welcome: boolean;
+  /** Whether the Add project dialog is open. */
+  addProject: boolean;
 }
 
 /** A tab of the Project dialog. */
@@ -91,6 +95,8 @@ export function defaultLoc(): Loc {
     projectDetail: null,
     projectTab: DEFAULT_PROJECT_TAB,
     newWork: false,
+    welcome: false,
+    addProject: false,
   };
 }
 
@@ -202,6 +208,8 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
     projectDetail: q.get('detail') || null,
     projectTab: dtab && PROJECT_TABS.includes(dtab) ? dtab : DEFAULT_PROJECT_TAB,
     newWork: q.get('new') === '1',
+    welcome: q.get('welcome') === '1',
+    addProject: q.get('add') === '1',
   };
 }
 
@@ -239,6 +247,8 @@ export function toHref(loc: Loc): string {
     ['dtab', loc.projectDetail && loc.projectTab !== DEFAULT_PROJECT_TAB ? loc.projectTab : null],
     ['closed', loc.projectDetail && loc.worktreeFilters.showClosed ? '1' : null],
     ['new', loc.newWork ? '1' : null],
+    ['welcome', loc.welcome ? '1' : null],
+    ['add', loc.addProject ? '1' : null],
   ];
   const search = params
     .filter((p): p is [string, string] => p[1] !== null)

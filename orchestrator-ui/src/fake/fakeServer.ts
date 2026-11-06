@@ -38,6 +38,7 @@ import type { AgentId, TaskId } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
+import { makeWorktree } from './fixtures';
 import {
   retryOperation,
   startOperation,
@@ -559,6 +560,17 @@ function agentCost(agentId: string, stages: Stage[]): AgentCost {
     cost_is_parent_only: true,
     stages,
   };
+}
+
+/** A new project's `_main`: clean, on `main`, under the projects dir. */
+function mainCheckout(project: string, id: string, projectsDir: string): Worktree {
+  return makeWorktree({
+    id,
+    project,
+    nato: '_main',
+    path: `${projectsDir}/${project}/_main`,
+    branch: 'main',
+  });
 }
 
 // -- reads --
@@ -1473,6 +1485,11 @@ function command(
           run: () => {
             server.change({ kind: 'project', ids: [name] }, (w) => {
               w.projects[name] = { id: name, name, stackTip: 'main', hasLinear: false };
+            });
+            // A clone makes the main checkout, as `mael project add` does.
+            const mainId = `${name}-_main`;
+            server.change({ kind: 'worktree', ids: [mainId] }, (w) => {
+              w.worktrees[mainId] = mainCheckout(name, mainId, w.system.projectsDir);
             });
           },
         },

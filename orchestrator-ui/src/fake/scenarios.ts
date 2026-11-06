@@ -733,6 +733,11 @@ function transcript(): Seed {
   return seed;
 }
 
+/** A fresh install: no project, so the Welcome dialog opens itself. */
+function firstRun(): Seed {
+  return { world: worldWith({}), transcripts: {} };
+}
+
 function empty(): Seed {
   return { world: worldWith({ projects: [makeProject()] }), transcripts: {} };
 }
@@ -1317,6 +1322,7 @@ export const SCENARIOS = {
     },
   },
   empty: { about: 'An empty desk, with no worktree.', build: empty },
+  'first-run': { about: 'A fresh install with no project: the Welcome dialog.', build: firstRun },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
   comms: {
     about: 'Two open comms and a closed one, over tasks at each landing step.',

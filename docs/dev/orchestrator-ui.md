@@ -290,9 +290,43 @@ from `world.worktrees`.
 
 **Add project** opens `projects/AddProject.tsx`, which posts `{gitUrl}` to `/api/projects`. The
 reply is `202 {operationId}` at once, because a clone can take minutes. The dialog follows that
-operation in `world.operations`. It closes when the operation is done, and shows the operation's
-words when it is refused or failed. A refusal of the post itself, such as a name the world holds,
-shows the same way.
+operation in `world.operations`. When the operation is done, the Project dialog of the new project
+replaces it. It shows the operation's words when it is refused or failed. A refusal of the post
+itself, such as a name the world holds, shows the same way.
+
+`shell/ProjectOverlays.tsx` draws the three project dialogs from the location, over any view and
+on every layout: the **Welcome dialog**, Add project and the Project dialog. They open each other,
+so one place draws all three.
+
+### The Project dialog
+
+`projects/ProjectDetail.tsx` draws one project in two tabs. `?dtab=` holds the tab. A tab change
+replaces the history entry, so Back closes the dialog.
+
+- **Overview** shows the `_main` path, the worktree range, the stack tip and Linear.
+  `projectPaths` in `selectors/projects.ts` derives the paths from `_main`, which every project
+  has. The worktree range is `<project folder>/<project>-alpha..zulu`. The home directory reads
+  as `~`: `GET /api/system` supplies `home`, because a browser cannot know it.
+- **Worktrees** draws the worktree table for the project.
+
+The footer has **Set up** and **Create your first task**. The second reads **Create task** once
+the project has a task of the user's own: any task whose `command` is not `setup-project`, in any
+status. The button opens the new-work form, seeded with the project.
+
+A **PanelLink** clears `?detail=`, because the modal dialog would cover the tab it opens. Back
+reopens the dialog.
+
+### The Welcome dialog
+
+`welcome/WelcomeDialog.tsx` reads `GET /api/system` and `GET /api/host`. It shows the projects
+directory, the skills linked into `~/.claude/skills`, the config directory, the version and
+whether the agent host answers. A run with no release manifest reads "development build". Its
+one action opens Add project in its place.
+
+It opens itself when the world is ready and holds no project. A close sets `welcomeDismissed` in
+the store, which a reload clears, so it does not open again in that page load. The logo in the
+wide top bar sets `?welcome=1`, which opens it whatever the project count. The narrow layout has
+no logo, so there it opens only by itself.
 
 ### The Comms view
 
@@ -1696,7 +1730,7 @@ So Back and Forward move through the app, a copied link opens the same screen, a
 it. The app runs on React Router; `nav/` holds the code.
 
 **The scheme.** The path holds the main view and the open card. The search holds the panel tab,
-the filters and the three dialogs. One URL works on every layout: the narrow layout draws the card
+the filters and the dialogs. One URL works on every layout: the narrow layout draws the card
 as its detail screen and the panel tab as a screen over it.
 
 | URL | What it opens |
@@ -1708,7 +1742,8 @@ as its detail screen and the panel tab as a screen over it.
 | `?project= &branch= &agents= &status= &q= &comm= &closed=1` | The filters. `status=all` is every status |
 | `?zone=done` | The narrow deck's zone |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
-| `?detail=<project id>` | The project detail dialog. `project` is the project filter |
+| `?detail=<project id>&dtab=worktrees` | The Project dialog, on its Worktrees tab. No `dtab` is Overview. `project` is the project filter |
+| `?welcome=1`, `?add=1` | The Welcome dialog, the Add project dialog |
 
 `SCREENS` in `nav/location.ts` holds the path patterns, one route each. `nav/routes.tsx` declares
 them under one layout route that draws the shell, so a move between screens keeps the shell
@@ -1720,9 +1755,9 @@ leaves every default out. `nav/location.test.ts` round-trips each row above.
 
 | Held by | What |
 | --- | --- |
-| The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form, the project detail |
+| The URL | The view, the card, the active tab, the filters, the zone, the editor, the new-work form, the Project dialog and its tab, the Welcome dialog, Add project |
 | The store, in `sessionStorage` | The open tabs, their recency and the split tabs |
-| The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed, the task editor's mode |
+| The store, in memory | The slots, the anchors, the pane recency, the panel width, the new-work seed, the task editor's mode, whether the Welcome dialog was closed |
 
 The open tabs survive a refresh but not a copied link: `sessionStorage` is per window, so a link
 opens only its own tab. `resetToPageLoad` in `store/store.ts` resets the store as a page load

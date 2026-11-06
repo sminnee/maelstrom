@@ -73,3 +73,40 @@ export function useProjectDetail() {
     close: () => go({ projectDetail: null }, { close: true }),
   };
 }
+
+/** The **Welcome dialog**, which the location's `welcome` opens. A close dismisses it. */
+export function useWelcome() {
+  const { welcome } = useLoc();
+  const go = useGo();
+  const dismissed = useAppStore((s) => s.ui.welcomeDismissed);
+  const dismiss = useAppStore((s) => s.dismissWelcome);
+  return {
+    asked: welcome,
+    dismissed,
+    /** Keep it shut for the rest of the page load, with no move. */
+    dismiss,
+    open: () => go({ welcome: true }),
+    close: () => {
+      dismiss();
+      if (welcome) go({ welcome: false }, { close: true });
+    },
+  };
+}
+
+/** The Add project dialog, which the location's `add` opens. A close goes back. */
+export function useAddProjectDialog() {
+  const { addProject } = useLoc();
+  const go = useGo();
+  return {
+    adding: addProject,
+    /** Open it. From the Welcome dialog, it takes that dialog's place. */
+    open: () => go({ addProject: true, welcome: false }),
+    close: () => go({ addProject: false }, { close: true }),
+    /** Swap it for the Project dialog of the project it added. Back does not reopen it. */
+    finish: (projectId: ProjectId) =>
+      go(
+        { addProject: false, projectDetail: projectId, projectTab: 'overview' },
+        { replace: true },
+      ),
+  };
+}

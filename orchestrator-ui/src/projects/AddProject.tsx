@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { useAddProject } from '../api/projects';
 import { useWorld } from '../api/useWorld';
+import { useAddProjectDialog } from '../nav/useOverlays';
 import type { OperationId } from '../protocol/ids';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -11,13 +12,15 @@ import { useSetUpProject } from './useSetUpProject';
 import styles from './AddProject.module.css';
 
 /**
- * Clone a git URL as a new project. The dialog follows the clone to its end: it closes when the
- * project is added, and shows the reason when the server refuses the URL or the clone fails.
- * With "Set up after adding" on, it creates the set-up task before it closes. A failed create
+ * Clone a git URL as a new project. The location's `add` opens it. The dialog follows the clone
+ * to its end: when the project is added, the Project dialog takes its place, and it shows the
+ * reason when the server refuses the URL or the clone fails.
+ * With "Set up after adding" on, it creates the set-up task before it hands over. A failed create
  * keeps the dialog open with its reason, and Add becomes a retry of the set-up alone.
  * The dialog holds the set-up: closing it during the clone skips the set-up, and says so.
  */
-export function AddProject({ onClose }: { onClose: () => void }) {
+export function AddProject() {
+  const { close: onClose, finish } = useAddProjectDialog();
   const add = useAddProject();
   const { world } = useWorld();
   const [gitUrl, setGitUrl] = useState('');
@@ -39,14 +42,22 @@ export function AddProject({ onClose }: { onClose: () => void }) {
   const { setUp: createSetUp } = setUp;
   // The clone is done and only the set-up failed: a second clone would be refused.
   const setUpFailed = operation?.state === 'done' && setUp.isError;
-  const retrySetUp = () => createSetUp(operation!.project).then(onClose, () => {});
+  const retrySetUp = () =>
+    createSetUp(operation!.project).then(
+      () => finish(operation!.project),
+      () => {},
+    );
   useEffect(() => {
     if (operation?.state !== 'done' || finished.current === operation.id) return;
     finished.current = operation.id;
-    if (!setUpAfter) return onClose();
-    // The create is awaited: a close first would unmount the dialog that shows its failure.
-    createSetUp(operation.project).then(onClose, () => {});
-  }, [operation, setUpAfter, onClose, createSetUp]);
+    const { project } = operation;
+    if (!setUpAfter) return finish(project);
+    // The create is awaited: a hand-over first would unmount the dialog that shows its failure.
+    createSetUp(project).then(
+      () => finish(project),
+      () => {},
+    );
+  }, [operation, setUpAfter, finish, createSetUp]);
 
   const submit = async () => {
     setOperationId(null);

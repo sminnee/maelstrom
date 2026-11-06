@@ -60,7 +60,9 @@ describe('the projects view', () => {
     await user.click(dialog.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => expect(row('demo')).not.toBeNull());
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    // The Project dialog of the new project takes the Add dialog's place.
+    await screen.findByRole('dialog', { name: 'demo' });
+    expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull();
     expect(
       server.requests.filter((r) => r.path === '/api/projects' && r.method === 'POST'),
     ).toEqual([
@@ -87,7 +89,8 @@ describe('the projects view', () => {
     server.allow();
     await user.click(dialog.getByRole('button', { name: 'Retry set-up' }));
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    await screen.findByRole('dialog', { name: 'demo' });
+    expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull();
     expect(
       server.requests.filter((r) => r.path === '/api/projects' && r.method === 'POST'),
     ).toHaveLength(1);
@@ -103,7 +106,7 @@ describe('the projects view', () => {
     await user.type(dialog.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
     await user.click(dialog.getByRole('button', { name: 'Add' }));
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull());
+    await screen.findByRole('dialog', { name: 'demo' });
     expect(row('demo')).not.toBeNull();
     expect(taskPosts(server)).toEqual([]);
   });
@@ -203,6 +206,68 @@ describe('the projects view', () => {
     const form = within(await screen.findByRole('dialog', { name: 'New work' }));
     expect(form.getByRole('radio', { name: 'northwind' })).toBeChecked();
   });
+});
+
+describe('the Welcome dialog', () => {
+  const welcome = () => screen.queryByRole('dialog', { name: 'Welcome to maelstrom' });
+
+  it('opens itself on a fresh install, and stays shut once closed', async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'first-run' });
+
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+    expect(await dialog.findByText('~/Projects')).toBeInTheDocument();
+    expect(dialog.getByText('mael, planning, present')).toBeInTheDocument();
+    expect(dialog.getByText('~/.claude/skills')).toBeInTheDocument();
+    expect(dialog.getByText('~/.maelstrom')).toBeInTheDocument();
+    expect(dialog.getByTestId('welcome-version')).toHaveTextContent('v0.9.0 (3f2a9c1e7b4d)');
+    expect(dialog.getByTestId('welcome-host')).toHaveTextContent('reachable');
+
+    await user.click(dialog.getAllByRole('button', { name: 'Close' }).at(-1)!);
+    await waitFor(() => expect(welcome()).toBeNull());
+    await user.click(paneItem('Projects'));
+    expect(welcome()).toBeNull();
+  });
+
+  it('does not open itself while the world has a project, and the logo opens it', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    expect(welcome()).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: 'About maelstrom' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+    expect(router.state.location.search).toBe('?welcome=1');
+    expect(dialog.getByRole('button', { name: 'Add project' })).toBeInTheDocument();
+  });
+
+  it('adds the first project, then opens its Project dialog on its paths', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ scenario: 'first-run' });
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+
+    await user.click(dialog.getByRole('button', { name: 'Add your first project' }));
+    const add = within(await screen.findByRole('dialog', { name: 'Add project' }));
+    expect(welcome()).toBeNull();
+    await user.type(add.getByLabelText('Git URL'), 'git@github.com:acme/demo.git');
+    await user.click(add.getByRole('button', { name: 'Add' }));
+
+    const project = within(await screen.findByRole('dialog', { name: 'demo' }));
+    expect(router.state.location.search).toBe('?detail=demo');
+    expect(project.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    expect(await project.findByTestId('project-main-path')).toHaveTextContent(
+      '~/Projects/demo/_main',
+    );
+    expect(project.getByTestId('project-worktree-paths')).toHaveTextContent(
+      '~/Projects/demo/demo-alpha..zulu',
+    );
+    // The Welcome dialog does not come back over the new project.
+    expect(welcome()).toBeNull();
+
+    // The hand-over replaced Add project, so Back does not reopen it.
+    await act(() => router.navigate(-1));
+    expect(router.state.location.search).toBe('');
+    expect(screen.queryByRole('dialog', { name: 'Add project' })).toBeNull();
+  });
 
   it("switches the Project dialog's tab in the URL, and Back closes the dialog", async () => {
     const user = userEvent.setup();
@@ -216,5 +281,25 @@ describe('the projects view', () => {
 
     await act(() => router.navigate(-1));
     expect(router.state.location.search).toBe('');
+  });
+
+  it('says when the version is a development build and the host does not answer', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // Nothing has read the install yet: only the Welcome dialog asks for it.
+    server.world.system.version = null;
+    await act(async () => {
+      server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+        world.host = { ...world.host!, reachable: false };
+      });
+    });
+
+    await user.click(screen.getByRole('button', { name: 'About maelstrom' }));
+
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+    expect(await dialog.findByText('development build')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(dialog.getByTestId('welcome-host')).toHaveTextContent('not reachable'),
+    );
   });
 });

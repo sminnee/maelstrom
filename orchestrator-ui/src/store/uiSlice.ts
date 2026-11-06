@@ -73,6 +73,11 @@ export interface UiState {
   console: ConsoleState;
   /** The **Gates chip**'s dialog: whether it is open, and the job it marks. */
   gates: GatesState;
+  /**
+   * The user closed the **Welcome dialog** this page load, so a world with no project does not
+   * open it again. Not kept across a reload: a fresh load with no project greets again.
+   */
+  welcomeDismissed: boolean;
 }
 
 export interface GatesState {
@@ -109,5 +114,6 @@ export function initialUiState(): UiState {
     panelWidth: null,
     console: { open: false, selected: null, height: null },
     gates: { open: false, jobId: null },
+    welcomeDismissed: false,
   };
 }

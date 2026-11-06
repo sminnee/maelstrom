@@ -73,6 +73,7 @@ export interface AppStore {
   /** Open the gate jobs, marking `jobId` when given. */
   openGates(jobId?: string): void;
   closeGates(): void;
+  dismissWelcome(): void;
 }
 
 /** The store's tabs, with the active one the location names. */
@@ -158,6 +159,7 @@ export const useAppStore = create<AppStore>()(
       openGates: (jobId) =>
         set((s) => ({ ui: { ...s.ui, gates: { open: true, jobId: jobId ?? null } } })),
       closeGates: () => set((s) => ({ ui: { ...s.ui, gates: { open: false, jobId: null } } })),
+      dismissWelcome: () => set((s) => ({ ui: { ...s.ui, welcomeDismissed: true } })),
     }),
     {
       name: TABS_STORAGE_KEY,
