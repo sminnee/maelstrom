@@ -29,3 +29,6 @@ class FakeSupervisor:
 
     def log_hint(self, spec):
         return f"log of {spec.name}"
+
+    def submit(self, spec):
+        self.calls.append(f"submit {spec.name} {' '.join(spec.argv)}")
