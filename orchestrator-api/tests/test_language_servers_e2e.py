@@ -34,8 +34,12 @@ async def test_a_definition_comes_back_at_the_revs_line(tmp_path):
         await servers.stop_all()
 
     assert definition["reason"] == "ok"
+    # The click is on a use, so the target is the class's Fragment at the rev, and
+    # no uses are listed.
     assert definition["targets"][0] == {
         "path": "models.py",
-        "range": {"start": 1, "end": 1},
+        "range": {"start": 1, "end": 2},
         "inRev": True,
+        "symbol": "Order",
     }
+    assert definition["references"] is None

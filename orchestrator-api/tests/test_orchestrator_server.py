@@ -9357,13 +9357,30 @@ class FakeLanguageServer:
     """
 
     def __init__(
-        self, folder: Path, definition=None, command=None, crash_on=None
+        self,
+        folder: Path,
+        definition=None,
+        command=None,
+        crash_on=None,
+        references=None,
+        document_symbol=None,
+        symbol_error=(),
+        references_error=False,
     ) -> None:
         folder.mkdir()
         self.log = folder / "log.jsonl"
-        replies = folder / "replies.json"
+        replies = self.replies = folder / "replies.json"
         replies.write_text(
-            json.dumps({"definition": definition or [], "crash_on": crash_on})
+            json.dumps(
+                {
+                    "definition": definition or [],
+                    "crash_on": crash_on,
+                    "references": references or [],
+                    "document_symbol": document_symbol or {},
+                    "symbol_error": list(symbol_error),
+                    "references_error": references_error,
+                }
+            )
         )
         self.command = command or (
             sys.executable,
@@ -9386,6 +9403,16 @@ class FakeLanguageServer:
 
     def methods(self) -> list[str]:
         return [m.get("method", "") for m in self.messages()]
+
+    def reply(self, **replies) -> None:
+        """Change the fake's answers: it reads them again for each request."""
+        self.replies.write_text(
+            json.dumps({**json.loads(self.replies.read_text()), **replies})
+        )
+
+    def asked(self, method: str) -> list[dict]:
+        """The params of each request for ``method``."""
+        return [m["params"] for m in self.messages() if m.get("method") == method]
 
     def documents(self) -> list[tuple[str, str, str | None]]:
         """Each didOpen and didClose: the method, the file name, and the text opened."""
@@ -9451,11 +9478,18 @@ def test_the_definition_route_maps_each_target_to_a_path_in_the_worktree(
         async with harness.client() as api:
             return await api.get_json(_definition_query("branch", "orders.py", 1, 6))
 
+    # No symbol holds line 3, so the pin is the window, clipped at line 1.
     assert run(scenario()) == {
         "rev": "branch",
         "reason": "ok",
+        "references": None,
         "targets": [
-            {"path": "models.py", "range": {"start": 3, "end": 3}, "inRev": True},
+            {
+                "path": "models.py",
+                "range": {"start": 1, "end": 28},
+                "anchor": 3,
+                "inRev": True,
+            },
             {
                 "path": "/opt/typeshed/builtins.pyi",
                 "range": {"start": 11, "end": 11},
@@ -9463,13 +9497,17 @@ def test_the_definition_route_maps_each_target_to_a_path_in_the_worktree(
             },
         ],
     }
-    asked = next(
-        m for m in fake.messages() if m.get("method") == "textDocument/definition"
-    )
-    assert asked["params"] == {
-        "textDocument": {"uri": (repo / "orders.py").as_uri()},
-        "position": {"line": 0, "character": 6},
-    }
+    assert fake.asked("textDocument/definition") == [
+        {
+            "textDocument": {"uri": (repo / "orders.py").as_uri()},
+            "position": {"line": 0, "character": 6},
+        }
+    ]
+    # The click is on a use, so no references; typeshed is in no rev, so no symbols.
+    assert fake.asked("textDocument/references") == []
+    assert fake.asked("textDocument/documentSymbol") == [
+        {"textDocument": {"uri": (repo / "models.py").as_uri()}}
+    ]
 
 
 def test_the_definition_route_puts_a_file_the_rev_does_not_track_outside_the_rev(
@@ -9489,9 +9527,11 @@ def test_the_definition_route_puts_a_file_the_rev_does_not_track_outside_the_rev
         async with harness.client() as api:
             return await api.get_json(_definition_query("branch", "orders.py"))
 
+    # Out of the rev: the name's own lines, and no symbol request.
     assert run(scenario()) == {
         "rev": "branch",
         "reason": "ok",
+        "references": None,
         "targets": [
             {
                 "path": ".venv/lib/site.py",
@@ -9500,6 +9540,270 @@ def test_the_definition_route_puts_a_file_the_rev_does_not_track_outside_the_rev
             }
         ],
     }
+    assert fake.asked("textDocument/documentSymbol") == []
+
+
+def _lsp_range(start: int, end: int) -> dict:
+    """An LSP range over 0-based lines ``start`` to ``end``."""
+    return {
+        "start": {"line": start, "character": 0},
+        "end": {"line": end, "character": 10},
+    }
+
+
+def _symbol(name: str, kind: int, start: int, end: int, children=()) -> dict:
+    """A hierarchical ``DocumentSymbol``."""
+    return {
+        "name": name,
+        "kind": kind,
+        "range": _lsp_range(start, end),
+        "selectionRange": _lsp_range(start, start),
+        "children": list(children),
+    }
+
+
+def _flat_symbol(name: str, kind: int, start: int, end: int, container=None) -> dict:
+    """A flat ``SymbolInformation``."""
+    symbol = {
+        "name": name,
+        "kind": kind,
+        "location": {"uri": "file:///ignored.py", "range": _lsp_range(start, end)},
+    }
+    if container:
+        symbol["containerName"] = container
+    return symbol
+
+
+# A method on 1-based lines 95-125 in a class on 90-131, with a variable in the
+# method that also holds line 100, and a function elsewhere.
+_HIERARCHICAL = [
+    _symbol(
+        "Order",
+        5,
+        89,
+        130,
+        [
+            _symbol("total", 6, 94, 124, [_symbol("subtotal", 13, 98, 101)]),
+        ],
+    ),
+    _symbol("helper", 12, 140, 150),
+]
+_FLAT = [
+    _flat_symbol("Order", 5, 89, 130),
+    _flat_symbol("total", 6, 94, 124, "Order"),
+    _flat_symbol("subtotal", 13, 98, 101, "total"),
+    _flat_symbol("helper", 12, 140, 150),
+]
+
+
+@pytest.mark.parametrize("symbols", [_HIERARCHICAL, _FLAT], ids=["tree", "flat"])
+def test_a_definition_in_a_method_pins_the_method_and_lands_on_the_name(
+    harness_factory, tmp_path, symbols
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/models.py", "range": _fake_range(99)},
+        document_symbol={"models.py": symbols},
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    create_commit(repo, "models.py", "class Order: ...\n", "feat: models")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "orders.py", 1, 6))
+
+    # The innermost function or class: the method, not the class or the variable.
+    assert run(scenario()) == {
+        "rev": "branch",
+        "reason": "ok",
+        "references": None,
+        "targets": [
+            {
+                "path": "models.py",
+                "range": {"start": 95, "end": 125},
+                "anchor": 100,
+                "symbol": "Order.total",
+                "inRev": True,
+            }
+        ],
+    }
+    assert fake.asked("textDocument/documentSymbol") == [
+        {"textDocument": {"uri": (repo / "models.py").as_uri()}}
+    ]
+
+
+@pytest.mark.parametrize("failure", ["no_fragment", "symbol_error"])
+def test_a_definition_no_function_holds_pins_the_window_around_it(
+    harness_factory, tmp_path, failure
+):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/models.py", "range": _fake_range(39)},
+        # A constant on line 40 that only a variable holds; or a server error.
+        document_symbol={
+            "models.py": [_symbol("LIMIT", 14, 39, 39), _symbol("f", 12, 0, 9)]
+        },
+        symbol_error=["models.py"] if failure == "symbol_error" else [],
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    create_commit(repo, "models.py", "LIMIT = 3\n", "feat: models")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "orders.py"))
+
+    assert run(scenario())["targets"] == [
+        {
+            "path": "models.py",
+            "range": {"start": 35, "end": 65},
+            "anchor": 40,
+            "inRev": True,
+        }
+    ]
+
+
+def test_a_click_on_a_definition_lists_its_uses_in_the_rev(harness_factory, tmp_path):
+    # `total` is defined on orders.py line 1, characters 4-9.
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={
+            "uri": "{root}/orders.py",
+            "range": {
+                "start": {"line": 0, "character": 4},
+                "end": {"line": 0, "character": 9},
+            },
+        },
+        references=[
+            {"uri": "{root}/orders.py", "range": _fake_range(20)},
+            # A second use on the same line.
+            {
+                "uri": "{root}/orders.py",
+                "range": {
+                    "start": {"line": 20, "character": 12},
+                    "end": {"line": 20, "character": 17},
+                },
+            },
+            {"uri": "{root}/.venv/lib/site.py", "range": _fake_range(2)},
+            {"uri": "{root}/models.py", "range": _fake_range(4)},
+            {"uri": "{root}/orders.py", "range": _fake_range(0)},
+        ],
+        document_symbol={"models.py": [_symbol("use", 12, 3, 6)]},
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    create_commit(repo, "models.py", "use = 1\n", "feat: models")
+    (repo / ".venv/lib").mkdir(parents=True)
+    (repo / ".venv/lib/site.py").write_text("x = 1\n")
+
+    async def scenario():
+        async with harness.client() as api:
+            on_name = await api.get_json(_definition_query("branch", "orders.py", 1, 6))
+            # Line 1 still, but character 12 is past the name: a use, not the definition.
+            past_name = await api.get_json(
+                _definition_query("branch", "orders.py", 1, 12)
+            )
+            fake.reply(references=[])
+            no_uses = await api.get_json(_definition_query("branch", "orders.py", 1, 4))
+            return on_name, past_name, no_uses
+
+    on_name, past_name, no_uses = run(scenario())
+    # By path then line, one per line; the .venv use is in no rev, so it drops out.
+    assert on_name == {
+        "rev": "branch",
+        "reason": "ok",
+        "targets": [
+            {"path": "orders.py", "range": {"start": 1, "end": 26}, "inRev": True}
+        ],
+        "references": [
+            {
+                "path": "models.py",
+                "range": {"start": 4, "end": 7},
+                "anchor": 5,
+                "symbol": "use",
+                "inRev": True,
+            },
+            {"path": "orders.py", "range": {"start": 1, "end": 26}, "inRev": True},
+            {
+                "path": "orders.py",
+                "range": {"start": 16, "end": 46},
+                "anchor": 21,
+                "inRev": True,
+            },
+        ],
+    }
+    assert past_name["references"] is None
+    assert (no_uses["reason"], no_uses["references"]) == ("no_references", [])
+    uri = (repo / "orders.py").as_uri()
+    assert fake.asked("textDocument/references") == [
+        {
+            "textDocument": {"uri": uri},
+            "position": {"line": 0, "character": c},
+            "context": {"includeDeclaration": False},
+        }
+        for c in (6, 4)
+    ]
+    # One symbol request per path in a click, for its target and its uses.
+    assert [
+        Path(p["textDocument"]["uri"]).name
+        for p in fake.asked("textDocument/documentSymbol")
+    ] == ["orders.py", "models.py", "orders.py", "orders.py"]
+
+
+def test_a_failed_references_request_fails_the_route(harness_factory, tmp_path):
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/orders.py", "range": _fake_range(0)},
+        references_error=True,
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    _point_alpha_at_a_repo(harness, _repo_dir(tmp_path))
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get(_definition_query("branch", "orders.py", 1, 1))
+
+    # Unlike a symbol error, no answer stands without the uses.
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (
+        502,
+        "language_server_failed",
+    )
+
+
+def test_the_uses_past_the_cap_are_counted_not_listed(harness_factory, tmp_path):
+    lines = [("orders.py", n) for n in range(60)] + [
+        ("models.py", n) for n in range(43)
+    ]
+    fake = FakeLanguageServer(
+        tmp_path / "lsp",
+        definition={"uri": "{root}/orders.py", "range": _fake_range(0)},
+        references=[
+            {"uri": "{root}/" + name, "range": _fake_range(n)}
+            for name, n in reversed(lines)
+        ],
+    )
+    harness = harness_factory(language_servers=fake.servers)
+    repo = _repo_dir(tmp_path)
+    _point_alpha_at_a_repo(harness, repo)
+    create_commit(repo, "models.py", "use = 1\n", "feat: models")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json(_definition_query("branch", "orders.py", 1, 1))
+
+    answer = run(scenario())
+    listed = [
+        (r["path"], r.get("anchor", r["range"]["start"])) for r in answer["references"]
+    ]
+    assert listed == [("models.py", n) for n in range(1, 44)] + [
+        ("orders.py", n) for n in range(1, 58)
+    ]
+    assert answer["moreReferences"] == 3
 
 
 def test_the_definition_route_keeps_the_rev_overlay_in_step(harness_factory, tmp_path):
@@ -9563,7 +9867,12 @@ def test_the_definition_route_says_no_server_for_a_file_no_server_reads(
         async with harness.client() as api:
             return await api.get_json(_definition_query("branch", "readme.md"))
 
-    assert run(scenario()) == {"rev": "branch", "reason": "no_server", "targets": []}
+    assert run(scenario()) == {
+        "rev": "branch",
+        "reason": "no_server",
+        "targets": [],
+        "references": None,
+    }
     assert fake.messages() == []
 
 

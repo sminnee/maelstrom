@@ -84,9 +84,15 @@ class LspClient:
                 "processId": os.getpid(),
                 "rootUri": uri,
                 "workspaceFolders": [{"uri": uri, "name": self.root.name}],
-                # Only definitions. No didChangeWatchedFiles: the server
+                # Definitions, references and symbols. No didChangeWatchedFiles: the server
                 # watches the disk itself.
-                "capabilities": {"textDocument": {"definition": {"linkSupport": True}}},
+                "capabilities": {
+                    "textDocument": {
+                        "definition": {"linkSupport": True},
+                        "references": {},
+                        "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
+                    }
+                },
             },
             timeout,
         )

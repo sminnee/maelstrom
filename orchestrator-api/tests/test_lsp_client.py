@@ -49,8 +49,13 @@ async def test_the_handshake_answers_the_servers_requests_then_says_initialized(
     assert initialize["params"]["workspaceFolders"] == [
         {"uri": fake.root.as_uri(), "name": "worktree"}
     ]
+    # The symbol tree, not the flat list: a Fragment's dotted name needs it.
     assert initialize["params"]["capabilities"] == {
-        "textDocument": {"definition": {"linkSupport": True}}
+        "textDocument": {
+            "definition": {"linkSupport": True},
+            "references": {},
+            "documentSymbol": {"hierarchicalDocumentSymbolSupport": True},
+        }
     }
     # The server's three requests, answered in order: a configuration item
     # each gets null, and the others get null.

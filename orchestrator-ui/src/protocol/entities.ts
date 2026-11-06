@@ -242,21 +242,36 @@ export interface FileExcerpt {
   span: LineSpan;
 }
 
-/** One place a name is defined. */
-export interface DefinitionTarget {
+/** One place a name is defined or used. */
+export interface CodeTarget {
   /** Relative to the worktree; absolute for a file outside it, such as typeshed. */
   path: string;
+  /**
+   * The lines to pin: the **Fragment** that holds the name, else a window around it.
+   * Outside the rev, the name's own lines.
+   */
   range: LineRange;
   /** The rev holds `path`. A file outside the worktree, or one the rev does not track, is in no rev. */
   inRev: boolean;
+  /** The 1-based line of the name. Absent: `range.start`. */
+  anchor?: number;
+  /** The dotted name of the function, method or class that holds the name, such as `Order.total`. */
+  symbol?: string;
 }
 
-/** `GET /api/worktrees/{id}/definition`: where the name at a position is defined. */
+/** `GET /api/worktrees/{id}/definition`: where a name is defined, and its uses when the click is on the definition. */
 export interface Definition {
   rev: string;
-  targets: DefinitionTarget[];
-  /** `no_server`: no **Language server** reads the file. `no_definition`: the server found none. */
-  reason: 'ok' | 'no_server' | 'no_definition';
+  targets: CodeTarget[];
+  /** Each use of the name in the rev, when the click is on its definition. `null` for a use. */
+  references: CodeTarget[] | null;
+  /** The references past the cap, which `references` leaves out. */
+  moreReferences?: number;
+  /**
+   * `no_server`: no **Language server** reads the file. `no_definition`: the server found none.
+   * `no_references`: the click is on the definition, and the rev holds no use of it.
+   */
+  reason: 'ok' | 'no_server' | 'no_definition' | 'no_references';
 }
 
 /** `GET /api/worktrees/{id}/tree`: every file path on the new side of a rev. */
