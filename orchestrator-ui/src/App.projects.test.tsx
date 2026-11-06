@@ -284,6 +284,136 @@ describe('the Welcome dialog', () => {
     expect(router.state.location.search).toBe('');
   });
 
+  async function openWelcome(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'About maelstrom' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+    return within(await dialog.findByTestId('welcome-update'));
+  }
+
+  it('confirms an update with the live agent count, then follows the job through the restart', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.system.updateChannel = 'main';
+    // The last job's record: the new one must replace it before the poll may stop.
+    server.world.system.update = {
+      state: 'succeeded',
+      pid: 1,
+      startedAt: 't0',
+      finishedAt: 't1',
+      fromTag: 'v0.8.0',
+      toTag: 'v0.9.0',
+      exitCode: 0,
+      log: '/Users/dev/.maelstrom/logs/update.log',
+    };
+    // One exited agent, so the count is not every agent.
+    await act(async () => {
+      server.change({ kind: 'agent', ids: ['d9a4c7f1'] }, (w) => {
+        w.agents['d9a4c7f1'] = { ...w.agents['d9a4c7f1']!, state: 'exited', exitCode: 0 };
+      });
+    });
+    const row = await openWelcome(user);
+    expect(row.getByText('from the main channel')).toBeInTheDocument();
+
+    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
+    expect(
+      await row.findByText(/^The update restarts .* 5 live agents stop\./),
+    ).toBeInTheDocument();
+    await user.click(row.getByRole('button', { name: 'Update' }));
+
+    // The server answered, but the job has not written its record yet.
+    expect(await row.findByText('Updating…')).toBeInTheDocument();
+    // The orchestrator restarts: a poll fails, and the dialog keeps its body.
+    const reads = () => server.requests.filter((r) => r.path === '/api/system').length;
+    const before = reads();
+    server.refuse(/GET \/api\/system/, { status: 502, code: 'unavailable' });
+    await waitFor(() => expect(reads()).toBeGreaterThan(before), { timeout: 5000 });
+    expect(row.getByText('Updating…')).toBeInTheDocument();
+    expect(screen.queryByText(/Could not read the install/)).toBeNull();
+
+    server.allow();
+    server.world.system.update = {
+      ...server.world.system.update,
+      pid: 4242,
+      startedAt: 't2',
+      fromTag: 'v0.9.0',
+      toTag: 'v1.0.0',
+    };
+    expect(await row.findByText('Updated to v1.0.0', {}, { timeout: 5000 })).toBeInTheDocument();
+    // The page still runs the old bundle.
+    expect(row.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
+  });
+
+  it('shows why the server refused to start the job', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/self\/update/, {
+      status: 409,
+      code: 'cannot_update',
+      message: 'An update is running.',
+    });
+    const row = await openWelcome(user);
+
+    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
+    await user.click(row.getByRole('button', { name: 'Update' }));
+
+    expect(await row.findByText('An update is running.')).toBeInTheDocument();
+    expect(row.queryByText('Updating…')).toBeNull();
+  });
+
+  it('cancels the confirm without starting a job', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const row = await openWelcome(user);
+
+    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
+    await user.click(row.getByRole('button', { name: 'Cancel' }));
+
+    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeInTheDocument();
+    expect(server.world.system.update).toBeNull();
+  });
+
+  it.each([
+    [{ state: 'succeeded', fromTag: 'v1', toTag: 'v1', exitCode: 0 }, 'Already up to date (v1)'],
+    [{ state: 'succeeded', fromTag: 'v1', toTag: 'v2', exitCode: 0 }, 'Updated to v2'],
+    [
+      { state: 'failed', exitCode: 2 },
+      'The last update failed (exit 2). The log is ~/.maelstrom/logs/update.log.',
+    ],
+    [
+      { state: 'interrupted' },
+      'The last update stopped before it ended. The log is ~/.maelstrom/logs/update.log.',
+    ],
+  ] as const)('shows the last job %j and offers the update again', async (fields, words) => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.system.update = {
+      pid: 1,
+      startedAt: 't0',
+      finishedAt: 't1',
+      fromTag: 'v1',
+      toTag: 'v1',
+      exitCode: null,
+      log: '/Users/dev/.maelstrom/logs/update.log',
+      ...fields,
+    };
+    const row = await openWelcome(user);
+
+    expect(screen.getByTestId('welcome-update')).toHaveTextContent(words);
+    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeEnabled();
+    // A job this page did not start: the page already runs its bundle.
+    expect(row.queryByRole('button', { name: 'Reload' })).toBeNull();
+  });
+
+  it('disables the update on a development build', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.system.canUpdate = false;
+    const row = await openWelcome(user);
+
+    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeDisabled();
+    expect(row.getByText('development build')).toBeInTheDocument();
+  });
+
   it('says when the version is a development build and the host does not answer', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

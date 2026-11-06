@@ -136,6 +136,9 @@ export function fakeSystem(): SystemBody {
     skillsDir: '/Users/dev/.maelstrom/plugins/maelstrom/skills',
     skills: ['mael', 'plan-task', 'planning', 'watch-pr'],
     practices: true,
+    update: null,
+    updateChannel: 'stable',
+    canUpdate: true,
   };
 }
 
@@ -1465,6 +1468,17 @@ function command(
     // The real server asks a model; this reads the draft's first line, so a
     // test gets a plausible naming with no network.
     return ok({ ...inferNames(draft), command: '', mode: 'auto' });
+  }
+
+  if (pathname === '/api/self/update' && method === 'POST') {
+    if (!world.system.canUpdate)
+      return error(
+        409,
+        'cannot_update',
+        'This is a development build, not the host service: mael self update would update the production install, not this server.',
+      );
+    // The job, not the server, writes the record: a test writes it to `world.system.update`.
+    return { status: 202, body: {} };
   }
 
   if (pathname === '/api/projects' && method === 'POST') {
