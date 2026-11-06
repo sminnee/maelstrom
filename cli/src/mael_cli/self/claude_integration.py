@@ -1,58 +1,12 @@
-"""Integration with Claude Code for skills and hooks."""
+"""Integration with Claude Code: its settings, and what older versions installed.
+
+The skills are plugins now: see :mod:`mael_cli.self.plugins`.
+"""
 
 import json
-import os
-import shutil
 from pathlib import Path
 
 from mael_common.util import read_json
-from mael_domain.shared_dir import get_shared_dir
-
-
-def _symlink_items(source_dir: Path, target_dir: Path) -> list[str]:
-    """Symlink all items from source_dir into target_dir. Returns messages."""
-    messages = []
-    if not source_dir.exists():
-        return [f"Source not found: {source_dir}"]
-
-    target_dir.mkdir(parents=True, exist_ok=True)
-
-    for item in source_dir.iterdir():
-        target = target_dir / item.name
-
-        if target.is_symlink():
-            if target.resolve() == item.resolve():
-                continue  # Already correctly linked
-            old_target = target.resolve()
-            target.unlink()
-            messages.append(f"Replaced old link {target.name} (was {old_target})")
-        elif target.exists():
-            backup = target.with_suffix(".backup")
-            if backup.exists():
-                shutil.rmtree(backup)
-            target.rename(backup)
-            messages.append(f"Backed up existing {target.name}")
-
-        target.symlink_to(item)
-        messages.append(f"Linked {target} -> {item}")
-
-    # Clean up stale symlinks that point into source_dir but no longer exist
-    for entry in target_dir.iterdir():
-        if not entry.is_symlink():
-            continue
-        link_target = Path(os.readlink(entry))
-        # Resolve relative symlinks against the symlink's parent
-        if not link_target.is_absolute():
-            link_target = entry.parent / link_target
-        try:
-            link_target.resolve().relative_to(source_dir.resolve())
-        except ValueError:
-            continue  # Points elsewhere, leave it alone
-        if not link_target.exists():
-            entry.unlink()
-            messages.append(f"Removed stale link {entry.name}")
-
-    return messages
 
 
 def _write_json(path: Path, data: dict) -> None:
@@ -192,25 +146,8 @@ def remove_session_channel(path: Path | None = None) -> list[str]:
 
 
 def install_claude_integration() -> list[str]:
-    """Install skills and hooks, and clear what older versions installed."""
-    shared = get_shared_dir()
-    claude_dir = Path.home() / ".claude"
-
-    messages = []
-
-    # Symlink skills
-    skills_source = shared / "skills"
-    if skills_source.exists():
-        messages.extend(_symlink_items(skills_source, claude_dir / "skills"))
-
-    # Symlink hooks
-    hooks_source = shared / "hooks"
-    if hooks_source.exists():
-        messages.extend(_symlink_items(hooks_source, claude_dir / "hooks"))
-
-    messages.extend(install_sandbox_exclusions())
-
+    """Install the sandbox exclusions, and clear what older versions installed."""
+    messages = install_sandbox_exclusions()
     messages.extend(remove_session_hooks())
     messages.extend(remove_session_channel())
-
-    return messages or ["Nothing to install"]
+    return messages

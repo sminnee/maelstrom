@@ -11,6 +11,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,7 @@ from mael_domain.context import (
 from mael_domain.dev_cert import cert_paths
 from mael_domain.env import load_env_state, stop_env
 from mael_domain.env_store import JsonEnvStore
+from mael_domain.shared_dir import get_shared_dir
 from mael_domain.state_db.migrate import migrate_state_db
 from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 
@@ -40,9 +42,11 @@ from .host_service import (
     Run,
     Supervisor,
 )
+from .plugins import Plugins, codex_home_from_env
 from .production import (
     SERVICE_PATH_KEY,
     Production,
+    agent_path,
     production_env,
     store_service_path,
     write_shim,
@@ -241,6 +245,8 @@ class Setup:
     inherited_path: str = field(default_factory=lambda: os.environ.get("PATH", ""))
     stop_main_services: Callable[[Echo], None] = _stop_main_services
     integrate: Callable[[], list[str]] = install_claude_integration
+    #: ``None`` runs :meth:`plugins`' setup.
+    install_plugins: Callable[[], list[str]] | None = None
     harden: Callable[[], list[str]] = harden_global_config
     link_jig: Callable[[Path, Echo], None] = link_jig
     #: Whether a user can answer a question, so setup may ask one.
@@ -255,7 +261,11 @@ class Setup:
         self.relocate()
         self.migrate()
         self.echo("Updating Claude Code integration...")
-        for msg in [*self.integrate(), *self.harden()]:
+        for msg in [
+            *self.integrate(),
+            *(self.install_plugins or self.plugins().setup)(),
+            *self.harden(),
+        ]:
             self.echo(f"  {msg}")
         self.echo(f"  {write_shim(self.prod)}")
         if self.source is not None:
@@ -269,6 +279,17 @@ class Setup:
                 "then run `mael self setup` again."
             )
         self.echo(f"Setup complete. Maelstrom runs at {orchestrator_url(self.prod)}.")
+
+    def plugins(self) -> Plugins:
+        """The host's plugins, probed and run on the agents' PATH."""
+        path = agent_path(self.prod, self.inherited_path)
+        return Plugins(
+            home=self.prod.home,
+            shared=get_shared_dir(),
+            run=self.run,
+            which=lambda name: shutil.which(name, path=path),
+            codex_home=codex_home_from_env(),
+        )
 
     def relocate(self) -> None:
         """Move the production state of an older install into ``state/``, once.

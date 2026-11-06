@@ -42,6 +42,7 @@ class SetupRun:
             inherited_path="/usr/bin",
             stop_main_services=lambda echo: None,
             integrate=list,
+            install_plugins=lambda: [],
             interactive=self.interactive,
             prompt=prompt,
         )()
