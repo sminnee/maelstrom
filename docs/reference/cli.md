@@ -282,7 +282,7 @@ resolves its own conflicts instead.
 
 ---
 
-## Sessions and workspaces
+## Sessions
 
 | Command | Description |
 |---|---|
@@ -290,7 +290,6 @@ resolves its own conflicts instead.
 | `mael ide [TARGET]` | Open a worktree in the configured editor. |
 | `mael session list` | List running Claude Code sessions. |
 | `mael session info [ID]` | Show the fields of one session. Defaults to the session you run it in. |
-| `mael cmux status` | Report whether maelstrom can place a session into cmux. Starts cmux if it is down. Exits non-zero when cmux cannot be reached. |
 
 ```bash
 mael add feature/avatar-upload     # create or reuse a branch worktree
@@ -301,8 +300,8 @@ mael session info 4242             # ...named by a pid from the PID column
 mael --json session info 97894d02  # the same fields as JSON
 ```
 
-**Harness transport.** `mael add`, `mael task run`, `mael task next --run` and
-`mael task add-scheduled` take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
+**Harness transport.** `mael add`, `mael task run`, `mael task next --run`, `mael task add`,
+`mael linear plan`, `mael task load-many` and `mael task add-scheduled` take `--cli` or `--daemon`. `mael add --model` accepts a model reference.
 A bare value selects Claude. A qualified value selects its CLI harness.
 The default is `claude:opus`. `--model` conflicts with `--open` and `--no-agent`.
 `--execute-model` names the model the session switches to when its plan is
@@ -312,28 +311,29 @@ none of those reaches the approval that would perform the switch.
 `mael add --no-agent` prepares a shell without an agent. It conflicts with
 `--open`, `--cli`, and `--daemon`.
 
-`mael add` detects its invocation context. In a regular shell, the selected CLI
-runs in the worktree, and `--no-agent` starts a temporary child shell. In cmux,
-maelstrom creates or focuses the worktree workspace. Pane 0 runs the agent and
-pane 1 shows the installer. With `--no-agent`, pane 0 is the installer shell.
-A driven agent starts a child driven agent by default.
-From a driven agent, `mael task run` and `task next --run` also start that
-child with no cmux pane, and the orchestrator shows it. `task add --run` and
-`task load-many --run` always start the agent on the daemon, through the
-orchestrator server, with no cmux pane.
-Explicit `--cli` asks cmux for a CLI workspace. If cmux cannot start, the prepared
-worktree remains available.
+`mael add` starts the installer in the background in every case.
 
-| Harness | What pane 0 runs | Who owns the agent |
+| Harness | What runs | Who owns the agent |
 |---|---|---|
-| `cli` (default) | `claude`, `codex`, or `opencode` | The pane |
-| `daemon` | `mael agent attach <id>` | The agent daemon |
+| `cli` (default) | `claude`, `codex`, or `opencode`, in this shell, in the worktree | This shell |
+| `daemon` | The agent daemon's `claude` child. The launch prints `mael agent attach <id>`. | The agent daemon |
 
-With `daemon` the agent daemon runs the `claude` child, and the pane attaches to it as a client.
+`mael task run --cli` prepares the worktree first, as a daemon launch does: it rebases the
+branch, refreshes the `.env`, and moves the task to in-progress. Then it replaces the `mael`
+process with the CLI, in the worktree. `mael add --no-agent` starts a temporary child shell in
+the worktree.
+
+`--cli` needs a terminal. A driven agent has none. Nor has an agent's tool call outside the
+daemon, because its stdin and stdout are pipes. From a driven agent, `mael add`,
+`mael task run` and `task next --run` start a child driven agent by default. With no terminal,
+each launch refuses `--cli`, and `mael add --no-agent` prepares the worktree and starts nothing. `task add --run` and `linear plan` start
+the agent on the daemon unless `--cli` is given. `task load-many --run` and
+`task add-scheduled --run` can launch more than one session, so they refuse `--cli`.
+
 Daemon transport supports Claude model references only. Use `--cli` with a
 `codex:*` or `opencode:*` model reference.
-The session appears in `mael agent list` and in the orchestrator UI. Ctrl-C in the pane detaches
-the client and leaves the agent running — reattach with `mael agent attach <id>`. The child is
+The session appears in `mael agent list` and in the orchestrator UI. `mael agent attach <id>`
+opens it in a terminal. Ctrl-C detaches the client and leaves the agent running. The child is
 still `claude` with the session's environment, so skills, hooks and `CLAUDE.md` behave as they
 always did.
 
@@ -353,16 +353,14 @@ listed Codex aliases resolve as follows:
 Unknown Codex aliases pass through unchanged. Blank models resolve to
 `claude:opus`. Bare models remain Claude-compatible. `--daemon` refuses a
 non-Claude model until that harness has a daemon. `--harness`, `--claude`, and
-`--codex` were removed; use a transport flag.
+`--codex` were removed; use a transport flag. `--here` was removed: `--cli` runs in this shell.
 
-`mael task run --here` runs the session in the current shell, so the daemon has no meaning there.
-That path falls back to `claude`, and warns when you named the daemon rather than defaulting to
-it. A task's `execute-model` is reported and ignored there for the same reason, as it is on a
-`--cli` run.
+A `--cli` run has no daemon to switch the model when the plan is approved, so a task's
+`execute-model` is reported and ignored there.
 
 ```bash
 mael add feature/avatar-upload --cli
-mael task run NORT-7 --cli   # selected CLI in the pane
+mael task run NORT-7 --cli   # selected CLI in this shell
 mael task run NORT-7 --daemon
 ```
 
@@ -466,7 +464,8 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the parent task's comms. An id that names no comm is refused. |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task immediately: the server starts it on the agent daemon. Prints the operation id. |
-| `--here` | With `--run`, launch in the current shell. No worktree, no new workspace, no server launch. |
+| `--cli` | With `--run`, run the model CLI in this shell, in the task's worktree, with no server launch. |
+| `--daemon` | With `--run`, launch on the agent daemon through the server. This is the default. |
 
 **`mael task draft`**
 
@@ -523,7 +522,7 @@ mael task promote .drafts/d1.md .drafts/d2.md --follow-end '*'  # append to the 
 `ID` is a required positional argument — the task to update. An optional `TITLE` follows it.
 The field flags below are a **subset** of `add`'s, in long form only. `task update` has no
 short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`, `--template`,
-`--edit`, `--run` or `--here`. A task's parent and its chain position are set at creation.
+`--edit`, `--run`, `--cli` or `--daemon`. A task's parent and its chain position are set at creation.
 
 | Option | Description |
 |---|---|
@@ -564,8 +563,7 @@ Rows are in priority order. Within one priority, the oldest task is first.
 | `--parent TEXT` | Restrict to children of this id. |
 | `--run` | Launch the next actionable task as a session. |
 | `-b`, `--branch TEXT` | Restrict strictly to this branch. No fallback to other branches. |
-| `--here` | With `--run`, launch in the current shell. |
-| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`. |
+| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`, which runs in this shell, in the task's worktree. |
 
 `next` picks by priority. Within one priority, it picks the oldest task. By default `next`
 prefers a task on the current git branch, then falls back to the global next task.
@@ -574,15 +572,14 @@ prefers a task on the current git branch, then falls back to the global next tas
 
 | Option | Description |
 |---|---|
-| `--here` | Launch in the current shell. No worktree, no new workspace. |
-| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`. |
+| `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`, which runs in this shell, in the task's worktree. |
 
 **`mael task load-many`**
 
 | Option | Description |
 |---|---|
 | `--run` | Launch every actionable task created: the server starts each on the agent daemon. A task that still follows an unfinished id waits for `mael task next --run`. |
-| `--here` | With `--run`, launch only the head task in the current shell. |
+| `--cli`, `--daemon` | `--run` always launches on the daemon, so it refuses `--cli`. |
 
 `FILE` is a preamble the human reads, then one `---CREATE TASK <name>---` block per task.
 Each block is frontmatter, then a body that becomes the task's content. A block ends at the
@@ -649,10 +646,8 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 |---|---|
 | `-p`, `--project TEXT` | Project name. |
 | `--all-projects` | Scan every maelstrom project. This is the launchd entry point. |
-| `--run` | Launch each due run. The default is a driven agent with no cmux pane. |
-| `--daemon` | Launch through the agent daemon. This is the default without `--here`. `MAEL_HARNESS_TYPE` does not change it. |
-| `--cli` | Launch the model CLI in a new cmux workspace. |
-| `--here` | With `--run`, launch the model CLI in the current shell. Cannot be used with `--daemon`. |
+| `--run` | Launch each due run as a driven agent on the agent daemon. `MAEL_HARNESS_TYPE` does not change it. |
+| `--cli`, `--daemon` | `--run` always launches on the daemon, so it refuses `--cli`. |
 
 ---
 
@@ -695,9 +690,9 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
-in. This path is how `mael add` and `mael task run` launch a session: the daemon
-runs the agent, and pane 0 attaches to it. `mael agent start` makes an agent with no workspace at
-all. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
+in. This path is how `mael add --daemon` and `mael task run --daemon` launch a session: the daemon
+runs the agent, and the launch prints `mael agent attach <id>`. `mael agent start` makes an agent
+directly. See [agent-daemon.md](../dev/agent-daemon.md) for the protocol.
 
 | Command | Description |
 |---|---|
@@ -850,7 +845,6 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env list-all` | List running environments across every project. |
 | `mael env stop-all` | Stop every running environment. |
 | `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. Always restarts running services. |
-| `mael env open` | Open the browser pane for a running environment. |
 
 ```bash
 mael env start                     # install, then start every non-optional service
@@ -869,7 +863,7 @@ mael env restart --changed         # restart what the last pull changed
 | `env start` | `--skip-install` | Skip the install step before starting. |
 | `env restart` | `--install` | Run the install step before starting. |
 | `env restart` | `--changed` | Restart only the running services whose service version moved. Takes no `SERVICE` and no `--install`. |
-| `env start`, `env stop`, `env restart`, `env logs`, `env status`, `env reset`, `env open` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. A positional `TARGET` on `status`, `reset` and `open` is a deprecated alias for `-w`. |
+| `env start`, `env stop`, `env restart`, `env logs`, `env status`, `env reset` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. A positional `TARGET` on `status` and `reset` is a deprecated alias for `-w`. |
 | `env logs` | `-n INTEGER` | Number of lines to show. Default: 100. |
 | `env logs` | `-f`, `--follow` | Follow log output. |
 
@@ -1136,7 +1130,7 @@ mael linear set-status ME-41 done               # "Unreleased"
 Runs by default: the planning session launches immediately. It takes the same
 block-settable options as `mael task add` — `--project`, `-c/--command`, `-m/--mode`,
 `-b/--branch`, `-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
-`--execute-model`, `--follow`, `--follow-end`, `--here` — plus:
+`--execute-model`, `--follow`, `--follow-end`, `--cli`, `--daemon` — plus:
 
 | Option | Description |
 |---|---|

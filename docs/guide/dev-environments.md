@@ -165,7 +165,7 @@ A named start:
 - starts that service only if it is not already running; the shared subscription above
   happens either way.
 
-A named stop leaves the other services running, and leaves the main app's browser pane open.
+A named stop leaves the other services running.
 
 A service cannot be both `optional` and `shared`.
 

@@ -5,8 +5,8 @@ first — the other guides assume the vocabulary it introduces.
 
 ## What maelstrom is for
 
-Maelstrom is an orchestration layer for multi-agent development. It uses cmux to manage
-workspaces, git worktrees to isolate code, and Claude Code as its agent. Integrations with
+Maelstrom is an orchestration layer for multi-agent development. It uses git worktrees to
+isolate code, Claude Code as its agent, and an orchestrator UI to show every agent. Integrations with
 Linear, Sentry and GitHub keep the workflow streamlined. Maelstrom adds two things of its
 own. A task notebook tracks what each agent is doing and in what order. A dev environment
 manager gives each worktree isolated services and ports. It is a highly opinionated
@@ -30,7 +30,7 @@ Each component earns its place by the role it plays in the loop.
 
 | Component | Role |
 |---|---|
-| [cmux](cmux-workspaces.md) | Manages workspaces — where sessions run and where you watch them |
+| [Orchestrator UI](#the-orchestrator-ui-and-server) | Shows every agent, and where you watch and answer them |
 | [git worktrees](worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
 | [Task notebook](tasks.md) | Detailed task management — what each agent is doing, in what order |
@@ -39,23 +39,16 @@ Each component earns its place by the role it plays in the loop.
 | [The jig](jig.md) | An overlay on each dev page, to change the page and send feedback to the agent |
 | [Linear / Sentry / GitHub](integrations.md) | Streamline the workflow |
 
-### cmux — where sessions run
+### Where agents run
 
-cmux is a workspace manager. Maelstrom gives each worktree a workspace named
-`<project>-<worktree>`, with three panes:
+A launch runs an agent in one of two places. `--daemon` starts it on the agent daemon, and the
+orchestrator UI shows it. The launch prints `mael agent attach <id>`, which opens the agent in your
+terminal. `--cli` runs the model CLI in your current shell, in the task's worktree.
+`mael task add --run` and `mael linear plan` default to the daemon. `mael add`, `mael task run`
+and `mael task next --run` default to `--cli`.
 
-- **Pane 0** — the Claude session.
-- **Pane 1** — a shell, which runs the install command on creation.
-- **Pane 2** — browsers: the running app and the pull request.
-
-Sessions run in cmux workspaces. Maelstrom starts a session by driving the cmux socket. If
-cmux is down, maelstrom starts it. If cmux cannot be reached, maelstrom fails rather than
-running the agent somewhere you cannot see it. There are two exceptions. `--here` runs the
-agent in your current shell — a deliberate escape hatch, not a fallback. A scheduled run starts
-on the agent daemon with no workspace, and the orchestrator UI shows it.
-
-This matters because you cannot supervise what you cannot find. With one workspace per
-worktree, every agent is always in a known place.
+cmux is optional. The orchestrator's `cmux` link opens a worktree's terminal in a cmux workspace
+named `<project>-<worktree>`, and closing the worktree closes it.
 
 ### git worktrees — isolating code
 
@@ -78,7 +71,7 @@ only safe way to change it — see [troubleshooting](troubleshooting.md#renaming
 
 Maelstrom launches the selected agent harness in the right worktree. The default daemon and the
 `claude` harness use a deterministic Claude session id, a task permission mode, and the task
-model. In a pane, Codex and OpenCode start fresh sessions and use their own configured model and
+model. With `--cli`, Codex and OpenCode start fresh sessions and use their own configured model and
 permissions.
 
 The orchestrator also runs a `codex:*` model as a Codex app-server thread. That thread gets the
@@ -221,7 +214,7 @@ These are not peers of the components above. They remove manual steps:
 Linear issue
    │  mael linear plan PROJ-123
    ▼
-Planning session (normal mode, in a cmux workspace)
+Planning session (normal mode, on the agent daemon)
    │  sculpts draft task files with you
    ▼
 mael task promote <draft>…  →  mael task status done  →  mael task next --run
@@ -236,7 +229,7 @@ mael gh create-pr --squash            →   mael task status done   →   /watch
 One pull request per parent
 ```
 
-Several of these run at once, in different worktrees, in different workspaces. That is the
+Several of these run at once, in different worktrees. That is the
 point. [multi-agent-workflow.md](multi-agent-workflow.md) walks the loop with several
 agents in flight.
 
@@ -246,7 +239,8 @@ agents in flight.
 - **Leave `branch:` unset on drafts.** Tasks inherit their parent's branch, so every
   task in a chain accumulates into one pull request.
 - **Drafts become tasks.** A draft is inert until it is promoted into the chain.
-- **Sessions run in cmux workspaces.** `--here` is the local escape hatch.
+- **An agent runs on the daemon or in your shell.** `--daemon` puts it in the orchestrator UI;
+  `--cli` runs it in your shell.
 - **Close preserves, remove deletes.** `mael close --force` discards nothing.
   `mael close --trash` sets unmerged work aside as `trash/<branch>`.
   `mael close --discard` removes dirty files but keeps branch commits and ignored files.

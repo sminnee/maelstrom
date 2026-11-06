@@ -52,15 +52,13 @@ Fire due templates by hand:
 ```bash
 mael task add-scheduled --run                  # this project
 mael task add-scheduled --all-projects --run   # every project
-mael task add-scheduled --run --cli            # in a new cmux workspace
-mael task add-scheduled --run --here           # in the current shell
 ```
 
 Without `--run`, runs are created but not launched.
 
-A launched run is a driven agent with no cmux pane. The orchestrator UI shows it on the run's
-node card and on the desk. Attach there, or with `mael agent attach <id>`. Use `--cli` to open
-a cmux workspace instead.
+A launched run is a driven agent. The orchestrator UI shows it on the run's node card and on the
+desk. Attach there, or with `mael agent attach <id>`. `--run` launches every due run, so it
+refuses `--cli`.
 
 The run starts on the production agent daemon, the `agent-daemon` host service. If that daemon
 is down, the run goes back to `todo`. The next hourly fire does not retry it. Launch it with

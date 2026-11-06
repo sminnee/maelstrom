@@ -184,9 +184,8 @@ re-export through the package, and **never** import another module's `_private`
 helpers.
 
 If two modules need a helper, promote it to a public function with a real name.
-[`ensure_cmux_browser`](../../cli/src/mael_cli/env_cli.py) and
-[`print_service_status`](../../cli/src/mael_cli/env_cli.py) are public for exactly
-this reason — `cli.py` needs them. A leading underscore means "private to this
+[`refresh_worktree_env`](../../cli/src/mael_cli/env_cli.py) is public for exactly
+this reason — `cli.py` and `task_cli.py` need it. A leading underscore means "private to this
 module", and reaching across for it couples the two files.
 
 ### 5. All persistence goes through a store abstraction

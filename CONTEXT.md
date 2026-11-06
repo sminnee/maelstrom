@@ -337,11 +337,9 @@ a task. Use the session id to answer "which conversation am I in now?". A sessio
 its task session id as its session id, so the two agree until the first `/clear`.
 
 **Workspace**:
-A cmux workspace named `<project>-<worktree>`. An agent workspace holds three panes: pane 0 the
-Claude session, pane 1 a shell, pane 2 browsers. A workspace the orchestrator makes for a
-terminal holds one terminal. Pane numbering is 0-based. Every session runs in a workspace so
-that no agent runs somewhere you cannot watch it. A scheduled run is the exception: it has no
-workspace, and you watch it in the orchestrator UI.
+A cmux workspace named `<project>-<worktree>`. The orchestrator makes it when you open a
+worktree's terminal, and it holds one terminal in the worktree. Closing the worktree closes it.
+An agent runs in no workspace: you watch it in the orchestrator UI.
 _Avoid_: Window, pane group
 
 ## Agents
@@ -390,10 +388,10 @@ alive. Keeps the task and the start the agent really had, which a fresh adoption
 _Avoid_: Restored, resurrected, reopened.
 
 **Driven agent**:
-A `claude` process the agent daemon holds on a stream-json pipe. Every session maelstrom
-launches is a driven agent. One that a person launches from a terminal has a workspace whose pane
-0 runs `mael agent attach` as a client of the daemon. Any other has no pane, and the orchestrator
-shows it. The daemon owns the pipe, not the pane: the agent runs whether a pane watches it or not.
+A `claude` process the agent daemon holds on a stream-json pipe. A `--daemon` launch and every
+orchestrator launch make one. A `--cli` launch does not. `mael agent attach <id>` opens a client of
+it in a terminal. The daemon owns the pipe, not the terminal: the agent runs whether a client
+watches it or not.
 
 **Subagent**:
 A driven agent's child, spawned by its `Agent` tool and held by the agent daemon as a stream of

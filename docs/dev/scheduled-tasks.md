@@ -12,10 +12,10 @@ A template with a `trigger` adds one `gh api` read per tick, from
 triggered template makes no `gh` call. For a failed read, see
 [the rules](../guide/scheduled-work.md#rules).
 
-Each run starts on the agent daemon with no cmux pane (`attach=False`). The
-orchestrator's next `list` adopts the agent, so the UI shows it. Unlike `task
-run`, `add-scheduled` ignores `MAEL_HARNESS_TYPE`, so a hand run fires the same
-way as the scheduler. `--cli` opens a cmux workspace instead.
+Each run starts on the agent daemon. The orchestrator's next `list` adopts the
+agent, so the UI shows it. Unlike `task run`, `add-scheduled` ignores
+`MAEL_HARNESS_TYPE`, so a hand run fires the same way as the scheduler. It
+refuses `--cli` with `--run`; see [the CLI reference](../reference/cli.md#sessions).
 
 ## The scheduler is always on
 

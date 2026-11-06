@@ -6,7 +6,7 @@ This is the core loop: **plan → chain → parallel sessions → pull request**
 ## The shape of it
 
 You do not type commands into an agent's terminal. You create tasks and launch them.
-Maelstrom gives each one a worktree, a workspace, ports and a session. Several run at once.
+Maelstrom gives each one a worktree, ports and a session. Several run at once.
 You supervise; you do not drive.
 
 ## 1. Plan
@@ -17,8 +17,8 @@ Start from a Linear issue:
 mael linear plan PROJ-123
 ```
 
-This creates a planning task holding the issue brief, then launches a planning session in
-its own cmux workspace. Without a Linear issue, do the same thing directly:
+This creates a planning task holding the issue brief, then launches a planning session on
+the agent daemon. Without a Linear issue, do the same thing directly:
 
 ```bash
 mael task add "Fix flaky port test" --run
@@ -132,7 +132,7 @@ If you are working outside a plan, agree the owning layer with the agent when it
 ## 3. Run several agents at once
 
 Nothing above is limited to one piece of work. Plan three Linear issues and you get three
-chains, each with its own parent, branch, worktree, ports and workspace:
+chains, each with its own parent, branch, worktree and ports:
 
 ```bash
 mael linear plan PROJ-123     # → the next free slot, e.g. charlie
@@ -143,7 +143,7 @@ mael linear plan PROJ-125     # → e.g. echo
 Each takes the next free worktree slot and the next free port base. The names and numbers
 depend on what is already in use, not on the issue id.
 
-Their **workspaces** cannot collide: different worktrees, different branches, different ports.
+Their **environments** cannot collide: different worktrees, different branches, different ports.
 Their **code** still can. Chains that touch the same files conflict on rebase, and the last one
 to merge does the work of reconciling.
 
@@ -261,7 +261,7 @@ name and the ports, so the next `mael add` recycles the slot. See
 ## A full day
 
 ```bash
-# Morning: plan three issues. Three planning sessions open in three workspaces.
+# Morning: plan three issues. Three planning sessions start on the agent daemon.
 mael linear plan PROJ-123
 mael linear plan PROJ-124
 mael linear plan PROJ-125

@@ -3,18 +3,16 @@
 How maelstrom drives a Claude Code agent from outside the terminal it runs in, and answers it
 while it waits.
 
-A session in a cmux pane has no way to receive an answer except through that pane. The agent
+A session in a terminal has no way to receive an answer except through that terminal. The agent
 daemon adds that missing half. It runs each agent as a `claude` child on a bidirectional NDJSON
 pipe, reads what the agent is doing from its event stream, and writes answers back on the child's
 stdin. `mael agent` is the client.
 
 `mael add --daemon`, `mael task run --daemon`, and `mael task next --run --daemon`
-start a driven agent. In cmux, pane 0 runs
-`mael agent attach <id>` as a client of it. See
-[the harness table](../reference/cli.md#sessions-and-workspaces) for the flags and the legacy
-runners.
+start a driven agent, and print `mael agent attach <id>`, which opens a client of it. See
+[the harness table](../reference/cli.md#sessions) for the flags and the `--cli` runner.
 
-The daemon owns the pipe, not the pane. Ctrl-C in the pane detaches the client and leaves the
+The daemon owns the pipe, not the terminal. Ctrl-C in `mael agent attach` detaches the client and leaves the
 agent running. `mael agent start` makes an agent with no workspace at all, which is what the
 orchestrator's own launches do.
 

@@ -8,7 +8,7 @@ How a brief becomes a chain of tasks that agents execute.
 Linear issue (or a bare idea)
    │  mael linear plan PROJ-123
    ▼
-Planning session — normal mode, in a cmux workspace
+Planning session — normal mode, on the agent daemon
    │  research → discuss → sculpt draft task files
    ▼
 mael task promote <drafts>  →  mael task status done  →  mael task next --run
@@ -139,9 +139,9 @@ file is left untouched and no task is created.
 
 ### Approving in the orchestrator UI
 
-A cmux session promotes because you told it to in the chat. The orchestrator UI has no chat, so
-the drafts' tab does it. Its button reads **Approve and create 3 tasks**, one per draft. Pressing
-it on any draft promotes every draft the tag named, in the order it named them. The set splices
+A session promotes because you told it to in the chat. The drafts' tab can do it instead. Its
+button reads **Approve and create 3 tasks**, one per draft. Pressing it on any draft promotes
+every draft the tag named, in the order it named them. The set splices
 in after the planning task, as `mael task promote` does.
 
 The whole set is one notebook write. A draft that will not parse creates nothing, deletes
