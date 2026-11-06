@@ -1381,13 +1381,34 @@ mael self import maelstrom-old-2026-11-06.zip   # load it on the new host
 The installer writes `projects_dir:`. Setup asks for it only when the key is unset and a terminal
 can answer. Without a terminal, it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
 migrates `state.db`, writes `orchestrator_url:` when it is unset (see
-[configuration.md](configuration.md)), installs the Claude integration and the `mael` shim, then
+[configuration.md](configuration.md)), installs the Claude integration, the plugins (see below) and the `mael` shim, then
 loads the host services and the scheduler. Its last line names the orchestrator URL. It
 restarts only the host services whose components or unit files changed. See
 [host services](../dev/host-services.md#setup) for each step and its order.
 
 A migration is forward-only and has no undo. See
 [data-architecture.md](../dev/data-architecture.md), "Schema versions".
+
+Setup registers maelstrom's plugin marketplace, `maelstrom`, with Claude Code and Codex. It has
+two plugins:
+
+- `maelstrom` holds the skills maelstrom needs, such as `mael` and `plan-task`. Each session
+  maelstrom launches loads it, so you install nothing for it.
+- `minnstack` holds optional development practices, such as `design-build-test` and
+  `code-review`.
+
+Install either plugin globally, so a plain `claude` session has its skills too. Remove it with
+`uninstall`:
+
+```bash
+claude plugin install minnstack@maelstrom --scope user
+claude plugin install maelstrom@maelstrom --scope user
+claude plugin uninstall minnstack@maelstrom
+codex plugin add minnstack@maelstrom
+```
+
+Setup installs `maelstrom` into Codex disabled. To use its skills in plain `codex`, set
+`enabled = true` under `[plugins."maelstrom@maelstrom"]` in `~/.codex/config.toml`; setup keeps it.
 
 **`mael self check-host`**
 
@@ -1406,10 +1427,12 @@ The check runs these steps in order:
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
    login.
-5. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
+5. **Plugins**, when `claude` is installed. It offers to install `minnstack`, the optional
+   development-practice skills, into Claude Code, and into Codex when it is there.
+6. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
    operator. It offers to set `dev_host:` to the tailnet name, and to issue a certificate. It
    writes `dev_https: true` only when the certificate issues.
-6. **PATH.** It warns when `~/.local/bin` is not on your PATH.
+7. **PATH.** It warns when `~/.local/bin` is not on your PATH.
 
 Without a terminal, the check asks nothing. It runs only the secret-file fix, which only narrows a
 mode. It looks up tools on the host services' PATH.

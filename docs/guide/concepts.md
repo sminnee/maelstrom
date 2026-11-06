@@ -89,6 +89,12 @@ A task's `mode` decides how a Claude session behaves:
 A task's `command` selects which skill runs, if any. An execute task runs no skill: the
 task's content *is* the plan, and the session implements that plan directly.
 
+The skills come in two plugins. `maelstrom` holds the skills maelstrom needs, such as `mael`,
+`plan-task` and `watch-pr`. Each session maelstrom launches loads it from the code that launched
+the session. `minnstack` holds optional development practices, such as `design-build-test` and
+`code-review`, and you install it yourself. `mael self check-host` offers it, and
+[the CLI reference](../reference/cli.md) shows how to install or remove either plugin.
+
 ### The task notebook — what each agent is doing
 
 The notebook is a database maelstrom keeps for itself. Each task is one record, and **its

@@ -275,8 +275,8 @@ One case ends differently. A session that finished the rebase but left the workt
 another branch has nothing to abort. `mael sync` says which branch you are on, and prints
 the steps to finish by hand.
 
-The command needs `mael self setup` to have linked `/resolve-rebase-conflicts` into
-`~/.claude/skills/`.
+The repair session loads `/resolve-rebase-conflicts` from the core plugin of the `mael` that
+runs it.
 
 The repair session runs unattended, in the same auto permission mode as a `mode: auto`
 task. The session edits files in the worktree and runs the project's checks without asking.
