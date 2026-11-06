@@ -22,7 +22,7 @@ curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install
 ```
 
 It puts maelstrom in `~/.maelstrom/install/`, apart from any checkout. It asks where your
-projects live, when that is not yet set. On a first install it runs `mael self check-host`, which offers the host tools and
+projects live, when that is not yet set. Each install runs `mael self check-host --quiet`, which offers the missing host tools and
 the sign-ins. Then it runs `mael self setup`. Setup writes `~/.local/bin/mael`, installs the Claude
 Code skills and hooks, and starts the orchestrator and the agent daemon as host services. `mael self update` installs
 the next release. See [Getting started](docs/guide/getting-started.md).
@@ -49,7 +49,7 @@ uv run mael --help
 ### Prerequisites
 
 `mael self check-host` checks each tool and sign-in, and offers to install or fix each one. The
-installer runs it on a first install; run it again at any time. See
+installer runs it on each install; run it again at any time. See
 [Getting started](docs/guide/getting-started.md#prerequisites) for what each tool is for.
 [cmux](https://github.com/sminnee/cmux) is optional, and macOS only: install it from its README.
 

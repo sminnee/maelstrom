@@ -13,7 +13,7 @@ from typing import ClassVar
 
 from mael_agent.agent_transport import DaemonPaths
 from mael_common.util import harden_path
-from mael_domain.context import read_config_key, set_config_key
+from mael_domain.context import read_config_key, remove_config_key, set_config_key
 from mael_domain.dev_cert import DevCertError, ensure_dev_cert
 from mael_domain.ports import ALLOCATIONS_FILENAME
 from mael_domain.shared_dir import get_shared_dir
@@ -75,7 +75,7 @@ class HostCheckItem:
     section: ClassVar[str] = ""
     #: An unmet required item makes the check fail.
     required: bool = False
-    #: The name an unmet required item is reported by.
+    #: The name the item is reported and remembered by.
     name: str
 
     def applies(self, host: "HostCheck") -> bool:
@@ -92,6 +92,7 @@ class PackageManager(HostCheckItem):
     """``brew`` on macOS, ``apt-get`` on Linux: the tool commands use them."""
 
     section = "Package manager"
+    name = "package manager"
 
     def check(self, host: "HostCheck") -> Finding:
         name = "brew" if host.platform == "darwin" else "apt-get"
@@ -179,6 +180,7 @@ class SecretFiles(HostCheckItem):
     """
 
     section = "Secret files"
+    name = "secret files"
 
     def targets(self, host: "HostCheck") -> list[tuple[Path, int]]:
         mael = host.prod.maelstrom
@@ -299,6 +301,7 @@ class TailscaleUp(HostCheckItem):
     """This machine is on a tailnet. Checked only when tailscale is installed."""
 
     section = "Tailscale"
+    name = "dev_https"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.which("tailscale") is not None
@@ -321,6 +324,7 @@ class TailscaleOperator(HostCheckItem):
     """On Linux, the user runs ``tailscale cert`` without sudo, as the dev env does."""
 
     section = "Tailscale"
+    name = "dev_host"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.platform == "linux" and host.which("tailscale") is not None
@@ -365,6 +369,7 @@ class DevHost(HostCheckItem):
     """``dev_host:`` names this machine. Checked only on a running tailnet."""
 
     section = "Tailscale"
+    name = "tailnet"
 
     def applies(self, host: "HostCheck") -> bool:
         return host.which("tailscale") is not None and host.tailscale_running()
@@ -392,6 +397,7 @@ class DevHttps(HostCheckItem):
     """``dev_https:`` is set. Turning it on issues the tailnet certificate first."""
 
     section = "Tailscale"
+    name = "tailscale operator"
 
     def applies(self, host: "HostCheck") -> bool:
         return DevHost().applies(host) and bool(
@@ -425,6 +431,7 @@ class ShimOnPath(HostCheckItem):
     """The shim's directory is on the user's PATH, so ``mael`` is found."""
 
     section = "PATH"
+    name = "mael on PATH"
 
     def check(self, host: "HostCheck") -> Finding:
         shim_dir = host.prod.shim.parent
@@ -477,6 +484,24 @@ HOST_TOOLS = (
 
 _TOOLS = {t.name: t for t in HOST_TOOLS}
 
+#: The config key that lists the optional items the user said no to.
+DECLINED_KEY = "host_check_declined"
+
+
+def declined_items(config: Path) -> set[str]:
+    """The optional items the user said no to, as ``--quiet`` skips them."""
+    value = read_config_key(config, DECLINED_KEY)
+    return {str(v) for v in value} if isinstance(value, list) else set()
+
+
+def _write_declined(config: Path, names: set[str]) -> None:
+    if names:
+        # A JSON list is a YAML flow sequence, on the one line the edit keeps.
+        set_config_key(config, DECLINED_KEY, json.dumps(sorted(names)))
+    else:
+        remove_config_key(config, DECLINED_KEY)
+
+
 #: Everything a host needs, in the order the check works through it.
 HOST_ITEMS: tuple[HostCheckItem, ...] = (
     PackageManager(),
@@ -524,6 +549,8 @@ class HostCheck:
     echo: Echo
     #: Adds the tools a source install needs.
     dev: bool = False
+    #: Prints only the unmet items, and skips the optional ones declined before.
+    quiet: bool = False
     #: The caller's PATH, to tell whether the shim's directory is on it.
     caller_path: str = field(default_factory=lambda: os.environ.get("PATH", ""))
     user: str = field(default_factory=getpass.getuser)
@@ -534,6 +561,8 @@ class HostCheck:
     #: maelstrom's ``shared/``, which holds the plugin marketplace.
     shared: Path = field(default_factory=get_shared_dir)
     codex_home: Path | None = field(default_factory=codex_home_from_env)
+    #: The section heading not printed yet: it prints before its first line.
+    _heading: str | None = field(default=None, init=False)
 
     def __call__(self) -> list[str]:
         """Work through the items. Returns the required items still unmet."""
@@ -543,8 +572,7 @@ class HostCheck:
             if not item.applies(self):
                 continue
             if item.section != section:
-                section = item.section
-                self.echo(f"{section}:")
+                section = self._heading = item.section
             if not self.meet(item) and item.required:
                 unmet.append(item.name)
         if unmet:
@@ -561,22 +589,32 @@ class HostCheck:
         """Check one item, and offer its remedy when it is unmet. True when met."""
         finding = item.check(self)
         if finding.met:
-            self.echo(f"  ✓ {finding.text}")
+            if not self.quiet:
+                self._say(f"  ✓ {finding.text}")
             return True
-        self.echo(f"  ✗ {finding.text}")
+        declined = declined_items(self.prod.config)
+        if self.quiet and not item.required and item.name in declined:
+            return False
+        self._say(f"  ✗ {finding.text}")
         remedy = item.remedy(self)
         if remedy is None:
             return False
-        self.echo(f"    {remedy.hint}")
+        self._say(f"    {remedy.hint}")
         if remedy.fix is None:
             return False
-        if remedy.question is not None and not (
-            self.interactive and self.confirm(remedy.question)
-        ):
-            return False
+        if remedy.question is not None:
+            if not self.interactive:
+                return False
+            # Only an answer is remembered: without a tty, no one said no.
+            if not self.confirm(remedy.question):
+                if not item.required:
+                    _write_declined(self.prod.config, declined | {item.name})
+                return False
+            if item.name in declined:
+                _write_declined(self.prod.config, declined - {item.name})
         remedy.fix()
         after = item.check(self)
-        self.echo(f"  {'✓' if after.met else '✗'} {after.text}")
+        self._say(f"  {'✓' if after.met else '✗'} {after.text}")
         return after.met
 
     def plugins(self) -> Plugins:
@@ -587,6 +625,12 @@ class HostCheck:
             which=self.which,
             codex_home=self.codex_home,
         )
+
+    def _say(self, line: str) -> None:
+        if self._heading is not None:
+            self.echo(f"{self._heading}:")
+            self._heading = None
+        self.echo(line)
 
     @property
     def sudo(self) -> list[str]:

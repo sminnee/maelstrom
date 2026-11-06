@@ -16,7 +16,7 @@ curl … | sh  ─┐                                                           
 mael self update ─┼─▶ install.sh ──▶ projects dir ──▶ components, venv, `current`
 sh install.sh --source DIR ─┘                                                 │
                                                                               ▼
-                                         mael self check-host (first install only;
+                                         mael self check-host --quiet (each install;
                                          --source runs it before the build)
                                                                               │
                                                                               ▼
@@ -27,8 +27,8 @@ sh install.sh --source DIR ─┘                                               
 1. `bin/install.sh` installs uv when it is missing.
 2. It asks for the projects directory when `projects_dir:` is unset, and writes the key.
 3. It places the release under `~/.maelstrom/install/` and moves `current`.
-4. On a first install, it runs `current/venv/bin/mael self check-host`. With `--source`, it runs
-   `check-host --dev` from the checkout before the build instead.
+4. It runs `current/venv/bin/mael self check-host --quiet`. With `--source`, it runs
+   `check-host --dev --quiet` from the checkout before the build instead.
 5. It runs `current/venv/bin/mael self setup --changed <components>`.
 6. Setup brings the host to the state the release wants.
 
@@ -176,6 +176,12 @@ a tool an earlier step installed, such as uv in `~/.local/bin`.
 
 `--dev` adds `node` and `pnpm`. `install.sh --source` passes it. [ADR 0003](../adr/0003-check-host-provisions-a-fresh-host.md)
 gives the Node rationale.
+
+**`--quiet` remembers a no.** It prints only the unmet items, and their section headings. A no
+to an optional item adds its `name` to `host_check_declined:` in `config.yaml`, and `--quiet`
+then skips that item. A required item is always offered. A check added in a later release has
+no record, so the next install offers it once. Without `--quiet`, every item is offered again,
+and a yes removes the item from the list.
 
 Without a tty, the check asks nothing. It runs only the secret-file fix, which only narrows a mode.
 It exits 1 when a required tool is

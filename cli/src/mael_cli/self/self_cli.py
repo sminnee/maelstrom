@@ -122,12 +122,17 @@ def _run_interactive(argv) -> int:
 @click.option(
     "--dev", is_flag=True, help="Also check node and pnpm, for a source install."
 )
-def cmd_check_host(dev: bool) -> None:
+@click.option(
+    "--quiet",
+    is_flag=True,
+    help="Print only the unmet items, and skip the optional ones you declined.",
+)
+def cmd_check_host(dev: bool, quiet: bool) -> None:
     """Check this host's tools, sign-ins and Tailscale, and offer to fix each.
 
     Each install or sign-in runs only after a yes. Without a terminal, it only
     reports, and tightens the secret files.
-    `install.sh` runs it on a first install. Every step is safe to repeat.
+    `install.sh` runs it with `--quiet` on each install. Every step is safe to repeat.
     """
     prod = _production()
     caller_path = os.environ.get("PATH", "")
@@ -144,6 +149,7 @@ def cmd_check_host(dev: bool) -> None:
         confirm=lambda text: click.confirm(text, default=False),
         echo=click.echo,
         dev=dev,
+        quiet=quiet,
         caller_path=caller_path,
     )()
     if unmet:

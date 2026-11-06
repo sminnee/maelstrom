@@ -1351,7 +1351,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | Command | Description |
 |---|---|
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
-| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
+| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it with `--quiet` on each install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the last update job. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
@@ -1416,6 +1416,7 @@ Setup installs `maelstrom` into Codex disabled. To use its skills in plain `code
 | Option | Description |
 |---|---|
 | `--dev` | Also check `node` and `pnpm`, which only a source install (`install.sh --source`) uses. |
+| `--quiet` | Print only the unmet items. Skip an optional item you said no to before. A no is recorded in `host_check_declined:`. |
 
 The check runs these steps in order:
 

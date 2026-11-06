@@ -19,6 +19,9 @@ installer stopped when uv was missing. Nothing checked or installed the other to
 - **`install.sh` runs it on a first install only**: when there was no `current/manifest.toml`
   before the install. The user runs it again by hand. The installer ignores its exit code,
   because the host services start without `gh` or `codex`.
+  _Amended:_ `install.sh` runs `check-host --quiet` on each install. A run that failed after
+  the switch made the rerun an update, and the check never ran. See
+  [host services](../dev/host-services.md#host-check) for what `--quiet` skips.
 - **It runs before setup.** Setup binds the orchestrator from `dev_host:` and
   `dev_https:`, and the check sets those keys.
 - **It asks before each change.** For a missing tool, it prints the `brew` or `apt-get` command,
