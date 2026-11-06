@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from mael_cli.self.host_check import HOST_TOOLS, HostCheck
+from mael_cli.self.host_check import HOST_TOOLS, HostCheck, declined_items
 from mael_cli.self.production import Production
 from mael_domain.dev_cert import DevCertError
 
@@ -36,6 +36,8 @@ class FakeHost:
     signed_out: set[str] = field(default_factory=set)
     #: Status commands that exit 0 but report ``loggedIn: false``.
     quietly_signed_out: set[str] = field(default_factory=set)
+    #: What ``git config --get-urlmatch credential.helper`` prints; empty is none.
+    credential_helper: str = "!gh auth git-credential"
     tailscale_state: str = "Running"
     operator: str = "sam"
     #: What each command the check runs interactively installs or does.
@@ -75,6 +77,9 @@ class FakeHost:
         if argv[:3] == ["tailscale", "debug", "prefs"]:
             out = {"OperatorUser": self.operator}
             return subprocess.CompletedProcess(argv, 0, json.dumps(out), "")
+        if argv[:3] == ["git", "config", "--get-urlmatch"]:
+            code = 0 if self.credential_helper else 1
+            return subprocess.CompletedProcess(argv, code, self.credential_helper, "")
         for tool in ("gh", "claude", "codex"):
             if argv[0] == tool:
                 code = 1 if tool in self.signed_out else 0
@@ -87,6 +92,8 @@ class FakeHost:
     def run_interactive(self, argv) -> int:
         cmd = argv[-1] if argv[:2] == ["sh", "-c"] else " ".join(argv)
         self.ran.append(cmd)
+        if cmd == "gh auth setup-git":
+            self.credential_helper = "!gh auth git-credential"
         if cmd in self.installs:
             self.tools.add(self.installs[cmd])
         return 0
@@ -116,7 +123,7 @@ class FakeHost:
     def config(self) -> Path:
         return self.home / ".maelstrom" / "config.yaml"
 
-    def check(self, dev: bool = False) -> list[str]:
+    def check(self, dev: bool = False, quiet: bool = False) -> list[str]:
         if self.practices:
             self.install_practices("claude")
             self.install_practices("codex")
@@ -130,6 +137,7 @@ class FakeHost:
             confirm=self.confirm,
             echo=self.output.append,
             dev=dev,
+            quiet=quiet,
             caller_path=self.caller_path or str(self.home / ".local" / "bin"),
             user="sam",
             root=False,
@@ -197,6 +205,8 @@ def test_without_a_tty_it_asks_and_runs_nothing(home):
 
     assert host.asked == [] and host.ran == []
     assert unmet == ["gh", "claude sign-in"]
+    # No one said no, so a later run with a tty asks.
+    assert declined_items(host.config) == set()
 
 
 def test_an_optional_tool_is_not_unmet(home):
@@ -273,6 +283,41 @@ def test_a_signed_out_gh_signs_in_after_a_yes(home):
     assert "gh auth login" in host.ran
 
 
+def test_git_with_no_credential_helper_gets_the_gh_one_after_a_yes(home):
+    """Else an HTTPS clone with no terminal fails: "could not read Username"."""
+    host = FakeHost(home, credential_helper="")
+
+    assert host.check() == []
+
+    assert host.ran == ["gh auth setup-git"]
+    assert "git has no credentials for github.com" in host.text
+    assert "git signs in to GitHub with gh" in host.text
+
+
+def test_git_with_another_credential_helper_is_offered_the_gh_one(home):
+    """macOS's git ships an osxkeychain helper that may hold nothing."""
+    host = FakeHost(home, credential_helper="osxkeychain")
+
+    host.check()
+
+    assert "git signs in to GitHub with osxkeychain, not gh" in host.text
+    assert host.ran == ["gh auth setup-git"]
+
+
+@pytest.mark.parametrize("gh", ["missing", "signed out"])
+def test_git_credentials_are_not_offered_without_a_gh_sign_in(home, gh):
+    """``gh auth setup-git`` fails then, and a no would hide the item for good."""
+    host = FakeHost(home, credential_helper="", answer=False)
+    if gh == "missing":
+        host.tools.discard("gh")
+    else:
+        host.signed_out = {"gh"}
+
+    host.check()
+
+    assert "Let git use the gh sign-in?" not in host.asked
+
+
 def test_a_status_that_exits_0_but_says_signed_out_is_unmet(home):
     host = FakeHost(home, interactive=False)
     host.quietly_signed_out = {"claude"}
@@ -318,6 +363,36 @@ def test_a_met_host_asks_nothing(home, platform):
 
     assert host.check() == []
     assert host.asked == [] and host.ran == []
+
+
+def test_quiet_prints_only_the_unmet_items(home):
+    host = FakeHost(home)
+    host.signed_out = {"gh"}
+    host.answer = False
+
+    assert host.check(quiet=True) == ["gh sign-in"]
+    assert host.output[:2] == ["Sign-ins:", "  ✗ gh is signed out"]
+    assert "✓" not in host.text and "Tools:" not in host.text
+
+
+def test_quiet_skips_an_optional_item_declined_before(home):
+    host = FakeHost(home, answer=False)
+    host.tools -= {"tangier", "gh"}
+    host.check()
+    assert declined_items(host.config) == {"tangier"}
+
+    # A required item is asked again; the declined optional one is not.
+    host.asked.clear()
+    host.output.clear()
+    host.check(quiet=True)
+    assert host.asked == ["Install gh?"]
+    assert "tangier" not in host.text
+
+    # Without --quiet it is asked again, and a yes forgets the no.
+    host.answer = True
+    host.check()
+    assert "Install tangier?" in host.asked
+    assert declined_items(host.config) == set()
 
 
 def test_it_tightens_the_secret_files(home):

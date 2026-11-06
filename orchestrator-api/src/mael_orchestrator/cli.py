@@ -390,6 +390,15 @@ def build_orchestrator(
     )
 
 
+#: What git says when an HTTPS clone needs a password and may not ask.
+NO_CREDENTIALS = "terminal prompts disabled"
+#: Appended to a refusal that holds ``NO_CREDENTIALS``.
+NO_CREDENTIALS_HINT = (
+    "git has no credentials for this host. For GitHub, run `gh auth setup-git` "
+    "on the host, or `mael self check-host`, then add the project again."
+)
+
+
 def clone_project(projects_dir: Path, git_url: str) -> None:
     """``mael project add`` for the server, with no one at the terminal.
 
@@ -399,7 +408,10 @@ def clone_project(projects_dir: Path, git_url: str) -> None:
     try:
         add_project(git_url, projects_dir, batch=True)
     except subprocess.CalledProcessError as exc:
-        raise CloseBlocked((exc.stderr or "").strip() or str(exc)) from exc
+        words = (exc.stderr or "").strip() or str(exc)
+        if NO_CREDENTIALS in words:
+            words = f"{words}\n{NO_CREDENTIALS_HINT}"
+        raise CloseBlocked(words) from exc
     except subprocess.TimeoutExpired as exc:
         raise CloseBlocked(f"The clone took more than {exc.timeout:.0f}s") from exc
     except ValueError as exc:

@@ -9,12 +9,14 @@ replies.
 import asyncio
 import ipaddress
 import json
+import os
 import socket
 import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import aiohttp
@@ -12324,6 +12326,35 @@ def test_a_clone_that_fails_says_what_git_said(harness, tmp_path):
     assert op["state"] == "refused"
     assert op["steps"][0]["state"] == "refused"
     assert "does not exist" in op["words"]
+
+
+class _AsksForAPassword(BaseHTTPRequestHandler):
+    """An HTTPS remote's answer to a client with no credentials."""
+
+    def do_GET(self):
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="git"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+def test_a_clone_with_no_credentials_names_the_repair(tmp_path, monkeypatch):
+    """A gh sign-in reaches git only through gh's credential helper."""
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    server = HTTPServer(("127.0.0.1", 0), _AsksForAPassword)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_port}/x/askastro.git"
+    try:
+        with pytest.raises(CloseBlocked) as caught:
+            clone_project(tmp_path, url)
+    finally:
+        server.shutdown()
+    assert "terminal prompts disabled" in str(caught.value)
+    assert "gh auth setup-git" in str(caught.value)
 
 
 def test_a_folder_the_world_does_not_hold_refuses_the_clone(harness, tmp_path):

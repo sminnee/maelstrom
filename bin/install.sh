@@ -20,10 +20,11 @@
 # fetches the Python the venv uses. Before it downloads or builds, it asks for
 # the projects directory when projects_dir: is unset, and writes the key. It places each component version once,
 # builds the release's venv, and moves `current` with one rename as its last
-# step, so a failure leaves the release that runs as it was. On a first install
-# it then runs `mael self check-host`, which offers the host tools and the
-# sign-ins. A source install runs that check before the build instead, from
-# the checkout, because the build needs node and pnpm. Last, it runs the new release's `mael self setup`, which brings the
+# step, so a failure leaves the release that runs as it was. It then runs
+# `mael self check-host --quiet`, which offers the host tools and the sign-ins
+# that are missing, and not the optional ones declined before. A source install
+# runs that check before the build instead, from the checkout, because the
+# build needs node and pnpm. Last, it runs the new release's `mael self setup`, which brings the
 # host to the state the release wants. See docs/dev/host-services.md.
 #
 # The body is one function, called on the last line, so that `curl | sh` runs
@@ -238,6 +239,19 @@ ensure_uv() {
   command -v uv >/dev/null || die "$hint"
 }
 
+# ensure_tangier: install tangier when it is not on PATH. A source build hashes
+# the components with it. uv is on PATH by now.
+ensure_tangier() {
+  command -v tangier >/dev/null && return 0
+  hint="Install tangier with \`uv tool install tangier\`, put its folder on PATH, then run this again."
+  say "tangier is not on PATH. Installing it..."
+  uv tool install tangier || die "$hint"
+  # Where uv puts a tool's executable.
+  PATH="${UV_TOOL_BIN_DIR:-${XDG_BIN_HOME:-$HOME/.local/bin}}:$PATH"
+  export PATH
+  command -v tangier >/dev/null || die "$hint"
+}
+
 # has_tty: whether a user can answer a question. Under `curl | sh`, stdin is
 # the script, so the questions read /dev/tty.
 has_tty() { (exec </dev/tty) 2>/dev/null; }
@@ -359,9 +373,6 @@ main() {
   resolve_projects_dir "$projects_given"
   mkdir -p "$root"
   root="$(resolve "$root")"
-  # A first install offers the host tools before setup.
-  first=0
-  [ -f "$root/current/$MANIFEST" ] || first=1
 
   if [ -n "$source" ]; then
     source="$(resolve "$source")"
@@ -374,17 +385,23 @@ main() {
       exec sh "$source/bin/install.sh" "$@"
     fi
     # The build needs node and pnpm. The exit code is ignored, as after the switch.
-    if [ "$first" = 1 ] && [ "$setup" = 1 ]; then
-      set -- run --project "$source" mael self check-host --dev
+    if [ "$setup" = 1 ]; then
+      set -- run --project "$source" mael self check-host --dev --quiet
       if has_tty; then
         env -u MAEL_NOTEBOOK_ROOT MAEL_PRODUCTION=1 uv "$@" </dev/tty || true
       else
         env -u MAEL_NOTEBOOK_ROOT MAEL_PRODUCTION=1 uv "$@" || true
       fi
     fi
+    # check-host can decline or fail, so stop here and not after uv sync.
+    ensure_tangier
+    for tool in node pnpm; do
+      command -v "$tool" >/dev/null ||
+        die "$tool is not on PATH. A source install builds the web app with node and pnpm. Run \`MAEL_PRODUCTION=1 uv run --project $source mael self check-host --dev\` to install them, then run this again."
+    done
     say "Installing dependencies in $source..."
-    # The release's own setup migrates the notebook, so this migrates nothing.
-    (cd "$source" && env -u MAEL_NOTEBOOK_ROOT bin/install)
+    # Only the release's own setup migrates the state database.
+    (cd "$source" && env -u MAEL_NOTEBOOK_ROOT bin/install --no-migrate)
     commit="$(git -C "$source" rev-parse HEAD)"
     tag="main-$(printf '%s' "$commit" | cut -c1-12)"
   fi
@@ -431,10 +448,10 @@ main() {
   # The production shim sets it; setup runs before the shim exists.
   export MAEL_PRODUCTION=1
   # A source install ran the check before the build.
-  if [ "$first" = 1 ] && [ -z "$source" ]; then
+  if [ -z "$source" ]; then
     # Setup binds the orchestrator from dev_host:, which the check sets. Its
     # exit code is ignored: the host services start without gh or codex.
-    set -- self check-host
+    set -- self check-host --quiet
     if has_tty; then
       "$mael" "$@" </dev/tty || true
     else

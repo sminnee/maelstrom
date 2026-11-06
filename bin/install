@@ -3,10 +3,21 @@
 # The migration reads its notebook root from this checkout's `.env`, so run
 # from the checkout root. It needs only the Python dependencies, so it runs
 # before pnpm, whose failure would otherwise skip it.
+# `--no-migrate` skips the migration: a source install leaves the production
+# state database to the release's own `mael self setup`.
 set -e
+migrate=1
+case "${1-}" in
+"") ;;
+--no-migrate) migrate=0 ;;
+*)
+  echo "Usage: bin/install [--no-migrate]" >&2
+  exit 1
+  ;;
+esac
 cd "$(dirname "$0")/.."
 uv sync --extra dev
-uv run python -m mael_domain.state_db.migrate
+[ "$migrate" = 0 ] || uv run python -m mael_domain.state_db.migrate
 # The app's dev server loads the jig plugin's source, and its dependencies.
 # Each runs from its own folder, not with --dir: corepack reads packageManager
 # from the cwd, and with none it fetches the latest pnpm.

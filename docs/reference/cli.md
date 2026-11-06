@@ -1303,9 +1303,11 @@ With no monitors configured, these commands fall back to every monitor on the ac
 
 `install.sh` installs or upgrades the release bundle in `~/.maelstrom/install/`, then runs the new
 release's `mael self setup`. It installs uv first when uv is missing. Before it downloads or
-builds, it asks where the projects live when `projects_dir:` is unset, and writes the key. On a
-first install, it runs `mael self check-host` before setup. With `--source`, it runs
-`check-host --dev` from the checkout before the build, because the build needs Node and pnpm. See [host services](../dev/host-services.md#the-installer).
+builds, it asks where the projects live when `projects_dir:` is unset, and writes the key. On
+each install, it runs `mael self check-host --quiet` before setup. With `--source`, it runs
+`check-host --dev --quiet` from the checkout before the build, because the build needs Node and
+pnpm. It installs tangier with `uv tool install tangier` when it is missing, and stops when
+`node` or `pnpm` is still not on PATH. See [host services](../dev/host-services.md#the-installer).
 
 ```bash
 curl -LsSf https://github.com/sminnee/maelstrom/releases/latest/download/install.sh | sh
@@ -1351,7 +1353,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | Command | Description |
 |---|---|
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
-| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
+| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it with `--quiet` on each install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the last update job. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
@@ -1416,6 +1418,7 @@ Setup installs `maelstrom` into Codex disabled. To use its skills in plain `code
 | Option | Description |
 |---|---|
 | `--dev` | Also check `node` and `pnpm`, which only a source install (`install.sh --source`) uses. |
+| `--quiet` | Print only the unmet items. Skip an optional item you said no to before. A no is recorded in `host_check_declined:`. |
 
 The check runs these steps in order:
 
@@ -1427,7 +1430,9 @@ The check runs these steps in order:
 3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
-   login.
+   login. When gh is signed in but git does not sign in to GitHub through gh, it offers
+   `gh auth setup-git`. Without it, an HTTPS clone from the UI's Add project can fail with
+   "could not read Username".
 5. **Plugins**, when `claude` is installed. It offers to install `minnstack`, the optional
    development-practice skills, into Claude Code, and into Codex when it is there.
 6. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
@@ -1452,7 +1457,7 @@ mode. It looks up tools on the host services' PATH.
 | `--detach` | Run the update in an **Update job** of the OS supervisor, and return at once. The job outlives the restart of the host services. It prints the log path. Refused while another update job runs. |
 
 The `stable` channel downloads that release's `install.sh` and runs it. The `main` channel runs
-`_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install`, builds a
+`_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install --no-migrate`, builds a
 bundle tagged `main-<commit>` and installs it. A tag that runs already is not built again. `install-main.sh` makes `_main` (see
 [above](#install-from-main-install-mainsh)). Either way the installer then runs the new release's
 `mael self setup`.

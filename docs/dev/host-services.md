@@ -16,7 +16,7 @@ curl … | sh  ─┐                                                           
 mael self update ─┼─▶ install.sh ──▶ projects dir ──▶ components, venv, `current`
 sh install.sh --source DIR ─┘                                                 │
                                                                               ▼
-                                         mael self check-host (first install only;
+                                         mael self check-host --quiet (each install;
                                          --source runs it before the build)
                                                                               │
                                                                               ▼
@@ -27,8 +27,8 @@ sh install.sh --source DIR ─┘                                               
 1. `bin/install.sh` installs uv when it is missing.
 2. It asks for the projects directory when `projects_dir:` is unset, and writes the key.
 3. It places the release under `~/.maelstrom/install/` and moves `current`.
-4. On a first install, it runs `current/venv/bin/mael self check-host`. With `--source`, it runs
-   `check-host --dev` from the checkout before the build instead.
+4. It runs `current/venv/bin/mael self check-host --quiet`. With `--source`, it runs
+   `check-host --dev --quiet` from the checkout before the build instead.
 5. It runs `current/venv/bin/mael self setup --changed <components>`.
 6. Setup brings the host to the state the release wants.
 
@@ -54,8 +54,10 @@ script has arrived.
 | The changed components are added to `pending-changed` in the install root before setup runs | Setup deletes the record once the restarts succeed, so a setup that stops early leaves them to the next |
 | The projects directory is resolved before the download or the build, also with `--no-setup` | The question comes first, and setup then finds the key set |
 | The directory is asked for only when `--projects-dir` is not given and `projects_dir:` is unset | `mael self update` cannot pass the flag, because an older release's `install.sh` refuses unknown arguments |
-| `check-host` runs only when there was no `current/manifest.toml` before the install | An update must not prompt, and a tool the user declined would be asked about on each update |
+| `check-host --quiet` runs on each install | A run that failed after the switch made the rerun look like an update, and the check never ran. `--quiet` keeps an update on a met host silent |
 | With `--source`, `check-host --dev` runs before the build, through `uv run --project DIR`, and not again after the switch | `bin/install` and `bin/build-bundle` need `node` and `pnpm`, and the checkout's `mael` needs only uv |
+| With `--source`, the script installs tangier with `uv tool install` when it is missing | The build hashes each component with `tangier changemap sha`, and uv is on PATH already |
+| With `--source`, the script stops before `bin/install` when `node` or `pnpm` is missing | The build needs both, and `check-host`'s exit code is ignored |
 | `check-host`'s exit code is ignored | The host services start without `gh` or `codex` |
 | `check-host` and setup read `/dev/tty` when it opens | Under `curl \| sh`, stdin is the script |
 
@@ -66,8 +68,9 @@ line, and one `[components.<name>]` table per component. `bin/build-bundle` writ
 `COMPONENTS` is in the script and in `layout.py`. Keep the two lists the same.
 
 With `--source DIR`, the script runs `git pull --ff-only` in `DIR`. Then it runs the checkout's
-own `install.sh`, because the pull can change it. It runs `bin/install` with
-`MAEL_NOTEBOOK_ROOT` unset, so that only setup migrates the production state database. Then
+own `install.sh`, because the pull can change it. It installs tangier when it is missing, and
+stops when `node` or `pnpm` is not on PATH. Then it runs `bin/install --no-migrate` with `MAEL_NOTEBOOK_ROOT` unset, so that only
+setup migrates the production state database. Then
 `bin/build-bundle` makes a bundle tagged `main-<sha12>`. A tag that runs now is not built again.
 
 ### The bootstrap
@@ -162,6 +165,7 @@ in the list.
 | `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
+| `GitCredentials` | When gh is signed in: git's credential helper for `https://github.com` is gh's. Offers `gh auth setup-git`. A gh sign-in does not reach git by itself, and an HTTPS clone with no terminal then fails. Another helper is unmet too: macOS's `osxkeychain` default may hold nothing |
 | `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
 | `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
 | `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |
@@ -176,6 +180,12 @@ a tool an earlier step installed, such as uv in `~/.local/bin`.
 
 `--dev` adds `node` and `pnpm`. `install.sh --source` passes it. [ADR 0003](../adr/0003-check-host-provisions-a-fresh-host.md)
 gives the Node rationale.
+
+**`--quiet` remembers a no.** It prints only the unmet items, and their section headings. A no
+to an optional item adds its `name` to `host_check_declined:` in `config.yaml`, and `--quiet`
+then skips that item. A required item is always offered. A check added in a later release has
+no record, so the next install offers it once. Without `--quiet`, every item is offered again,
+and a yes removes the item from the list.
 
 Without a tty, the check asks nothing. It runs only the secret-file fix, which only narrows a mode.
 It exits 1 when a required tool is

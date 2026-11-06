@@ -5,7 +5,7 @@ From nothing to a running agent session.
 ## Prerequisites
 
 Maelstrom runs on macOS and on Ubuntu Server 24.04. The installer needs only `curl` and `tar`.
-On a first install, `mael self check-host` offers every other tool.
+`mael self check-host` offers every other tool.
 
 | Tool | Why | Required |
 |---|---|---|
@@ -34,14 +34,17 @@ The installer does these steps:
 1. It installs uv when uv is missing. uv fetches the Python the release uses.
 2. It asks where your projects live, when `projects_dir:` is unset, and writes the key.
 3. It writes the latest release bundle to `~/.maelstrom/install/`.
-4. On a first install, it runs `mael self check-host`.
+4. It runs `mael self check-host --quiet`, which shows only what is missing.
 5. It runs `mael self setup`.
 
 `check-host` checks each tool in the table above. For a missing tool, it prints the `brew` or
 `apt-get` command, and runs it after a yes. Then it checks the sign-ins to `gh`, `claude` and
-`codex`, and offers each login. When Tailscale is installed, it offers to connect the machine,
+`codex`, and offers each login. When git does not sign in to GitHub through gh, it offers
+`gh auth setup-git`. When Tailscale is installed, it offers to connect the machine,
 to set `dev_host:` to the tailnet name, and to issue a certificate for `dev_https:`. Run
-`mael self check-host` again at any time. A met item asks nothing.
+`mael self check-host` again at any time. A met item asks nothing. Each install asks again
+about a missing required item, but not about an optional item you said no to. Run
+`mael self check-host` to be asked about every item again.
 
 To answer the question from a script, pass the directory:
 
@@ -55,8 +58,8 @@ orchestrator. Put `~/.local/bin` on your PATH if it is not there already: `check
 the line to add.
 
 Run the same line again to upgrade, run `mael self update`, or press **Update maelstrom** in the
-Welcome dialog. An upgrade does not run
-`check-host`. The installer asks for `projects_dir:` only when the key is unset.
+Welcome dialog. An upgrade runs `check-host --quiet`, which asks nothing on a met host. The
+installer asks for `projects_dir:` only when the key is unset.
 
 ### On Ubuntu Server
 
@@ -79,8 +82,9 @@ curl -LsSf https://raw.githubusercontent.com/sminnee/maelstrom/main/bin/install-
 
 The script asks where your projects live, and clones maelstrom into `<projects_dir>/maelstrom/`,
 with `main` checked out in `_main`. It writes `update_channel: main`. Then it runs `_main`'s own
-`bin/install.sh --source`. A source install needs Node and pnpm, so on a first install that
-script runs `check-host --dev` before the build.
+`bin/install.sh --source`. A source install needs Node, pnpm and tangier, so that script runs
+`check-host --dev --quiet` before the build. It installs tangier itself, and stops when Node or
+pnpm is still missing.
 
 Run the same line again, or run `mael self update`, to pull `_main` and install it again. The
 script does not make `maelstrom-alpha` or `_main`'s `.env`: `mael worktree new` and
