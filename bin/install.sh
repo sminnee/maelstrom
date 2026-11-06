@@ -22,7 +22,8 @@
 # builds the release's venv, and moves `current` with one rename as its last
 # step, so a failure leaves the release that runs as it was. On a first install
 # it then runs `mael self check-host`, which offers the host tools and the
-# sign-ins. Last, it runs the new release's `mael self setup`, which brings the
+# sign-ins. A source install runs that check before the build instead, from
+# the checkout, because the build needs node and pnpm. Last, it runs the new release's `mael self setup`, which brings the
 # host to the state the release wants. See docs/dev/host-services.md.
 #
 # The body is one function, called on the last line, so that `curl | sh` runs
@@ -372,6 +373,15 @@ main() {
       [ "$setup" = 1 ] || set -- "$@" --no-setup
       exec sh "$source/bin/install.sh" "$@"
     fi
+    # The build needs node and pnpm. The exit code is ignored, as after the switch.
+    if [ "$first" = 1 ] && [ "$setup" = 1 ]; then
+      set -- run --project "$source" mael self check-host --dev
+      if has_tty; then
+        env -u MAEL_NOTEBOOK_ROOT MAEL_PRODUCTION=1 uv "$@" </dev/tty || true
+      else
+        env -u MAEL_NOTEBOOK_ROOT MAEL_PRODUCTION=1 uv "$@" || true
+      fi
+    fi
     say "Installing dependencies in $source..."
     # The release's own setup migrates the notebook, so this migrates nothing.
     (cd "$source" && env -u MAEL_NOTEBOOK_ROOT bin/install)
@@ -420,12 +430,11 @@ main() {
   mael="$root/current/venv/bin/mael"
   # The production shim sets it; setup runs before the shim exists.
   export MAEL_PRODUCTION=1
-  if [ "$first" = 1 ]; then
+  # A source install ran the check before the build.
+  if [ "$first" = 1 ] && [ -z "$source" ]; then
     # Setup writes orchestrator_url: from dev_host:, which the check sets. Its
     # exit code is ignored: the host services start without gh or codex.
     set -- self check-host
-    # A source install builds with node and pnpm.
-    [ -z "$source" ] || set -- "$@" --dev
     if has_tty; then
       "$mael" "$@" </dev/tty || true
     else
