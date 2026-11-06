@@ -9,6 +9,7 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 import asyncio
 import functools
 import logging
+import os
 import signal
 import ssl
 import subprocess
@@ -376,7 +377,12 @@ def build_orchestrator(
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,
         language_servers=LanguageServers(LANGUAGE_SERVERS),
-        system=SystemPaths.for_home(Path.home(), projects_dir, sys.prefix),
+        system=SystemPaths.for_home(
+            Path.home(),
+            projects_dir,
+            sys.prefix,
+            production=os.environ.get("MAEL_PRODUCTION") == "1",
+        ),
     )
 
 
