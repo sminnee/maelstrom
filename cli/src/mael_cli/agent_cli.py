@@ -51,7 +51,7 @@ from mael_domain.agent_store import (
 )
 from mael_domain.context import resolve_context
 from mael_domain.notebook_root import NotebookRootUnset
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
@@ -137,6 +137,7 @@ async def cmd_start(
             execute_model=execute_model,
             session_id=session_id,
             system_prompt_file=agent_prompt_file(),
+            plugin_dir=core_plugin_dir(),
         )
     )
     click.echo(reply["id"])
@@ -482,7 +483,10 @@ async def cmd_resume(agent_id: str, text: str) -> None:
     """
     await _send(
         build_resume_payload(
-            agent_id, text=text, system_prompt_file=agent_prompt_file()
+            agent_id,
+            text=text,
+            system_prompt_file=agent_prompt_file(),
+            plugin_dir=core_plugin_dir(),
         )
     )
 

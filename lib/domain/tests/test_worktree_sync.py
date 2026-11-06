@@ -228,7 +228,12 @@ def _idle_runner(worktree_path: Path):
 class TestRunResolveRebaseSession:
     """The real repair runner. Every other test substitutes its own."""
 
-    def test_runs_the_resolve_command_headlessly_in_the_worktree(self, tmp_path):
+    def test_runs_the_resolve_command_headlessly_in_the_worktree(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "mael_domain.rebase_repair.core_plugin_dir", lambda: Path("/core")
+        )
         with patch("mael_domain.rebase_repair.run_cmd") as run:
             run_resolve_rebase_session(tmp_path)
 
@@ -240,6 +245,8 @@ class TestRunResolveRebaseSession:
         # not load project MCP servers.
         assert argv[argv.index("--permission-mode") + 1] == "auto"
         assert "--strict-mcp-config" in argv
+        # The skill is in the core plugin, which the session loads.
+        assert argv[argv.index("--plugin-dir") + 1] == "/core"
         # It runs in the worktree, so it sees the mid-rebase tree.
         assert kwargs["cwd"] == tmp_path
         # A non-zero exit is a result to inspect, not an exception to raise.

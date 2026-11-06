@@ -50,6 +50,12 @@ class TestOpenWorktree:
                     open_worktree(worktree_path, "code")
 
 
+@pytest.fixture(autouse=True)
+def no_core_plugin(monkeypatch):
+    """No core plugin, so an argv assertion does not depend on this checkout."""
+    monkeypatch.setattr("mael_cli.worktree_launcher.core_plugin_dir", lambda: None)
+
+
 class TestAddLauncher:
     def test_install_starts_asynchronously_in_the_worktree(self, tmp_path):
         with (
@@ -90,6 +96,8 @@ class TestAddLauncher:
                     "gpt-5.6-terra",
                     "-c",
                     "model_reasoning_effort=medium",
+                    "-c",
+                    'plugins={"maelstrom@maelstrom"={enabled=true}}',
                 ],
             ),
             ("opencode:kimi", ["opencode", "--model", "kimi"]),
@@ -107,6 +115,22 @@ class TestAddLauncher:
                 model=model,
             )
         assert run.call_args.args[0] == command
+
+    @pytest.mark.asyncio
+    async def test_regular_cli_loads_the_core_plugin(self, tmp_path, monkeypatch):
+        plugin = tmp_path / "plugins" / "maelstrom"
+        monkeypatch.setattr(
+            "mael_cli.worktree_launcher.core_plugin_dir", lambda: plugin
+        )
+        with patch("mael_cli.worktree_launcher.subprocess.run") as run:
+            run.return_value.returncode = 0
+            assert await launch_add_in_worktree(
+                tmp_path,
+                terminal=True,
+                harness="cli",
+            )
+        argv = run.call_args.args[0]
+        assert argv[argv.index("--plugin-dir") + 1] == str(plugin)
 
     @pytest.mark.asyncio
     async def test_omitted_model_uses_claude_opus(self, tmp_path):

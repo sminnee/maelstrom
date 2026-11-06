@@ -27,6 +27,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
@@ -152,6 +153,13 @@ TERM_WAIT = 3.0
 #: stand in a recorder: a stub child's pid may be a real process on the
 #: developer's machine.
 kill_group: Callable[[int, int], None] = os.killpg
+
+
+def _str_list(value: object) -> list[str]:
+    """A wire list of strings, or ``[]``: a string would iterate as characters."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _group_alive(pgid: int) -> bool:
@@ -890,6 +898,7 @@ class AgentDaemon:
         resume: bool = False,
         record_prompt: str | None = None,
         system_prompt_file: str = "",
+        plugin_dirs: Sequence[str] = (),
     ) -> str:
         """Spawn an agent in ``cwd`` and return its id.
 
@@ -915,6 +924,9 @@ class AgentDaemon:
         spawn time — its worktree closed since the record was written — is
         left off the argv: a missing prompt costs the markers, where a child
         that will not start costs the session.
+
+        ``plugin_dirs`` is the client's too, kept and filtered the same way: a
+        missing dir costs its skills.
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         session_id = session_id or str(uuid.uuid4())
@@ -933,6 +945,7 @@ class AgentDaemon:
             env=dict(env or {}),
             prompt=prompt if record_prompt is None else record_prompt,
             system_prompt_file=system_prompt_file,
+            plugin_dirs=list(plugin_dirs),
             status=SPEC_RUNNING,
         )
         # Written before the spawn, not after: a daemon killed between the two
@@ -945,12 +958,20 @@ class AgentDaemon:
                 system_prompt_file,
             )
             system_prompt_file = ""
+        present_dirs = [d for d in plugin_dirs if Path(d).is_dir()]
+        if len(present_dirs) < len(plugin_dirs):
+            log.warning(
+                "agent %s: plugin dirs gone: %s; spawning without them",
+                agent_id,
+                ", ".join(d for d in plugin_dirs if d not in present_dirs),
+            )
         argv = build_agent_argv(
             permission_mode=permission_mode,
             session_id=session_id,
             model=ref.alias,
             resume=resume,
             system_prompt_file=system_prompt_file or None,
+            plugin_dirs=present_dirs,
         )
         # stderr joins stdout so a child that dies early — a bad --model, an
         # expired login — leaves its reason in the event buffer. pump() skips
@@ -1040,7 +1061,11 @@ class AgentDaemon:
         return record
 
     async def _resume(
-        self, spec: AgentSpec, text: str | None, system_prompt_file: str = ""
+        self,
+        spec: AgentSpec,
+        text: str | None,
+        system_prompt_file: str = "",
+        plugin_dirs: Sequence[str] = (),
     ) -> str:
         """Start ``spec``'s agent again, under its own id.
 
@@ -1057,6 +1082,9 @@ class AgentDaemon:
 
         The record's ``system_prompt_file`` wins while the file exists; the
         client's fills in otherwise. See ``resume`` in ``docs/dev/agent-daemon.md``.
+        ``plugin_dirs`` is the other way round: the client's win, because the
+        code that resumes the agent is the code its skills must match. The
+        record's fill in for an internal respawn, which has no client.
         """
         recorded = spec.system_prompt_file
         if not (recorded and Path(recorded).is_file()):
@@ -1084,6 +1112,7 @@ class AgentDaemon:
             resume=replay,
             record_prompt=spec.prompt,
             system_prompt_file=recorded or system_prompt_file,
+            plugin_dirs=plugin_dirs or spec.plugin_dirs,
         )
 
     async def _gc(self, *, resume_strays: bool) -> Reconciliation:
@@ -1172,6 +1201,7 @@ class AgentDaemon:
                     env=payload.get("env") or None,
                     resume=bool(payload.get("resume", False)),
                     system_prompt_file=payload.get("system_prompt_file") or "",
+                    plugin_dirs=_str_list(payload.get("plugin_dirs")),
                 )
             except (OSError, ValueError) as exc:
                 # Without this the exception escapes `handle`, the connection
@@ -1259,6 +1289,7 @@ class AgentDaemon:
                         spec,
                         payload.get("text") or None,
                         payload.get("system_prompt_file") or "",
+                        _str_list(payload.get("plugin_dirs")),
                     )
                 except OSError as exc:
                     return {"error": f"could not start claude: {exc}"}
@@ -1279,6 +1310,7 @@ class AgentDaemon:
                     spec,
                     payload.get("text") or None,
                     payload.get("system_prompt_file") or "",
+                    _str_list(payload.get("plugin_dirs")),
                 )
             except OSError as exc:
                 return {"error": f"could not start claude: {exc}"}

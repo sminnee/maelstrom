@@ -28,7 +28,7 @@ def get_shared_dir() -> Path:
 def agent_prompt_file() -> Path | None:
     """The file teaching a driven agent the markers, or ``None`` if it is gone.
 
-    Shipped beside the shared skills, as ``claude-header.md`` is. A client
+    Shipped beside the plugins, as ``claude-header.md`` is. A client
     names it in the daemon's ``start`` and ``resume``, because the daemon knows
     no shared dir. An installed tree that has lost it still launches agents:
     the markers go untaught, which costs a note, where a hard failure would
@@ -39,6 +39,19 @@ def agent_prompt_file() -> Path | None:
     except FileNotFoundError:
         return None
     return prompt if prompt.exists() else None
+
+
+def core_plugin_dir() -> Path | None:
+    """The core plugin's dir, or ``None`` if it is gone.
+
+    A tree that has lost it still launches agents,
+    without the skills, for the reason :func:`agent_prompt_file` gives.
+    """
+    try:
+        plugin = get_shared_dir() / "plugins" / "maelstrom"
+    except FileNotFoundError:
+        return None
+    return plugin if plugin.is_dir() else None
 
 
 def investigation_prompt_file() -> Path | None:

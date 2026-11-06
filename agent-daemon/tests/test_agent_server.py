@@ -4045,3 +4045,73 @@ def test_recovering_denies_every_open_ask_first():
     texts = [m for m in sent if m.get("type") != "control_response"]
     assert texts[0]["message"]["content"][0]["text"] == "/clear"
     assert len(sent) == len(open_ids) + 2
+
+
+@pytest.fixture
+def plugin_dir(tmp_path):
+    """A core plugin dir that exists, as a client would name one."""
+    path = tmp_path / "plugins" / "maelstrom"
+    path.mkdir(parents=True)
+    return str(path)
+
+
+def _argv_plugin_dirs(spawn) -> list[str]:
+    argv = list(spawn.call_args.args)
+    return [argv[i + 1] for i, arg in enumerate(argv) if arg == "--plugin-dir"]
+
+
+def test_start_names_the_plugin_dirs_and_records_them(plugin_dir):
+    daemon, specs = _daemon_with_specs()
+    spawn = _spawning(
+        daemon, [{"cmd": "start", "cwd": "/tmp/x", "plugin_dirs": [plugin_dir]}]
+    )
+    assert _argv_plugin_dirs(spawn) == [plugin_dir]
+    (spec,) = specs.list()
+    assert spec.plugin_dirs == [plugin_dir]
+
+
+def test_a_plugin_dir_that_is_gone_is_left_off(plugin_dir, tmp_path):
+    """Its worktree closed; the child starts without those skills."""
+    daemon, _ = _daemon_with_specs()
+    gone = str(tmp_path / "closed" / "maelstrom")
+    spawn = _spawning(
+        daemon,
+        [{"cmd": "start", "cwd": "/tmp/x", "plugin_dirs": [gone, plugin_dir]}],
+    )
+    assert _argv_plugin_dirs(spawn) == [plugin_dir]
+
+
+def test_a_resume_takes_the_clients_plugin_dirs_over_the_recorded(plugin_dir, tmp_path):
+    """The code that resumes the agent is the code its skills must match."""
+    daemon, specs = _daemon_with_specs()
+    old = tmp_path / "old-release" / "maelstrom"
+    old.mkdir(parents=True)
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            plugin_dirs=[str(old)],
+        )
+    )
+    spawn = _spawning(
+        daemon, [{"cmd": "resume", "id": "a1", "plugin_dirs": [plugin_dir]}]
+    )
+    assert _argv_plugin_dirs(spawn) == [plugin_dir]
+
+
+def test_a_resume_with_no_client_keeps_the_recorded_plugin_dirs(plugin_dir):
+    """An internal respawn has no client to ask, so the record carries them."""
+    daemon, specs = _daemon_with_specs()
+    specs.write(
+        AgentSpec(
+            agent_id="a1",
+            cwd="/tmp/x",
+            session_id="sid-1",
+            status="stopped",
+            plugin_dirs=[plugin_dir],
+        )
+    )
+    spawn = _spawning(daemon, [{"cmd": "resume", "id": "a1"}])
+    assert _argv_plugin_dirs(spawn) == [plugin_dir]

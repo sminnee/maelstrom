@@ -64,7 +64,7 @@ from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
 from mael_domain.session_discovery import LiveSessionSet
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
@@ -2515,11 +2515,13 @@ def test_resume_reaches_the_host_and_brings_the_agent_back_at_once(harness_facto
     assert (op["kind"], op["state"], op["agentId"]) == ("resume", "done", "ag1")
     assert [s["name"] for s in op["steps"]] == ["resume_agent"]
     (sent,) = [call for call in harness.daemon.calls if call.get("cmd") == "resume"]
-    # The daemon knows no shared dir, so the client names the prompt file.
+    # The daemon knows no shared dir, so the client names the prompt file
+    # and the core plugin.
     assert sent == {
         "cmd": "resume",
         "id": "ag1",
         "system_prompt_file": str(agent_prompt_file()),
+        "plugin_dirs": [str(core_plugin_dir())],
     }
     assert agent["state"] == "idle"
 
@@ -4917,6 +4919,7 @@ def test_a_free_agent_starts_in_the_branch_worktree_with_no_session_and_no_env(h
     assert start["prompt"] == "Read the logs and tell me what broke."
     assert start["model"] == "claude-opus-5"
     assert start["system_prompt_file"].endswith("agent-prompt.md")
+    assert start["plugin_dirs"] == [str(core_plugin_dir())]
     # No task session pinned, no task env exported: a free agent.
     assert "session" not in start
     assert "env" not in start

@@ -28,6 +28,7 @@ import click
 from mael_agent.agent_transport import client as daemon_client
 from mael_agent.agent_wire import build_start_payload
 from mael_agent.harness_model import (
+    CODEX_CORE_PLUGIN_ARG,
     HARNESS_CLAUDE,
     HARNESS_CODEX,
     HARNESS_OPENCODE,
@@ -43,7 +44,7 @@ from mael_common.shell import (
     run_cmd,
 )
 from mael_domain.config import load_config_or_default
-from mael_domain.shared_dir import agent_prompt_file
+from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 
 
 def start_install_async(worktree_path: Path) -> bool:
@@ -96,6 +97,7 @@ async def start_agent_in_worktree(
         execute_model=execute_model,
         prompt=prompt,
         system_prompt_file=agent_prompt_file(),
+        plugin_dir=core_plugin_dir(),
     )
     reply = await daemon_client().request(payload)
     error = reply.get("error")
@@ -152,7 +154,10 @@ async def launch_add_in_worktree(
         if agent_id:
             _announce_started(agent_id)
         return agent_id is not None
-    result = subprocess.run(build_harness_command(model=model), cwd=worktree_path)
+    result = subprocess.run(
+        build_harness_command(model=model, plugin_dir=core_plugin_dir()),
+        cwd=worktree_path,
+    )
     return result.returncode == 0
 
 
@@ -219,12 +224,17 @@ def build_harness_command(
     resume: bool = False,
     model: str | None = None,
     harness: str | None = None,
+    plugin_dir: Path | None = None,
 ) -> list[str]:
     """Build the direct CLI command selected by ``model``.
 
     ``harness`` remains an optional compatibility selector for callers that
     deliberately run another CLI. A model from the other prefix then supplies
     no model argument, so that CLI uses its configured default.
+
+    ``plugin_dir`` is the core plugin, which ``claude`` loads with
+    ``--plugin-dir``. ``codex`` has no such flag, so it always enables its
+    installed copy by name, as a daemon thread does.
     """
     ref = resolve_model_reference(model, permission_mode or "normal")
     selected = harness or ref.harness
@@ -236,6 +246,10 @@ def build_harness_command(
     argv = [selected, *selected_ref.mode_args]
     if selected == ref.harness:
         argv += ref.cli_args
+    if selected == HARNESS_CLAUDE and plugin_dir:
+        argv += ["--plugin-dir", str(plugin_dir)]
+    if selected == HARNESS_CODEX:
+        argv += ["-c", CODEX_CORE_PLUGIN_ARG]
     if selected == HARNESS_CLAUDE and session_id:
         argv += ["--resume", session_id] if resume else ["--session-id", session_id]
     return argv
@@ -251,6 +265,7 @@ def build_task_launch_line(
     resume: bool = False,
     model: str | None = None,
     harness: str | None = None,
+    plugin_dir: Path | None = None,
 ) -> ShellExpr:
     """Build a task prompt command for the CLI selected by its model."""
     command_env = dict(env or {})
@@ -258,7 +273,12 @@ def build_task_launch_line(
         command_env["MAEL_TASK_SESSION_ID"] = session_id
     prompt_argv = ["mael", "task", "prompt", task_id, "--project", project]
     harness_argv = build_harness_command(
-        permission_mode, session_id, resume=resume, model=model, harness=harness
+        permission_mode,
+        session_id,
+        resume=resume,
+        model=model,
+        harness=harness,
+        plugin_dir=plugin_dir,
     )
     selected = (
         harness or resolve_model_reference(model, permission_mode or "normal").harness

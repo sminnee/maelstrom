@@ -24,8 +24,24 @@ def test_cli_command_uses_the_model_prefix_and_omits_a_mismatched_alias():
         "gpt-5.6-terra",
         "-c",
         "model_reasoning_effort=medium",
+        "-c",
+        'plugins={"maelstrom@maelstrom"={enabled=true}}',
     ]
     assert build_harness_command(model="codex:terra", harness="claude") == ["claude"]
+
+
+def test_claude_loads_the_core_plugin_by_its_dir():
+    assert build_harness_command(
+        model="claude:opus", plugin_dir=Path("/shared/plugins/maelstrom")
+    ) == ["claude", "--model", "opus", "--plugin-dir", "/shared/plugins/maelstrom"]
+    assert build_harness_command(model="claude:opus") == ["claude", "--model", "opus"]
+
+
+def test_codex_enables_its_installed_core_plugin_without_a_dir():
+    """Codex has no --plugin-dir, so the dir does not matter, as in a daemon thread."""
+    codex = build_harness_command(model="codex:terra")
+    # The nested table: a dotted key is accepted and ignored.
+    assert codex[-2:] == ["-c", 'plugins={"maelstrom@maelstrom"={enabled=true}}']
 
 
 def test_cli_command_refuses_an_unknown_harness():

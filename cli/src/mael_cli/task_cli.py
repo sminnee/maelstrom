@@ -39,6 +39,7 @@ from mael_domain.build_runs_github import GhBuildRuns
 from mael_domain.comm_store import CommStore, SqliteCommStore
 from mael_domain.context import load_global_config, resolve_context, resolve_project
 from mael_domain.protocol import StatusMoved, TaskDetail, TaskFollower, TaskRow
+from mael_domain.shared_dir import core_plugin_dir
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -381,6 +382,7 @@ async def _run_task(
                 resume=resume,
                 model=plan.model,
                 harness=ref.harness,
+                plugin_dir=core_plugin_dir(),
             ),
             cwd=result.path,
             env=session_env,

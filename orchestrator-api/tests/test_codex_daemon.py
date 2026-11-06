@@ -133,9 +133,12 @@ def test_start_gives_the_thread_its_instructions_env_and_opening_turn(tmp_path):
                 "approvalsReviewer": "user",
                 "developerInstructions": "Use <note> to report progress.\n",
                 "config": {
+                    # Setup installs the core plugin disabled; the thread
+                    # turns it on.
+                    "plugins": {"maelstrom@maelstrom": {"enabled": True}},
                     "shell_environment_policy": {
                         "set": {"MAEL_TASK_ID": "maelstrom/2026-11-03.1"}
-                    }
+                    },
                 },
             },
         ),
@@ -610,7 +613,11 @@ def test_resume_brings_a_thread_back_in_the_launch_worktree_and_says_its_text():
 
     assert reply == {"ok": True, "id": thread_id}
     assert calls_of(bridge, "thread/resume") == [
-        {"threadId": thread_id, "cwd": "/worktree-2"}
+        {
+            "threadId": thread_id,
+            "cwd": "/worktree-2",
+            "config": {"plugins": {"maelstrom@maelstrom": {"enabled": True}}},
+        }
     ]
     [turn] = calls_of(bridge, "turn/start")
     assert turn["input"] == [{"type": "text", "text": "Carry on."}]
