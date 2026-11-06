@@ -1353,7 +1353,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
 | `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
-| `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), and the `mael` shim. |
+| `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the last update job. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
 | `mael self restart [orchestrator\|agent-daemon]...` | Restart host services through the supervisor. Default: both. A restart of the agent daemon stops its agents; they resume after it. |
 | `mael self export [PATH]` | Write this host's [State archive](../../CONTEXT.md): one zip of the state database and the attachments. It runs while the host services run. See below. |
@@ -1365,6 +1365,7 @@ mael self check-host                 # check the tools and sign-ins, and offer t
 mael self update                     # install the latest release on the stored channel
 mael self update --channel main      # build and install _main
 mael self update --tag v0.2.0rc1     # install one GitHub Release
+mael self update --detach            # update in an update job; safe from an agent session
 mael self restart agent-daemon       # the production daemon picks up new code
 mael self setup                      # repair the host
 mael self export                     # write maelstrom-<host>-<date>.zip here
@@ -1448,6 +1449,7 @@ mode. It looks up tools on the host services' PATH.
 |---|---|
 | `--channel [stable\|main]` | Where to update from: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Stored as `update_channel` in `~/.maelstrom/config.yaml` for later updates. Default: the stored channel, else `stable`. |
 | `--tag TEXT` | Install this GitHub Release, such as a pre-release or an older version to roll back to. Stable channel only. |
+| `--detach` | Run the update in an **Update job** of the OS supervisor, and return at once. The job outlives the restart of the host services. It prints the log path. Refused while another update job runs. |
 
 The `stable` channel downloads that release's `install.sh` and runs it. The `main` channel runs
 `_main`'s own `bin/install.sh --source`, which pulls `_main`, runs its `bin/install`, builds a
@@ -1455,8 +1457,10 @@ bundle tagged `main-<commit>` and installs it. A tag that runs already is not bu
 [above](#install-from-main-install-mainsh)). Either way the installer then runs the new release's
 `mael self setup`.
 
-Run it from a shell, not from an agent of the production daemon. The daemon restart stops
-that agent.
+Without `--detach`, run it from a shell, not from an agent of the production daemon. The daemon
+restart stops that agent. With `--detach`, the job runs apart from the daemon, and the agent
+resumes after the restart. `mael self status` shows the job's result. The Welcome dialog's
+**Update maelstrom** button starts the same job.
 
 **`mael self export`**
 

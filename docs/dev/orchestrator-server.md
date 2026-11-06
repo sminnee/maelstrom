@@ -1468,7 +1468,7 @@ without waiting for the poll.
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty on a server with no tangier |
-| `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. Read on each request |
+| `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |
@@ -1699,6 +1699,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
+| `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
@@ -1891,6 +1892,7 @@ The world is validated before the host is asked.
 | `stale_request` | The request id is not the pending one |
 | `wrong_wait_kind` | An answer to a permission, or an approve of a question. A deny suits every kind |
 | `stale_version` | The document version is not current |
+| `cannot_update` | `self.update` on a development build, or `mael self update --detach` refused; the message carries its stderr. 409 |
 | `language_server_failed` | A worktree's **Language server** did not start, crashed or did not answer. The status is 502 |
 | `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 

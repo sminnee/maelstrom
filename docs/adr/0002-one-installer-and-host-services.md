@@ -73,6 +73,10 @@ reboot left them down, and the `stable` channel did not restart them after an up
 - The first setup on an older host moves its notebook and its daemon root into `state/`, once.
 - An update from an agent session of the production daemon stops that agent when the daemon restarts.
   Run `mael self update` from a shell.
+
+  _2026-11-06:_ `mael self update --detach` lifts this. It runs the update in an **Update job**
+  apart from the daemon, and the agent resumes after the restart. See
+  [host services](../dev/host-services.md#the-update-job).
 - A host-service orchestrator does not renew the dev certificate. Only `mael env start` does.
 - A first install from source still needs a release, or `bin/build-bundle` and `install.sh
   --bundle`, before `mael project add` works.

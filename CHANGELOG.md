@@ -12,6 +12,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Update maelstrom from the Welcome dialog.** The **Update maelstrom** button asks to confirm,
+  with the number of live agents the restart stops, then starts an update job. The dialog
+  follows the job through the orchestrator restart, and shows the new version or the failure.
+  `mael self update --detach` starts the same job from a shell or an agent session, and
+  `mael self status` shows its result.
 - **`mael self export` and `mael self import` move the state to another host.** Export writes
   the State database and the Attachments directory to one zip while the host services run.
   Import checks the zip, stops the host services, puts the state in place, migrates it, and

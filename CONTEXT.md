@@ -726,9 +726,9 @@ _Avoid_: Log panel, activity feed, drawer (alone), toast
 
 **Welcome dialog**:
 The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
-whether **minnstack** is installed, its version, and whether the agent host answers. It opens by itself on a world with no
-**Project**, once per page load, and the logo opens it at any time. Its action starts Add
-project.
+whether **minnstack** is installed, its version, the last **Update job**, and whether the agent
+host answers. It opens by itself on a world with no **Project**, once per page load, and the logo
+opens it at any time. Its actions start Add project and an **Update job**.
 _Avoid_: Onboarding, splash, about box
 
 **Project dialog**:
@@ -1760,6 +1760,13 @@ A process of the install that the OS supervisor runs and restarts: `orchestrator
 `current` release. `mael self setup` installs it, and `mael self restart` restarts it. It is not a
 **Service**, which is a process from `.maelstrom.yaml` for one worktree.
 _Avoid_: Service, daemon (for the orchestrator), self-env
+
+**Update job**:
+A one-shot unit of the OS supervisor that runs `mael self update` apart from the **Host
+services**, so it outlives their restart. `mael self update --detach` and the Welcome dialog
+start it. It writes its record to `~/.maelstrom/install/update.json`. It is not an **Operation**:
+an Operation runs in the orchestrator, and the job restarts the orchestrator.
+_Avoid_: update operation, background update
 
 **Host check**:
 The check of the machine outside maelstrom's own install: the host tools, the sign-ins,
