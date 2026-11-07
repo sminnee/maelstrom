@@ -865,7 +865,9 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
         return error_response("invalid", str(exc))
     except KeyError as exc:
         return error_response("unknown_id", str(exc))
-    return web.FileResponse(found)
+    # The server's own origin may use a sign-in, so a shown HTML or SVG file
+    # must not run script there.
+    return web.FileResponse(found, headers=_RAW_HEADERS)
 
 
 async def _serve_file(request: web.Request) -> web.StreamResponse:
@@ -880,7 +882,7 @@ async def _serve_file(request: web.Request) -> web.StreamResponse:
         # A missing entry and a file since deleted read the same to the caller:
         # there is nothing to serve under that id.
         return error_response("unknown_id", "no such file")
-    return web.FileResponse(found)
+    return web.FileResponse(found, headers=_RAW_HEADERS)
 
 
 def _task_id(request: web.Request) -> str:
