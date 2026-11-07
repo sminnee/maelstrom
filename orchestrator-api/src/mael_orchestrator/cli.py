@@ -72,6 +72,7 @@ from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
 from .gate_source import watch_gates
 from .language_servers import LanguageServers
+from .remote_hosts import RemoteDaemonClient, RemoteHost
 from .routes import Bind, build_app, serve_app
 from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
@@ -138,7 +139,8 @@ def build_orchestrator(
     desk. It is never migrated here: an ordinary open refuses a database
     behind this build.
     """
-    projects_dir = load_global_config().projects_dir
+    config = load_global_config()
+    projects_dir = config.projects_dir
     # Resolved once: the tasks and the desk share one database, so opening a
     # second here would give the two halves of the world separate connections
     # and separate revision counters.
@@ -339,7 +341,8 @@ def build_orchestrator(
     )
     tasks = NotebookTaskSource(
         table,
-        list_projects,
+        # A runner keeps no tasks: its parent does. It still opens worktrees.
+        (lambda: []) if config.is_runner else list_projects,
         open_worktree=open_worktree,
         refresh_env=write_env,
         worktree_executor=worktree_executor,
@@ -360,10 +363,12 @@ def build_orchestrator(
         terminal_urls=terminal_urls,
         add_project=functools.partial(clone_project, projects_dir),
     )
+    remote_hosts = {name: RemoteHost(name, url) for name, url in config.hosts.items()}
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
         CodexDaemonClient(CodexBridge()),
         agent_store,
+        remotes={name: RemoteDaemonClient(host) for name, host in remote_hosts.items()},
     )
     return Orchestrator(
         tasks,
@@ -387,6 +392,7 @@ def build_orchestrator(
             sys.prefix,
             production=os.environ.get("MAEL_PRODUCTION") == "1",
         ),
+        remote_hosts=remote_hosts,
     )
 
 
@@ -471,6 +477,7 @@ def run_server(
     log_level: str = DEFAULT_LOG_LEVEL,
     *,
     web_root: Path | None = None,
+    runner: bool = False,
 ) -> None:
     """Build the orchestrator and serve it on each bind until interrupted.
 
@@ -491,7 +498,9 @@ def run_server(
         # binds to and every later call has to come from the same one.
         await db.check()
         serving = asyncio.ensure_future(
-            serve_app(build_app(orchestrator, web_root=web_root), binds, port)
+            serve_app(
+                build_app(orchestrator, web_root=web_root, runner=runner), binds, port
+            )
         )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
@@ -622,7 +631,18 @@ def cmd_serve(
     the dev certificate a worktree ``.env`` names under ``dev_https:``, and
     apply to the ``--public-host`` listener only.
     """
-    if web_root is None:
+    config = load_global_config()
+    if config.is_runner and not config.orchestrator_url:
+        click.echo(
+            "Error: this host runs in runner mode (role: runner), and its "
+            "config.yaml names no orchestrator_url: for the parent server.",
+            err=True,
+        )
+        sys.exit(1)
+    if config.is_runner:
+        # A runner serves its parent, not a person: it has no UI.
+        web_root = None
+    elif web_root is None:
         web_root = installed_web_root(sys.prefix)
     if public_host and host in WILDCARD_HOSTS:
         raise click.UsageError(
@@ -657,7 +677,7 @@ def cmd_serve(
     for address in public:
         click.echo(f"Serving on {scheme}://{public_host}:{port} ({address})", err=True)
     try:
-        run_server(binds, port, log_level, web_root=web_root)
+        run_server(binds, port, log_level, web_root=web_root, runner=config.is_runner)
     except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
         # bury it.

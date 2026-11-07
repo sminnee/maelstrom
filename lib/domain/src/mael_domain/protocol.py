@@ -384,6 +384,8 @@ class Task(TypedDict):
     #: When the task's first agent started, ISO 8601; ``""`` when none has.
     #: Unlike an agent's, it outlives the agent.
     startedAt: str
+    #: The **Remote host** of the task's newest session; ``""`` for this host.
+    lastHost: str
     #: ``None`` until the task is done.
     landing: TaskLanding | None
     #: The ids of the comms the task feeds, such as ``c3``. Global, so bare.
@@ -423,6 +425,7 @@ class TaskRow(TypedDict):
     updated: str
     actionable: bool
     startedAt: str
+    lastHost: str
     landing: TaskLanding | None
     comms: list[str]
     schedule: str
@@ -616,6 +619,8 @@ class Agent(TypedDict):
     backgroundShells: list[BackgroundShell]
     #: The harness that runs the agent: ``claude`` or ``codex``.
     harness: str
+    #: The **Remote host** the agent runs on; ``""`` for this host.
+    host: str
 
 
 class Attention(TypedDict):
@@ -780,6 +785,17 @@ class Host(TypedDict):
     usage: HostUsage | None
     #: The Codex account's budget, or ``None`` until a Codex turn reports one.
     codexUsage: HostUsage | None
+    #: Each **Remote host** in ``hosts:``, and whether its link is up.
+    remoteHosts: list["RemoteHostState"]
+
+
+class RemoteHostState(TypedDict):
+    """One **Remote host**, as the parent's link to it last saw it."""
+
+    name: str
+    online: bool
+    #: When ``online`` last changed; ``""`` before the first change.
+    since: str
 
 
 class GateState(TypedDict):

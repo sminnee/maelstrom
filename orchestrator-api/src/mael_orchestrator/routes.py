@@ -25,7 +25,9 @@ from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
+from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.system_info import system_reply
+from mael_domain.task_launch import LaunchBlocked
 from mael_domain.worktree_changes import (
     BadPath,
     FileTooLarge,
@@ -41,6 +43,7 @@ from mael_domain.worktree_changes import (
 
 from .hubs import Lagging
 from .lsp_client import LspError
+from .remote_hosts import local_paths_removed, setup_reply
 from .server import Orchestrator
 
 log = logging.getLogger(__name__)
@@ -75,6 +78,8 @@ STATUS_FOR_CODE = {
     "cannot_update": 409,
     "not_implemented": 501,
     "language_server_failed": 502,
+    "launch_blocked": 409,
+    "forbidden": 403,
 }
 
 #: The error code for an HTTP status aiohttp raises on its own.
@@ -83,15 +88,21 @@ CODE_FOR_STATUS = {404: "unknown_id", 501: "not_implemented"}
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
-def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Application:
+def build_app(
+    orch: Orchestrator, web_root: Path | None = None, *, runner: bool = False
+) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
     The orchestrator starts with the app and stops with it, so anything that
     runs the app — the CLI, a test — gets a live world without wiring it.
 
     ``web_root`` is the built UI, served beside the API on one origin.
+
+    ``runner`` serves **Runner mode**: the routes a parent server calls, and
+    ``not_implemented`` for every route outside that surface.
     """
-    app = web.Application(middlewares=[_json_errors])
+    middlewares = [_json_errors, *([_runner_surface] if runner else [])]
+    app = web.Application(middlewares=middlewares)
     app[ORCH] = orch
 
     app[SOCKETS] = set()
@@ -191,6 +202,10 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_post("/api/documents/{id}/request-changes", _request_changes)
     for method, path in _NOT_IMPLEMENTED:
         app.router.add_route(method, path, _not_implemented)
+    if runner:
+        app.router.add_post("/api/host/request", _host_request)
+        app.router.add_get("/api/host/agents/{id}/attach", _host_attach)
+        app.router.add_post("/api/host/worktrees/open", _host_open_worktree)
     if web_root is not None:
         # Last, so every /api route above matches first.
         app.router.add_get("/{path:.*}", _web_handler(web_root.resolve()))
@@ -267,6 +282,32 @@ async def _json_errors(request: web.Request, handler: Handler) -> web.StreamResp
         code = CODE_FOR_STATUS.get(exc.status, "invalid")
         body = {"error": {"code": code, "message": exc.reason or exc.text or ""}}
         return web.json_response(body, status=exc.status)
+
+
+#: The routes a runner serves: what a parent server calls. See
+#: ``docs/dev/remote-hosts.md``, "The child's surface".
+RUNNER_SURFACE = ("/api/host", "/api/worktrees", "/api/gate-jobs", "/api/events")
+
+
+@web.middleware
+async def _runner_surface(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Refuse every route outside the runner's surface, and a browser's call to its own.
+
+    A parent server sends no ``Origin``; a browser always does. The routes under
+    ``/api/host/`` start agents and stream transcripts, so a page on another
+    site must not reach them.
+    """
+    path = request.path
+    if path.startswith("/api/host/") and "Origin" in request.headers:
+        return error_response("forbidden", f"{path} is for a parent server only")
+    if path.startswith("/api/") and not any(
+        path == prefix or path.startswith(f"{prefix}/") for prefix in RUNNER_SURFACE
+    ):
+        return error_response(
+            "not_implemented",
+            f"{request.method} {path}: this server runs in runner mode",
+        )
+    return await handler(request)
 
 
 async def _not_implemented(request: web.Request) -> web.Response:
@@ -926,7 +967,10 @@ def _task_id(request: web.Request) -> str:
 
 
 async def _launch(request: web.Request) -> web.StreamResponse:
-    """Launch a task. It opens a worktree, so it runs as an operation."""
+    """Launch a task. It opens a worktree, so it runs as an operation.
+
+    ``host`` names a **Remote host** to launch on; none is this host.
+    """
     task_id = _task_id(request)
     return await _command(
         request,
@@ -934,6 +978,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
             "type": "agent.launch",
             "taskId": task_id,
             **({"model": body["model"]} if body.get("model") else {}),
+            **({"host": body["host"]} if body.get("host") else {}),
         },
         status=202,
     )
@@ -1375,6 +1420,95 @@ async def _events(request: web.Request) -> web.StreamResponse:
                 continue
             for kind, ids in batch.items():
                 await response.write(_sse("change", {"kind": kind, "ids": sorted(ids)}))
+
+
+# -- runner mode: the routes a parent server calls --
+
+
+def with_host_paths(payload: dict[str, Any]) -> dict[str, Any]:
+    """A parent's ``start`` or ``resume``, with this host's own prompt and plugin.
+
+    Paths the caller names are dropped: they name files on another machine.
+    """
+    if payload.get("cmd") not in ("start", "resume"):
+        return payload
+    prompt, plugin = agent_prompt_file(), core_plugin_dir()
+    return {
+        **local_paths_removed(payload),
+        **({"system_prompt_file": str(prompt)} if prompt else {}),
+        **({"plugin_dirs": [str(plugin)]} if plugin else {}),
+    }
+
+
+async def _host_request(request: web.Request) -> web.Response:
+    """One ``AsyncDaemonClient.request`` from the parent, answered by this router."""
+    orch = request.app[ORCH]
+    try:
+        payload = await _body(request)
+    except _BadBody as exc:
+        return error_response("invalid", str(exc))
+    return web.json_response(await orch.daemon.request(with_host_paths(payload)))
+
+
+async def _host_attach(request: web.Request) -> web.WebSocketResponse:
+    """One agent's raw ``attach`` stream over a WebSocket, frame for frame.
+
+    The stream closes the socket when it ends; a parent that closes first
+    stops the stream.
+    """
+    orch = request.app[ORCH]
+    try:
+        from_seq = int(request.query.get("from", "0"))
+    except ValueError:
+        from_seq = 0
+    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
+    await ws.prepare(request)
+    request.app[SOCKETS].add(ws)
+    stream = orch.daemon.attach(
+        request.match_info["id"], from_seq, request.query.get("epoch", "")
+    )
+
+    async def pump() -> None:
+        async for frame in stream:
+            await ws.send_json(frame)
+
+    pumping = asyncio.ensure_future(pump())
+    closed = asyncio.ensure_future(_until_closed(ws))
+    try:
+        await asyncio.wait({pumping, closed}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        for task in (pumping, closed):
+            task.cancel()
+        await asyncio.gather(pumping, closed, return_exceptions=True)
+        if aclose := getattr(stream, "aclose", None):
+            await aclose()
+        request.app[SOCKETS].discard(ws)
+        await ws.close()
+    return ws
+
+
+async def _host_open_worktree(request: web.Request) -> web.Response:
+    """Open a worktree for a parent's launch: ``{project, branch, base, session}``."""
+    orch = request.app[ORCH]
+    try:
+        body = await _body(request)
+    except _BadBody as exc:
+        return error_response("invalid", str(exc))
+    project = str(body.get("project") or "")
+    if Path(project).name != project or project in ("", ".", ".."):
+        return error_response("invalid", f"Not a project name: {project!r}")
+    try:
+        opened = await orch.tasks.open_for_host(
+            project,
+            str(body["branch"]),
+            str(body.get("base") or ""),
+            str(body.get("session") or ""),
+        )
+    except KeyError as exc:
+        return error_response("invalid", f"Missing {exc}")
+    except LaunchBlocked as exc:
+        return error_response("launch_blocked", str(exc))
+    return web.json_response(setup_reply(opened))
 
 
 # -- transcripts --

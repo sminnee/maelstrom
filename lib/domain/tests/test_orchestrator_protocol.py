@@ -37,6 +37,7 @@ def make_task(**over):
         "updated": NOW,
         "actionable": True,
         "startedAt": "",
+        "lastHost": "",
         "landing": None,
         "comms": [],
         "schedule": "",
