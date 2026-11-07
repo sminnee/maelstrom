@@ -58,6 +58,8 @@ See `docs/dev/` for architecture and design docs:
   and pins, the rev's new side as the one source, windowed rows, and the language-server chain.
 - `docs/dev/live-feedback.md` — how a project writes a Live feedback client: the URL that names
   it, the `exposeParams` and `setParams` frames, and the needs-an-agent rule.
+- `docs/dev/remote-hosts.md` — running worktrees and agents on a second machine: runner mode,
+  the worktree proxy, the agent host over HTTP, and host-prefixed ids.
 - `docs/dev/cli-over-api.md` — moving `mael` commands onto the orchestrator API: the
   Orchestrator client, the command classes, the API gaps, and the migration order.
 
