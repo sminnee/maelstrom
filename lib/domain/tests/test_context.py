@@ -537,6 +537,50 @@ class TestNotebookRootConfig:
         assert config.projects_dir == Path("/global")
         assert config.orchestrator_url is None
 
+    def test_a_production_runner_reads_its_parent_from_the_file(
+        self, home, monkeypatch
+    ):
+        """A runner's ``orchestrator_url`` names the parent, not this host."""
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / ".maelstrom" / "state"))
+        self.write(
+            home / ".maelstrom",
+            "dev_host: cobalt.ts.net\nrole: runner\n"
+            "orchestrator_url: https://monolith.ts.net:2772\n",
+        )
+
+        config = load_global_config()
+
+        assert config.is_runner
+        assert config.orchestrator_url == "https://monolith.ts.net:2772"
+
+    def test_a_dev_root_takes_no_role_or_hosts_from_production(self, home, monkeypatch):
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / "dev"))
+        self.write(
+            home / ".maelstrom",
+            "role: runner\nhosts:\n  cobalt: https://cobalt.ts.net:2772\n",
+        )
+
+        config = load_global_config()
+
+        assert not config.is_runner
+        assert config.hosts == {}
+
+
+def test_hosts_keeps_only_good_names_and_urls() -> None:
+    config = GlobalConfig.from_dict(
+        {
+            "hosts": {
+                "cobalt": "https://cobalt.ts.net:2772/",
+                "bad.name": "https://a",
+                "bad:name": "https://b",
+                "Upper": "https://c",
+                "nourl": "cobalt.ts.net",
+            }
+        }
+    )
+
+    assert config.hosts == {"cobalt": "https://cobalt.ts.net:2772"}
+
 
 class TestResolveContext:
     """Tests for resolve_context function."""

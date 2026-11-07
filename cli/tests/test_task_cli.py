@@ -22,6 +22,7 @@ from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
 from mael_domain.comm_store import Comm, InMemoryCommStore
+from mael_domain.context import GlobalConfig
 from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
@@ -1410,3 +1411,20 @@ class TestAddScheduled:
         assert result.exit_code != 0
         assert "--cli runs one in this shell" in result.output
         launch.session.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "args", [["log", "T-1", "a line"], ["next"], ["edit", "T-1"]], ids=lambda a: a[0]
+)
+def test_a_local_task_write_is_refused_in_runner_mode(store, runner, monkeypatch, args):
+    """A runner keeps no tasks, so a local write would reach no one."""
+    config = GlobalConfig(
+        projects_dir=Path("/p"), role="runner", orchestrator_url="https://parent:2772"
+    )
+    monkeypatch.setattr(task_cli, "load_global_config", lambda: config)
+
+    result = runner.invoke(task_cli.task, args)
+
+    assert result.exit_code == 1
+    assert "runner mode" in result.output
+    assert "https://parent:2772" in result.output

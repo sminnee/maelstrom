@@ -310,11 +310,12 @@ class Setup:
         Path(projects).expanduser().mkdir(parents=True, exist_ok=True)
 
     def migrate(self) -> None:
-        """Migrate ``state.db``, delete the stored orchestrator URL, store the unit PATH."""
+        """Migrate ``state.db``, delete a stored orchestrator URL unless a runner, store the unit PATH."""
         self.echo("Migrating the state database...")
         asyncio.run(migrate_state_db(self.prod.state / "state.db"))
         stored = read_config_key(self.prod.config, ORCHESTRATOR_URL_KEY)
-        if stored is not None:
+        # A runner's URL names its parent server, which nothing derives.
+        if stored is not None and not load_config_file(self.prod.config).is_runner:
             remove_config_key(self.prod.config, ORCHESTRATOR_URL_KEY)
             derived = orchestrator_url(self.prod)
             if str(stored).strip().rstrip("/") == derived:
