@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 import yaml
 
+from mael_agent.host_ids import HOST_NAME as SERVER_NAME
 from mael_common.util import get_maelstrom_dir, harden_path
 
 from .notebook_root import NOTEBOOK_ROOT_ENV
@@ -42,6 +43,22 @@ def _host_name(value: object) -> str | None:
         return None
     value = value.strip()
     return value if _HOST_NAME.fullmatch(value) else None
+
+
+def _remote_hosts(raw: object) -> dict[str, str]:
+    """The ``hosts:`` map, less each entry with a bad name or URL.
+
+    An entry is ``name: <url>`` or ``name: {url: <url>}``. The second form has
+    room for the host's token later.
+    """
+    if not isinstance(raw, dict):
+        return {}
+    hosts: dict[str, str] = {}
+    for name, value in raw.items():
+        url = _url(value.get("url") if isinstance(value, dict) else value)
+        if isinstance(name, str) and SERVER_NAME.fullmatch(name) and url:
+            hosts[name] = url
+    return hosts
 
 
 def _url(value: object) -> str | None:
@@ -78,6 +95,10 @@ class GlobalConfig:
     #: ``Pacific/Auckland``. ``None`` means the host's own zone. Kept as
     #: written: :meth:`schedule_zone` checks it.
     schedule_timezone: str | None = None
+    #: Each **Remote host** this server delegates launches to: name to base URL.
+    hosts: dict[str, str] = field(default_factory=dict)
+    #: This server's name, and so its **Id prefix**. ``""`` keeps ids bare.
+    host_name: str = ""
 
     def schedule_zone(self) -> ZoneInfo:
         """The schedule zone. Raises ``ValueError`` on an unknown name."""
@@ -187,6 +208,13 @@ class GlobalConfig:
                 if isinstance(zone := data.get("schedule_timezone"), str)
                 else None
             ),
+            hosts=_remote_hosts(data.get("hosts")),
+            host_name=(
+                name
+                if isinstance(name := data.get("host_name"), str)
+                and SERVER_NAME.fullmatch(name)
+                else ""
+            ),
         )
 
 
@@ -245,9 +273,9 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
       not read: it is derived from ``dev_host`` and ``dev_https``.
     - **A dev environment**: any other root, such as
       ``~/.maelstrom/playpen/kilo``. Its own ``config.yaml``, if it has one,
-      overlays the production file key by key. ``orchestrator_url`` comes from
-      the dev environment's file alone, so it never reaches the production
-      server.
+      overlays the production file key by key. ``orchestrator_url``,
+      ``host_name`` and ``hosts`` come from the dev environment's file alone,
+      so a dev server never takes production's name or remote hosts.
 
     With no root there is no notebook, and so no server.
     """
@@ -259,7 +287,8 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
         config.orchestrator_url = config.derived_orchestrator_url
         return config
     dev_env = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
-    return GlobalConfig.from_dict({**production, "orchestrator_url": None, **dev_env})
+    own_keys = {"orchestrator_url": None, "host_name": None, "hosts": None}
+    return GlobalConfig.from_dict({**production, **own_keys, **dev_env})
 
 
 def production_config_path() -> Path:

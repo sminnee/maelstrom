@@ -476,6 +476,26 @@ def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
     assert link.worktree_id == "northwind-alpha"
 
 
+def test_a_delegated_agent_links_the_task_its_record_names():
+    """Its task is on its parent, so no task here holds its session."""
+    link = link_agent(
+        {
+            "id": "cobalt:r1",
+            "cwd": "/elsewhere",
+            "session": model.session_id_for("northwind", "NORT-7"),
+            "task_id": "northwind/NORT-7",
+            "parentUrl": "https://monolith:2772",
+        },
+        worktrees={},
+        tasks={},
+    )
+    assert (link.task_id, link.project, link.worktree_id) == (
+        "northwind/NORT-7",
+        "northwind",
+        "",
+    )
+
+
 def test_link_agent_with_no_match_is_unlinked():
     link = link_agent(
         {"cwd": "/private/tmp", "session": "nope"}, worktrees={}, tasks={}

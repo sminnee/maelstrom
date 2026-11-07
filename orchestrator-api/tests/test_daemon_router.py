@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass, field
 
 from mael_agent.agent_transport import ScriptedAsyncDaemonClient
+from mael_agent.host_ids import IdSpace
 from mael_domain.agent_cost import build_cost_report
 from mael_domain.agent_store import InMemoryMilestoneStore
 from mael_orchestrator.daemon_bridge import (
@@ -972,3 +973,77 @@ def test_a_stopped_agents_spend_is_still_on_file() -> None:
     assert record["status"] == "ended"
     assert report["total_tokens"] == 52_000
     assert [stage["name"] for stage in report["stages"]] == ["shipped"]
+
+
+# -- the id prefix --
+
+
+def test_a_prefixed_router_names_its_agents_with_the_prefix_and_daemons_bare() -> None:
+    """Ids come in prefixed and go out bare; records are stored prefixed."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient(next_start_id="r1")
+        codex = ScriptedAsyncDaemonClient(next_start_id="t1")
+        agents = Agents()
+        router = DaemonRouter(
+            claude, codex, agents, clock=lambda: STAMP, ids=IdSpace("cobalt")
+        )
+        started = await router.request(
+            {
+                "cmd": "start",
+                "cwd": "/worktree",
+                "model": "claude:opus",
+                "session": "s1",
+                "env": {"MAEL_TASK_ID": "2026-09-16.4"},
+                "taskId": "maelstrom/2026-09-16.4",
+                "parentUrl": "https://monolith:2772",
+            }
+        )
+        claude.rows["r1.1"] = live_row("r1.1", parent="r1")
+        listed = await router.request({"cmd": "list"})
+        said = await router.request({"cmd": "say", "id": "cobalt:r1", "text": "hi"})
+        stream = router.attach("cobalt:r1")
+        frames = [await anext(stream)]
+        await stream.aclose()
+        return started, listed, said, frames, claude.calls, agents.rows
+
+    started, listed, said, frames, calls, rows = asyncio.run(scenario())
+
+    assert started == {"ok": True, "id": "cobalt:r1"}
+    assert said["ok"]
+    assert [row["id"] for row in listed["agents"]] == ["cobalt:r1", "cobalt:r1.1"]
+    assert listed["agents"][1]["parent"] == "cobalt:r1"
+    # The daemon hears its own bare ids, and not the router's own keys.
+    assert [c.get("id") for c in calls if c["cmd"] == "say"] == ["r1"]
+    start = next(c for c in calls if c["cmd"] == "start")
+    assert "parentUrl" not in start and "taskId" not in start
+    assert frames[0]["agent"]["id"] == "cobalt:r1"
+    # The record is the prefixed id, with its task and its parent.
+    assert set(rows) == {"cobalt:r1"}
+    assert rows["cobalt:r1"]["task_id"] == "maelstrom/2026-09-16.4"
+    assert rows["cobalt:r1"]["parent_url"] == "https://monolith:2772"
+    assert listed["agents"][0]["parentUrl"] == "https://monolith:2772"
+    assert listed["agents"][0]["task_id"] == "maelstrom/2026-09-16.4"
+
+
+def test_a_prefixed_router_restores_codex_threads_by_their_bare_ids() -> None:
+    restored: list[list[str]] = []
+
+    class Codex(ScriptedAsyncDaemonClient):
+        async def restore(self, agents):
+            restored.append([str(a["id"]) for a in agents])
+
+    async def scenario():
+        agents = Agents({"cobalt:t1": stored_agent(id="cobalt:t1", harness="codex")})
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(),
+            Codex(),
+            agents,
+            clock=lambda: STAMP,
+            ids=IdSpace("cobalt"),
+        )
+        await router.request({"cmd": "list"})
+
+    asyncio.run(scenario())
+
+    assert restored == [["t1"]]

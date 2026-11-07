@@ -543,6 +543,46 @@ class TestNotebookRootConfig:
         assert config.projects_dir == Path("/global")
         assert config.orchestrator_url is None
 
+    def test_a_dev_root_takes_no_name_or_hosts_from_production(self, home, monkeypatch):
+        monkeypatch.setenv("MAEL_NOTEBOOK_ROOT", str(home / "dev"))
+        self.write(
+            home / ".maelstrom",
+            "host_name: monolith\nhosts:\n  cobalt: https://cobalt.ts.net:2772\n",
+        )
+
+        config = load_global_config()
+
+        assert config.host_name == ""
+        assert config.hosts == {}
+
+
+def test_hosts_keeps_only_good_names_and_urls() -> None:
+    config = GlobalConfig.from_dict(
+        {
+            "hosts": {
+                "cobalt": "https://cobalt.ts.net:2772/",
+                "bad.name": "https://a",
+                "bad:name": "https://b",
+                "Upper": "https://c",
+                "nourl": "cobalt.ts.net",
+                "zinc": {"url": "https://zinc.ts.net:2772"},
+            }
+        }
+    )
+
+    assert config.hosts == {
+        "cobalt": "https://cobalt.ts.net:2772",
+        "zinc": "https://zinc.ts.net:2772",
+    }
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("cobalt", "cobalt"), ("co.balt", "")],
+)
+def test_host_name_must_be_a_host_name(value, expected) -> None:
+    assert GlobalConfig.from_dict({"host_name": value}).host_name == expected
+
 
 class TestResolveContext:
     """Tests for resolve_context function."""

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
 from mael_agent.harness_model import HARNESS_CLAUDE
+from mael_agent.host_ids import IdSpace, owner_of
 from mael_domain import comms as comms_model
 from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
@@ -320,6 +321,8 @@ def agent_entity(
         "backgroundShells": background_shells_of_row(row.get("background")),
         # A row from the Claude daemon, read without the router, names none.
         "harness": row.get("harness") or HARNESS_CLAUDE,
+        "host": owner_of(str(row["id"])),
+        "parentUrl": row.get("parentUrl") or "",
     }
 
 
@@ -381,11 +384,21 @@ def link_agent(
     follows from it. The task is the one whose task session id the agent
     reports as its session: a launch pins ``session_id_for(project, task.id)``
     on the agent, so the reverse lookup is exact. No match leaves the ids empty.
+
+    A **Delegated agent**'s task is on its **Parent server**, so no task here matches
+    its session: its row names the task, and the project comes from the task id.
     """
     cwd = row.get("cwd") or ""
     session = row.get("session") or ""
     worktree = next((w for w in worktrees.values() if w["path"] == cwd), None)
     project = worktree["project"] if worktree else ""
+    if row.get("parentUrl"):
+        task_id = str(row.get("task_id") or "")
+        return AgentLink(
+            task_id=task_id,
+            project=project or (split_task_key(task_id)[0] if task_id else ""),
+            worktree_id=worktree["id"] if worktree else "",
+        )
     task = next(
         (
             t
@@ -452,17 +465,19 @@ def _gate_usage(raw: Any) -> GateUsage | None:
         return None
 
 
-def gate_job_entity(raw: dict[str, Any], worktree_ids: dict[str, str]) -> GateJob:
+def gate_job_entity(
+    raw: dict[str, Any], worktree_ids: dict[str, str], ids: IdSpace = IdSpace()
+) -> GateJob:
     """One job off ``tangier gate status --json``, as a ``GateJob``.
 
     ``worktree_ids`` maps each worktree's real path to its id. A job in a
     worktree the server does not know keeps its path, so the reader can still
-    name it.
+    name it. The job id takes the server's **Id prefix**.
     """
     path = str(raw.get("worktree") or "")
     worktree = worktree_ids.get(path)
     return {
-        "id": str(raw["id"]),
+        "id": ids.own(str(raw["id"])),
         # The gate table holds unfinished jobs only.
         "state": cast(GateJobState, str(raw.get("state") or "")),
         "queuePosition": raw.get("queue_position"),
@@ -512,17 +527,28 @@ def with_gates(worktrees: dict[str, Any], jobs: dict[str, GateJob]) -> dict[str,
     }
 
 
-def diff_kind(kind: str, old: dict[str, Any], new: dict[str, Any]) -> list[ServerEvent]:
+def diff_kind(
+    kind: str,
+    old: dict[str, Any],
+    new: dict[str, Any],
+    *,
+    owner: str | None = None,
+) -> list[ServerEvent]:
     """The upserts and removes that take a table from ``old`` to ``new``.
 
     Upserts come first, in ``new``'s order, then removes in ``old``'s order.
     An unchanged entity yields nothing, so a poll that finds no change is silent.
+
+    ``owner`` limits the removes to the ids that host owns (``""`` for bare
+    ids), so a reading of this server's own rows leaves a merged row alone.
     """
     events: list[ServerEvent] = []
     for entity_id, entity in new.items():
         if old.get(entity_id) != entity:
             events.append({"type": "upsert", "kind": kind, "entity": entity})
     for entity_id in old:
+        if owner is not None and owner_of(entity_id) != owner:
+            continue
         if entity_id not in new:
             events.append({"type": "remove", "kind": kind, "id": entity_id})
     return events
