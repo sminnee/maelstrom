@@ -834,13 +834,31 @@ def _merge_service_states(
     return merged
 
 
+def _should_install(
+    skip_install: bool | None,
+    services: list[str] | None,
+    project: str,
+    worktree: str,
+) -> bool:
+    """Whether a start runs ``install_cmd``.
+
+    An explicit ``skip_install`` wins. Else a full start always installs, and a
+    named start installs unless the last install passed. Either waits for a
+    running install to end first, so two installs never share the tree.
+    """
+    if skip_install is not None:
+        return not skip_install
+    status = wait_for_install(project, worktree)
+    return services is None or status is None or not status.passed
+
+
 def start_env(
     store: EnvStore,
     project: str,
     worktree: str,
     worktree_path: Path,
     *,
-    skip_install: bool = False,
+    skip_install: bool | None = None,
     services: list[str] | None = None,
     runner: ContainerRunner = _default_container_runner,
 ) -> EnvState:
@@ -849,7 +867,7 @@ def start_env(
     1. Cleans up stale state
     2. Skips services already running — locally, or anywhere in the project for
        a shared one
-    3. Runs install_cmd (unless skip_install)
+    3. Runs install_cmd, as :func:`_should_install` decides
     4. Splits services into local and shared (by ``ResolvedService.shared``)
     5. Starts or subscribes to shared services (container-first, injecting IPs)
     6. Spawns local services container-first, injecting any host vars before
@@ -899,8 +917,8 @@ def start_env(
     }
     local_services = [s for s in local_services if s.name not in running]
 
-    if not skip_install:
-        run_install_cmd(worktree_path)
+    if _should_install(skip_install, services, project, worktree):
+        run_install_cmd(worktree_path, (project, worktree))
 
     env = build_service_env(worktree_path)
     now = now_iso()
