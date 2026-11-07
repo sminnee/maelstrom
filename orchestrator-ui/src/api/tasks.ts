@@ -46,11 +46,12 @@ export function useLaunch() {
   return useMutation({
     // Resolves when the server takes the launch: the board and the console
     // carry the operation from there.
-    mutationFn: (vars: { taskId: TaskId; model?: string }) =>
-      api.post<OperationStarted>(
-        `/api/tasks/${vars.taskId}/launch`,
-        vars.model ? { model: vars.model } : {},
-      ),
+    // `host` names a **Remote host**; none launches on the server's own host.
+    mutationFn: (vars: { taskId: TaskId; model?: string; host?: string }) =>
+      api.post<OperationStarted>(`/api/tasks/${vars.taskId}/launch`, {
+        ...(vars.model ? { model: vars.model } : {}),
+        ...(vars.host ? { host: vars.host } : {}),
+      }),
     onSuccess: (_result, vars) => {
       invalidateTask(queryClient, vars.taskId);
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });

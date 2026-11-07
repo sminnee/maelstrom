@@ -167,6 +167,7 @@ export function emptyFakeWorld(): FakeWorld {
       socket: '',
       usage: null,
       codexUsage: null,
+      remoteHosts: [],
     },
   };
 }
@@ -2268,6 +2269,8 @@ function makeNewAgent(
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
+    parentUrl: '',
   };
 }
 

@@ -104,6 +104,8 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
+    parentUrl: '',
     ...over,
   };
 }

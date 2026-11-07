@@ -1271,6 +1271,22 @@ function launchFails(): Seed {
   return seed;
 }
 
+/** NORT-7.1 can launch; the remote host `cobalt` is online and `zinc` is not. */
+function remoteHost(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  world.tasks['NORT-7.1'] = { ...world.tasks['NORT-7.1']!, actionable: true };
+  world.agents['d9a4c7f1'] = { ...world.agents['d9a4c7f1']!, host: 'zinc' };
+  world.host = {
+    ...world.host!,
+    remoteHosts: [
+      { name: 'cobalt', online: true, since: T(9) },
+      { name: 'zinc', online: false, since: T(9) },
+    ],
+  };
+  return seed;
+}
+
 function hostDown(): Seed {
   const seed = seedWorld();
   seed.world.host = { ...seed.world.host!, reachable: false, since: T(3) };
@@ -1360,6 +1376,11 @@ export const SCENARIOS = {
   'launch-fails': {
     about: "NORT-7.1's card: its launch fails writing the worktree's .env.",
     build: launchFails,
+    screen: at({ card: { kind: 'task', id: 'NORT-7.1' } }),
+  },
+  'remote-host': {
+    about: "NORT-7.1's card: it launches here, or on cobalt; zinc is offline.",
+    build: remoteHost,
     screen: at({ card: { kind: 'task', id: 'NORT-7.1' } }),
   },
   'long-text': {

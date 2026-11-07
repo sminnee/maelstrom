@@ -1,9 +1,10 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptHandlers } from './Transcript';
 import { useAnswer, useApprove, useDeny, useInterrupt, useSay, useSetMode } from '../api/agents';
+import { useHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
 import { AgentStreamsContext, useAgentStream } from '../live/useAgentStream';
-import type { Agent, BackgroundShell } from '../protocol/entities';
+import type { Agent, BackgroundShell, RemoteHostState } from '../protocol/entities';
 import { modelLabel } from '../protocol/models';
 import { nextMode } from '../protocol/modes';
 import { contextSize } from '../protocol/tokens';
@@ -84,6 +85,7 @@ export function SessionTab({
   const streams = useContext(AgentStreamsContext);
   if (!streams) throw new Error('SessionTab outside LiveProvider');
   const { world } = useWorld();
+  const remoteHosts = useHost().data?.host?.remoteHosts ?? [];
   const agent = world.agents[agentId];
   const task = agent ? world.tasks[agent.taskId] : undefined;
   const isChild = Boolean(agent?.parent);
@@ -167,6 +169,8 @@ export function SessionTab({
   // drop out, as on the node card.
   const where = world.worktrees[agent.worktreeId];
   const metaParts = [
+    // The **Remote host** the agent runs on, first: a reader acts on it.
+    hostWords(agent.host, remoteHosts),
     // The qualified folder id, where the node card shows the bare nato word:
     // the card has a project above it to carry the prefix and this line has
     // nothing, so `bravo` alone would not say which project's bravo.
@@ -450,4 +454,15 @@ function FinishedSubagents({ agents }: { agents: Agent[] }) {
       ))}
     </details>
   );
+}
+
+/**
+ * `cobalt`, or `cobalt offline` while its link is down: the agent shows its
+ * last known state then. `''` for an agent on the server's own host, named or not.
+ */
+function hostWords(host: string, remoteHosts: RemoteHostState[]): string {
+  const known = remoteHosts.find((h) => h.name === host);
+  // A host this server does not link to is its own name: the agent is local.
+  if (!known) return '';
+  return known.online ? host : `${host} offline`;
 }
