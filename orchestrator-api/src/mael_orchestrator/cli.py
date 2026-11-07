@@ -25,6 +25,7 @@ from pathlib import Path
 import click
 
 from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
+from mael_agent.host_ids import IdSpace
 from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
@@ -72,12 +73,14 @@ from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
 from .gate_source import watch_gates
 from .language_servers import LanguageServers
+from .remote_hosts import RemoteHost
 from .routes import Bind, build_app, serve_app
 from .server import WORKTREE_POLL_SECS, Orchestrator
 from .sources import (
     CloseBlocked,
     ListAllWorktreeSource,
     NotebookTaskSource,
+    WorktreeOpener,
 )
 
 DEFAULT_HOST = "127.0.0.1"
@@ -341,13 +344,13 @@ def build_orchestrator(
     tasks = NotebookTaskSource(
         table,
         list_projects,
-        open_worktree=open_worktree,
-        refresh_env=write_env,
-        worktree_executor=worktree_executor,
         agents=agent_store,
         landings=landings,
         # Read at start: a config change needs an orchestrator restart.
         schedule_zone=config.schedule_zone_label(),
+    )
+    opener = WorktreeOpener(
+        open_worktree, write_env, worktree_executor=worktree_executor
     )
     worktrees = ListAllWorktreeSource(
         projects_dir,
@@ -363,10 +366,13 @@ def build_orchestrator(
         terminal_urls=terminal_urls,
         add_project=functools.partial(clone_project, projects_dir),
     )
+    # The one place the id prefix is read: every reader below is given it.
+    ids = IdSpace(config.host_name)
     daemon = DaemonRouter(
         SocketAsyncDaemonClient(str(daemon_paths().socket)),
         CodexDaemonClient(CodexBridge()),
         agent_store,
+        ids=ids,
     )
     return Orchestrator(
         tasks,
@@ -390,6 +396,12 @@ def build_orchestrator(
             sys.prefix,
             production=os.environ.get("MAEL_PRODUCTION") == "1",
         ),
+        remote_hosts={
+            name: RemoteHost(name, url) for name, url in config.hosts.items()
+        },
+        opener=opener,
+        ids=ids,
+        own_url=config.orchestrator_url or "",
     )
 
 

@@ -20,7 +20,9 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import BodyPartReader, WSCloseCode, WSMsgType, web
+from yarl import URL
 
+from mael_agent.host_ids import owner_of
 from mael_domain import task_documents
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
 from mael_domain.diff_groups import group_files, read_diff_groups
@@ -43,6 +45,7 @@ from mael_domain.worktree_changes import (
 
 from .hubs import Lagging
 from .lsp_client import LspError
+from .remote_hosts import HostUnreachable
 from .server import Orchestrator, task_document_refusal
 
 log = logging.getLogger(__name__)
@@ -78,6 +81,8 @@ STATUS_FOR_CODE = {
     "cannot_update": 409,
     "not_implemented": 501,
     "language_server_failed": 502,
+    "unreachable": 502,
+    "forbidden": 403,
 }
 
 #: The error code for an HTTP status aiohttp raises on its own.
@@ -94,7 +99,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
 
     ``web_root`` is the built UI, served beside the API on one origin.
     """
-    app = web.Application(middlewares=[_json_errors])
+    app = web.Application(middlewares=[_json_errors, _same_origin, _host_owned])
     app[ORCH] = orch
 
     app[SOCKETS] = set()
@@ -164,6 +169,8 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_post("/api/tasks/{project}/{id}/status", _set_status)
     app.router.add_patch("/api/tasks/{project}/{id}", _update_task)
     app.router.add_delete("/api/tasks/{project}/{id}", _delete_task)
+    app.router.add_put("/api/tasks/{project}/{id}/pr", _register_pr)
+    app.router.add_delete("/api/tasks/{project}/{id}/pr", _withdraw_pr)
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
@@ -277,6 +284,73 @@ async def _json_errors(request: web.Request, handler: Handler) -> web.StreamResp
         code = CODE_FOR_STATUS.get(exc.status, "invalid")
         body = {"error": {"code": code, "message": exc.reason or exc.text or ""}}
         return web.json_response(body, status=exc.status)
+
+
+#: Methods that change nothing, which a page on another site may send.
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
+@web.middleware
+async def _same_origin(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Refuse a state-changing ``/api`` request from a page on another site.
+
+    A browser always names the page's origin; a parent server that forwards
+    a request, and the CLI, send none. See "Same origin" in
+    ``docs/dev/remote-hosts.md``. The scheme is not compared: the UI's dev
+    server serves HTTPS and proxies to this server over HTTP.
+    """
+    origin = request.headers.get("Origin")
+    if (
+        origin is not None
+        and request.method not in _SAFE_METHODS
+        and request.path.startswith("/api/")
+        and URL(origin).raw_authority != request.host
+    ):
+        return error_response("forbidden", f"{origin} is not this server's origin")
+    return await handler(request)
+
+
+#: The routes whose ``{id}`` may name an entity a **Remote host** owns. A
+#: route under one of them is included. A desk id is never one.
+HOST_OWNED_ROUTES = (
+    "/api/agents/{id}",
+    "/api/documents/{id}",
+    "/api/files/{id}",
+    "/api/worktrees/{id}",
+)
+
+#: The routes whose bare ``{id}`` reads as one of this server's own ids: a
+#: CLI that names a worktree or an agent bare still reaches it.
+RESOLVED_ROUTES = ("/api/agents/{id}", "/api/worktrees/{id}")
+
+
+def _under(canonical: str, templates: tuple[str, ...]) -> bool:
+    return any(canonical == t or canonical.startswith(f"{t}/") for t in templates)
+
+
+@web.middleware
+async def _host_owned(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Send a request for a host-owned id to that host, unchanged.
+
+    See "Merge and dispatch" in ``docs/dev/remote-hosts.md``. An offline host
+    answers ``unreachable`` at once.
+    """
+    resource = request.match_info.route.resource
+    canonical = resource.canonical if resource is not None else ""
+    entity_id = request.match_info.get("id", "")
+    if not entity_id or not _under(canonical, HOST_OWNED_ROUTES):
+        return await handler(request)
+    orch = request.app[ORCH]
+    owner = owner_of(entity_id)
+    remote = orch.remote_hosts.get(owner) if owner != orch.ids.prefix else None
+    if remote is not None:
+        try:
+            return await remote.forward(request)
+        except HostUnreachable as exc:
+            return error_response("unreachable", str(exc))
+    if not owner and _under(canonical, RESOLVED_ROUTES):
+        request.match_info["id"] = orch.ids.resolve(entity_id)
+    return await handler(request)
 
 
 async def _not_implemented(request: web.Request) -> web.Response:
@@ -988,7 +1062,10 @@ def _task_id(request: web.Request) -> str:
 
 
 async def _launch(request: web.Request) -> web.StreamResponse:
-    """Launch a task. It opens a worktree, so it runs as an operation."""
+    """Launch a task. It opens a worktree, so it runs as an operation.
+
+    ``host`` names a **Remote host** to delegate the launch to; none is here.
+    """
     task_id = _task_id(request)
     return await _command(
         request,
@@ -996,6 +1073,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
             "type": "agent.launch",
             "taskId": task_id,
             **({"model": body["model"]} if body.get("model") else {}),
+            **({"host": body["host"]} if body.get("host") else {}),
         },
         status=202,
     )
@@ -1029,8 +1107,34 @@ async def _delete_task(request: web.Request) -> web.StreamResponse:
     )
 
 
+async def _register_pr(request: web.Request) -> web.StreamResponse:
+    """Register ``{number, url}`` as the task's PR: a delegated agent's ``gh-pr`` link."""
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "task.registerPr",
+            "taskId": task_id,
+            "number": body.get("number"),
+            "url": body.get("url"),
+        },
+    )
+
+
+async def _withdraw_pr(request: web.Request) -> web.StreamResponse:
+    """Withdraw the task's Registered PR."""
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda _body: {"type": "task.withdrawPr", "taskId": task_id}
+    )
+
+
 async def _start_free_agent(request: web.Request) -> web.StreamResponse:
-    """Start an agent tied to no task. It may open a worktree, so it runs as an operation."""
+    """Start an agent from a start spec. It may open a worktree, so it runs as an operation.
+
+    A free agent's spec names no task. A parent's delegated launch names the
+    task, its session and env, and the ``parentUrl``.
+    """
     return await _command(
         request, lambda body: {**body, "type": "agent.start"}, status=202
     )
@@ -1428,7 +1532,10 @@ async def _events(request: web.Request) -> web.StreamResponse:
     response = web.StreamResponse(headers=headers)
     await response.prepare(request)
     with orch.notices.subscribe() as subscriber:
-        await response.write(_sse("reset", {"epoch": orch.epoch}))
+        # The prefix lets a parent check that its `hosts:` key is this name.
+        await response.write(
+            _sse("reset", {"epoch": orch.epoch, "idPrefix": orch.ids.prefix})
+        )
         while True:
             try:
                 batch = await asyncio.wait_for(subscriber.next(), PING_SECS)

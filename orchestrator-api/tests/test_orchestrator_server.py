@@ -15,7 +15,7 @@ import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import quote
@@ -23,6 +23,7 @@ from urllib.parse import quote
 import aiohttp
 import pytest
 from agent_fixtures import make_change_comment, read_stamped_fixture
+from aiohttp import web
 from git_helpers import bare_remote, create_commit, setup_git_repo, setup_origin_main
 from git_helpers import run_git as git
 from yarl import URL
@@ -32,6 +33,7 @@ from mael_agent.agent_wire import (
     PendingRequest,
     reply_for_approval,
 )
+from mael_agent.host_ids import IdSpace
 from mael_daemon.agent_model import (
     AgentState,
     build_agent_row,
@@ -40,6 +42,7 @@ from mael_domain import comms as comms_model
 from mael_domain import operations as operations_model
 from mael_domain import task as model
 from mael_domain import task_documents
+from mael_domain.agent_store import SqliteAgentStore
 from mael_domain.comm_store import (
     CommItem,
     CommUpdate,
@@ -74,18 +77,22 @@ from mael_domain.protocol import HostUsage
 from mael_domain.release_bundle.layout import MANIFEST, Manifest
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
+from mael_domain.state_db.migrate import open_state_db
 from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
+from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_model import extract_project_name
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
 from mael_orchestrator.cli import clone_project
+from mael_orchestrator.daemon_bridge import DaemonRouter
 from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.language_servers import LanguageServers
 from mael_orchestrator.live_feedback import LiveFeedbackHub
+from mael_orchestrator.remote_hosts import MERGED_KINDS, HostUnreachable, RemoteHost
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
 from mael_orchestrator.sources import (
@@ -93,6 +100,7 @@ from mael_orchestrator.sources import (
     InMemoryWorktreeSource,
     NotebookTaskSource,
     PrStateCache,
+    WorktreeOpener,
 )
 from mael_orchestrator.world_build import project_entity, split_task_key
 
@@ -115,7 +123,7 @@ read_fixture = read_stamped_fixture
 class Harness:
     """An orchestrator over in-memory sources and a scripted agent host."""
 
-    def __init__(self, store, *, desk=None, projects=(PROJECT,), **over):
+    def __init__(self, store, *, desk=None, projects=(PROJECT,), daemon=None, **over):
         self.store = store
         self.version = 0
         self.projects = list(projects)
@@ -124,8 +132,6 @@ class Harness:
             lambda: list(self.projects),
             version=lambda: str(self.version),
             landings=over.get("landings"),
-            # Never the real machine's claude processes.
-            live_sessions=lambda: LiveSessionSet([]),
         )
         self.comms = InMemoryCommStore()
         self.worktrees = InMemoryWorktreeSource(
@@ -164,9 +170,15 @@ class Harness:
                 }
             ],
         )
-        self.daemon = ScriptedAsyncDaemonClient()
-        self.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
-            path=Path(WORKTREE_PATH), name="alpha", action="reused"
+        #: The scripted host, or the router a remote-host test puts in front.
+        self.daemon = daemon if daemon is not None else ScriptedAsyncDaemonClient()
+        self.opener = WorktreeOpener(
+            lambda project, branch, base: WorktreeSetup(
+                path=Path(WORKTREE_PATH), name="alpha", action="reused"
+            ),
+            # Never the real machine's claude processes, or its transcripts.
+            live_sessions=lambda: LiveSessionSet([]),
+            has_transcript=lambda path, session: False,
         )
         self.tasks.infer = lambda draft: TaskNames(
             title="Export the orders", branch="feat/order-export", command=""
@@ -180,6 +192,7 @@ class Harness:
             clock=lambda: NOW,
             desk=desk,
             comms=self.comms,
+            opener=self.opener,
             **options,
         )
 
@@ -1648,6 +1661,43 @@ def test_an_exited_agent_or_a_subagent_on_the_session_does_not_block_a_launch(
     assert run(scenario())["state"] == "done"
 
 
+@pytest.mark.parametrize(
+    ("launch_model", "transcript", "resume"),
+    [
+        # A task that ran before has a transcript of its session: it resumes.
+        ("", True, True),
+        # A task that never ran claims its session id fresh.
+        ("", False, False),
+        # A Codex thread is found by session id, with no transcript file.
+        ("codex:sol", False, True),
+    ],
+)
+def test_a_launch_resumes_its_session_only_when_it_ran_before(
+    harness, launch_model, transcript, resume
+):
+    harness.add_task("NORT-7")
+    asked: list[tuple[Path, str]] = []
+
+    def has_transcript(path: Path, session: str) -> bool:
+        asked.append((path, session))
+        return transcript
+
+    harness.opener.has_transcript = has_transcript
+    body = {"model": launch_model} if launch_model else {}
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch", body)
+
+    assert run(scenario())["state"] == "done"
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    session = model.session_id_for(PROJECT, "NORT-7")
+    assert start["session"] == session
+    assert start["resume"] is resume
+    if not launch_model:
+        assert asked == [(Path(WORKTREE_PATH), session)]
+
+
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     harness.add_task("NORT-7")
     harness.daemon.replies["start"] = [
@@ -1673,8 +1723,8 @@ def test_a_launch_whose_env_write_fails_rolls_the_task_back_and_fails(harness):
     def refresh_env(project: str, setup: WorktreeSetup) -> list[str]:
         raise OSError("disk full")
 
-    harness.tasks.refresh_env = refresh_env
-    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.refresh_env = refresh_env
+    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path(WORKTREE_PATH), name="alpha", action="recycled"
     )
 
@@ -1700,9 +1750,9 @@ def test_write_env_rebuilds_a_reopened_worktree_and_leaves_a_created_one(harness
         written.append((project, setup.name))
         return ["Regenerated .env for northwind/alpha."]
 
-    harness.tasks.refresh_env = refresh_env
+    harness.opener.refresh_env = refresh_env
     actions = iter(["recycled", "created"])
-    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path(WORKTREE_PATH), name="alpha", action=next(actions)
     )
 
@@ -1730,7 +1780,7 @@ def test_a_second_launch_of_one_task_is_busy(harness):
         release.wait(timeout=2)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
 
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -1759,7 +1809,7 @@ def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
         held_to_timeout.append(not release.wait(timeout=2))
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
 
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -1779,7 +1829,7 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
 
     harness = Harness(store)
     harness.add_task("NORT-7")
-    harness.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path(WORKTREE_PATH),
         name="alpha",
         action="recycled",
@@ -3124,7 +3174,7 @@ def test_the_notice_stream_opens_with_a_reset_carrying_the_epoch(harness):
 
     reset = run(scenario())
     assert reset["event"] == "reset"
-    assert reset["data"] == {"epoch": harness.orch.epoch}
+    assert reset["data"] == {"epoch": harness.orch.epoch, "idPrefix": ""}
     assert len(harness.orch.epoch) == 8
 
 
@@ -4608,7 +4658,7 @@ def test_a_create_that_names_and_launches_opens_the_branch_it_named(harness):
         opened.append(branch)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -4994,7 +5044,7 @@ def test_an_investigation_without_its_rules_is_refused_before_the_worktree(
     (markers_only / "agent-prompt.md").write_text("markers")
     monkeypatch.setattr(shared_dir, "get_shared_dir", lambda: markers_only)
     opened: list[str] = []
-    harness.tasks.open_worktree = lambda project, branch, base: opened.append(branch)
+    harness.opener.open_worktree = lambda project, branch, base: opened.append(branch)
 
     reply = _investigate(harness)
     assert reply.status == 400
@@ -5010,7 +5060,7 @@ def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
         opened.append((project, branch, base))
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -5060,7 +5110,7 @@ def test_a_free_agent_with_no_branch_names_one_from_its_prompt(harness):
         opened.append(branch)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -5096,7 +5146,7 @@ def test_a_retried_free_agent_opens_the_branch_its_first_run_named(harness):
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
     harness.tasks.infer = infer
-    harness.tasks.open_worktree = open_worktree
+    harness.opener.open_worktree = open_worktree
 
     async def scenario():
         async with harness.client() as api:
@@ -12890,3 +12940,453 @@ def test_an_unknown_task_document_is_not_found(harness):
             )
 
     assert run(scenario()).status == 404
+
+
+# --- remote hosts ------------------------------------------------------------
+
+
+class Cobalt:
+    """A child orchestrator named ``cobalt``: a router over scripted daemons.
+
+    Its worktrees open at ``path``. Its tasks are its own table's. ``serve``
+    serves it on loopback, at ``port`` when given, so a test can stop it and
+    bring it back where the parent's link expects it.
+    """
+
+    def __init__(self, path: Path, agents: SqliteAgentStore) -> None:
+        self.claude = ScriptedAsyncDaemonClient()
+        self.store = InMemoryTaskTable()
+        self.router = DaemonRouter(
+            self.claude, ScriptedAsyncDaemonClient(), agents, ids=IdSpace("cobalt")
+        )
+        self.path = path
+        self.harness = self.build()
+
+    def build(self) -> Harness:
+        harness = Harness(self.store, daemon=self.router, ids=IdSpace("cobalt"))
+        harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
+            path=self.path, name="bravo", action="created"
+        )
+        harness.opener.has_transcript = lambda path, session: True
+        return harness
+
+    def serve(self, port: int = 0):
+        return serving(build_app(self.harness.orch), [("127.0.0.1", None)], port)
+
+
+@asynccontextmanager
+async def cobalt_and_parent(store, cobalt_path: Path):
+    """``cobalt`` served on loopback, and a served parent that lists it in ``hosts:``.
+
+    Yields the child, the parent's harness, the parent's API client, and the
+    child's port. The parent's URL is the ``parentUrl`` it sends.
+    ``child.served`` stops the child, as a host that goes to sleep.
+    """
+    db = open_state_db(":memory:")
+    await db.migrate()
+    child = Cobalt(cobalt_path, SqliteAgentStore(db))
+    async with AsyncExitStack() as served, AsyncExitStack() as stack:
+        port = await served.enter_async_context(child.serve())
+        child.served = served
+        link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
+        parent = Harness(store, remote_hosts={"cobalt": link})
+        api = await stack.enter_async_context(parent.client())
+        parent.orch.own_url = str(api.session._base_url).rstrip("/")
+        await until(api, "/api/host", online)
+        yield child, parent, api, port
+    db.close()
+
+
+def has_task(task_id: str):
+    return lambda body: task_id in [t["id"] for t in body["tasks"]]
+
+
+def online(body) -> bool:
+    return [(h["name"], h["online"]) for h in body["host"]["remoteHosts"]] == [
+        ("cobalt", True)
+    ]
+
+
+def merged(api, agent_id: str, predicate=lambda a: True):
+    """The parent's own world reading of ``agent_id``, not the child's.
+
+    ``/api/agents/{id}`` is forwarded to the child, so the list is what says
+    what the parent merged.
+    """
+    return until(
+        api,
+        "/api/agents",
+        lambda b: any(a["id"] == agent_id and predicate(a) for a in b["agents"]),
+    )
+
+
+def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_parent(
+    store, tmp_path
+):
+    """Delegation end to end: launch, merge, stream, drive, files, tasks, PRs."""
+    (tmp_path / "note.md").write_text("Read this.\n")
+    (tmp_path / "draft-one.md").write_text(model.draft_markdown(title="First step"))
+    backlog, _rest = split_at_control_response(read_fixture("permission-request.jsonl"))
+    seen: dict = {}
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            await parent.add_task_async("NORT-7", content="Do it.")
+            await child.harness.add_task_async("NORT-1", title="Cobalt's own")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            op = await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            seen["op"] = op
+            seen["agents"] = await merged(api, "cobalt:new1", lambda a: a["taskId"])
+            seen["desk"] = await api.get_json("/api/desk")
+            seen["worktrees"] = await api.get_json("/api/worktrees")
+
+            async with api.transcript_stream("cobalt:new1") as ws:
+                seen["opening"] = await ws_next(ws)
+                for event in read_fixture("normal-turn.jsonl"):
+                    child.claude.push("new1", event)
+                seen["frame"] = await ws_next(ws, is_event("transcript.append"))
+
+            child.claude.push("new1", tag_event(DRAFT_TAG))
+            docs = await until(api, "/api/documents", lambda b: b["documents"])
+            document = await api.get_json(
+                f"/api/documents/{docs['documents'][0]['id']}"
+            )
+            seen["file"] = await api.get(f"/api/files/{document['source']['fileId']}")
+
+            child.claude.push("new1", tag_event(tasks_tag("draft-one.md")))
+            sets = await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["kind"] == "tasks" for d in b["documents"]),
+            )
+            task_set = next(d for d in sets["documents"] if d["kind"] == "tasks")
+            seen["approved"] = await api.post(
+                f"/api/documents/{task_set['id']}/approve",
+                {"version": task_set["version"]},
+            )
+
+            child.claude.push("new1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>'))
+            seen["pr"] = await until(
+                api, "/api/tasks/northwind/NORT-7", lambda t: t["prNumber"]
+            )
+
+            pending = pending_from(backlog)
+            child.claude.pending["new1"] = pending
+            child.claude.rows["new1"]["state"] = pending.wait_kind
+            for event in backlog:
+                child.claude.push("new1", event)
+            waiting = await merged(api, "cobalt:new1", lambda a: a["pendingRequestIds"])
+            request_id = next(a for a in waiting["agents"] if a["id"] == "cobalt:new1")[
+                "pendingRequestIds"
+            ][0]
+            seen["approve"] = await api.post(
+                "/api/agents/cobalt:new1/approve", {"requestId": request_id}
+            )
+            seen["say"] = await api.post("/api/agents/cobalt:new1/say", {"text": "hi"})
+
+            # A direct agent on cobalt works on cobalt's own tasks.
+            child.claude.next_start_id = "own1"
+            async with aiohttp.ClientSession(
+                base_url=f"http://127.0.0.1:{port}"
+            ) as session:
+                child_api = Api(session)
+                await until(child_api, "/api/tasks", has_task("northwind/NORT-1"))
+                await operated(child_api, "/api/tasks/northwind/NORT-1/launch")
+                seen["direct"] = await merged(api, "cobalt:own1")
+
+                # The child's operations are not merged yet (task dq5o.2), so
+                # the stop is followed on the child.
+                stopping = await api.post("/api/agents/cobalt:new1/stop")
+                seen["stop"] = await ended(child_api, stopping.body["operationId"])
+            return child
+
+    child = run(scenario())
+    op = seen["op"]
+    assert (op["state"], op["agentId"]) == ("done", "cobalt:new1")
+
+    # (1) The child's daemon starts the task's session, told of its parent.
+    start = next(c for c in child.claude.calls if c["cmd"] == "start")
+    assert start["session"] == model.session_id_for(PROJECT, "NORT-7")
+    assert start["env"]["MAEL_TASK_ID"] == "NORT-7"
+    assert start["env"]["MAEL_PARENT_URL"].startswith("http://127.0.0.1:")
+    assert start["resume"] is True
+    assert "parentUrl" not in start
+
+    # (2) The parent's world holds the agent with its task, on its desk.
+    agent = next(a for a in seen["agents"]["agents"] if a["id"] == "cobalt:new1")
+    assert (agent["taskId"], agent["host"]) == ("northwind/NORT-7", "cobalt")
+    assert "task:northwind/NORT-7" in [e["id"] for e in seen["desk"]["desk"]]
+    assert "cobalt:northwind-alpha" in [w["id"] for w in seen["worktrees"]["worktrees"]]
+
+    # (3) A pushed event reaches the parent's stream of the agent.
+    assert seen["opening"]["type"] == "transcript.snapshot"
+    assert seen["frame"]["event"]["item"]
+
+    # (5) A remote file is the child's file.
+    assert seen["file"].status == 200
+    assert seen["file"].body == "Read this.\n"
+
+    # (6) The task set lands on the parent's notebook, not the child's.
+    assert seen["approved"].status == 200, seen["approved"].body
+    parent_titles = [t.title for t in run(model.list_tasks(store, project=PROJECT))]
+    assert "First step" in parent_titles
+    child_titles = [
+        t.title for t in run(model.list_tasks(child.store, project=PROJECT))
+    ]
+    assert child_titles == ["Cobalt's own"]
+
+    # (7) The gh-pr link registers on the parent's task.
+    assert seen["pr"]["prNumber"] == 118
+
+    # (4) Approve, say and stop reach the child's daemon with bare ids.
+    assert seen["approve"].status == 200, seen["approve"].body
+    assert seen["say"].status == 200, seen["say"].body
+    assert seen["stop"]["state"] == "done"
+    sent = [
+        c
+        for c in child.claude.calls
+        if c["cmd"] in ("approve", "stop") or c.get("text") == "hi"
+    ]
+    assert [(c["cmd"], c["id"]) for c in sent] == [
+        ("approve", "new1"),
+        ("say", "new1"),
+        ("stop", "new1"),
+    ]
+
+    # (8) A direct agent uses the child's own tasks; the parent shows it with
+    # no task, since its task id names a task in another notebook.
+    direct = next(a for a in seen["direct"]["agents"] if a["id"] == "cobalt:own1")
+    assert direct["taskId"] == ""
+    assert run(model.load(child.store, PROJECT, "NORT-1")).status == "in-progress"
+
+
+def test_a_delegated_launch_the_host_refuses_rolls_the_task_back(store, tmp_path):
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            child.claude.replies["start"] = [{"error": "could not start claude"}]
+            await parent.add_task_async("NORT-7")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            return await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert "could not start claude" in op["words"]
+    assert run(model.load(store, PROJECT, "NORT-7")).status == "todo"
+
+
+def test_a_delegated_launch_whose_wait_is_lost_keeps_the_claim(store, tmp_path):
+    """The host took the start, so it may still run the agent: the task stays."""
+
+    async def lost(operation_id: str):
+        raise HostUnreachable("cobalt is offline")
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            parent.orch.remote_hosts["cobalt"].await_operation = lost
+            await parent.add_task_async("NORT-7")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            return await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert op["words"].endswith("The task stays in progress.")
+    assert run(model.load(store, PROJECT, "NORT-7")).status == "in-progress"
+
+
+def test_a_delegated_launch_needs_the_parents_own_url(store, tmp_path):
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            parent.orch.own_url = ""
+            await parent.add_task_async("NORT-7")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            op = await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            return op, child
+
+    op, child = run(scenario())
+    assert op["state"] == "refused"
+    assert "orchestrator_url" in op["words"]
+    assert run(model.load(store, PROJECT, "NORT-7")).status == "todo"
+    assert not [c for c in child.claude.calls if c["cmd"] == "start"]
+
+
+def test_a_remote_host_that_goes_away_is_offline_and_comes_back(store, tmp_path):
+    """(9) The agent stays while its host is away, and the slice comes back."""
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            await parent.add_task_async("NORT-7")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            await merged(api, "cobalt:new1")
+            # Stop the child, as a host that goes to sleep.
+            await child.served.aclose()
+            away = await until(api, "/api/host", lambda b: not online(b))
+            kept = await api.get_json("/api/agents")
+            forwarded = await api.get("/api/agents/cobalt:new1")
+            child.harness = child.build()
+            async with child.serve(port):
+                back = await until(api, "/api/host", online)
+                again = await merged(api, "cobalt:new1")
+            return away, kept, forwarded, back, again
+
+    away, kept, forwarded, back, again = run(scenario())
+    assert away["host"]["remoteHosts"][0]["online"] is False
+    assert "cobalt:new1" in [a["id"] for a in kept["agents"]]
+    # An offline host answers at once.
+    assert forwarded.status == 502
+    assert forwarded.body["error"]["code"] == "unreachable"
+    assert online(back)
+    assert "cobalt:new1" in [a["id"] for a in again["agents"]]
+
+
+def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
+    """A host serves what it holds: some rows are not its own work, or not ours."""
+    row = Harness(store).worktrees.worktrees[0]
+    worktrees = [
+        {**row, "id": "cobalt:northwind-bravo"},
+        # Another project: this server has no such project to show it under.
+        {**row, "id": "cobalt:acme-alpha", "project": "acme"},
+        # A third host's row, merged on cobalt: not cobalt's own work.
+        {**row, "id": "zinc:northwind-charlie"},
+        # A bare id: not made under the host's prefix.
+        {**row, "id": "northwind-delta"},
+        {k: v for k, v in row.items() if k != "id"},
+    ]
+    documents = [
+        {"id": "doc1", "agentId": "cobalt:a1"},
+        # Attached to a task, with no agent: the host's own world, not its work.
+        {"id": "doc2", "agentId": ""},
+    ]
+
+    async def events(request: web.Request) -> web.StreamResponse:
+        response = web.StreamResponse()
+        await response.prepare(request)
+        data = '{"epoch": "e1", "idPrefix": "cobalt"}'
+        await response.write(f"event: reset\ndata: {data}\n\n".encode())
+        await asyncio.Event().wait()
+        return response
+
+    def listing(key: str, rows: list):
+        async def handler(request: web.Request) -> web.Response:
+            return web.json_response({key: rows})
+
+        return handler
+
+    app = web.Application()
+    app.router.add_get("/api/events", events)
+    for kind, (path, key) in MERGED_KINDS.items():
+        rows = {"worktree": worktrees, "document": documents}.get(kind, [])
+        app.router.add_get(path, listing(key, rows))
+
+    async def scenario():
+        async with serving(app, [("127.0.0.1", None)], 0) as port:
+            link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
+            parent = Harness(store, remote_hosts={"cobalt": link})
+            async with parent.client() as api:
+                body = await until(
+                    api,
+                    "/api/worktrees",
+                    lambda b: (
+                        "cobalt:northwind-bravo" in [w["id"] for w in b["worktrees"]]
+                    ),
+                )
+                return body, dict(parent.orch.world["documents"])
+
+    body, merged_documents = run(scenario())
+    assert {w["id"] for w in body["worktrees"]} == {
+        "northwind-alpha",
+        "cobalt:northwind-bravo",
+    }
+    assert list(merged_documents) == ["doc1"]
+
+
+def test_a_local_refresh_leaves_a_merged_row_alone(harness):
+    """A reading of this server's own worktrees removes only its own."""
+    merged_row = {**harness.worktrees.worktrees[0], "id": "cobalt:northwind-alpha"}
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/worktrees", lambda b: b["worktrees"])
+            harness.orch._apply(
+                [{"type": "upsert", "kind": "worktree", "entity": merged_row}]
+            )
+            await harness.orch.refresh_worktrees(force=True)
+            return await api.get_json("/api/worktrees")
+
+    body = run(scenario())
+    assert {w["id"] for w in body["worktrees"]} == {
+        "northwind-alpha",
+        "cobalt:northwind-alpha",
+    }
+
+
+def test_a_bare_worktree_id_resolves_to_the_servers_own_prefix(store):
+    harness = Harness(store, ids=IdSpace("cobalt"))
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/worktrees", lambda b: b["worktrees"])
+            return (
+                await api.get("/api/worktrees/northwind-alpha/changes"),
+                await api.get("/api/worktrees/zinc:northwind-alpha/changes"),
+            )
+
+    bare, other = run(scenario())
+    # The handler found the worktree, and only git failed on its fake path.
+    assert bare.status == 400, bare.body
+    assert "git could not read the worktree" in bare.body["error"]["message"]
+    # An owner this server has no link to names no worktree here.
+    assert other.status == 404
+
+
+def test_a_state_change_from_another_origin_is_refused(harness):
+    async def scenario():
+        async with harness.client() as api:
+            own = str(api.session._base_url).rstrip("/")
+            replies = {}
+            for name, headers in (
+                ("other", {"Origin": "https://example.com"}),
+                ("same", {"Origin": own}),
+                ("none", {}),
+            ):
+                async with api.session.post(
+                    "/api/desk", json={"id": "task:northwind/x"}, headers=headers
+                ) as response:
+                    replies[name] = response.status
+            return replies
+
+    replies = run(scenario())
+    assert replies["other"] == 403
+    # Past the check, the desk route answers: it has no such task.
+    assert replies["same"] == 404
+    assert replies["none"] == 404
+
+
+def test_the_pr_routes_register_and_withdraw_a_tasks_pr(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/tasks", lambda b: b["tasks"])
+            async with api.session.put(
+                "/api/tasks/northwind/NORT-7/pr", json={"number": 118, "url": PR_URL}
+            ) as response:
+                registered = (response.status, await response.json())
+            withdrawn = await api.delete("/api/tasks/northwind/NORT-7/pr")
+            return registered, withdrawn
+
+    (status, task), withdrawn = run(scenario())
+    assert status == 200, task
+    assert (task["prNumber"], task["prUrl"]) == (118, PR_URL)
+    assert withdrawn.status == 200, withdrawn.body
+    assert withdrawn.body["prWithdrawn"] is True

@@ -7,7 +7,7 @@ command the same way the fake backend does, before the host is touched.
 import pytest
 from agent_fixtures import make_agent, make_change_comment, make_document
 
-from mael_domain.protocol import empty_world
+from mael_domain.protocol import HOST_ID, empty_world
 from mael_orchestrator.validate import validate_command
 
 
@@ -253,6 +253,21 @@ def test_accepts_a_launch_of_an_actionable_task():
         validate_command(world, {"type": "agent.launch", "taskId": "northwind/NORT-7"})
         is None
     )
+
+
+@pytest.mark.parametrize(
+    ("host", "message"),
+    [("zinc", "No remote host zinc"), ("cobalt", "cobalt is offline")],
+)
+def test_invalid_for_launching_on_a_host_that_is_unknown_or_offline(host, message):
+    world = world_with(tasks=[make_task()])
+    world["host"][HOST_ID] = {
+        "id": HOST_ID,
+        "remoteHosts": [{"name": "cobalt", "online": False, "since": ""}],
+    }
+    cmd = {"type": "agent.launch", "taskId": "northwind/NORT-7", "host": host}
+    error = validate_command(world, cmd)
+    assert (code(error), error["message"]) == ("invalid", message)
 
 
 def test_unknown_id_for_adding_a_task_not_in_the_world_to_the_desk():
@@ -766,6 +781,104 @@ def test_a_free_agent_on_a_branch_with_a_prompt_is_allowed():
         "mode": "normal",
     }
     assert validate_command(world, cmd) is None
+
+
+def _start(**over) -> dict:
+    cmd = {
+        "type": "agent.start",
+        "project": "northwind",
+        "branch": "feat/x",
+        "prompt": "Look at the logs",
+        "mode": "normal",
+    }
+    cmd.update(over)
+    return cmd
+
+
+DELEGATED = {
+    "parentUrl": "https://monolith.example:8080",
+    "session": "sess-1",
+    "taskId": "monolith/northwind/NORT-7",
+}
+
+
+def test_a_delegated_start_naming_its_task_session_and_env_is_allowed():
+    world = world_with(projects=[PROJECT])
+    cmd = _start(**DELEGATED, env={"PORT_BASE": "310"})
+    assert validate_command(world, cmd) is None
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"base": 7}, "base must be a string"),
+        ({**DELEGATED, "session": 7}, "session must be a string"),
+        ({**DELEGATED, "taskId": 7}, "taskId must be a string"),
+        ({"parentUrl": 7}, "parentUrl must be a string"),
+        ({**DELEGATED, "env": ["PORT_BASE=310"]}, "env maps names to strings"),
+        ({**DELEGATED, "env": {"PORT_BASE": 310}}, "env maps names to strings"),
+        (
+            {**DELEGATED, "parentUrl": "ftp://monolith.example"},
+            "parentUrl is an HTTP(S) URL",
+        ),
+        (
+            {**DELEGATED, "session": ""},
+            "A delegated start names its task and session",
+        ),
+        (
+            {**DELEGATED, "taskId": ""},
+            "A delegated start names its task and session",
+        ),
+        ({"session": "sess-1"}, "Only a delegated start names a session, env or task"),
+        (
+            {"taskId": "northwind/NORT-7"},
+            "Only a delegated start names a session, env or task",
+        ),
+        (
+            {"env": {"PORT_BASE": "310"}},
+            "Only a delegated start names a session, env or task",
+        ),
+    ],
+)
+def test_a_start_refuses_a_bad_spec(over, message):
+    world = world_with(projects=[PROJECT])
+    assert validate_command(world, _start(**over)) == {
+        "code": "invalid",
+        "message": message,
+    }
+
+
+def test_a_pr_registration_with_a_number_and_an_https_url_is_allowed():
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.registerPr",
+        "taskId": "northwind/NORT-7",
+        "number": 42,
+        "url": "https://github.com/acme/northwind/pull/42",
+    }
+    assert validate_command(world, cmd) is None
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"number": 0}, "number is a PR number"),
+        ({"number": "42"}, "number is a PR number"),
+        ({"number": True}, "number is a PR number"),
+        ({"url": "http://github.com/acme/northwind/pull/42"}, "url is the PR's URL"),
+        ({"url": None}, "url is the PR's URL"),
+    ],
+)
+def test_a_pr_registration_refuses_a_bad_number_or_url(over, message):
+    world = world_with(tasks=[make_task()])
+    cmd = {
+        "type": "task.registerPr",
+        "taskId": "northwind/NORT-7",
+        "number": 42,
+        "url": "https://github.com/acme/northwind/pull/42",
+        **over,
+    }
+    assert validate_command(world, cmd) == {"code": "invalid", "message": message}
 
 
 def test_a_say_carrying_only_an_image_is_allowed():

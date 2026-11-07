@@ -13,15 +13,16 @@ reads those rows alone. Both backends answer it, so both are tested.
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import pytest
+from aiohttp import web
 
 from mael_domain import task as model
 from mael_domain.agent_store import SqliteAgentStore, new_agent_record
 from mael_domain.github_model import PrStatus, RateLimited
 from mael_domain.list_all import ProjectPrs
-from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
@@ -32,6 +33,10 @@ from mael_orchestrator.sources import (
     ListAllWorktreeSource,
     NotebookTaskSource,
     PrStateCache,
+    RemoteTaskSource,
+    TaskHomes,
+    TaskSourceRemote,
+    WorktreeOpener,
 )
 
 PROJECT = "northwind"
@@ -463,73 +468,168 @@ async def test_the_board_refuses_a_non_claude_execute_model(table):
         id="NORT-7",
         execute_model="codex:sol",
     )
-    source = NotebookTaskSource(
-        table, lambda: [PROJECT], open_worktree=lambda *a, **k: None
-    )
     with pytest.raises(LaunchBlocked, match="must be a Claude model"):
-        await source.prepare_launch(f"{PROJECT}/NORT-7", None)
-
-
-async def test_a_task_source_with_no_worktree_opener_refuses_to_open_one(table):
-    """Both ways in refuse: a task's launch, and a free agent's start."""
-    await model.create(table, project=PROJECT, title="x", id="NORT-7")
-    source = a_source(table)
-    with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        await source.prepare_launch(f"{PROJECT}/NORT-7", None)
+        await a_source(table).claim_launch(f"{PROJECT}/NORT-7", None)
     assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
+
+
+async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
+    table,
+):
+    await model.create(table, project=PROJECT, title="x", id="NORT-7", base="main")
+    source = a_source(table)
+
+    claim = await source.claim_launch(f"{PROJECT}/NORT-7", None)
+    claimed = (await model.load(table, PROJECT, "NORT-7")).status
+    await source.rollback(claim)
+
+    assert claimed == "in-progress"
+    assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
+    assert (claim.project, claim.task_id, claim.base) == (PROJECT, "NORT-7", "main")
+    assert claim.plan.session_id == model.session_id_for(PROJECT, "NORT-7")
+
+
+async def test_an_opener_with_no_worktree_opener_refuses_to_open_one():
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        await source.worktree_for(PROJECT, "feat/x")
+        await WorktreeOpener().open(PROJECT, "feat/x", "")
 
 
-def a_launching_source(table, *, has_transcript) -> NotebookTaskSource:
-    """A source over ``table`` whose worktree and transcript check are fixed."""
-    return NotebookTaskSource(
-        table,
-        lambda: [PROJECT],
-        open_worktree=lambda project, branch, base: WorktreeSetup(
-            path=Path("/w/alpha"), name="alpha", action="reused"
-        ),
-        live_sessions=lambda: LiveSessionSet([]),
-        has_transcript=has_transcript,
+async def test_an_opener_writes_the_env_only_of_a_worktree_that_needs_it():
+    written: list[str] = []
+
+    def refresh_env(project, setup):
+        written.append(setup.name)
+        return ["Wrote .env."]
+
+    opener = WorktreeOpener(refresh_env=refresh_env)
+    created = WorktreeSetup(path=Path("/w/alpha"), name="alpha", action="created")
+    reused = WorktreeSetup(path=Path("/w/bravo"), name="bravo", action="reused")
+
+    assert await opener.write_env(PROJECT, created) == [".env unchanged."]
+    assert await opener.write_env(PROJECT, reused) == ["Wrote .env."]
+    assert written == ["bravo"]
+
+
+def test_an_agent_with_no_parent_works_on_this_servers_tasks(table):
+    source = a_source(table)
+    homes = TaskHomes(source)
+
+    assert homes.for_parent("") is source
+    remote = homes.for_parent("https://monolith:2772")
+    assert isinstance(remote, RemoteTaskSource)
+    # One per parent, so its session is shared.
+    assert homes.for_parent("https://monolith:2772") is remote
+
+
+# --- RemoteTaskSource: a delegated agent's parent ---------------------------
+
+
+@asynccontextmanager
+async def a_parent(replies: dict[tuple[str, str], tuple[int, dict]]):
+    """A stub **Parent server** that answers each ``(method, path)`` from ``replies``.
+
+    Yields a :class:`RemoteTaskSource` on it, and the bodies it was sent.
+    """
+    sent: list[tuple[str, str, object]] = []
+
+    async def answer(request: web.Request) -> web.Response:
+        body = await request.json() if request.can_read_body else None
+        sent.append((request.method, request.path, body))
+        status, reply = replies.get((request.method, request.path), (404, {}))
+        return web.json_response(reply, status=status)
+
+    app = web.Application()
+    app.router.add_route("*", "/{tail:.*}", answer)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", 0)
+    await site.start()
+    port = site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
+    source = RemoteTaskSource(f"http://127.0.0.1:{port}/")
+    try:
+        yield source, sent
+    finally:
+        await source.close()
+        await runner.cleanup()
+
+
+def refused(message: str) -> dict:
+    return {"error": {"code": "invalid", "message": message}}
+
+
+async def test_a_remote_source_reads_the_parents_tasks_and_skips_a_missing_one():
+    task = {"id": "northwind/NORT-7", "title": "Ship it"}
+    replies = {("GET", "/api/tasks/northwind/NORT-7"): (200, task)}
+    async with a_parent(replies) as (source, _sent):
+        assert await source.read_some(["northwind/NORT-7", "northwind/NORT-8"]) == [
+            task
+        ]
+
+
+async def test_a_remote_promote_sends_the_drafts_and_returns_the_new_ids():
+    replies = {("POST", "/api/tasks/promote"): (200, {"taskIds": ["northwind/NORT-9"]})}
+    async with a_parent(replies) as (source, sent):
+        created = await source.promote(
+            PROJECT, [("one.md", "# One")], "NORT-7", "NORT-7"
+        )
+    assert created == ["northwind/NORT-9"]
+    assert sent == [
+        (
+            "POST",
+            "/api/tasks/promote",
+            {
+                "project": PROJECT,
+                "drafts": [{"name": "one.md", "text": "# One"}],
+                "parent": "NORT-7",
+                "after": "northwind/NORT-7",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "reply", "error", "words"),
+    [
+        # The parent has no such project: the drafts must not be lost.
+        (404, refused("No project northwind"), ValueError, "has no project northwind"),
+        (400, refused("drafts is empty"), ValueError, "drafts is empty"),
+        # The parent's own link failed: the parent is as good as away.
+        (502, refused("zinc is offline"), TaskSourceRemote, None),
+    ],
+)
+async def test_a_remote_promote_the_parent_refuses_raises(status, reply, error, words):
+    replies = {("POST", "/api/tasks/promote"): (status, reply)}
+    async with a_parent(replies) as (source, _sent):
+        with pytest.raises(error, match=words):
+            await source.promote(PROJECT, [("one.md", "# One")], "", None)
+
+
+@pytest.mark.parametrize("method", ["PUT", "DELETE"])
+async def test_a_remote_pr_call_reaches_the_tasks_pr_route(method):
+    path = "/api/tasks/northwind/NORT-7/pr"
+    async with a_parent({(method, path): (200, {"id": "northwind/NORT-7"})}) as (
+        source,
+        sent,
+    ):
+        if method == "PUT":
+            await source.register_pr("northwind/NORT-7", 118, "https://gh/pr/118")
+        else:
+            await source.withdraw_pr("northwind/NORT-7")
+        with pytest.raises(KeyError):
+            await source.withdraw_pr("northwind/NORT-8")
+    expected_body = (
+        {"number": 118, "url": "https://gh/pr/118"} if method == "PUT" else None
     )
+    assert sent[0] == (method, path, expected_body)
 
 
-async def test_launch_resumes_a_task_that_has_already_run(table):
-    """Relaunching a stopped task must continue its session, not claim its id."""
-    await model.create(table, project=PROJECT, title="x", id="NORT-7")
-    source = a_launching_source(table, has_transcript=lambda path, sid: True)
-    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
-    assert source.finish_launch(prepared)["resume"] is True
-
-
-async def test_launch_of_a_task_that_never_ran_claims_a_fresh_session(table):
-    await model.create(table, project=PROJECT, title="x", id="NORT-7")
-    source = a_launching_source(table, has_transcript=lambda path, sid: False)
-    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
-    assert source.finish_launch(prepared)["resume"] is False
-
-
-async def test_a_codex_launch_asks_to_resume_whatever_the_claude_transcript(table):
-    """The Codex thread is the record, and the router finds it by session."""
-    await model.create(table, project=PROJECT, title="x", id="NORT-7")
-    source = a_launching_source(table, has_transcript=lambda path, sid: False)
-    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", "codex:sol")
-    assert source.finish_launch(prepared)["resume"] is True
-
-
-async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
-    """The transcript lives under the worktree path, so the check needs it."""
-    await model.create(table, project=PROJECT, title="x", id="NORT-7")
-    seen: list[tuple] = []
-
-    def has_transcript(path, session_id):
-        seen.append((path, session_id))
-        return False
-
-    source = a_launching_source(table, has_transcript=has_transcript)
-    prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
-    payload = source.finish_launch(prepared)
-    assert seen == [(Path("/w/alpha"), payload["session"])]
+async def test_a_remote_source_whose_parent_is_away_raises_remote():
+    source = RemoteTaskSource("http://127.0.0.1:1")
+    try:
+        with pytest.raises(TaskSourceRemote):
+            await source.read_some(["northwind/NORT-7"])
+    finally:
+        await source.close()
 
 
 # --- ListAllWorktreeSource: the terminal's link -----------------------------

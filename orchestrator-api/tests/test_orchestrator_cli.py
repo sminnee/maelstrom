@@ -225,10 +225,10 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         refresh.return_value.copy_back.added = []
         refresh.return_value.copy_back.conflicts = []
         orchestrator = build_orchestrator()
-        opened = orchestrator.tasks.open_worktree("northwind", "feat/x", "feat/base")
-        assert orchestrator.tasks.refresh_env is not None
+        opened = orchestrator.opener.open_worktree("northwind", "feat/x", "feat/base")
+        assert orchestrator.opener.refresh_env is not None
         refresh.assert_not_called()
-        lines = orchestrator.tasks.refresh_env("northwind", opened)
+        lines = orchestrator.opener.refresh_env("northwind", opened)
     assert isinstance(orchestrator.tasks, NotebookTaskSource)
     assert orchestrator.tasks.projects() == ["northwind"]
     assert orchestrator.tasks.table is table.return_value
@@ -281,7 +281,7 @@ def test_a_failed_env_refresh_is_a_warning_line_not_a_fault(tmp_path, monkeypatc
             side_effect=ValueError("bad yaml"),
         ),
     ):
-        refresh_env = build_orchestrator().tasks.refresh_env
+        refresh_env = build_orchestrator().opener.refresh_env
         assert refresh_env is not None
         lines = refresh_env("p", setup)
     assert lines == ["Warning: .env not refreshed: bad yaml"]
