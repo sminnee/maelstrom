@@ -43,21 +43,36 @@ from mael_common.shell import (
     command_substitution,
     run_cmd,
 )
+from mael_domain import install_status
 from mael_domain.config import load_config_or_default
 from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 
 
-def start_install_async(worktree_path: Path) -> bool:
-    """Start the configured installer without waiting for it."""
+def start_install_async(worktree_path: Path) -> Path | None:
+    """Start the configured installer without waiting for it.
+
+    Returns its log, or ``None`` without an ``install_cmd``. The installer writes
+    its exit code to the install status, which ``mael env status`` shows.
+    """
     install_cmd = load_config_or_default(worktree_path).install_cmd
     if not install_cmd:
-        return False
-    subprocess.Popen(
-        ["sh", "-c", install_cmd],
-        cwd=worktree_path,
-        start_new_session=True,
-    )
-    return True
+        return None
+    names = install_status.names_from_path(worktree_path)
+    argv = install_status.install_argv(*names, install_cmd)
+    # Until its shell writes its own pid, this process holds the install, so a
+    # start right after this does not read the last install's result.
+    install_status.mark_running(*names, os.getpid())
+    log = install_status.install_log_path(*names)
+    with log.open("wb") as out:
+        subprocess.Popen(
+            argv,
+            cwd=worktree_path,
+            stdin=subprocess.DEVNULL,
+            stdout=out,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    return log
 
 
 def _announce_started(agent_id: str) -> None:

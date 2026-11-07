@@ -1,5 +1,6 @@
 """CLI commands for managing dev environments."""
 
+import subprocess
 import time
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from mael_domain.env import (
     stop_env,
 )
 from mael_domain.env_store import JsonEnvStore
+from mael_domain.install_status import install_log_path, read_install_status
 from mael_domain.ports import get_app_url
 from mael_domain.worktree import update_claude_local_md
 from mael_domain.worktree_model import CopyBackResult, get_worktree_folder_name
@@ -220,6 +222,19 @@ def refresh_worktree_env(
     return refresh
 
 
+def _echo_install(project: str, worktree: str) -> None:
+    install = read_install_status(project, worktree)
+    if install is None:
+        return
+    if install.code is None:
+        result = "running"
+    elif install.passed:
+        result = "passed"
+    else:
+        result = f"failed (exit {install.code})"
+    click.echo(f"Install: {result} — {install.log}")
+
+
 def print_service_status(
     project: str,
     worktree: str,
@@ -230,6 +245,7 @@ def print_service_status(
     state = load_env_state(store, project, worktree)
     if not state:
         click.echo(f"No environment state for {project}/{worktree}.")
+        _echo_install(project, worktree)
         return
 
     statuses = get_env_status(store, project, worktree)
@@ -241,6 +257,7 @@ def print_service_status(
             header_parts.append(f"APP RUNNING AT: {app_display}")
     header_parts.append(f"UPTIME: {format_uptime(state.started_at)}")
     click.echo(" • ".join(header_parts))
+    _echo_install(project, worktree)
     click.echo()
 
     rows = []

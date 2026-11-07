@@ -1399,7 +1399,7 @@ class TestCreateProjectIntegration:
             patch("mael_domain.context.load_global_config", return_value=config),
             patch("mael_cli.cli.create_project_repo", return_value=str(upstream)),
             patch("mael_cli.cli.launch_add_in_worktree", side_effect=fake_launch),
-            patch("mael_cli.cli.start_install_async", return_value=False),
+            patch("mael_cli.cli.start_install_async", return_value=None),
         ):
             result = CliRunner().invoke(cli, ["project", "create", repo_name])
         return result, projects, launched

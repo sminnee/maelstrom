@@ -18,6 +18,7 @@ from mael_common.claude_paths import sanitise_path_for_claude
 from mael_common.shell import run_cmd, run_cmd_async
 from mael_common.util import locked_file
 
+from . import install_status
 from .base_store import BaseStore, GitConfigBaseStore
 from .config import (
     MaelstromConfig,
@@ -2733,11 +2734,25 @@ def reclaim_or_allocate_ports(
     _finalize_worktree(project_path, worktree_path, worktree_name)
 
 
-def run_install_cmd(worktree_path: Path) -> None:
-    """Run the project's install command if configured."""
+def run_install_cmd(worktree_path: Path, names: tuple[str, str] | None = None) -> None:
+    """Run the project's install command if configured, and record its result.
+
+    ``names`` are the project and worktree the install status is kept under.
+    Without them, they come from the path.
+
+    Raises:
+        subprocess.CalledProcessError: If the command exits non-zero.
+    """
     config = load_config_or_default(worktree_path)
-    if config.install_cmd:
-        run_cmd(["sh", "-c", config.install_cmd], cwd=worktree_path, stream=True)
+    if not config.install_cmd:
+        return
+    project, worktree = names or install_status.names_from_path(worktree_path)
+    argv = install_status.install_argv(project, worktree, config.install_cmd, tee=True)
+    run_cmd(argv, cwd=worktree_path, stream=True, check=False)
+    status = install_status.read_install_status(project, worktree)
+    code = 1 if status is None or status.code is None else status.code
+    if code != 0:
+        raise subprocess.CalledProcessError(code, config.install_cmd)
 
 
 def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
