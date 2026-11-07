@@ -36,6 +36,8 @@ from mael_daemon.agent_model import (
 from mael_domain import comms as comms_model
 from mael_domain import operations as operations_model
 from mael_domain import task as model
+from mael_domain.auth.model import HOST, LIVE_FEEDBACK, ApiKey, hash_secret
+from mael_domain.auth.store import InMemoryAuthStore
 from mael_domain.comm_store import (
     CommItem,
     CommUpdate,
@@ -77,6 +79,7 @@ from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_model import extract_project_name
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
+from mael_orchestrator.auth import AuthParty
 from mael_orchestrator.cli import clone_project
 from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.language_servers import LanguageServers
@@ -97,6 +100,11 @@ WORKTREE_PATH = "/Users/dev/Projects/northwind/northwind-alpha"
 
 
 read_fixture = read_stamped_fixture
+
+#: The API keys every harness's server knows.
+HOST_KEY = "mael_test-host-key"
+FEEDBACK_KEY = "mael_test-feedback-key"
+HOST_AUTH = {"Authorization": f"Bearer {HOST_KEY}"}
 
 
 class Harness:
@@ -169,6 +177,13 @@ class Harness:
             comms=self.comms,
             **options,
         )
+        self.auth = InMemoryAuthStore(
+            [
+                ApiKey(hash_secret(HOST_KEY), HOST, NOW),
+                ApiKey(hash_secret(FEEDBACK_KEY), LIVE_FEEDBACK, NOW),
+            ]
+        )
+        self.party = AuthParty(self.auth, user_name="maelstrom (test)")
 
     def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
         """Seed one task, from outside a running loop.
@@ -190,18 +205,23 @@ class Harness:
         )
         self.version += 1
 
+    def app(self, web_root: Path | None = None):
+        return build_app(self.orch, self.party, web_root=web_root)
+
     def serving(self, web_root: Path | None = None):
         """Serve the orchestrator on a free port for the length of the block."""
-        return serving(
-            build_app(self.orch, web_root=web_root), [("127.0.0.1", None)], 0
-        )
+        return serving(self.app(web_root), [("127.0.0.1", None)], 0)
 
     @asynccontextmanager
-    async def client(self, web_root: Path | None = None):
-        """Serve, and yield an :class:`Api` client on the bound port."""
+    async def client(self, web_root: Path | None = None, *, key: str | None = HOST_KEY):
+        """Serve, and yield an :class:`Api` client on the bound port.
+
+        The client carries ``key`` as a bearer; ``None`` makes a bare client.
+        """
+        headers = {"Authorization": f"Bearer {key}"} if key else {}
         async with self.serving(web_root) as port:
             async with aiohttp.ClientSession(
-                base_url=f"http://127.0.0.1:{port}"
+                base_url=f"http://127.0.0.1:{port}", headers=headers
             ) as session:
                 yield Api(session)
 
@@ -3855,7 +3875,7 @@ def test_a_shutdown_closes_the_open_sockets_rather_than_dropping_them(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
     async def scenario():
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(headers=HOST_AUTH) as session:
             async with harness.serving() as port:
                 ws = await session.ws_connect(
                     f"http://127.0.0.1:{port}/api/agents/ag1/stream"
@@ -6940,12 +6960,12 @@ def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
     reconnects on every drop — so a stale agent id leaks one per attempt.
     """
     harness.daemon.rows["ag1"] = agent_row()
-    app = build_app(harness.orch)
+    app = harness.app()
 
     async def scenario():
         async with serving(app, [("127.0.0.1", None)], 0) as port:
             async with aiohttp.ClientSession(
-                base_url=f"http://127.0.0.1:{port}"
+                base_url=f"http://127.0.0.1:{port}", headers=HOST_AUTH
             ) as session:
                 for _ in range(3):
                     async with session.ws_connect("/api/agents/nobody/stream") as ws:
@@ -6953,32 +6973,6 @@ def test_a_socket_for_an_unknown_agent_is_not_left_registered(harness):
                 return len(app[SOCKETS])
 
     assert run(scenario()) == 0
-
-
-def test_the_change_stream_may_be_read_from_the_dev_server_s_origin(harness):
-    """The stream is dialled directly, so it answers a cross-origin read.
-
-    The page is served by the dev server on its own port, and the stream skips
-    that server's proxy to reach the orchestrator. Without these headers the
-    browser refuses the `EventSource` and the app never hears a change.
-    """
-
-    async def scenario():
-        async with harness.client() as client:
-            async with client.session.get(
-                "/api/events", headers={"Origin": "http://localhost:3410"}
-            ) as response:
-                assert response.status == 200
-                return {
-                    "allow": response.headers.get("Access-Control-Allow-Origin"),
-                    "vary": response.headers.get("Vary"),
-                }
-
-    assert asyncio.run(scenario()) == {
-        "allow": "http://localhost:3410",
-        # Without this a cache could serve one origin's answer to another.
-        "vary": "Origin",
-    }
 
 
 def test_a_same_origin_read_of_the_change_stream_is_offered_no_origin(harness):
@@ -11692,10 +11686,10 @@ def test_the_server_serves_http_on_loopback_and_tls_on_the_public_address(
             return response.status
 
     async def scenario():
-        app = build_app(harness.orch)
+        app = harness.app()
         binds = [("127.0.0.1", None), (public, tls_server_context)]
         async with serving(app, binds, 0) as port:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(headers=HOST_AUTH) as session:
                 served = (
                     await status(session, f"http://127.0.0.1:{port}/api/desk"),
                     await status(session, f"https://{public}:{port}/api/desk"),

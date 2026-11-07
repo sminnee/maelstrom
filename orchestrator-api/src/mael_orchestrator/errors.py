@@ -1,6 +1,7 @@
 """The one error shape every route answers with, and the body every command reads.
 
-Its own module so that each route module shares it, not only :mod:`.routes`.
+Its own module so that :mod:`.routes` and :mod:`.auth` share it: ``routes``
+imports ``auth``, so ``auth`` cannot import back.
 """
 
 import json
@@ -20,6 +21,9 @@ STATUS_FOR_CODE = {
     "cannot_update": 409,
     "not_implemented": 501,
     "language_server_failed": 502,
+    "auth_required": 401,
+    "forbidden": 403,
+    "passkey_pending": 403,
 }
 
 

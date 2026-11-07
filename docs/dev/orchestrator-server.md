@@ -35,6 +35,9 @@ carries and nothing maps between a dataclass and the wire.
 | `codex_bridge.py`, `codex_daemon.py` | storage | The Codex agent host, run in process. See [agent-daemon.md](agent-daemon.md) |
 | `mael_domain/desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
+| `auth.py` | adapter | `AuthParty`, the auth middleware, and the passkey routes. See "Authentication" |
+| `errors.py` | adapter | `error_response`, the one error shape, and `read_body`. Both `routes.py` and `auth.py` use them |
+| `mael_domain/auth/` | pure, storage | The **Passkey**, **API key** and **Sign-in** records, `AuthStore` and its two backends, and the key files |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `cli.py` | CLI | `mael-orchestrator serve`, the composition root `build_orchestrator`, and the logging the server runs under |
 
@@ -62,6 +65,69 @@ either, the server reads the manifest beside its own venv, `sys.prefix`, and ser
 release's `web` component. A worktree's `.venv` has no manifest, so a worktree serves the API
 alone, and its Vite dev server serves the UI. See
 [the ADR](../adr/0001-maelstrom-installs-as-a-release-bundle.md).
+
+## Authentication
+
+Each `/api` request carries a credential. A browser carries a **Sign-in** cookie. Any other
+client carries an **API key** as `Authorization: Bearer <key>`. The built UI and the ceremony
+routes under `/api/auth/` need no credential, because a browser with no sign-in must load them.
+`auth_middleware` in `auth.py` applies the rules, after `_json_errors`.
+
+| Refusal | Status | When |
+|---|---|---|
+| `auth_required` | 401 | No credential, an unknown key, or no live sign-in |
+| `forbidden` | 403 | A key whose scope does not permit the route, a sign-in on a passkey admin route, or a cookie from an origin that is not a **UI origin** |
+| `passkey_pending` | 403 | The sign-in names a **Pending passkey** |
+
+**Two scopes.** `scope_permits` in `mael_domain.auth.model` decides what each key opens. Only
+the **Host key** opens the passkey admin routes, `/api/auth/passkeys` and `/api/auth/verify`.
+
+**A socket may carry its key in the query.** A Node `WebSocket` cannot set headers, so a
+WebSocket upgrade may carry `?key=`. A plain request may not: a key in a URL reaches logs.
+
+**The server mints the keys.** At start, `ensure_keys` checks the file of each scope under
+`<notebook root>/auth/`. A missing file, or a key whose hash is not in the state database, gets a
+new key. The new key replaces the old key of its scope, so deleting a key file and restarting
+the server rotates it. Each file is mode 0600, in a directory of mode 0700. The CLI reads
+`host.key`. `live_feedback_url` adds `live-feedback.key` to `MAEL_FEEDBACK_URL`.
+
+**A passkey is pending until the host verifies it.** `POST /api/auth/register` stores the
+passkey as pending, with a **Verify code**, and sets the cookie at once. The browser polls
+`GET /api/auth/status`, which reads `pending` with the code. `mael auth verify <code>` calls
+`POST /api/auth/verify`, and the next poll reads `signed_in`. A sign-in with a known passkey sets
+the cookie and updates its sign count. A sign-in lasts 30 days. A revoked passkey deletes its
+sign-ins.
+
+**The cookie name holds the port**, such as `mael_login_2772`. A cookie is scoped to the host,
+not the port. The production server and each dev orchestrator share one host, so one name
+would let each sign-in overwrite the others. The cookie is `HttpOnly`, `SameSite=Lax`, and
+`Secure` on TLS.
+
+**The origin check stops other dev servers.** A dev server on another port of the same host is
+same-site, so `SameSite=Lax` sends it the cookie. A request that carries the cookie, and is
+unsafe or a WebSocket upgrade, must send an `Origin` that is a **UI origin**: the server's own
+(`scheme://Host`), or one named by `--ui-origin`. A GET such as an `<img>` of `/api/files/{id}`
+needs no origin. WebAuthn checks `clientDataJSON.origin` against the same list. The dev
+orchestrator names the Vite dev server with `--ui-origin` in `.maelstrom.yaml`.
+
+**Anyone may sign up, so sign-up is bounded.** At most 5 passkeys wait at once: a sixth
+replaces the oldest pending one. At most 100 challenges wait at once. A label loses its
+non-printable characters, because `mael auth list` prints it on the host's terminal.
+
+**The WebAuthn party.** `AuthParty` holds the store, the UI origins and the open challenges.
+The RP ID is the host name of the request, so a browser at `localhost` and one at the tailnet
+name each get a passkey for the name they see. A browser offers passkeys only on HTTPS or at
+`localhost`, so `serve` warns when `--public-host` has no TLS. The user name is
+`maelstrom (<notebook root name>)`, or `maelstrom` in production, so a passkey picker tells each
+dev orchestrator apart. The user handle is a hash of that name: a shared handle would make an
+authenticator replace one server's passkey with the next. User verification is preferred, not
+required. Challenges stay in memory for 5 minutes. A restart only cancels a ceremony in
+progress.
+
+**What the gate does not stop.** It stops a browser page on another origin. It does not stop a
+process on the host: each dev service gets the cookie of every port, and can read the key
+files. Authorisation is checked when a stream opens, so a revoked passkey keeps its open
+streams until they reconnect.
 
 ## The normaliser and its goldens
 
@@ -1643,7 +1709,8 @@ A subagent's stream carries no partial message. A Codex agent's partial message 
 [live-feedback.md](live-feedback.md) documents the protocol: the URL, the frames, the params and
 the rules. This section covers the server's side.
 
-**The URL names the client.** The socket reads `path` and `service` from its query.
+**The URL names the client.** The socket reads `path` and `service` from its query, and the
+**Feedback key** from `key`.
 `live_feedback_worktree` finds the worktree whose real path matches. An unknown path, or no
 `service`, closes the socket `4404`.
 
