@@ -18,11 +18,11 @@ from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
-from mael_agent.agent_wire import build_start_payload
+import aiohttp
+
 from mael_agent.harness_model import (
-    HARNESS_CODEX,
     resolve_execute_model,
 )
 from mael_common.claude_paths import has_claude_transcript
@@ -50,12 +50,9 @@ from mael_domain.protocol import (
     Worktree,
 )
 from mael_domain.session_discovery import LiveSessionSet
-from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.task_launch import (
     LaunchBlocked,
     LaunchPlan,
-    check_not_live,
-    check_synced,
     plan_launch,
 )
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
@@ -213,20 +210,21 @@ def _rename_wire_fields(
 
 
 @dataclass(frozen=True)
-class PreparedLaunch:
-    """A task moved to in-progress in its open worktree, before its agent starts.
+class LaunchClaim:
+    """A task moved to in-progress for a launch, before its agent starts.
 
-    Returned by :meth:`TaskSource.prepare_launch`. :meth:`TaskSource.finish_launch`
-    turns it into the ``start`` the agent host needs, and
-    :meth:`TaskSource.rollback` undoes the move.
+    Returned by :meth:`TaskSource.claim_launch`. The server turns ``plan`` into
+    a start spec, and :meth:`TaskSource.rollback` undoes the move when no
+    agent started.
     """
 
     project: str
     task_id: str
-    #: The status the task had before the launch moved it, for the rollback.
+    #: The status the task had before the claim moved it, for the rollback.
     previous_status: str
-    setup: WorktreeSetup
     plan: LaunchPlan
+    #: The task's stored base, which seeds the branch's base on its first open.
+    base: str = ""
 
 
 @dataclass(frozen=True)
@@ -296,26 +294,16 @@ class TaskSource(Protocol):
     #: reads the whole notebook rather than a cursor the source cannot honour.
     version_is_revision: bool
 
-    async def prepare_launch(
-        self, task_id: str, model_name: str | None
-    ) -> PreparedLaunch:
-        """Open the task's worktree and move the task in-progress.
+    async def claim_launch(self, task_id: str, model_name: str | None) -> LaunchClaim:
+        """Plan the task's launch, and move it in-progress.
 
         Raises:
             KeyError: If no task has ``task_id``.
-            LaunchBlocked: If a live session holds the task or its rebase failed.
+            LaunchBlocked: If the plan's execute model is not known.
         """
         ...
 
-    async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
-        """Rebuild an opened worktree's ``.env`` when it needs it, and say what it did."""
-        ...
-
-    def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
-        """The ``start`` payload the agent host needs for a prepared launch."""
-        ...
-
-    async def rollback(self, prepared: PreparedLaunch) -> None:
+    async def rollback(self, claim: LaunchClaim) -> None:
         """Move a task whose agent did not start back to where it was."""
         ...
 
@@ -387,17 +375,6 @@ class TaskSource(Protocol):
         Raises:
             KeyError: If ``from`` names no task.
             ValueError: If a field holds a value the notebook refuses.
-        """
-        ...
-
-    async def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
-        """Open the worktree a branch runs in, provisioning one when it has none.
-
-        The path a free agent starts in. A task's launch opens its own
-        worktree on the way, so this is only reached for work with no task.
-
-        Raises:
-            LaunchBlocked: If this source cannot open worktrees.
         """
         ...
 
@@ -532,11 +509,6 @@ class NotebookTaskSource:
         projects: Callable[[], list[str]],
         *,
         version: Callable[[], str | None] | None = None,
-        open_worktree: OpenWorktree | None = None,
-        refresh_env: RefreshEnv | None = None,
-        worktree_executor: Executor | None = None,
-        live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
-        has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         agents: AgentStore | None = None,
         landings: Landings | None = None,
         schedule_zone: str = "",
@@ -553,15 +525,6 @@ class NotebookTaskSource:
         self._agents_revision = 0
         self.projects = projects
         self._version = version
-        self.open_worktree = open_worktree
-        self.refresh_env = refresh_env
-        #: Where a worktree opens. ``None`` is the loop's default pool, which
-        #: is still off the loop.
-        self.worktree_executor = worktree_executor
-        #: Per project, held while a worktree opens there. See :meth:`_open`.
-        self._opening: dict[str, asyncio.Lock] = {}
-        self.live_sessions = live_sessions
-        self.has_transcript = has_transcript
         #: An injected version is some test's own counter, not the table's
         #: revision, so it names nothing :meth:`read_since` can be asked from.
         #: Such a source is read whole, which is what it was always doing.
@@ -673,12 +636,8 @@ class NotebookTaskSource:
         removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 
-    async def prepare_launch(
-        self, task_id: str, model_name: str | None
-    ) -> PreparedLaunch:
+    async def claim_launch(self, task_id: str, model_name: str | None) -> LaunchClaim:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
-        if self.open_worktree is None:
-            raise LaunchBlocked("This server cannot open worktrees")
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
         plan = plan_launch(task.project, task, model_name)
@@ -690,44 +649,11 @@ class NotebookTaskSource:
                 resolve_execute_model(plan.execute_model)
             except ValueError as exc:
                 raise LaunchBlocked(str(exc)) from exc
-        live = await self.live_sessions().sweep()
-        check_not_live(task.id, plan.session_id, live)
-        setup = await self._open(task.project, plan.branch, task.base or "")
-        check_synced(task.id, plan.branch, setup)
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        return PreparedLaunch(task.project, task.id, task.status, setup, plan)
+        return LaunchClaim(task.project, task.id, task.status, plan, task.base or "")
 
-    async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
-        """Rebuild the ``.env`` of a worktree that was reused or recycled.
-
-        A created worktree's ``.env`` is fresh, and ``_main``'s is the user's own.
-        """
-        if self.refresh_env is None or not setup.rebuilds_env:
-            return [".env unchanged."]
-        return await asyncio.get_running_loop().run_in_executor(
-            self.worktree_executor, self.refresh_env, project, setup
-        )
-
-    def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
-        plan, setup = prepared.plan, prepared.setup
-        codex = plan.harness == HARNESS_CODEX
-        return build_start_payload(
-            setup.path,
-            prompt=plan.prompt,
-            permission_mode=plan.permission_mode,
-            model=plan.model,
-            execute_model=plan.execute_model,
-            session_id=plan.session_id,
-            env=plan.env,
-            # A task that has run before already owns its session id. A Codex
-            # session is a thread the router finds by session id, if one ran.
-            resume=codex or self.has_transcript(setup.path, plan.session_id),
-            system_prompt_file=agent_prompt_file(),
-            plugin_dir=core_plugin_dir(),
-        )
-
-    async def rollback(self, prepared: PreparedLaunch) -> None:
-        await self._move(prepared.project, prepared.task_id, prepared.previous_status)
+    async def rollback(self, claim: LaunchClaim) -> None:
+        await self._move(claim.project, claim.task_id, claim.previous_status)
 
     async def set_status(self, task_id: str, status: str) -> StatusMoved:
         project, notebook_id = split_task_key(task_id)
@@ -794,24 +720,6 @@ class NotebookTaskSource:
 
     def infer(self, draft: str) -> TaskNames:
         return infer_task_names(draft)
-
-    async def worktree_for(self, project: str, branch: str) -> WorktreeSetup:
-        # No base to seed: work with no task has no base to carry.
-        return await self._open(project, branch, "")
-
-    async def _open(self, project: str, branch: str, base: str) -> WorktreeSetup:
-        """Open a worktree on the worktree pool, one open per project at a time.
-
-        Off the loop, because the fetch and rebase take seconds. One at a time,
-        because ``create_worktree`` picks a NATO name and adds the worktree with
-        no scope held: two opens in one project could pick the same name.
-        """
-        if self.open_worktree is None:
-            raise LaunchBlocked("This server cannot open worktrees")
-        async with self._opening.setdefault(project, asyncio.Lock()):
-            return await asyncio.get_running_loop().run_in_executor(
-                self.worktree_executor, self.open_worktree, project, branch, base
-            )
 
     async def create(
         self,
@@ -924,6 +832,207 @@ PR_READ_TIMEOUT_SECS = 30.0
 ReadPrs = Callable[[Path, set[str]], Awaitable[dict[str, PrStatus] | None]]
 #: A PR change: project, branch, the entry before the read, the entry after.
 PrChange = Callable[[str, str, PrStatus | None, PrStatus | None], None]
+
+
+class TaskSourceRemote(Exception):
+    """A task call this agent's home cannot answer: its tasks are on its **Parent server**."""
+
+    def __init__(self, url: str) -> None:
+        super().__init__(f"Tasks for this agent are on {url}")
+
+
+class TaskHome(Protocol):
+    """The task calls a server makes for one agent: see :class:`TaskHomes`."""
+
+    async def read_some(self, task_ids: list[str]) -> list[Task]: ...
+
+    async def promote(
+        self,
+        project: str,
+        drafts: list[tuple[str, str]],
+        parent: str,
+        after: str | None,
+    ) -> list[str]: ...
+
+    async def register_pr(self, task_id: str, number: int, url: str) -> None: ...
+
+    async def withdraw_pr(self, task_id: str) -> None: ...
+
+
+#: How long one call to a parent's task API may take.
+PARENT_CALL_SECS = 30.0
+
+
+class RemoteTaskSource:
+    """A **Parent server**'s tasks, through its task API: the home of a **Delegated agent**.
+
+    Only the calls a delegated agent's work makes are here. Each one raises
+    :class:`TaskSourceRemote` when the parent does not answer, or refuses.
+    """
+
+    def __init__(self, base_url: str) -> None:
+        self.base_url = base_url.rstrip("/")
+        self._session: aiohttp.ClientSession | None = None
+
+    def session(self) -> aiohttp.ClientSession:
+        """One client session, made on first use so it binds the running loop."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=PARENT_CALL_SECS)
+            )
+        return self._session
+
+    async def close(self) -> None:
+        if self._session is not None:
+            await self._session.close()
+
+    async def _call(
+        self, method: str, path: str, body: dict[str, Any] | None = None
+    ) -> dict[str, Any] | None:
+        """The parent's JSON reply; ``None`` for a ``404``.
+
+        Raises:
+            TaskSourceRemote: When the parent cannot be reached or refuses.
+        """
+        try:
+            async with self.session().request(
+                method, f"{self.base_url}{path}", json=body
+            ) as response:
+                reply = await response.json()
+        except (aiohttp.ClientError, OSError, asyncio.TimeoutError, ValueError) as exc:
+            raise TaskSourceRemote(self.base_url) from exc
+        if response.status == 404:
+            return None
+        if response.status >= 500:
+            raise TaskSourceRemote(self.base_url)
+        if response.status >= 400:
+            message = (reply.get("error") or {}).get("message") or response.reason
+            raise ValueError(f"{self.base_url}: {message}")
+        return reply
+
+    async def read_some(self, task_ids: list[str]) -> list[Task]:
+        tasks: list[Task] = []
+        for task_id in task_ids:
+            project, notebook_id = split_task_key(task_id)
+            reply = await self._call("GET", f"/api/tasks/{project}/{notebook_id}")
+            if reply is not None:
+                tasks.append(cast(Task, reply))
+        return tasks
+
+    async def promote(
+        self,
+        project: str,
+        drafts: list[tuple[str, str]],
+        parent: str,
+        after: str | None,
+    ) -> list[str]:
+        body = {
+            "project": project,
+            "drafts": [{"name": name, "text": text} for name, text in drafts],
+            "parent": parent,
+            **({"after": task_key(project, after)} if after else {}),
+        }
+        reply = await self._call("POST", "/api/tasks/promote", body)
+        if reply is None:
+            # The parent has no such project. The drafts must stay: the caller
+            # deletes them only after a promote that succeeds.
+            raise ValueError(f"{self.base_url} has no project {project}")
+        return [str(task_id) for task_id in reply.get("taskIds") or []]
+
+    async def register_pr(self, task_id: str, number: int, url: str) -> None:
+        body = {"number": number, "url": url}
+        if await self._call("PUT", _pr_path(task_id), body) is None:
+            raise KeyError(task_id)
+
+    async def withdraw_pr(self, task_id: str) -> None:
+        if await self._call("DELETE", _pr_path(task_id)) is None:
+            raise KeyError(task_id)
+
+
+def _pr_path(task_id: str) -> str:
+    project, notebook_id = split_task_key(task_id)
+    return f"/api/tasks/{project}/{notebook_id}/pr"
+
+
+class TaskHomes:
+    """Where each agent's task work goes: this server's notebook, or its parent's.
+
+    An agent with no ``parentUrl`` works on this server's tasks. A **Delegated
+    agent** works on its **Parent server**'s, through one :class:`RemoteTaskSource`
+    per parent URL.
+    """
+
+    def __init__(self, local: TaskHome) -> None:
+        self.local = local
+        self._remotes: dict[str, RemoteTaskSource] = {}
+
+    def for_parent(self, parent_url: str) -> TaskHome:
+        """The home of an agent whose parent is ``parent_url``; ``""`` is local."""
+        if not parent_url:
+            return self.local
+        remote = self._remotes.get(parent_url)
+        if remote is None:
+            remote = self._remotes[parent_url] = RemoteTaskSource(parent_url)
+        return remote
+
+    async def close(self) -> None:
+        for remote in self._remotes.values():
+            await remote.close()
+
+
+class WorktreeOpener:
+    """Opens worktrees where an agent starts, and writes their ``.env``.
+
+    The worktree half of a start, apart from the tasks: a free agent, a task
+    launch and a **Delegated agent** all open through it.
+    """
+
+    def __init__(
+        self,
+        open_worktree: OpenWorktree | None = None,
+        refresh_env: RefreshEnv | None = None,
+        *,
+        worktree_executor: Executor | None = None,
+        live_sessions: Callable[[], LiveSessionSet] = LiveSessionSet,
+        has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
+    ) -> None:
+        self.open_worktree = open_worktree
+        self.refresh_env = refresh_env
+        #: Where a worktree opens. ``None`` is the loop's default pool, which
+        #: is still off the loop.
+        self.worktree_executor = worktree_executor
+        #: Per project, held while a worktree opens there. See :meth:`open`.
+        self._opening: dict[str, asyncio.Lock] = {}
+        self.live_sessions = live_sessions
+        self.has_transcript = has_transcript
+
+    async def open(self, project: str, branch: str, base: str) -> WorktreeSetup:
+        """Open a worktree on the worktree pool, one open per project at a time.
+
+        Off the loop, because the fetch and rebase take seconds. One at a time,
+        because ``create_worktree`` picks a NATO name and adds the worktree with
+        no scope held: two opens in one project could pick the same name.
+
+        Raises:
+            LaunchBlocked: If this server cannot open worktrees.
+        """
+        if self.open_worktree is None:
+            raise LaunchBlocked("This server cannot open worktrees")
+        async with self._opening.setdefault(project, asyncio.Lock()):
+            return await asyncio.get_running_loop().run_in_executor(
+                self.worktree_executor, self.open_worktree, project, branch, base
+            )
+
+    async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
+        """Rebuild the ``.env`` of a worktree that was reused or recycled.
+
+        A created worktree's ``.env`` is fresh, and ``_main``'s is the user's own.
+        """
+        if self.refresh_env is None or not setup.rebuilds_env:
+            return [".env unchanged."]
+        return await asyncio.get_running_loop().run_in_executor(
+            self.worktree_executor, self.refresh_env, project, setup
+        )
 
 
 @dataclass

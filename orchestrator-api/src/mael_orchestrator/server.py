@@ -16,12 +16,12 @@ import os
 import subprocess
 import sys
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping
 from concurrent.futures import Executor
 from contextlib import aclosing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mael_agent.agent_wire import (
     AGENT_DETAIL,
@@ -33,7 +33,8 @@ from mael_agent.agent_wire import (
     build_resume_payload,
     build_start_payload,
 )
-from mael_agent.harness_model import HARNESS_CODEX
+from mael_agent.harness_model import HARNESS_CODEX, resolve_model_reference
+from mael_agent.host_ids import PARENT_URL_ENV, IdSpace, owner_of
 from mael_common.image import MAX_BYTES, is_image
 from mael_common.shell import run_cmd_async
 from mael_common.util import now_iso
@@ -102,6 +103,7 @@ from mael_domain.operation_store import (
     OperationRecord,
     OperationStore,
 )
+from mael_domain.operations import DONE
 from mael_domain.pr_ledger_store import InMemoryPrLedgerStore, PrLedgerStore
 from mael_domain.protocol import (
     HOST_ID,
@@ -111,7 +113,9 @@ from mael_domain.protocol import (
     GateJob,
     Host,
     HostUsage,
+    RemoteHostState,
     ServerEvent,
+    Task,
     TranscriptItem,
     World,
     group_members,
@@ -138,7 +142,7 @@ from mael_domain.task_attachments import (
     task_key,
 )
 from mael_domain.task_documents import PLAN_NAME, attach
-from mael_domain.task_launch import LaunchBlocked
+from mael_domain.task_launch import LaunchBlocked, check_not_live, check_synced
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
@@ -147,7 +151,7 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
 from . import linear_source
-from .daemon_bridge import AsyncDaemonClient
+from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
 from .gate_table import GateTable
@@ -164,10 +168,15 @@ from .operations import (
     OperationRunner,
     worktree_key,
 )
+from .remote_hosts import MERGED_KINDS, HostUnreachable, RemoteHost, owns
 from .sources import (
     CloseBlocked,
-    PreparedLaunch,
+    LaunchClaim,
+    TaskHome,
+    TaskHomes,
     TaskSource,
+    TaskSourceRemote,
+    WorktreeOpener,
     WorktreeSource,
 )
 from .transcript_log import (
@@ -420,6 +429,25 @@ _FEEDBACK_FORMATTERS: dict[
 #: The steps that launch a task or start an agent, in order. They hold what
 #: they learn in memory, so a retry runs them all again.
 LAUNCH_STEPS = ("open_worktree", "write_env", "start_agent")
+#: The step of a launch on a **Remote host**: the host runs the open, the
+#: ``.env`` and the start as its own operation.
+REMOTE_LAUNCH_STEPS = ("start_on_host",)
+
+#: The keys of a start spec: what ``POST /api/agents`` takes, and what a
+#: delegated launch sends. See "Delegation" in ``docs/dev/remote-hosts.md``.
+START_SPEC_KEYS = (
+    "project",
+    "branch",
+    "base",
+    "prompt",
+    "mode",
+    "model",
+    "executeModel",
+    "session",
+    "env",
+    "taskId",
+    "parentUrl",
+)
 
 
 @dataclass
@@ -429,9 +457,12 @@ class _Launching:
     project: str
     task_id: str = ""
     branch: str = ""
-    prepared: PreparedLaunch | None = None
+    claim: LaunchClaim | None = None
     setup: WorktreeSetup | None = None
     agent_id: str = ""
+    #: A remote host took the start, so the claim stays even if no agent id
+    #: comes back: the host may still start the agent.
+    handed_off: bool = False
 
 
 def _opened(setup: WorktreeSetup) -> str:
@@ -579,8 +610,24 @@ class Orchestrator:
         system: SystemPaths | None = None,
         start_update: Callable[[], Awaitable[subprocess.CompletedProcess]]
         | None = None,
+        remote_hosts: Mapping[str, RemoteHost] | None = None,
+        opener: WorktreeOpener | None = None,
+        ids: IdSpace | None = None,
+        own_url: str = "",
     ) -> None:
         self.tasks = tasks
+        #: Where each agent's task work goes: see "The task seam" in
+        #: ``docs/dev/remote-hosts.md``.
+        self.homes = TaskHomes(tasks)
+        #: Opens the worktree an agent starts in, and writes its ``.env``.
+        self.opener = opener if opener is not None else WorktreeOpener()
+        #: This server's ids: each one it makes carries the prefix.
+        self.ids = ids if ids is not None else IdSpace()
+        #: This server's own URL: the ``parentUrl`` of a launch it delegates.
+        self.own_url = own_url
+        #: Each **Remote host** in ``hosts:``, by name: the link, the merged
+        #: slices, and the session a delegated launch and a forward use.
+        self.remote_hosts: Mapping[str, RemoteHost] = remote_hosts or {}
         self.worktrees = worktrees
         self.daemon = daemon
         self.desk = desk if desk is not None else InMemoryDeskStore()
@@ -764,6 +811,14 @@ class Orchestrator:
         ]
         if self._gate_watch is not None:
             self._pollers.append(asyncio.create_task(self._watch_gates()))
+        for host in self.remote_hosts.values():
+            self._pollers.append(
+                asyncio.create_task(
+                    host.run(self._remote_flipped, self._remote_changed)
+                )
+            )
+        if self.remote_hosts:
+            self._remote_flipped()
 
     async def stop(self) -> None:
         # First: a shielded PR read outlives its cancelled caller, and must not
@@ -799,6 +854,9 @@ class Orchestrator:
         await self.operations.stop()
         await asyncio.gather(*self._server_stops, return_exceptions=True)
         await self.language_servers.stop_all()
+        for host in self.remote_hosts.values():
+            await host.close()
+        await self.homes.close()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
@@ -1296,14 +1354,23 @@ class Orchestrator:
             )
             # ``list-all`` knows nothing of live feedback or gates: the hub's
             # state and the gate jobs go on top. The jobs re-link to the new
-            # rows, so a job whose worktree is new gets it at once.
+            # rows, so a job whose worktree is new gets it at once. Each id
+            # takes this server's prefix, and the diff touches only those: a
+            # merged row is its remote host's to remove.
             rows = {
-                w["id"]: {**w, "liveFeedback": self.live_feedback.state(w["id"])}
+                self.ids.own(w["id"]): {
+                    **w,
+                    "id": self.ids.own(w["id"]),
+                    "liveFeedback": self.live_feedback.state(self.ids.own(w["id"])),
+                }
                 for w in worktrees
             }
             jobs = self._gate_jobs(rows)
-            events += diff_kind("gateJob", world["gateJobs"], jobs)
-            events += diff_kind("worktree", world["worktrees"], with_gates(rows, jobs))
+            own = self.ids.prefix
+            events += diff_kind("gateJob", world["gateJobs"], jobs, owner=own)
+            events += diff_kind(
+                "worktree", world["worktrees"], with_gates(rows, jobs), owner=own
+            )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
             if every_branch:
@@ -1399,9 +1466,35 @@ class Orchestrator:
         agent = self.world["agents"].get(agent_id)
         if agent is None or agent["state"] == "exited":
             return
+        if self._delegated(agent):
+            # Its task is on its parent, whose desk shows it.
+            return
         task_id = agent["taskId"]
         desk_id = desk_id_for_task(task_id) if task_id else desk_id_for_agent(agent_id)
         await self._add_to_desk(desk_id)
+
+    def _delegated(self, agent: Agent | None) -> bool:
+        """Whether this server runs ``agent`` for a **Parent server** that holds its task."""
+        return bool(agent and agent["parentUrl"] and self.ids.is_own(agent["id"]))
+
+    def _home(self, agent: Agent | None) -> TaskHome:
+        """Where ``agent``'s task work goes: its parent's tasks, or this server's."""
+        delegated = agent if self._delegated(agent) else None
+        return self.homes.for_parent(delegated["parentUrl"] if delegated else "")
+
+    async def _task_of(self, agent: Agent) -> Task | None:
+        """``agent``'s task, from its home. ``None`` for a free agent or a lost one."""
+        task_id = agent["taskId"]
+        if not task_id:
+            return None
+        if not self._delegated(agent):
+            return self.world["tasks"].get(task_id)
+        try:
+            found = await self._home(agent).read_some([task_id])
+        except (TaskSourceRemote, ValueError) as exc:
+            log.warning("agent %s: its task %s: %s", agent["id"], task_id, exc)
+            return None
+        return found[0] if found else None
 
     async def _desk_remove(self, command: dict[str, Any]) -> dict[str, Any]:
         table = self.world["desk"]
@@ -1476,6 +1569,9 @@ class Orchestrator:
                 agent_id, state, held_before.get(agent_id, set())
             )
         for agent_id, agent in list(agents.items()):
+            # A merged agent is its remote host's to exit.
+            if not self.ids.is_own(agent_id):
+                continue
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
 
@@ -1504,12 +1600,74 @@ class Orchestrator:
         if usage is not None or codex_usage is not None:
             self._set_host(usage=usage, codex_usage=codex_usage)
 
+    def _remote_flipped(self) -> None:
+        """Publish the remote hosts' online state after a link went up or down.
+
+        A remote host's agents are never exited for it: see "Offline is not
+        dead" in ``docs/dev/remote-hosts.md``.
+        """
+        self._set_host(
+            remote_hosts=[host.state() for host in self.remote_hosts.values()]
+        )
+
+    async def _remote_changed(self, host: RemoteHost, kinds: set[str]) -> None:
+        """Read ``kinds`` on ``host`` again, and merge each into the world.
+
+        Each reading is diffed against ``host``'s slice, what it gave last
+        time, so a row this server owns, or another host does, is never
+        removed by it. A host that does not answer keeps its slices. A
+        worktree merges only when this server has its project.
+        """
+        for kind in sorted(kinds):
+            path, key = MERGED_KINDS[kind]
+            try:
+                reply = await host.get_json(path)
+            except HostUnreachable as exc:
+                log.warning("remote host %s: %s", host.name, exc)
+                return
+            new: dict[str, Any] = {}
+            for entity in reply.get(key) or []:
+                if not isinstance(entity, dict) or not owns(host.name, kind, entity):
+                    continue
+                if not isinstance(entity.get("id"), str) or not entity["id"]:
+                    continue
+                if (
+                    kind == "worktree"
+                    and entity.get("project") not in self.world["projects"]
+                ):
+                    continue
+                if kind == "agent":
+                    entity = self._merged_agent(cast(Agent, entity))
+                new[entity["id"]] = entity
+            old = host.slices.get(kind, {})
+            # A merged kind's list key is its world table's name.
+            table = self.world[key]
+            shown = {i: table[i] for i in old if i in table}
+            host.slices[kind] = new
+            self._apply(diff_kind(kind, shown, new))
+            if kind == "agent":
+                for agent_id, agent in new.items():
+                    if agent_id not in old and not agent["parent"]:
+                        await self._join_desk(agent_id)
+
+    def _merged_agent(self, agent: Agent) -> Agent:
+        """A remote host's agent as this server shows it.
+
+        Its task is one of this server's only when this server delegated it.
+        Any other task id names a task in another notebook, which may share
+        the id of one here.
+        """
+        if agent.get("parentUrl") and agent.get("parentUrl") == self.own_url:
+            return agent
+        return {**agent, "taskId": ""}
+
     def _set_host(
         self,
         *,
         reachable: bool | None = None,
         usage: HostUsage | None = None,
         codex_usage: HostUsage | None = None,
+        remote_hosts: list[RemoteHostState] | None = None,
     ) -> None:
         """Publish the host entity when a fact on it has changed.
 
@@ -1530,11 +1688,17 @@ class Orchestrator:
             if codex_usage is None
             else codex_usage
         )
+        next_remote_hosts = (
+            (current.get("remoteHosts", []) if current else [])
+            if remote_hosts is None
+            else remote_hosts
+        )
         if (
             current is not None
             and current["reachable"] == next_reachable
             and current.get("usage") == next_usage
             and current.get("codexUsage") == next_codex_usage
+            and current.get("remoteHosts", []) == next_remote_hosts
         ):
             return
         entity: Host = {
@@ -1546,6 +1710,7 @@ class Orchestrator:
             "socket": str(getattr(self.daemon, "socket_path", "")),
             "usage": next_usage,
             "codexUsage": next_codex_usage,
+            "remoteHosts": next_remote_hosts,
         }
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 
@@ -1750,6 +1915,8 @@ class Orchestrator:
             "taskId": link.task_id,
             "project": link.project,
             "worktreeId": link.worktree_id,
+            # The launch's own row names no parent: the router's record does.
+            "parentUrl": row.get("parentUrl") or "",
             # Spend and size only ever climb within one agent, so the larger
             # reading wins. A poll can carry a row the host stamped before a
             # turn this server has already seen on the stream, and taking it
@@ -2086,7 +2253,11 @@ class Orchestrator:
         ``docs/dev/orchestrator-server.md``, "A replay only repairs".
         """
         task = self.world["tasks"].get(document["taskId"])
-        if task is None:
+        if task is None or self._delegated(
+            self.world["agents"].get(document["agentId"])
+        ):
+            # A delegated agent's task is on its parent, which keeps no
+            # attachment from another host yet.
             return
         source = document["source"]
         body: str | None = None
@@ -2172,7 +2343,7 @@ class Orchestrator:
         task_id = agent.get("taskId") if agent else ""
         if not agent or not task_id:
             return
-        task = self.world["tasks"].get(task_id)
+        task = await self._task_of(agent) if replay else None
         if replay and (task is None or task["prNumber"]):
             return
         worktree = self.world["worktrees"].get(agent.get("worktreeId", ""))
@@ -2182,7 +2353,9 @@ class Orchestrator:
         except ValueError:
             log.warning("agent %s named no PR in its gh-pr link: %r", agent_id, ref)
             return
-        reply = await self._write_task(self.tasks.register_pr, task_id, number, url)
+        reply = await self._write_task(
+            self._home(agent).register_pr, task_id, number, url
+        )
         if not reply["ok"]:
             log.warning(
                 "agent %s could not register PR #%s on %s: %s",
@@ -2207,7 +2380,7 @@ class Orchestrator:
         task_id = agent.get("taskId") if agent else ""
         if not agent or not task_id:
             return
-        task = self.world["tasks"].get(task_id)
+        task = await self._task_of(agent)
         if task is None:
             log.warning(
                 "agent %s withdrew a PR on %s, which is unknown", agent_id, task_id
@@ -2225,7 +2398,7 @@ class Orchestrator:
                 task_id,
             )
             return
-        reply = await self._write_task(self.tasks.withdraw_pr, task_id)
+        reply = await self._write_task(self._home(agent).withdraw_pr, task_id)
         if not reply["ok"]:
             log.warning(
                 "agent %s could not withdraw PR #%s on %s: %s",
@@ -2382,6 +2555,8 @@ class Orchestrator:
             "task.setStatus": self._set_status,
             "task.update": self._update_task,
             "task.delete": self._delete_task,
+            "task.registerPr": self._register_task_pr,
+            "task.withdrawPr": self._withdraw_task_pr,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "task.promote": self._promote,
@@ -2454,10 +2629,38 @@ class Orchestrator:
         return WAIT_ITEM_FOR_STATE.get(agent["state"])
 
     async def _ask_host(self, payload: dict[str, Any]) -> dict[str, Any] | None:
-        """One host request; the mapped refusal, or ``None`` on success."""
+        """One host request; the mapped refusal, or ``None`` on success.
+
+        An agent a remote host owns is asked through that host's own agent
+        route, as a browser's request for it would be.
+        """
+        remote = self.remote_hosts.get(owner_of(str(payload.get("id") or "")))
+        if remote is not None and not self.ids.is_own(str(payload["id"])):
+            return await self._ask_remote(remote, payload)
         reply = await self.daemon.request(payload)
         if "error" in reply:
             return _refused(_code_for(reply["error"]), reply["error"])
+        return None
+
+    async def _ask_remote(
+        self, remote: RemoteHost, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """``payload`` as a remote host's agent route takes it: ``say`` or ``stop``.
+
+        Other commands reach a remote agent only through its forwarded route.
+        A ``say`` sends its text alone: an attachment's path is this server's.
+        """
+        command = str(payload["cmd"])
+        if command == "say":
+            body: dict[str, Any] = {"text": payload.get("text", "")}
+        elif command == "stop":
+            body = {}
+        else:
+            return _refused("invalid", f"{command} is not sent to a remote host")
+        try:
+            await remote.post_json(f"/api/agents/{payload['id']}/{command}", body)
+        except HostUnreachable as exc:
+            return _refused("unreachable", str(exc))
         return None
 
     async def _approve(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -2823,27 +3026,40 @@ class Orchestrator:
             paths.append(found)
         try:
             created = await self._run(
-                self.tasks.promote, project, drafts, *self._planning_task(document)
+                self._home(agent).promote,
+                project,
+                drafts,
+                *await self._planning_task(document),
             )
         except ValueError as exc:
             return [], _refused("invalid", str(exc))
+        except TaskSourceRemote as exc:
+            return [], _refused("unreachable", str(exc))
         # After the commit: a rollback cannot restore a deleted draft.
         # `missing_ok`: a file already gone must not undo the promote.
         for path in paths:
             path.unlink(missing_ok=True)
-        await self._desk_new_tasks(created)
+        # A delegated agent's tasks are its parent's, and go on its desk.
+        if not self._delegated(agent):
+            await self._desk_new_tasks(created)
         return created, None
 
-    def _planning_task(self, document: Document) -> tuple[str, str | None]:
+    async def _planning_task(self, document: Document) -> tuple[str, str | None]:
         """The parent the set joins and the task it splices after.
 
         The server's reading of ``$MAEL_TASK_PARENT`` and ``$MAEL_TASK_ID``. A
         planning session chains what it creates under its own parent, or under
         itself when it has none, so the whole chain shares one branch and one
         PR. The set splices in after the planning task. A free agent has no
-        task, so its set joins no parent and follows nothing.
+        task, so its set joins no parent and follows nothing. A delegated
+        agent's task is read from its parent.
         """
-        task = self.world["tasks"].get(document["taskId"])
+        agent = self.world["agents"].get(document["agentId"])
+        task = (
+            await self._task_of(agent)
+            if agent is not None
+            else self.world["tasks"].get(document["taskId"])
+        )
         if task is None:
             return "", None
         return task["parent"] or task["notebookId"], task["notebookId"]
@@ -3035,6 +3251,9 @@ class Orchestrator:
         for agent in world["agents"].values():
             if agent["parent"] or agent["state"] == "exited" or not agent["taskId"]:
                 continue
+            if self._delegated(agent):
+                # Its parent watches its task's PR.
+                continue
             task = world["tasks"].get(agent["taskId"])
             if task is None or not task["prUrl"]:
                 continue
@@ -3161,7 +3380,12 @@ class Orchestrator:
         symlink would otherwise match no worktree.
         """
         rows = self.world["worktrees"] if worktrees is None else worktrees
-        return {os.path.realpath(wt["path"]): wt["id"] for wt in rows.values()}
+        # Only this server's own: a merged worktree's path is on its host.
+        return {
+            os.path.realpath(wt["path"]): wt["id"]
+            for wt in rows.values()
+            if self.ids.is_own(wt["id"])
+        }
 
     def _gate_jobs(self, worktrees: dict[str, Any]) -> dict[str, GateJob]:
         """The gate table's jobs, each linked to its worktree in ``worktrees``."""
@@ -3169,16 +3393,21 @@ class Orchestrator:
         return {
             entity["id"]: entity
             for entity in (
-                gate_job_entity(job, worktree_ids)
+                gate_job_entity(job, worktree_ids, self.ids)
                 for job in self._gate_table.jobs.values()
             )
         }
 
     def _publish_gates(self) -> None:
-        worktrees = self.world["worktrees"]
+        worktrees = {
+            worktree_id: row
+            for worktree_id, row in self.world["worktrees"].items()
+            if self.ids.is_own(worktree_id)
+        }
         jobs = self._gate_jobs(worktrees)
+        own = self.ids.prefix
         self._apply(
-            diff_kind("gateJob", self.world["gateJobs"], jobs)
+            diff_kind("gateJob", self.world["gateJobs"], jobs, owner=own)
             + diff_kind("worktree", worktrees, with_gates(worktrees, jobs))
         )
 
@@ -3284,47 +3513,180 @@ class Orchestrator:
     # -- launch kinds --
 
     def _task_launch_steps(
-        self, launching: "_Launching", model_name: str | None, hook: OperationHook
+        self,
+        launching: "_Launching",
+        model_name: str | None,
+        hook: OperationHook,
+        host: str = "",
     ) -> list[Step]:
-        """Open a task's worktree, write its ``.env``, and start its agent.
+        """Claim a task, then start its agent here or on a **Remote host**.
 
         The steps of a launch, and the tail of a create or a plan that
-        launches. The task moves in-progress as its worktree opens; the
-        operation's work rolls it back when a later step does not finish.
+        launches. The claim moves the task in-progress before anything opens;
+        :meth:`_run_launch` rolls it back when no agent starts.
+
+        Here, the steps are the agent start's: open the worktree, write its
+        ``.env``, start. On ``host``, one step posts the start spec to the
+        host, which runs those steps as its own operation.
+        """
+        if host:
+            return [
+                Step(
+                    name="start_on_host",
+                    run=functools.partial(
+                        self._start_on_host, launching, model_name, hook, host
+                    ),
+                )
+            ]
+        spec: dict[str, Any] = {}
+
+        async def claim_and_open() -> StepOutcome:
+            blocked = await self._claim(launching, model_name)
+            if blocked is not None:
+                return blocked
+            assert launching.claim is not None
+            spec.update(self._spec_for(launching.claim))
+            return await open_worktree()
+
+        open_worktree, write_env, start_agent = self._agent_start_steps(
+            spec, launching, hook
+        )
+        return [
+            Step(name="open_worktree", run=claim_and_open),
+            Step(name="write_env", run=write_env),
+            Step(name="start_agent", run=start_agent),
+        ]
+
+    async def _claim(
+        self, launching: "_Launching", model_name: str | None
+    ) -> StepOutcome | None:
+        """Claim ``launching``'s task for a launch; the refusal, or ``None``."""
+        if holder := self._session_holder(launching.task_id):
+            return StepOutcome(
+                blocked=f"Task {launching.task_id} already has a live agent, "
+                f"{holder}. Stop it before relaunching."
+            )
+        try:
+            launching.claim = await self._run(
+                self.tasks.claim_launch, launching.task_id, model_name
+            )
+        except KeyError:
+            return StepOutcome(blocked=f"No task {launching.task_id}")
+        except LaunchBlocked as exc:
+            return StepOutcome(blocked=str(exc))
+        await self.refresh_tasks(force=True)
+        return None
+
+    def _spec_for(self, claim: LaunchClaim) -> dict[str, Any]:
+        """The start spec of a claimed task's agent."""
+        plan = claim.plan
+        return {
+            "project": claim.project,
+            "branch": plan.branch,
+            "base": claim.base,
+            "prompt": plan.prompt,
+            "mode": plan.permission_mode or "",
+            "model": plan.model,
+            "executeModel": plan.execute_model,
+            "session": plan.session_id,
+            "env": plan.env,
+            "taskId": wire_task_key(claim.project, claim.task_id),
+        }
+
+    async def _start_on_host(
+        self,
+        launching: "_Launching",
+        model_name: str | None,
+        hook: OperationHook,
+        host: str,
+    ) -> StepOutcome:
+        """Claim the task here, and start its agent on ``host`` as a **Delegated agent**."""
+        remote = self.remote_hosts.get(host)
+        if remote is None:
+            return StepOutcome(blocked=f"No remote host {host}")
+        if not self.own_url:
+            return StepOutcome(
+                blocked="This server has no orchestrator_url to give a remote host"
+            )
+        blocked = await self._claim(launching, model_name)
+        if blocked is not None:
+            return blocked
+        assert launching.claim is not None
+        spec = {**self._spec_for(launching.claim), "parentUrl": self.own_url}
+        try:
+            reply = await remote.post_json("/api/agents", spec)
+            operation_id = str(reply["operationId"])
+        except (HostUnreachable, KeyError) as exc:
+            return StepOutcome(blocked=f"{host} did not start the agent: {exc}")
+        launching.handed_off = True
+        try:
+            operation = await remote.await_operation(operation_id)
+        except HostUnreachable as exc:
+            return StepOutcome(
+                blocked=f"{host} took the start, but its result is unknown: {exc}. "
+                "The task stays in progress."
+            )
+        agent_id = str(operation.get("agentId") or "")
+        if operation["state"] != DONE or not agent_id:
+            launching.handed_off = False
+            return StepOutcome(blocked=f"{host}: {operation.get('words') or 'failed'}")
+        launching.agent_id = agent_id
+        hook.target(agent_id=agent_id, worktree_id=operation.get("worktreeId"))
+        await self._add_to_desk(desk_id_for_task(launching.task_id))
+        return StepOutcome(messages=[f"Started {agent_id} on {host}."])
+
+    def _agent_start_steps(
+        self,
+        spec: dict[str, Any],
+        launching: "_Launching",
+        hook: OperationHook,
+        prompt_file: Path | None = None,
+    ) -> tuple[
+        Callable[[], Awaitable[StepOutcome]],
+        Callable[[], Awaitable[StepOutcome]],
+        Callable[[], Awaitable[StepOutcome]],
+    ]:
+        """Open ``spec``'s worktree, write its ``.env``, and start its agent.
+
+        The one agent start, whatever asked for it: a free agent, a task
+        launch, or a parent's delegated launch. ``spec`` holds the start spec;
+        a task launch fills it in once its claim has run. ``prompt_file``
+        stands in for the agent prompt, for an investigation.
         """
 
         async def open_worktree() -> StepOutcome:
-            if holder := self._session_holder(launching.task_id):
-                return StepOutcome(
-                    blocked=f"Task {launching.task_id} already has a live agent, "
-                    f"{holder}. Stop it before relaunching."
-                )
+            session = str(spec.get("session") or "")
+            task_id = str(spec.get("taskId") or "")
             try:
-                prepared = await self._run(
-                    self.tasks.prepare_launch, launching.task_id, model_name
+                if session:
+                    live = await self.opener.live_sessions().sweep()
+                    check_not_live(task_id, session, live)
+                setup = await self.opener.open(
+                    spec["project"],
+                    launching.branch or str(spec.get("branch") or ""),
+                    str(spec.get("base") or ""),
                 )
-            except KeyError:
-                return StepOutcome(blocked=f"No task {launching.task_id}")
+                if session:
+                    check_synced(task_id, str(spec.get("branch") or ""), setup)
             except LaunchBlocked as exc:
                 return StepOutcome(blocked=str(exc))
-            launching.prepared = prepared
-            setup = prepared.setup
+            launching.setup = setup
             hook.target(
-                worktree_id=get_worktree_folder_name(launching.project, setup.name)
+                worktree_id=self.ids.own(
+                    get_worktree_folder_name(spec["project"], setup.name)
+                )
             )
-            await self.refresh_tasks(force=True)
             return StepOutcome(messages=[_opened(setup)])
 
         async def write_env() -> StepOutcome:
-            assert launching.prepared is not None  # open_worktree ran first
-            lines = await self.tasks.write_env(
-                launching.project, launching.prepared.setup
+            assert launching.setup is not None  # open_worktree ran first
+            return StepOutcome(
+                messages=await self.opener.write_env(spec["project"], launching.setup)
             )
-            return StepOutcome(messages=lines)
 
         async def start_agent() -> StepOutcome:
-            assert launching.prepared is not None  # open_worktree ran first
-            payload = self.tasks.finish_launch(launching.prepared)
+            assert launching.setup is not None  # open_worktree ran first
+            payload = self._start_payload(spec, launching.setup, prompt_file)
             reply = await self.daemon.request(payload)
             agent_id = reply.get("id") if "error" not in reply else None
             if not agent_id:
@@ -3333,16 +3695,56 @@ class Orchestrator:
                 )
             launching.agent_id = agent_id
             hook.target(agent_id=agent_id)
-            await self.refresh_tasks(force=True)
-            await self._add_to_desk(desk_id_for_task(launching.task_id))
+            if launching.claim is not None:
+                await self.refresh_tasks(force=True)
+                await self._add_to_desk(desk_id_for_task(launching.task_id))
+            else:
+                # A worktree provisioned a moment ago is not in the world yet,
+                # and the adoption links the agent to it by cwd.
+                await self.refresh_worktrees()
             await self._adopt(_started_row(agent_id, payload))
+            if launching.claim is None:
+                # The desk join is explicit: ``_adopt`` alone does not file an
+                # agent, only the reconcile that follows one does.
+                await self._join_desk(agent_id)
             return StepOutcome(messages=[f"Started {agent_id}."])
 
-        return [
-            Step(name="open_worktree", run=open_worktree),
-            Step(name="write_env", run=write_env),
-            Step(name="start_agent", run=start_agent),
-        ]
+        return open_worktree, write_env, start_agent
+
+    def _start_payload(
+        self, spec: dict[str, Any], setup: WorktreeSetup, prompt_file: Path | None
+    ) -> dict[str, Any]:
+        """The daemon's ``start`` for ``spec`` in its opened worktree.
+
+        A task that has run before already owns its session id, so it resumes.
+        A Codex session is a thread the router finds by session id, if one ran.
+        A **Delegated agent** gets ``MAEL_PARENT_URL``, and the router keeps
+        its parent and task on its record.
+        """
+        session = str(spec.get("session") or "")
+        model = str(spec.get("model") or "") or None
+        parent_url = str(spec.get("parentUrl") or "")
+        env = dict(spec.get("env") or {})
+        if parent_url:
+            env[PARENT_URL_ENV] = parent_url
+        codex = bool(model) and resolve_model_reference(model).harness == HARNESS_CODEX
+        payload = build_start_payload(
+            setup.path,
+            prompt=str(spec.get("prompt") or ""),
+            permission_mode=model_permission_mode(str(spec.get("mode") or "")),
+            model=model,
+            execute_model=str(spec.get("executeModel") or "") or None,
+            session_id=session or None,
+            env=env or None,
+            resume=bool(session)
+            and (codex or self.opener.has_transcript(setup.path, session)),
+            system_prompt_file=prompt_file or agent_prompt_file(),
+            plugin_dir=core_plugin_dir(),
+        )
+        if parent_url:
+            payload[PARENT_URL] = parent_url
+            payload[TASK_ID] = str(spec.get("taskId") or "")
+        return payload
 
     def _session_holder(self, task_id: str) -> str:
         """The live agent that holds ``task_id``'s session, else ``""``.
@@ -3369,8 +3771,12 @@ class Orchestrator:
         try:
             await _run_own_steps(steps, hook)
         except BaseException:
-            if launching.prepared is not None and not launching.agent_id:
-                await self._run(self.tasks.rollback, launching.prepared)
+            if (
+                launching.claim is not None
+                and not launching.agent_id
+                and not launching.handed_off
+            ):
+                await self._run(self.tasks.rollback, launching.claim)
             raise
 
     async def _refresh_launched(self) -> None:
@@ -3386,10 +3792,14 @@ class Orchestrator:
         """Launch a task: its worktree opens, its ``.env`` is written, its agent starts."""
         task_id = command["taskId"]
         launching = _Launching(project=split_task_key(task_id)[0], task_id=task_id)
+        host = str(command.get("host") or "")
+        steps = REMOTE_LAUNCH_STEPS if host else LAUNCH_STEPS
 
         async def work(hook: OperationHook) -> None:
-            steps = self._task_launch_steps(launching, command.get("model"), hook)
-            await self._run_launch(steps, hook, launching)
+            launch_steps = self._task_launch_steps(
+                launching, command.get("model"), hook, host
+            )
+            await self._run_launch(launch_steps, hook, launching)
 
         title = self._task_title(task_id)
         return OperationPlan(
@@ -3401,8 +3811,8 @@ class Orchestrator:
             work,
             self._refresh_launched,
             project=launching.project,
-            steps=LAUNCH_STEPS,
-            replay=frozenset(LAUNCH_STEPS),
+            steps=steps,
+            replay=frozenset(steps),
             task_id=task_id,
         )
 
@@ -3584,17 +3994,18 @@ class Orchestrator:
         )
 
     def _start_plan(self, command: dict[str, Any]) -> OperationPlan | dict[str, Any]:
-        """Start an agent in a branch's worktree, tied to no task.
+        """Start an agent from a start spec: a free agent, or a parent's delegated one.
 
-        A launch's payload less ``session`` and ``env`` — see
-        ``docs/dev/orchestrator-server.md``. The worktree is opened first, so
-        a branch with none gets one provisioned. An empty branch is named from
-        the prompt first, and kept on the stored command for a retry.
+        A free agent's spec names no ``session``, ``env`` or ``taskId``. A
+        **Parent server**'s delegated launch names them, and its ``parentUrl``; see
+        ``docs/dev/remote-hosts.md``. The worktree is opened first, so a branch
+        with none gets one provisioned. An empty branch is named from the
+        prompt first, and kept on the stored command for a retry.
 
         An investigation whose rules file is gone is refused before the
         operation starts: without the rules it is an ordinary free agent.
         """
-        prompt_file = agent_prompt_file()
+        prompt_file: Path | None = None
         if command.get("investigate"):
             prompt_file = investigation_prompt_file()
             if prompt_file is None:
@@ -3605,6 +4016,7 @@ class Orchestrator:
             project=project,
             branch=typed or str((command.get("named") or {}).get("branch", "")),
         )
+        spec = {k: command[k] for k in START_SPEC_KEYS if k in command}
 
         def name_branch(hook: OperationHook) -> Step:
             async def run() -> StepOutcome:
@@ -3615,62 +4027,15 @@ class Orchestrator:
 
             return Step(name="name_branch", run=run)
 
-        def open_worktree(hook: OperationHook) -> Step:
-            async def run() -> StepOutcome:
-                try:
-                    setup = await self._run(
-                        self.tasks.worktree_for, project, launching.branch
-                    )
-                except LaunchBlocked as exc:
-                    return StepOutcome(blocked=str(exc))
-                launching.setup = setup
-                hook.target(worktree_id=get_worktree_folder_name(project, setup.name))
-                return StepOutcome(messages=[_opened(setup)])
-
-            return Step(name="open_worktree", run=run)
-
-        async def write_env() -> StepOutcome:
-            assert launching.setup is not None  # open_worktree ran first
-            return StepOutcome(
-                messages=await self.tasks.write_env(project, launching.setup)
-            )
-
-        def start_agent(hook: OperationHook) -> Step:
-            async def run() -> StepOutcome:
-                assert launching.setup is not None  # open_worktree ran first
-                payload = build_start_payload(
-                    launching.setup.path,
-                    prompt=command["prompt"],
-                    permission_mode=model_permission_mode(command.get("mode", "")),
-                    model=command.get("model") or None,
-                    execute_model=command.get("executeModel") or None,
-                    system_prompt_file=prompt_file,
-                    plugin_dir=core_plugin_dir(),
-                )
-                reply = await self.daemon.request(payload)
-                agent_id = reply.get("id") if "error" not in reply else None
-                if not agent_id:
-                    return StepOutcome(
-                        blocked=reply.get("error") or "agent host sent no agent id"
-                    )
-                hook.target(agent_id=agent_id)
-                # A worktree provisioned a moment ago is not in the world yet,
-                # and the adoption links the agent to it by cwd.
-                await self.refresh_worktrees()
-                await self._adopt(_started_row(agent_id, payload))
-                # The desk join is explicit: ``_adopt`` alone does not file an
-                # agent, only the reconcile that follows one does.
-                await self._join_desk(agent_id)
-                return StepOutcome(messages=[f"Started {agent_id}."])
-
-            return Step(name="start_agent", run=run)
-
         async def work(hook: OperationHook) -> None:
+            open_worktree, write_env, start_agent = self._agent_start_steps(
+                spec, launching, hook, prompt_file
+            )
             steps = [] if typed else [name_branch(hook)]
             steps += [
-                open_worktree(hook),
+                Step(name="open_worktree", run=open_worktree),
                 Step(name="write_env", run=write_env),
-                start_agent(hook),
+                Step(name="start_agent", run=start_agent),
             ]
             await _run_own_steps(steps, hook)
 
@@ -3831,6 +4196,9 @@ class Orchestrator:
         refused = await self._ask_host({"cmd": "stop", "id": agent_id})
         if refused:
             return StepOutcome(blocked=refused["error"]["message"])
+        if not self.ids.is_own(agent_id):
+            # Its host exits it, and the merge brings the exit here.
+            return StepOutcome(messages=[f"Stopped {agent_id}."])
         # The host drops a stopped agent, so its stream ends without a marker
         # and the next list no longer names it: this is its clean exit.
         await self._exit(agent_id, 0)
@@ -4131,6 +4499,25 @@ class Orchestrator:
             self.tasks.update, command["taskId"], dict(command["fields"])
         )
 
+    async def _register_task_pr(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Register a PR on a task: what a delegated agent's ``gh-pr`` link sends."""
+        task_id = command["taskId"]
+        reply = await self._write_task(
+            self.tasks.register_pr, task_id, command["number"], command["url"]
+        )
+        return self._with_task(reply, task_id)
+
+    async def _withdraw_task_pr(self, command: dict[str, Any]) -> dict[str, Any]:
+        task_id = command["taskId"]
+        reply = await self._write_task(self.tasks.withdraw_pr, task_id)
+        return self._with_task(reply, task_id)
+
+    def _with_task(self, reply: dict[str, Any], task_id: str) -> dict[str, Any]:
+        """``reply``, answered with the task as it now stands when it succeeded."""
+        if not reply["ok"]:
+            return reply
+        return {"ok": True, "result": self.world["tasks"].get(task_id, {})}
+
     async def _delete_task(self, command: dict[str, Any]) -> dict[str, Any]:
         """Remove a task. The forced refresh is also what prunes its desk entry."""
         return await self._write_task(self.tasks.delete, command["taskId"])
@@ -4334,6 +4721,8 @@ class Orchestrator:
             return _refused("unknown_id", f"No task {task_id}")
         except ValueError as exc:
             return _refused("invalid", str(exc))
+        except TaskSourceRemote as exc:
+            return _refused("unreachable", str(exc))
         await self.refresh_tasks(force=True)
         return {"ok": True, "result": result or {}}
 

@@ -14,7 +14,7 @@ from mael_domain.attachments import is_bare_name
 from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
-from mael_domain.protocol import Agent, Worktree, World
+from mael_domain.protocol import HOST_ID, Agent, Worktree, World
 from mael_domain.task import PROMOTABLE_FIELDS
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
@@ -795,6 +795,8 @@ def validate_command(
             return _err("unknown_id", f"No task {task_id}")
         if not task["actionable"]:
             return _err("invalid", f"Task {task_id} is not actionable")
+        if host := cmd.get("host"):
+            return _remote_host_refusal(world, str(host))
         return None
 
     if kind == "desk.add":
@@ -872,6 +874,18 @@ def validate_command(
         status = cmd.get("status")
         if status not in TASK_STATUSES:
             return _err("invalid", f"No status {status}")
+        return None
+
+    if kind in ("task.registerPr", "task.withdrawPr"):
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        if kind == "task.registerPr":
+            number, url = cmd.get("number"), cmd.get("url")
+            if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+                return _err("invalid", "number is a PR number")
+            if not isinstance(url, str) or not url.startswith("https://"):
+                return _err("invalid", "url is the PR's URL")
         return None
 
     if kind == "task.update":
@@ -1066,6 +1080,9 @@ def validate_command(
         if cmd.get("investigate") and mode == "plan":
             # A plan hands over to an execute session, which changes code.
             return _err("invalid", "An investigation cannot plan")
+        refused = _start_spec_refusal(cmd)
+        if refused:
+            return refused
         execute_model = cmd.get("executeModel")
         if execute_model:
             # Unlike `model`, which the daemon refuses if it cannot use it, a
@@ -1109,3 +1126,42 @@ def validate_command(
         return None
 
     return _err("invalid", f"Unknown command: {kind}")
+
+
+def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
+    """Why a launch on the remote host ``name`` is refused, or ``None``."""
+    host = world["host"].get(HOST_ID)
+    remote = next(
+        (h for h in (host or {}).get("remoteHosts", []) if h["name"] == name), None
+    )
+    if remote is None:
+        return _err("invalid", f"No remote host {name}")
+    if not remote["online"]:
+        return _err("invalid", f"{name} is offline")
+    return None
+
+
+def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
+    """Why a start spec's task fields are refused, or ``None``.
+
+    A parent's delegated launch names its task's session and env, the task's
+    wire id, and its own URL. See "Delegation" in ``docs/dev/remote-hosts.md``.
+    """
+    for key in ("base", "session", "taskId", "parentUrl"):
+        if not isinstance(cmd.get(key, ""), str):
+            return _err("invalid", f"{key} must be a string")
+    env = cmd.get("env", {})
+    if not isinstance(env, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in env.items()
+    ):
+        return _err("invalid", "env maps names to strings")
+    parent_url = str(cmd.get("parentUrl") or "")
+    if parent_url and not parent_url.startswith(("http://", "https://")):
+        return _err("invalid", "parentUrl is an HTTP(S) URL")
+    if parent_url and not (cmd.get("session") and cmd.get("taskId")):
+        return _err("invalid", "A delegated start names its task and session")
+    # Without a parent, a session would resume a task's agent past the claim,
+    # so only a delegated start may name one, or the task's env and id.
+    if not parent_url and (cmd.get("session") or cmd.get("taskId") or env):
+        return _err("invalid", "Only a delegated start names a session, env or task")
+    return None
