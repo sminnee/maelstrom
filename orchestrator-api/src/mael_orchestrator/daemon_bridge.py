@@ -9,17 +9,20 @@ Tests stand in for the agent host with
 :class:`~mael_agent.agent_transport.ScriptedAsyncDaemonClient`.
 """
 
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from mael_agent.agent_transport import AsyncDaemonClient
+from mael_agent.agent_wire import AGENT_DETAIL
 from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     HARNESS_CODEX,
     resolve_model_reference,
 )
+from mael_agent.host_ids import IdSpace
 from mael_common.util import now_iso
 from mael_domain.agent_store import (
     AGENT_ENDED,
@@ -42,6 +45,75 @@ UNCONFIRMED_LISTS_BEFORE_END = 5
 #: that window misses it — the very case this bug was reported for.
 START_GRACE_SECONDS = 60.0
 
+#: The start-payload key that names a **Parent server**: the URL of the orchestrator
+#: that holds a **Delegated agent**'s task. The router keeps it on the record.
+PARENT_URL = "parentUrl"
+#: The start-payload key that names a delegated agent's task, by wire id.
+TASK_ID = "taskId"
+
+
+@dataclass
+class _Prefixed:
+    """A daemon client seen through an :class:`IdSpace`.
+
+    Each id that goes to the daemon loses the prefix, and each id that comes
+    back gets it: a reply's ``id``, a row's ``id`` and ``parent``, and the
+    agent of an ``AGENT_DETAIL`` frame.
+    """
+
+    inner: DaemonClient
+    ids: IdSpace
+
+    async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("id"):
+            payload = {**payload, "id": self.ids.strip(str(payload["id"]))}
+        reply = await self.inner.request(payload)
+        if reply.get("id"):
+            reply = {**reply, "id": self.ids.own(str(reply["id"]))}
+        if isinstance(reply.get("agents"), list):
+            reply = {
+                **reply,
+                "agents": [
+                    self._row(row) if isinstance(row, dict) else row
+                    for row in reply["agents"]
+                ],
+            }
+        return reply
+
+    async def attach(
+        self, agent_id: str, from_seq: int = 0, epoch: str = ""
+    ) -> AsyncIterator[dict[str, Any]]:
+        stream = cast(
+            AsyncGenerator[dict[str, Any]],
+            self.inner.attach(self.ids.strip(agent_id), from_seq, epoch),
+        )
+        async with aclosing(stream) as frames:
+            async for frame in frames:
+                if frame.get("type") == AGENT_DETAIL and isinstance(
+                    frame.get("agent"), dict
+                ):
+                    frame = {**frame, "agent": self._row(frame["agent"])}
+                yield frame
+
+    async def restore(self, agents: list[dict[str, Any]]) -> None:
+        """The inner client's restore, given bare ids, when it has one."""
+        restore = getattr(self.inner, "restore", None)
+        if restore is not None:
+            await restore(
+                [{**a, "id": self.ids.strip(str(a.get("id") or ""))} for a in agents]
+            )
+
+    def __getattr__(self, name: str) -> Any:
+        """The inner client's own attributes, such as its ``socket_path``."""
+        return getattr(self.inner, name)
+
+    def _row(self, row: dict[str, Any]) -> dict[str, Any]:
+        out = dict(row)
+        for key in ("id", "parent"):
+            if out.get(key):
+                out[key] = self.ids.own(str(out[key]))
+        return out
+
 
 @dataclass
 class DaemonRouter:
@@ -52,6 +124,8 @@ class DaemonRouter:
     agents: AgentStore
     #: What stamps a record's start and end. Injected so a test can pin them.
     clock: Callable[[], str] = now_iso
+    #: This server's ids. Its prefix goes on every agent id the router hands out.
+    ids: IdSpace = field(default_factory=IdSpace)
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
@@ -65,6 +139,10 @@ class DaemonRouter:
     _last_seen: dict[str, tuple[str, dict[str, Any]]] = field(
         default_factory=dict, init=False
     )
+
+    def __post_init__(self) -> None:
+        self.claude = _Prefixed(self.claude, self.ids)
+        self.codex = _Prefixed(self.codex, self.ids)
 
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         command = str(payload.get("cmd", ""))
@@ -135,7 +213,12 @@ class DaemonRouter:
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
-        reply = await self._start_or_resume(client, harness, payload)
+        # The parent and the task are the router's to keep, not the daemon's.
+        reply = await self._start_or_resume(
+            client,
+            harness,
+            {k: v for k, v in payload.items() if k not in (PARENT_URL, TASK_ID)},
+        )
         if command == "start" and reply.get("ok") and reply.get("id"):
             agent_id = str(reply["id"])
             self._harnesses[agent_id] = harness
@@ -148,7 +231,11 @@ class DaemonRouter:
                 # Not read yet: link_agent still resolves the task by
                 # session-id reverse-lookup. Persisted now so it is there
                 # when a reader needs it.
-                task_id=str(payload.get("env", {}).get("MAEL_TASK_ID", "")),
+                task_id=str(
+                    payload.get(TASK_ID)
+                    or payload.get("env", {}).get("MAEL_TASK_ID", "")
+                ),
+                parent_url=str(payload.get(PARENT_URL) or ""),
                 cwd=str(payload.get("cwd") or ""),
                 model=str(payload.get("model") or ""),
                 mode=str(payload.get("mode") or "normal"),
@@ -381,9 +468,7 @@ class DaemonRouter:
             for agent in agents
             if agent.get("id") and agent.get("status", AGENT_RUNNING) != AGENT_ENDED
         }
-        restore = getattr(self.codex, "restore", None)
-        if restore is not None:
-            await restore(agents)
+        await cast(_Prefixed, self.codex).restore(agents)
         for agent_id, agent in self._agents.items():
             if agent.get("harness"):
                 self._harnesses[agent_id] = str(agent["harness"])
@@ -450,4 +535,11 @@ def _stored_agent_row(
         # Set once, when the record is written. The daemon's own start moves
         # on a resume.
         "started_at": agent.get("started_at") or "",
+        # A delegated agent's task is on its parent, so the session join
+        # cannot find it: the record names it.
+        **(
+            {"task_id": agent.get("task_id") or "", PARENT_URL: agent["parent_url"]}
+            if agent.get("parent_url")
+            else {}
+        ),
     }

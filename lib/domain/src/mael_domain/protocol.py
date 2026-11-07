@@ -620,6 +620,11 @@ class Agent(TypedDict):
     backgroundShells: list[BackgroundShell]
     #: The harness that runs the agent: ``claude`` or ``codex``.
     harness: str
+    #: The host whose **Id prefix** the agent's id carries; ``""`` for a bare id.
+    host: str
+    #: The **Parent server** of a **Delegated agent**: the orchestrator that holds its
+    #: task. ``""`` when the agent's task is on the server that runs it.
+    parentUrl: str
 
 
 class Attention(TypedDict):
@@ -784,6 +789,17 @@ class Host(TypedDict):
     usage: HostUsage | None
     #: The Codex account's budget, or ``None`` until a Codex turn reports one.
     codexUsage: HostUsage | None
+    #: Each **Remote host** in ``hosts:``, and whether its link is up.
+    remoteHosts: list["RemoteHostState"]
+
+
+class RemoteHostState(TypedDict):
+    """One **Remote host**, as the parent's link to it last saw it."""
+
+    name: str
+    online: bool
+    #: When ``online`` last changed; ``""`` before the first change.
+    since: str
 
 
 class GateState(TypedDict):

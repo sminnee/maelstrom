@@ -97,8 +97,13 @@ def new_agent_record(
     model: str,
     mode: str,
     started_at: str,
+    parent_url: str = "",
 ) -> dict[str, Any]:
     """One running Agent record, however the agent arrived.
+
+    ``parent_url`` names the **Parent server** of a **Delegated agent**: the
+    orchestrator that holds its task. It is ``""`` for an agent whose task is
+    on this server.
 
     The single constructor for the shape, so a launched agent and an adopted one
     cannot end up describable by different fields — which is the
@@ -112,6 +117,8 @@ def new_agent_record(
         "harness": harness,
         "task_session_id": task_session_id,
         "task_id": task_id,
+        # Only a delegated agent's record names a parent.
+        **({"parent_url": parent_url} if parent_url else {}),
         "cwd": cwd,
         "model": model,
         "mode": mode or "normal",
