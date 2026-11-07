@@ -10,6 +10,7 @@ from click.testing import CliRunner
 from mael_cli import github_cli, task_cli
 from mael_cli.cli import cli
 from mael_cli.github_cli import _format_size, _render_pr_comments
+from mael_cli.orchestrator_client import PARENT_URL_ENV, OrchestratorClient
 from mael_domain import task as model
 from mael_domain.github_model import (
     GitHubCliMissing,
@@ -39,6 +40,7 @@ def tasks(store, monkeypatch):
 
     monkeypatch.setattr(task_cli, "_table", _table)
     monkeypatch.setattr(task_cli, "resolve_project", lambda project: project or "p")
+    monkeypatch.setattr(github_cli, "resolve_project", lambda project: project or "p")
     monkeypatch.setattr(github_cli, "project_repo_url", _repo_url)
     monkeypatch.delenv("MAEL_TASK_ID", raising=False)
     return store
@@ -150,6 +152,28 @@ class TestCreatePrRegisters:
             9,
             "https://github.com/o/r/pull/9",
         )
+
+    def test_a_delegated_agent_registers_the_pr_on_the_parent(self, tasks, monkeypatch):
+        """The task is on the parent; the local table must not change."""
+        task = asyncio.run(model.create(tasks, project="p", title="t"))
+        monkeypatch.setenv("MAEL_TASK_ID", task.id)
+        monkeypatch.setenv(PARENT_URL_ENV, "https://parent:3030")
+        calls = []
+
+        def put(client, path, body):
+            calls.append((client.base_url, path, body))
+
+        monkeypatch.setattr(OrchestratorClient, "put", put)
+        result = self._push(PushedPr("https://github.com/o/r/pull/9", 9, False))
+        assert result.exit_code == 0, result.output
+        assert calls == [
+            (
+                "https://parent:3030",
+                f"/api/tasks/p/{task.id}/pr",
+                {"number": 9, "url": "https://github.com/o/r/pull/9"},
+            )
+        ]
+        assert asyncio.run(_registered(tasks, task.id)) == (0, "")
 
     def test_no_running_task_registers_nothing(self, tasks):
         task = asyncio.run(model.create(tasks, project="p", title="t"))

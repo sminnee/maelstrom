@@ -13,6 +13,7 @@ from mael_domain.context import resolve_project
 from mael_domain.integrations import linear
 
 from .. import task_cli
+from ..orchestrator_client import refuse_with_parent
 from ..task_cli import block_task_options
 from .group_cli import IntegrationGroup
 
@@ -132,6 +133,7 @@ async def cmd_plan(
     explicit empty value — ``--post-action ''`` — clears the field instead of
     falling back to the planning default, matching ``task add``'s semantics.
     """
+    refuse_with_parent("linear plan")
     task_cli.check_run_transport(run, cli, daemon)
     # add_task re-resolves internally; passing the resolved name is idempotent.
     resolved_project = resolve_project(project)

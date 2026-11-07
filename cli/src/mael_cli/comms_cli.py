@@ -29,6 +29,7 @@ from mael_domain.state_db.types import StateDbError
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree import find_all_projects
 
+from .orchestrator_client import refuse_with_parent
 from .table_cli import draw_table
 
 _ENV_COLUMNS = [step.upper() for step in DEPLOY_STEPS]
@@ -114,6 +115,7 @@ async def cmd_new(
     project: str | None,
 ) -> None:
     """Create a comm and print its id."""
+    refuse_with_parent("comms new")
     _check_project(project)
     async with _db() as db:
         store = SqliteCommStore(db)
@@ -139,6 +141,7 @@ async def cmd_new(
 @click.option("--category", default=None, help="Show only this category.")
 async def cmd_list(all_: bool, category: str | None) -> None:
     """Print the open comms, with the count of tasks linked to each."""
+    refuse_with_parent("comms list")
     async with _db() as db:
         table = SqliteTaskTable(db)
         # One scan of the tasks, counted per comm.
@@ -172,6 +175,7 @@ async def cmd_list(all_: bool, category: str | None) -> None:
 @click.argument("comm")
 async def cmd_close(comm: str) -> None:
     """Close a comm, so it leaves the open list."""
+    refuse_with_parent("comms close")
     async with _db() as db:
         store = SqliteCommStore(db)
         await _require(store, comm)
@@ -187,6 +191,7 @@ async def cmd_link(
     comm: str, tasks: tuple[str, ...], unlink: bool, project: str | None
 ) -> None:
     """Link tasks to a comm, or unlink them. All or nothing."""
+    refuse_with_parent("comms link")
     try:
         proj = resolve_project(project)
     except ValueError as exc:
@@ -220,6 +225,7 @@ async def cmd_edit(
     project: str | None,
 ) -> None:
     """Change a comm. With no option, edit its content in $EDITOR."""
+    refuse_with_parent("comms edit")
     _check_project(project)
     async with _db() as db:
         store = SqliteCommStore(db)
@@ -255,6 +261,7 @@ async def cmd_edit(
 )
 async def cmd_landings(since: str | None) -> None:
     """Print each tracked task's landing status and deploy states."""
+    refuse_with_parent("comms landings")
     since = _utc(since)
     async with _db() as db:
         if since is not None:

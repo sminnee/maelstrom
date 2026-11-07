@@ -19,6 +19,7 @@ from mael_domain.context import resolve_context
 from mael_domain.task_table import SqliteTaskTable
 
 from .json_flag import wants_json
+from .orchestrator_client import refuse_with_parent
 from .table_cli import draw_table
 from .task_cli import open_task_table
 
@@ -103,6 +104,7 @@ async def session_list() -> None:
     daemon, so ``mael agent list`` shows it, including what a waiting one waits
     on.
     """
+    refuse_with_parent("session list")
     sessions = await session_discovery.all_live_sessions()
     table = _task_table()
 
@@ -210,6 +212,7 @@ async def session_info(id: str | None) -> None:
     omits a field with nothing to report; the JSON form always carries every key,
     so a script can rely on the shape.
     """
+    refuse_with_parent("session info")
     sess = await _find_session(id)
     row = await build_session_row(sess, _task_table())
 

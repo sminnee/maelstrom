@@ -88,6 +88,16 @@ def _outside_a_task_session(monkeypatch):
     monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _outside_a_delegated_agent(monkeypatch):
+    """Keep a delegated agent's ``MAEL_PARENT_URL`` out of the tests.
+
+    With it set, the task commands call the parent and the guarded commands
+    refuse. The pre-PR gate can run inside such an agent.
+    """
+    monkeypatch.delenv("MAEL_PARENT_URL", raising=False)
+
+
 @pytest.fixture
 def self_signed_cert(tmp_path) -> tuple[Path, Path]:
     """A throwaway certificate and key for ``localhost``, made by ``openssl``."""

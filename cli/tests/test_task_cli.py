@@ -18,7 +18,9 @@ from click.testing import CliRunner
 from domain_fixtures import FakeBuildRuns
 
 from mael_cli import env_cli, task_cli, worktree_launcher
+from mael_cli.cli import cli
 from mael_cli.integrations.linear_cli import cmd_plan
+from mael_cli.orchestrator_client import PARENT_URL_ENV
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
@@ -930,7 +932,7 @@ class TestAddRunCli:
     def server(self, monkeypatch):
         """A stand-in orchestrator that answers the create with ``taskId``."""
         client = MagicMock()
-        monkeypatch.setattr(task_cli.OrchestratorClient, "from_config", lambda: client)
+        monkeypatch.setattr(task_cli.OrchestratorClient, "for_tasks", lambda: client)
         monkeypatch.setattr(task_cli, "_wait_for_operation", MagicMock())
         return client
 
@@ -1470,3 +1472,43 @@ class TestAddScheduled:
         assert result.exit_code != 0
         assert "--cli runs one in this shell" in result.output
         launch.session.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["task", "log", "T-1", "a line"],
+        ["task", "next"],
+        ["task", "edit", "T-1"],
+        ["task", "reconcile"],
+        ["task", "update", "T-1", "a title"],
+        ["task", "rm", "T-1"],
+        ["task", "run", "T-1"],
+        ["comms", "new", "a title"],
+        ["comms", "list"],
+        ["comms", "close", "C-1"],
+        ["comms", "edit", "C-1", "--title", "t"],
+        ["comms", "link", "C-1", "T-1"],
+        ["comms", "landings"],
+        ["wiki", "list"],
+        ["wiki", "read", "a-page"],
+        ["wiki", "update", "a-page", "--content-file", "-"],
+        ["gh", "link-pr", "9"],
+        ["gh", "withdraw-pr"],
+        ["session", "list"],
+        ["session", "info"],
+        ["linear", "plan", "ENG-1"],
+    ],
+    ids=lambda a: " ".join(a[:2]),
+)
+def test_a_local_state_write_is_refused_in_a_delegated_agent(runner, monkeypatch, args):
+    """The agent's task is on the parent, so a local write would reach no one."""
+    monkeypatch.setenv(PARENT_URL_ENV, "https://parent:3030")
+
+    result = runner.invoke(cli, args)
+
+    assert result.exit_code == 1
+    assert (
+        f"`mael {args[0]} {args[1]}` uses the local state database, "
+        "and this agent's task is on https://parent:3030." in result.output
+    )
