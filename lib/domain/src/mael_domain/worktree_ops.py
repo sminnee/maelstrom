@@ -63,14 +63,8 @@ def _autorepair(worktree_path: Path, token: str | None) -> SyncResult:
 def _start(
     project: str, worktree: str, worktree_path: Path, services: list[str] | None
 ) -> list[str]:
-    # A named start skips the install, as `mael env start <name>` does.
     state = start_env(
-        JsonEnvStore(),
-        project,
-        worktree,
-        worktree_path,
-        services=services,
-        skip_install=services is not None,
+        JsonEnvStore(), project, worktree, worktree_path, services=services
     )
     return [
         f"{service.name}: started"

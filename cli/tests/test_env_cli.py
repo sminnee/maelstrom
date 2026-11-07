@@ -69,6 +69,21 @@ def _mock_ctx_with_path(tmp_path, project="proj", worktree="bravo"):
 
 
 class TestEnvStart:
+    @patch("mael_cli.env_cli.start_env")
+    @patch("mael_cli.env_cli.resolve_context")
+    def test_a_failed_install_names_its_log(
+        self, mock_ctx, mock_start, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mock_ctx.return_value = _mock_ctx_with_path(tmp_path)
+        mock_start.side_effect = subprocess.CalledProcessError(2, "pnpm install")
+
+        result = CliRunner().invoke(cli, ["env", "start", "web"])
+
+        log = tmp_path / ".maelstrom/logs/proj/bravo/install.log"
+        assert result.exit_code == 1
+        assert f"The install failed (exit 2). Log: {log}" in result.output
+
     """Tests for mael env start command."""
 
     @patch("mael_cli.env_cli.get_app_url", return_value=None)
@@ -98,7 +113,7 @@ class TestEnvStart:
             "proj",
             "bravo",
             ctx.worktree_path,
-            skip_install=False,
+            skip_install=None,
             services=None,
         )
 
@@ -870,7 +885,7 @@ class TestEnvStartNamedService:
             "proj",
             "bravo",
             ctx.worktree_path,
-            skip_install=True,
+            skip_install=None,
             services=["ladle"],
         )
 
@@ -1194,7 +1209,7 @@ class TestEnvTargetsMain:
             "myproject",
             "_main",
             main_path,
-            skip_install=False,
+            skip_install=None,
             services=None,
         )
 

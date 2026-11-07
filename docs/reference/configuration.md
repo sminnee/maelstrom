@@ -28,7 +28,7 @@ Put this file in your repository root.
 | `port_names` | list of string | `[]` | Legacy flat port names. Each gets a `<NAME>_PORT` variable. |
 | `shared_port_names` | list of string | `[]` | Legacy flat port names shared across worktrees in the project. |
 | `main_port_base` | int | — | Port base reserved for the `_main` worktree, making it the project's fixed environment. Must be 1-6552 and outside 300-999. See below. |
-| `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation and on `mael env start`. |
+| `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation, in the background, with its output in `~/.maelstrom/logs/<project>/<worktree>/install.log`. Also runs on `mael env start`: see [the CLI reference](cli.md). |
 | `pre_push_cmd` | string | — | Check that runs after the last rebase and before a push. See below. |
 | `start_cmd` | string | `""` | Fallback start command when there is no `services:` block and no Procfile. |
 | `linear` | map | — | Linear settings. See below. |

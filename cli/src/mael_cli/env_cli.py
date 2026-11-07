@@ -340,11 +340,16 @@ def env_start(service, skip_install, worktree_opt):
             ctx.project,
             ctx.worktree,
             worktree_path,
-            skip_install=skip_install or service_name is not None,
+            skip_install=True if skip_install else None,
             services=[service_name] if service_name else None,
         )
     except (RuntimeError, ValueError) as e:
         raise click.ClickException(str(e))
+    except subprocess.CalledProcessError as e:
+        log = install_log_path(ctx.project, ctx.worktree)
+        raise click.ClickException(
+            f"The install failed (exit {e.returncode}). Log: {log}"
+        ) from e
 
     print_service_status(ctx.project, ctx.worktree, ctx.project_path)
 

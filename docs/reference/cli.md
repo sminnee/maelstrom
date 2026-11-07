@@ -837,11 +837,11 @@ See [dev-environments.md](../guide/dev-environments.md).
 
 | Command | Description |
 |---|---|
-| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. Services already running are left alone, so a start repairs a half-started environment rather than refusing. Under `dev_https:` it renews the dev certificate first, and stops if Tailscale refuses. |
+| `mael env start [SERVICE]` | Run the install command, then start every non-optional service, or one named service. A start first waits for a running install to end. A start of a named service then runs the install only when the last install did not pass. A failed install stops the start and names its log. Services already running are left alone, so a start repairs a half-started environment rather than refusing. Under `dev_https:` it renews the dev certificate first, and stops if Tailscale refuses. |
 | `mael env stop [SERVICE]` | Stop the environment's services, or one named service. SIGTERM, then SIGKILL after 10s. Refuses a name that is neither declared nor running. |
 | `mael env restart [SERVICE]` | Restart services, or one named service. |
 | `mael env restart --changed` | Restart only the running services whose [service version](../../CONTEXT.md) moved since they started. Prints `<service>: <old> → <new>` for each, or `Nothing changed.` Needs a `pipeline.toml` — see [Service versions](../guide/dev-environments.md#service-versions). |
-| `mael env status` | Show service PIDs, status and log paths. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
+| `mael env status` | Show service PIDs, status and log paths, and the last install: `passed`, `running` or `failed (exit N)`, with its log. A declared service that never started shows as `stopped`; `dead` means it started and then died. |
 | `mael env logs [SERVICE]` | Show service logs, or one service's log. |
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
@@ -862,7 +862,7 @@ mael env restart --changed         # restart what the last pull changed
 
 | Command | Option | Description |
 |---|---|---|
-| `env start` | `--skip-install` | Skip the install step before starting. |
+| `env start` | `--skip-install` | Skip the install step before starting, also when the last install did not pass. |
 | `env restart` | `--install` | Run the install step before starting. |
 | `env restart` | `--changed` | Restart only the running services whose service version moved. Takes no `SERVICE` and no `--install`. |
 | `env start`, `env stop`, `env restart`, `env logs`, `env status`, `env reset` | `-w`, `--worktree TARGET` | The worktree, as `project.worktree` — e.g. `-w askastro.b`. Default: the current directory. A positional `TARGET` on `status` and `reset` is a deprecated alias for `-w`. |

@@ -159,7 +159,8 @@ An optional service still owns its declared ports — see [CONTEXT.md](../../CON
 A named start:
 
 - starts only that service, not its siblings;
-- skips `install_cmd` — use `mael env restart <name> --install` to reinstall;
+- runs `install_cmd` only when the last install did not pass. It waits for a running install
+  first. Use `--skip-install` to skip it, or `mael env restart <name> --install` to reinstall;
 - subscribes to the project's shared services, so the named service reaches the database
   whether or not the rest of the environment is up;
 - starts that service only if it is not already running; the shared subscription above

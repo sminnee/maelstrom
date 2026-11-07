@@ -59,6 +59,7 @@ from mael_domain.env import (
     tail_log_file,
 )
 from mael_domain.env_store import InMemoryEnvStore, JsonEnvStore
+from mael_domain.install_status import install_argv, mark_running
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 from mael_domain.session_discovery import LiveSession
 from mael_domain.worktree import read_env_file
@@ -621,6 +622,21 @@ class TestStartEnv:
         assert first_call[1]["cwd"] == wt_path
         assert first_call[1]["start_new_session"] is True
 
+    @pytest.mark.parametrize(
+        ("last_install", "skip_install", "services", "installs"),
+        [
+            # A full start always installs.
+            ("exit 0", None, None, True),
+            # A named start installs unless the last install passed.
+            (None, None, ["app"], True),
+            ("exit 1", None, ["app"], True),
+            ("killed", None, ["app"], True),
+            ("exit 0", None, ["app"], False),
+            # An explicit choice wins.
+            (None, True, None, False),
+            ("exit 0", False, ["app"], True),
+        ],
+    )
     @patch("mael_domain.env.save_env_state")
     @patch("mael_domain.env.Popen")
     @patch("mael_domain.env.build_service_env", return_value={})
@@ -629,7 +645,7 @@ class TestStartEnv:
     @patch("mael_domain.env.get_env_status", return_value=None)
     @patch("mael_domain.env.cleanup_stale_env")
     @patch("mael_domain.env._get_log_dir")
-    def test_runs_install_cmd(
+    def test_install_decision(
         self,
         mock_log_dir,
         mock_cleanup,
@@ -640,45 +656,32 @@ class TestStartEnv:
         mock_popen,
         mock_save,
         tmp_path,
+        last_install,
+        skip_install,
+        services,
+        installs,
     ):
-        """install_cmd is run before spawning services."""
+        """Whether a start runs install_cmd, by the last install's status."""
         mock_log_dir.return_value = tmp_path / "logs"
         mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
         mock_popen.return_value = MagicMock(pid=1)
-        wt_path = Path("/project/bravo")
+        if last_install == "killed":
+            # A running install whose shell is gone, as after a reboot.
+            mark_running("proj", "bravo", 999999999)
+        elif last_install is not None:
+            subprocess.run(install_argv("proj", "bravo", last_install), check=True)
 
-        store = InMemoryEnvStore()
-        start_env(store, "proj", "bravo", wt_path)
-        mock_install.assert_called_once_with(wt_path)
+        start_env(
+            InMemoryEnvStore(),
+            "proj",
+            "bravo",
+            Path("/project/bravo"),
+            skip_install=skip_install,
+            services=services,
+        )
 
-    @patch("mael_domain.env.save_env_state")
-    @patch("mael_domain.env.Popen")
-    @patch("mael_domain.env.build_service_env", return_value={})
-    @patch("mael_domain.env.get_services")
-    @patch("mael_domain.env.run_install_cmd")
-    @patch("mael_domain.env.get_env_status", return_value=None)
-    @patch("mael_domain.env.cleanup_stale_env")
-    @patch("mael_domain.env._get_log_dir")
-    def test_skip_install(
-        self,
-        mock_log_dir,
-        mock_cleanup,
-        mock_status,
-        mock_install,
-        mock_services,
-        mock_env,
-        mock_popen,
-        mock_save,
-        tmp_path,
-    ):
-        """install_cmd is skipped when skip_install=True."""
-        mock_log_dir.return_value = tmp_path / "logs"
-        mock_services.return_value = [ResolvedService(name="app", command="echo hi")]
-        mock_popen.return_value = MagicMock(pid=1)
-
-        store = InMemoryEnvStore()
-        start_env(store, "proj", "bravo", Path("/project/bravo"), skip_install=True)
-        mock_install.assert_not_called()
+        expected = [call(Path("/project/bravo"), ("proj", "bravo"))] if installs else []
+        assert mock_install.call_args_list == expected
 
     @patch("mael_domain.env.save_env_state")
     @patch("mael_domain.env.load_env_state")
