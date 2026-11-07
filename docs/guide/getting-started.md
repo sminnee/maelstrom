@@ -15,6 +15,8 @@ On a first install, `mael self check-host` offers every other tool.
 | [Claude Code](https://claude.com/claude-code) (`claude`) | The agent maelstrom launches. | Yes |
 | `lsof` | Finds the worktree each process runs in. | Yes |
 | [Codex](https://github.com/openai/codex) (`codex`) | A second agent. It installs through npm, so it needs Node. | No |
+| [Docker](https://www.docker.com/) (`docker`) | Runs a project's container services. | No |
+| [agent-browser](https://github.com/vercel-labs/agent-browser) | Lets agents drive a browser. It installs through npm, so it needs Node. | No |
 | [Tailscale](https://tailscale.com/) | Reaches the orchestrator and the dev servers from other devices, over HTTPS. | No |
 | [tangier](https://pypi.org/project/tangier/) | Runs a project's gates. | No |
 | [cmux](https://github.com/sminnee/cmux) | Opens a worktree's terminal from the orchestrator UI. macOS only; install it from its README. | No |
@@ -39,7 +41,10 @@ The installer does these steps:
 
 `check-host` checks each tool in the table above. For a missing tool, it prints the `brew` or
 `apt-get` command, and runs it after a yes. Then it checks the sign-ins to `gh`, `claude` and
-`codex`, and offers each login. When Tailscale is installed, it offers to connect the machine,
+`codex`, and offers each login. It asks for your git author name and email when they are not
+set, because without them no agent can commit. When Docker or agent-browser is installed, it
+offers to fix the Docker daemon, the agent-browser skill and, on Ubuntu, Chrome's sandbox. When
+Tailscale is installed, it offers to connect the machine,
 to set `dev_host:` to the tailnet name, and to issue a certificate for `dev_https:`. Run
 `mael self check-host` again at any time. A met item asks nothing.
 

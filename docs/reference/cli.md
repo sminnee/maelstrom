@@ -1351,7 +1351,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | Command | Description |
 |---|---|
 | `mael self setup` | Bring this host to the state the current [release bundle](../../CONTEXT.md) wants. `install.sh` runs it after each install. Run it yourself to repair a host. Every step is safe to repeat. See below. |
-| `mael self check-host` | Check this host's tools, sign-ins, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
+| `mael self check-host` | Check this host's tools, sign-ins, git identity, Docker, browser tool, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it on a first install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the last update job. |
 | `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
@@ -1421,26 +1421,38 @@ The check runs these steps in order:
 
 1. **Package manager.** `brew` on macOS, `apt-get` on Linux. Without Homebrew, it prints the
    Homebrew install line and skips every `brew` command.
-2. **Tools.** Required: `git`, `gh`, `uv`, `claude`, `lsof`. Optional: `codex`, `tailscale`,
-   `tangier`. For a missing tool, it prints the install command, and runs it after a yes. Codex
-   installs through npm, so a yes to `codex` without Node installs Node first.
+2. **Tools.** Required: `git`, `gh`, `uv`, `claude`, `lsof`. Optional: `docker`,
+   `agent-browser`, `codex`, `tailscale`, `tangier`. For a missing tool, it prints the install
+   command, and runs it after a yes. `agent-browser` and Codex install through npm, so a yes to
+   either without Node installs Node first.
 3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
    and each spawn record to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
    login.
-5. **Plugins**, when `claude` is installed. It offers to install `minnstack`, the optional
-   development-practice skills, into Claude Code, and into Codex when it is there.
-6. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
+5. **Git identity.** Required. Without a global `user.name` and `user.email`, no agent can
+   commit. It asks for each, with the `gh` account's name and email as the default.
+6. **Docker**, when installed. When the daemon does not answer, it offers to start it: Docker
+   Desktop on macOS, the `docker` service on Linux. When the socket refuses you, it offers to add
+   you to the `docker` group. You must then log out and in again.
+7. **Plugins.** When `claude` is installed, it offers to install `minnstack`, the optional
+   development-practice skills, into Claude Code, and into Codex when it is there. When
+   `agent-browser` is installed, it offers its skill, into `~/.agents/skills` with a link in
+   `~/.claude/skills`.
+8. **Browser**, on Linux with `agent-browser`, when AppArmor restricts unprivileged user
+   namespaces, as Ubuntu does. It offers an AppArmor profile at
+   `/etc/apparmor.d/agent-browser-chrome`, so agent-browser's Chrome can make its sandbox.
+   `agent-browser doctor` confirms that the browser launches.
+9. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
    operator. It offers to set `dev_host:` to the tailnet name, and to issue a certificate. It
    writes `dev_https: true` only when the certificate issues.
-7. **PATH.** It warns when `~/.local/bin` is not on your PATH.
+10. **PATH.** It warns when `~/.local/bin` is not on your PATH.
 
 Without a terminal, the check asks nothing. It runs only the secret-file fix, which only narrows a
 mode. It looks up tools on the host services' PATH.
 
 | Exit code | Meaning |
 |---|---|
-| 0 | Every required tool is installed, and `gh` and `claude` are signed in. |
+| 0 | Every required tool is installed, `gh` and `claude` are signed in, and git has an author identity. |
 | 1 | A required item is unmet. The last line names each one. |
 
 **`mael self update`**

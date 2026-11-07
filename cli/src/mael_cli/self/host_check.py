@@ -295,6 +295,207 @@ class PracticesPlugin(HostCheckItem):
         )
 
 
+class GitIdentity(HostCheckItem):
+    """``git`` has a global author name and email, so an agent can commit.
+
+    The fix asks for each value, with the ``gh`` account's as the default.
+    """
+
+    section = "Git"
+    required = True
+    name = "git identity"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return host.which("git") is not None
+
+    def value(self, host: "HostCheck", key: str) -> str:
+        result = host.run(["git", "config", "--global", key])
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    def check(self, host: "HostCheck") -> Finding:
+        name = self.value(host, "user.name")
+        email = self.value(host, "user.email")
+        if name and email:
+            return Finding(True, f"{name} <{email}>")
+        return Finding(False, "git has no user.name or user.email, so commits fail")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        def fix() -> None:
+            name_default, email_default = gh_identity(host)
+            for key, text, default in (
+                ("user.name", "Git author name", name_default),
+                ("user.email", "Git author email", email_default),
+            ):
+                value = self.value(host, key) or host.prompt(text, default).strip()
+                if value:
+                    host.run(["git", "config", "--global", key, value])
+
+        return Remedy(
+            "Set them with: git config --global user.name/user.email",
+            fix=fix,
+            question="Set your git author name and email now?",
+        )
+
+
+def gh_identity(host: "HostCheck") -> tuple[str | None, str | None]:
+    """The signed-in ``gh`` account's name and email, for defaults."""
+    if host.which("gh") is None:
+        return None, None
+    result = host.run(["gh", "api", "user"])
+    try:
+        user = json.loads(result.stdout) if result.returncode == 0 else {}
+    except ValueError:
+        user = {}
+    if not isinstance(user, dict):
+        return None, None
+    email = user.get("email")
+    if not email and user.get("id") and user.get("login"):
+        email = f"{user['id']}+{user['login']}@users.noreply.github.com"
+    return user.get("name") or user.get("login"), email
+
+
+class DockerRunning(HostCheckItem):
+    """The Docker daemon answers. Checked only when docker is installed."""
+
+    section = "Docker"
+    name = "docker daemon"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return host.which("docker") is not None
+
+    def check(self, host: "HostCheck") -> Finding:
+        if host.run(["docker", "info"]).returncode == 0:
+            return Finding(True, "the Docker daemon answers")
+        return Finding(False, "the Docker daemon does not answer")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        if host.platform == "darwin":
+            return Remedy(
+                "Start Docker Desktop: open -a Docker",
+                fix=lambda: host.run_interactive(["open", "-a", "Docker"]),
+                question="Start Docker Desktop?",
+            )
+        info = host.run(["docker", "info"])
+        if "permission denied" in f"{info.stdout}{info.stderr}".lower():
+            command = [*host.sudo, "usermod", "-aG", "docker", host.user]
+            return Remedy(
+                f"{host.user} cannot use the Docker socket. Add it to the docker "
+                f"group with: {' '.join(command)}\n"
+                "    Then log out and in again. Until then, this item stays unmet.",
+                fix=lambda: host.run_interactive(command),
+                question=f"Add {host.user} to the docker group?",
+            )
+        command = [*host.sudo, "systemctl", "enable", "--now", "docker"]
+        return Remedy(
+            f"Start it with: {' '.join(command)}",
+            fix=lambda: host.run_interactive(command),
+            question="Start the Docker daemon?",
+        )
+
+
+AGENT_BROWSER_SKILL = (
+    "npx -y skills add vercel-labs/agent-browser -g -a claude-code -a codex -y"
+)
+
+
+class AgentBrowserSkill(HostCheckItem):
+    """The agent-browser skill, for Claude Code and Codex.
+
+    Checked only when agent-browser is installed. The ``skills`` CLI writes it to
+    ``~/.agents/skills``, which Codex reads, and links it into ``~/.claude/skills``.
+    """
+
+    section = "Plugins"
+    name = "agent-browser skill"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return host.which("agent-browser") is not None
+
+    def check(self, host: "HostCheck") -> Finding:
+        home = host.prod.home
+        dirs = (home / ".claude" / "skills", home / ".agents" / "skills")
+        if all((d / "agent-browser" / "SKILL.md").is_file() for d in dirs):
+            return Finding(True, "the agent-browser skill is installed")
+        return Finding(False, "the agent-browser skill (optional) is not installed")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        return Remedy(
+            f"It tells agents how to drive a browser. Install it with:\n"
+            f"      {AGENT_BROWSER_SKILL}",
+            fix=lambda: host.run_interactive(["sh", "-c", AGENT_BROWSER_SKILL]),
+            question="Install the agent-browser skill?",
+        )
+
+
+CHROME_PROFILE = "agent-browser-chrome"
+
+
+def chrome_glob(home: Path) -> str:
+    """The AppArmor path of agent-browser's Chrome, for every user under ``/home``."""
+    base = "/home/*" if home.parent == Path("/home") else str(home)
+    return f"{base}/.agent-browser/browsers/chrome-*/chrome"
+
+
+def chrome_profile_text(home: Path) -> str:
+    return f"""abi <abi/5.0>,
+include <tunables/global>
+
+profile {CHROME_PROFILE} {chrome_glob(home)} flags=(unconfined) {{
+  userns,
+  include if exists <local/{CHROME_PROFILE}>
+}}
+"""
+
+
+class ChromeUserns(HostCheckItem):
+    """On Ubuntu, AppArmor lets agent-browser's Chrome make its sandbox.
+
+    Ubuntu stops an unprivileged user namespace without a profile that allows
+    it, and Chrome's sandbox needs one. The fix adds a profile like the one
+    Ubuntu ships for Google Chrome, so the sandbox stays on.
+    """
+
+    section = "Browser"
+    name = "Chrome sandbox"
+
+    def applies(self, host: "HostCheck") -> bool:
+        if host.platform != "linux" or host.which("agent-browser") is None:
+            return False
+        result = host.run(
+            ["sysctl", "-n", "kernel.apparmor_restrict_unprivileged_userns"]
+        )
+        return result.returncode == 0 and result.stdout.strip() == "1"
+
+    def profile(self, host: "HostCheck") -> Path:
+        return host.etc / "apparmor.d" / CHROME_PROFILE
+
+    def check(self, host: "HostCheck") -> Finding:
+        try:
+            text = self.profile(host).read_text()
+        except OSError:
+            text = ""
+        if chrome_glob(host.prod.home) in text:
+            return Finding(True, "AppArmor lets Chrome make its sandbox")
+        return Finding(
+            False, "AppArmor stops agent-browser's Chrome from making its sandbox"
+        )
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        sudo = " ".join(host.sudo)
+        path = self.profile(host)
+        script = (
+            f"{sudo} tee {path} >/dev/null <<'EOF'\n"
+            f"{chrome_profile_text(host.prod.home)}EOF\n"
+            f"{sudo} apparmor_parser -r {path}"
+        ).lstrip()
+        return Remedy(
+            f"Add an AppArmor profile at {path}. Then `agent-browser doctor` "
+            "confirms that the browser launches.",
+            fix=lambda: host.run_interactive(["sh", "-c", script]),
+            question="Add the AppArmor profile for agent-browser's Chrome?",
+        )
+
+
 class TailscaleUp(HostCheckItem):
     """This machine is on a tailnet. Checked only when tailscale is installed."""
 
@@ -459,6 +660,17 @@ HOST_TOOLS = (
     Tool("lsof", None, "sudo apt-get install -y lsof", required=True),
     Tool("node", "brew install node", _NODESOURCE, dev=True),
     Tool(
+        "docker",
+        "brew install --cask docker",
+        "curl -fsSL https://get.docker.com | sudo sh",
+    ),
+    Tool(
+        "agent-browser",
+        "npm install -g agent-browser && agent-browser install",
+        "sudo npm install -g agent-browser && agent-browser install --with-deps",
+        needs="node",
+    ),
+    Tool(
         "pnpm", "brew install pnpm", "sudo npm install -g pnpm", needs="node", dev=True
     ),
     Tool(
@@ -498,7 +710,11 @@ HOST_ITEMS: tuple[HostCheckItem, ...] = (
         "codex login",
         "codex login --device-auth",
     ),
+    GitIdentity(),
+    DockerRunning(),
     PracticesPlugin(),
+    AgentBrowserSkill(),
+    ChromeUserns(),
     TailscaleUp(),
     TailscaleOperator(),
     DevHost(),
@@ -522,6 +738,8 @@ class HostCheck:
     run_interactive: Callable[[Sequence[str]], int]
     confirm: Callable[[str], bool]
     echo: Echo
+    #: Asks for a value, with a default. Reached only after a yes.
+    prompt: Callable[[str, str | None], str] = lambda text, default: default or ""
     #: Adds the tools a source install needs.
     dev: bool = False
     #: The caller's PATH, to tell whether the shim's directory is on it.
@@ -534,6 +752,8 @@ class HostCheck:
     #: maelstrom's ``shared/``, which holds the plugin marketplace.
     shared: Path = field(default_factory=get_shared_dir)
     codex_home: Path | None = field(default_factory=codex_home_from_env)
+    #: Where system config lives, so a test points it at a temp dir.
+    etc: Path = Path("/etc")
 
     def __call__(self) -> list[str]:
         """Work through the items. Returns the required items still unmet."""
