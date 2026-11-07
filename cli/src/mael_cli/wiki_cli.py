@@ -16,6 +16,7 @@ from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
 from mael_domain.state_db.types import StateDbError
 
+from .orchestrator_client import refuse_with_parent
 from .table_cli import draw_table
 
 
@@ -44,8 +45,10 @@ def _read_content_file(content_file: str) -> str:
 
 
 @click.group("wiki", cls=AsyncGroup)
-def wiki() -> None:
+@click.pass_context
+def wiki(ctx: click.Context) -> None:
     """Read and update the cross-project development-pattern wiki."""
+    refuse_with_parent(f"wiki {ctx.invoked_subcommand}")
 
 
 @wiki.command("list")

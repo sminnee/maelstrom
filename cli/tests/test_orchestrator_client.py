@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from mael_cli.orchestrator_client import (
+    PARENT_URL_ENV,
     OrchestratorClient,
     OrchestratorRefused,
     OrchestratorUnconfigured,
@@ -89,6 +90,22 @@ def free_port() -> int:
 def test_no_configured_url_names_the_config_key(home):
     with pytest.raises(OrchestratorUnconfigured, match="orchestrator_url"):
         OrchestratorClient.from_config()
+
+
+def test_a_delegated_agents_task_client_calls_the_parent(home, monkeypatch):
+    """The parent keeps the task; worktree and agent calls stay on this host."""
+    configure(home, "https://child:3030")
+    monkeypatch.setenv(PARENT_URL_ENV, " https://parent:3030/ ")
+
+    assert OrchestratorClient.for_tasks().base_url == "https://parent:3030"
+    assert OrchestratorClient.from_config().base_url == "https://child:3030"
+
+
+def test_without_a_parent_the_task_client_is_the_configured_one(home, monkeypatch):
+    configure(home, "https://child:3030")
+    monkeypatch.setenv(PARENT_URL_ENV, "")
+
+    assert OrchestratorClient.for_tasks().base_url == "https://child:3030"
 
 
 @pytest.mark.binds_socket

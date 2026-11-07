@@ -4,11 +4,12 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 import click
 
 from mael_common.cli_async import AsyncGroup
-from mael_domain.context import resolve_context
+from mael_domain.context import resolve_context, resolve_project
 from mael_domain.github import (
     create_pr,
     download_artifact,
@@ -31,7 +32,12 @@ from mael_domain.worktree import current_branch_or_none
 from mael_domain.worktree_model import PrePushFailed
 
 from . import task_cli
-from .orchestrator_client import tell_pr_changed
+from .orchestrator_client import (
+    OrchestratorClient,
+    parent_url,
+    refuse_with_parent,
+    tell_pr_changed,
+)
 
 
 @click.group("gh", cls=AsyncGroup)
@@ -177,14 +183,30 @@ async def _register_pushed_pr(
     """Register the PR ``create-pr`` pushed to, warning rather than failing.
 
     The PR is on GitHub already, so a failed registration must not read as a
-    failed push: an agent would push again.
+    failed push: an agent would push again. A delegated agent's task is on
+    the parent, so the PR is registered there.
     """
     try:
-        await task_cli.register_pr(task_id, number, url, project)
+        if parent_url():
+            _register_on_parent(task_id, number, url, project)
+        else:
+            await task_cli.register_pr(task_id, number, url, project)
     except click.ClickException as e:
         click.echo(
             f"Warning: PR #{number} is not registered on a task: {e.message}", err=True
         )
+
+
+def _register_on_parent(
+    task_id: str, number: int, url: str, project: str | None
+) -> None:
+    """Register the PR on the parent orchestrator's task, over its API."""
+    try:
+        proj = resolve_project(project)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+    path = f"/api/tasks/{quote(proj, safe='')}/{quote(task_id, safe='')}/pr"
+    OrchestratorClient.for_tasks().put(path, {"number": number, "url": url})
 
 
 @gh.command("link-pr")
@@ -200,6 +222,7 @@ async def gh_link_pr(ref, task_id):
 
     REF is a PR number, #number, or a GitHub PR URL.
     """
+    refuse_with_parent("gh link-pr")
     try:
         number, url = parse_pr_ref(ref, await project_repo_url(Path.cwd()))
     except ValueError as e:
@@ -221,6 +244,7 @@ async def gh_withdraw_pr(task_id):
     The card shows the PR as withdrawn. The next ``create-pr`` push makes it
     ready again.
     """
+    refuse_with_parent("gh withdraw-pr")
     task = await task_cli.withdraw_pr(task_id)
     click.echo(f"Withdrew PR #{task.pr_number} on {task.id}")
 

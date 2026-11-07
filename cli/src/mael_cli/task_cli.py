@@ -59,7 +59,11 @@ from mael_domain.worktree import (
 from mael_domain.worktree_model import WorktreeError
 
 from .env_cli import refresh_worktree_env
-from .orchestrator_client import OrchestratorClient, OrchestratorRefused
+from .orchestrator_client import (
+    OrchestratorClient,
+    OrchestratorRefused,
+    refuse_with_parent,
+)
 from .table_cli import draw_table
 from .worktree_launcher import (
     NO_TERMINAL_REFUSAL,
@@ -432,7 +436,7 @@ def _task_call(project: str, id: str, action: str = "", body: dict | None = None
     An unknown id is "Task not found", as it was when the CLI read the notebook.
     """
     path = f"/api/tasks/{quote(project, safe='')}/{quote(id, safe='')}"
-    client = OrchestratorClient.from_config()
+    client = OrchestratorClient.for_tasks()
     try:
         if body is not None:
             return client.post(f"{path}/{action}", body)
@@ -445,7 +449,7 @@ def _task_call(project: str, id: str, action: str = "", body: dict | None = None
 
 def _fetch_rows() -> list[TaskRow]:
     """Every task in every project, as the orchestrator server lists them."""
-    return OrchestratorClient.from_config().get("/api/tasks")["tasks"]
+    return OrchestratorClient.for_tasks().get("/api/tasks")["tasks"]
 
 
 def _notebook_id(wire_id: str) -> str:
@@ -905,7 +909,7 @@ async def add_task(
     # With --edit or --cli, the launch runs after the create, not in it.
     if run and not cli and not edit:
         body["launch"] = True
-    client = OrchestratorClient.from_config()
+    client = OrchestratorClient.for_tasks()
     reply = client.post("/api/tasks", body)
     task_id = _notebook_id(reply["taskId"])
     click.echo(task_id)
@@ -1090,7 +1094,7 @@ async def task_promote(
         body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
     if after := os.environ.get("MAEL_TASK_ID"):
         body["after"] = f"{proj}/{after}"
-    reply = OrchestratorClient.from_config().post("/api/tasks/promote", body)
+    reply = OrchestratorClient.for_tasks().post("/api/tasks/promote", body)
     # Committed: a promoted draft left on disk would be promoted twice.
     for path in paths:
         path.unlink(missing_ok=True)
@@ -1117,7 +1121,7 @@ async def task_load_many(
     _refuse_bulk_cli(run, cli, daemon)
     text = _read_content_file(file)
     proj = resolve_project(project)
-    reply = OrchestratorClient.from_config().post(
+    reply = OrchestratorClient.for_tasks().post(
         "/api/tasks/load-many",
         {
             "project": proj,
@@ -1432,6 +1436,7 @@ async def task_next(
     global next task. With ``--branch``, restricts strictly to that branch (no
     fallback).
     """
+    refuse_with_parent("task next")
     proj = resolve_project(project)
     table = await _table()
     if branch is not None:
@@ -1464,6 +1469,7 @@ async def task_run(
     daemon: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
+    refuse_with_parent("task run")
     resolved = resolve_harness_or_fail(cli, daemon)
     proj = resolve_project(project)
     table = await _table()
@@ -1556,6 +1562,7 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
     session whose task was *deleted* mid-run is no longer surfaced as an orphan;
     every existing task's session is still reconciled.
     """
+    refuse_with_parent("task reconcile")
     proj = resolve_project(project)
     table = await _table()
     session_task_ids = await _live_sessions_by_task(table, proj)
@@ -1741,6 +1748,7 @@ async def task_prompt(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_log(id: str, msg: str, project: str | None) -> None:
     """Append a line to a task's log."""
+    refuse_with_parent("task log")
     proj = resolve_project(project)
     table = await _table()
     try:
@@ -1810,6 +1818,7 @@ async def task_update(
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
     """
+    refuse_with_parent("task update")
     proj = resolve_project(project)
     table = await _table()
     content = _read_content_file(content_file) if content_file is not None else None
@@ -1883,6 +1892,7 @@ async def task_update(
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_edit(id: str, project: str | None) -> None:
     """Open the task in $EDITOR (vi); write it back if changed."""
+    refuse_with_parent("task edit")
     proj = resolve_project(project)
     table = await _table()
     try:
@@ -1899,6 +1909,7 @@ async def task_edit(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_rm(id: str, project: str | None) -> None:
     """Delete a task and strip it from any dependents' follows lists."""
+    refuse_with_parent("task rm")
     proj = resolve_project(project)
     table = await _table()
     try:

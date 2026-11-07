@@ -3,6 +3,9 @@
 The URL is ``orchestrator_url:`` in the notebook root's ``config.yaml``. There
 is no fallback to the database; ``docs/dev/cli-over-api.md`` gives the reason
 and the plan.
+
+A delegated agent's task is on the parent orchestrator, which ``MAEL_PARENT_URL``
+names. Task commands call it with :meth:`OrchestratorClient.for_tasks`.
 """
 
 import http.client
@@ -16,6 +19,7 @@ from typing import Any
 
 import click
 
+from mael_agent.host_ids import PARENT_URL_ENV
 from mael_domain.context import load_global_config
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 
@@ -35,6 +39,24 @@ NOTIFY_TIMEOUT_SECS = 2.0
 _LOCAL_TLS = ssl.create_default_context()
 _LOCAL_TLS.check_hostname = False
 _LOCAL_TLS.verify_mode = ssl.CERT_NONE
+
+
+def parent_url() -> str:
+    """The parent orchestrator's URL from ``MAEL_PARENT_URL``, or "" when unset."""
+    return os.environ.get(PARENT_URL_ENV, "").strip()
+
+
+def refuse_with_parent(command: str) -> None:
+    """Refuse ``mael <command>`` in a delegated agent: it uses the local state database.
+
+    The agent's task is on the parent, so the local database is the wrong one.
+    """
+    url = parent_url()
+    if url:
+        raise click.ClickException(
+            f"`mael {command}` uses the local state database, "
+            f"and this agent's task is on {url}."
+        )
 
 
 class OrchestratorError(click.ClickException):
@@ -83,11 +105,25 @@ class OrchestratorClient:
             raise OrchestratorUnconfigured()
         return cls(url, timeout=timeout)
 
+    @classmethod
+    def for_tasks(cls, *, timeout: float = TIMEOUT_SECS) -> "OrchestratorClient":
+        """The client for task state: the parent's when ``MAEL_PARENT_URL`` is set."""
+        url = parent_url()
+        if url:
+            return cls(url, timeout=timeout)
+        return cls.from_config(timeout=timeout)
+
     def get(self, path: str) -> Any:
         return self._call("GET", path, None)
 
     def post(self, path: str, body: dict[str, Any] | None = None) -> Any:
         return self._call("POST", path, body or {})
+
+    def put(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self._call("PUT", path, body or {})
+
+    def delete(self, path: str) -> Any:
+        return self._call("DELETE", path, None)
 
     def _call(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
         url = f"{self.base_url}{path}"

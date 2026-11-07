@@ -117,6 +117,8 @@ def _blank_agent(agent_id: str) -> Agent:
         "pid": None,
         "backgroundShells": [],
         "harness": HARNESS_CLAUDE,
+        "host": "",
+        "parentUrl": "",
     }
 
 
