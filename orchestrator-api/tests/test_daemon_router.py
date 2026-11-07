@@ -972,3 +972,160 @@ def test_a_stopped_agents_spend_is_still_on_file() -> None:
     assert record["status"] == "ended"
     assert report["total_tokens"] == 52_000
     assert [stage["name"] for stage in report["stages"]] == ["shipped"]
+
+
+# -- remote hosts --
+
+
+def remote_router(agents: Agents | None = None):
+    """A router with one remote host, ``cobalt``, and the three clients."""
+    claude = ScriptedAsyncDaemonClient()
+    codex = ScriptedAsyncDaemonClient()
+    cobalt = ScriptedAsyncDaemonClient(next_start_id="r1")
+    router = DaemonRouter(
+        claude,
+        codex,
+        agents if agents is not None else Agents(),
+        clock=lambda: STAMP,
+        remotes={"cobalt": cobalt},
+    )
+    return router, claude, codex, cobalt
+
+
+def test_a_remote_agent_is_started_and_driven_under_its_host_prefix() -> None:
+    async def scenario():
+        router, claude, codex, cobalt = remote_router()
+        started = await router.request(
+            {
+                "cmd": "start",
+                "host": "cobalt",
+                "cwd": "/cobalt/worktree",
+                "model": "codex:sol",
+                "session": "s1",
+            }
+        )
+        cobalt.rows["r1"]["harness"] = "codex"
+        cobalt.rows["r1.1"] = live_row("r1.1", parent="r1")
+        listed = await router.request({"cmd": "list"})
+        said = await router.request({"cmd": "say", "id": "cobalt:r1", "text": "hi"})
+        stopped = await router.request({"cmd": "stop", "id": "cobalt:r1"})
+        return started, listed, said, stopped, router, claude, codex, cobalt
+
+    started, listed, said, stopped, router, claude, codex, cobalt = asyncio.run(
+        scenario()
+    )
+
+    assert started == {"ok": True, "id": "cobalt:r1"}
+    # The remote host hears its own bare ids and no host key; the local
+    # daemons hear nothing but the list.
+    assert [c for c in cobalt.calls if c["cmd"] != "list"] == [
+        {
+            "cmd": "start",
+            "cwd": "/cobalt/worktree",
+            "model": "codex:sol",
+            "session": "s1",
+        },
+        {"cmd": "say", "id": "r1", "text": "hi"},
+        {"cmd": "stop", "id": "r1"},
+    ]
+    assert [c["cmd"] for c in claude.calls + codex.calls] == ["list", "list"]
+    rows = {row["id"]: row for row in listed["agents"]}
+    assert set(rows) == {"cobalt:r1", "cobalt:r1.1"}
+    assert rows["cobalt:r1.1"]["parent"] == "cobalt:r1"
+    assert rows["cobalt:r1"]["harness"] == "codex"
+    assert said == {"ok": True}
+    assert stopped == {"ok": True}
+    record = router.agents.rows["cobalt:r1"]
+    assert (record["harness"], record["status"]) == ("codex", "ended")
+
+
+def test_a_remote_detail_frame_carries_the_host_prefix() -> None:
+    async def scenario():
+        router, _claude, _codex, cobalt = remote_router()
+        cobalt.rows["r1"] = live_row("r1")
+        frames = router.attach("cobalt:r1")
+        first = await anext(frames)
+        await frames.aclose()
+        return first, cobalt.calls
+
+    first, calls = asyncio.run(scenario())
+
+    assert first["agent"]["id"] == "cobalt:r1"
+    assert calls == [{"cmd": "attach", "id": "r1"}]
+
+
+def test_an_offline_remote_host_keeps_its_agents_and_a_live_one_retires_them() -> None:
+    """Offline is not dead: only an answering host's silence is a miss."""
+
+    async def scenario():
+        agents = Agents(rows={"cobalt:r1": stored_agent(id="cobalt:r1")})
+        router, _claude, _codex, cobalt = remote_router(agents)
+        cobalt.replies["list"] = [
+            {"error": "cobalt is offline", "kind": "unreachable"}
+        ] * (UNCONFIRMED_LISTS_BEFORE_END + 1)
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END + 1):
+            offline = await router.request({"cmd": "list"})
+        status_offline = agents.rows["cobalt:r1"]["status"]
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END):
+            await router.request({"cmd": "list"})
+        return offline, status_offline, agents.rows["cobalt:r1"]["status"]
+
+    offline, status_offline, status_online = asyncio.run(scenario())
+
+    assert [row["id"] for row in offline["agents"]] == ["cobalt:r1"]
+    assert status_offline == "running"
+    assert status_online == "ended"
+
+
+def test_an_agent_on_a_host_no_longer_named_is_retired() -> None:
+    async def scenario():
+        agents = Agents(rows={"zinc:r1": stored_agent(id="zinc:r1")})
+        router, _claude, _codex, _cobalt = remote_router(agents)
+        for _ in range(UNCONFIRMED_LISTS_BEFORE_END + 1):
+            await router.request({"cmd": "list"})
+        return agents.rows["zinc:r1"]["status"]
+
+    assert asyncio.run(scenario()) == "ended"
+
+
+def test_codex_restore_gets_only_the_local_records() -> None:
+    restored: list[list[dict]] = []
+
+    @dataclass
+    class RestoringCodex(ScriptedAsyncDaemonClient):
+        async def restore(self, records: list[dict]) -> None:
+            restored.append(records)
+
+    async def scenario():
+        agents = Agents(
+            rows={
+                "ag1": stored_agent(),
+                "cobalt:r1": stored_agent(id="cobalt:r1", harness="codex"),
+            }
+        )
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(),
+            RestoringCodex(),
+            agents,
+            remotes={"cobalt": ScriptedAsyncDaemonClient()},
+        )
+        await router.request({"cmd": "list"})
+
+    asyncio.run(scenario())
+
+    assert [[r["id"] for r in records] for records in restored] == [["ag1"]]
+
+
+def test_a_host_the_router_does_not_know_is_refused() -> None:
+    async def scenario():
+        router, *_ = remote_router()
+        start = await router.request(
+            {"cmd": "start", "host": "zinc", "cwd": "/w", "model": "claude:opus"}
+        )
+        say = await router.request({"cmd": "say", "id": "zinc:r1", "text": "hi"})
+        return start, say
+
+    start, say = asyncio.run(scenario())
+
+    assert start == {"ok": False, "error": "No remote host zinc"}
+    assert say == {"ok": False, "error": "No remote host zinc"}
