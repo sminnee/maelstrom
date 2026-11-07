@@ -48,6 +48,27 @@ raises nothing.
 The wire types are the TypedDicts in `mael_domain/protocol.py`. They move to a wire package with
 no domain in the package split below.
 
+## The two targets
+
+A **Delegated agent** runs on a **Remote host**, and its task is on its **Parent server**. So its `mael`
+has two servers. The client chooses by the state a command touches:
+
+| State | Constructor | Server |
+|---|---|---|
+| Tasks | `OrchestratorClient.for_tasks()` | `MAEL_PARENT_URL` when it is set, else `orchestrator_url:` |
+| Worktrees, env, agents | `OrchestratorClient.from_config()` | `orchestrator_url:`: the own server, always |
+
+`for_tasks()` serves `task add/show/read/list/status/promote/load-many` and the launch. `mael gh
+create-pr` registers its PR on the parent with `PUT /api/tasks/{project}/{id}/pr`. `mael list`,
+`list-all`, `close` and `rm` use `from_config()`.
+
+A command that still uses the local state database cannot reach the parent's task. With
+`MAEL_PARENT_URL` set, `refuse_with_parent` makes it fail.
+[cli.md](../reference/cli.md#tasks) lists the guarded commands.
+
+Each guard goes when its command moves to the API and to `for_tasks()`. Then a delegated agent's
+command works as a local one. See [remote-hosts.md](remote-hosts.md).
+
 ## Command classes
 
 | Class | Commands | Why |

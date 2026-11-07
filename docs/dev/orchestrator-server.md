@@ -27,7 +27,8 @@ carries and nothing maps between a dataclass and the wire.
 | `notices.py` | pure | `notices_for`: which change notices a batch of events amounts to |
 | `transcript_log.py` | pure | `TranscriptLog`: one agent's items, its seq, and the ring of frames a resume replays |
 | `hubs.py` | adapter | `NoticeHub`: change notices to every open notice stream, coalesced per subscriber. `TranscriptHub`: transcript frames to every socket open on an agent, bounded per socket |
-| `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data` |
+| `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data`. `WorktreeOpener` opens the worktree an agent starts in. `TaskHomes` gives each agent's `TaskHome`: the notebook, or a `RemoteTaskSource` on its **Parent server**. See [remote-hosts.md](remote-hosts.md#the-task-seam-and-taskhomes) |
+| `remote_hosts.py` | adapter | `RemoteHost`: the link to one **Remote host**, its merged slices, and the forward of a request for an id it owns |
 | `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
 | `daemon_bridge.py` | storage | `DaemonRouter`: the agent-host protocol and its reply mapping. The socket client is `agent_transport.SocketAsyncDaemonClient`, and its fake is `agent_transport.ScriptedAsyncDaemonClient` |
 | `lsp_client.py` | storage | `LspClient`: one language server process, over `Content-Length` JSON-RPC on stdio. It answers the server's own requests with `null` and drops its notifications |
@@ -395,13 +396,13 @@ A PR link rides out the same way, on `Normalised.pr_link`:
 <link rel="gh-pr">118</link>
 ```
 
-`server._register_pr` writes it to the agent's task through `TaskSource.register_pr`. A bare
+`server._register_pr` writes it to the agent's task through the agent's `TaskHome.register_pr`. A bare
 number takes its URL from the `origin` remote of the agent's worktree. A live tag always
 registers. A replayed tag registers only on a task with no Registered PR: a tag the agent wrote
 while the server was down must still land, but an older tag must not undo a later `link-pr`.
 
 A bare `withdrawn` attribute sets `Normalised.pr_withdrawn`, and `server._withdraw_pr` writes it
-through `TaskSource.withdraw_pr`:
+through `TaskHome.withdraw_pr`:
 
 ```
 <link rel="gh-pr" withdrawn>118</link>
@@ -1112,7 +1113,7 @@ really is happening then.
 | Field | From |
 |---|---|
 | `worktreeId` | The worktree whose path is the agent's `cwd`. The project follows from it |
-| `taskId` | The task whose task session id the agent reports as its session |
+| `taskId` | The task whose task session id the agent reports as its session. A **Delegated agent**'s comes from its record, because its task is on its **Parent server** |
 
 A launch pins `session_id_for(project, task.id)` on the agent, so the task lookup is exact. An
 agent started outside the server links to a task only if it was started with that session id.
@@ -1129,9 +1130,13 @@ id. The process table holds no Codex thread, so the live-session sweep alone can
 
 | Step | What it does |
 |---|---|
-| `open_worktree` | `NotebookTaskSource.prepare_launch`: load, plan and check the task, open its worktree, and move it in-progress. The operation learns its `worktreeId` here. |
-| `write_env` | `NotebookTaskSource.write_env`: rebuild the worktree's `.env`, as `mael task run` does. A created worktree's `.env` is fresh, so the step says `.env unchanged.` |
-| `start_agent` | `NotebookTaskSource.finish_launch` builds the `start`; the host starts the agent. The task joins the desk, the agent is adopted, and the operation learns its `agentId`. |
+| `open_worktree` | `TaskSource.claim_launch`: load, plan and check the task, and move it in-progress. It returns a `LaunchClaim`, which becomes the start spec. Then `WorktreeOpener.open` opens the worktree. The operation learns its `worktreeId` here. |
+| `write_env` | `WorktreeOpener.write_env`: rebuild the worktree's `.env`, as `mael task run` does. A created worktree's `.env` is fresh, so the step says `.env unchanged.` |
+| `start_agent` | `_start_payload` builds the `start` from the spec; the host starts the agent. The task joins the desk, the agent is adopted, and the operation learns its `agentId`. |
+
+The three steps are `_agent_start_steps`, the one agent start: a free agent and a delegated agent
+run them too, from their own start spec. The claim comes before the open, so a failed open rolls
+the task back.
 
 A refusal of either check, or a host refusal of the `start`, ends the operation `refused`. Any
 other error ends it `failed`. Either way, once the task has moved, the task goes back to the
@@ -1150,6 +1155,12 @@ launch asks `has_claude_transcript` whether the worktree holds a transcript for 
 A Codex launch always sets `resume`. The router resumes the newest Codex thread on the task
 session id, keeping its record's start time. It starts a fresh thread when none ran, or when Codex
 cannot resume the thread.
+
+### A launch on a remote host
+
+The launch route takes a `host` that names a **Remote host** from `hosts:`. Then the launch is one
+step, `start_on_host`: it claims the task here, and the remote host runs the agent start as its own
+operation. See [remote-hosts.md](remote-hosts.md#delegation).
 
 A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
 does not. The canvas draws running work whether or not the desk names it, so the entry is not
@@ -1231,11 +1242,14 @@ user takes a task off with **Off desk**.
   `task.create`'s does. Without them, the task gets the High level that `build_plan_task` writes.
 - **`agent.start`** starts an agent tied to no task, as a `start` operation: `name_branch` when
   the branch is empty, then `open_worktree`, `write_env` and `start_agent`.
-  `TaskSource.worktree_for` opens the branch's worktree through the same collaborator a launch
-  uses, so a branch with no worktree gets one provisioned. The `start` payload carries no
-  `session` and no `env`: the host mints its own session id, and nothing exports `MAEL_TASK_*`.
-  Those two absences are the whole definition of a free agent. The operation learns its
-  `agentId` at `start_agent`.
+  `WorktreeOpener.open` opens the branch's worktree, as a launch does, so a branch with no
+  worktree gets one provisioned. The `start` payload carries no `session` and no `env`: the host
+  mints its own session id, and nothing exports `MAEL_TASK_*`. Those two absences are the whole
+  definition of a free agent. The operation learns its `agentId` at `start_agent`.
+
+  A parent's delegated launch posts the same command with the task's start spec: `session`,
+  `env`, `taskId` and `parentUrl`. Then the start checks the session as a launch does, and the
+  agent's env gets `MAEL_PARENT_URL`. See [remote-hosts.md](remote-hosts.md#delegation).
 
   `investigate: true` starts an investigation. The payload names `investigation_prompt_file()`
   in place of `agent_prompt_file()`: one file that holds the markers and the no-code rules,
@@ -1481,7 +1495,7 @@ without waiting for the poll.
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty on a server with no tangier |
 | `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
-| `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
+| `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls". `host.remoteHosts` holds each **Remote host** in `hosts:` as `{name, online, since}` |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |
 
@@ -1549,7 +1563,7 @@ kind that changed, and a `: ping` comment every 15 s:
 
 ```
 event: reset
-data: {"epoch": "5f1c2a9e"}
+data: {"epoch": "5f1c2a9e", "idPrefix": "cobalt"}
 
 event: change
 data: {"kind": "task", "ids": ["northwind/NORT-7"]}
@@ -1568,7 +1582,8 @@ never a queue: a slow reader cannot fall behind and be dropped.
 
 There is no `id:` field and no `Last-Event-ID`. REST is the source of truth, so the answer to
 "you may have missed notices" is the one `reset` a fresh connection gets. `epoch` is minted at
-server start, so a client can tell a restart from a reconnect.
+server start, so a client can tell a restart from a reconnect. `idPrefix` is the server's
+`host_name:`, or `""`. A parent checks it against its `hosts:` key.
 
 ## Transcript streams
 
@@ -1704,12 +1719,12 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/interrupt` | | `agent.interrupt` | `{}` |
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `202 {operationId}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
-| `POST /api/tasks/{project}/{id}/launch` | `{model?}` | `agent.launch` | `202 {operationId}` |
+| `POST /api/tasks/{project}/{id}/launch` | `{model?, host?}` | `agent.launch` | `202 {operationId}`. `host` names a **Remote host** to delegate to |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
 | `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, base?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
 | `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |
 | `POST /api/tasks/load-many` | `{project, text, defaultParent?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
-| `POST /api/agents` | `{project, branch?, prompt, mode, model?}` | `agent.start` | `202 {operationId}` |
+| `POST /api/agents` | `{project, branch?, prompt, mode, model?}`; a delegated launch adds `base, executeModel, session, env, taskId, parentUrl` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |
@@ -1721,6 +1736,8 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/task-documents/unlink` | `{ref, taskId}` | `taskDocument.unlink` | `{}` |
 | `POST /api/task-documents/archive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
 | `POST /api/task-documents/unarchive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
+| `PUT /api/tasks/{project}/{id}/pr` | `{number, url}` | `task.registerPr` | `{}`. A delegated agent's `gh-pr` link, from its remote host |
+| `DELETE /api/tasks/{project}/{id}/pr` | | `task.withdrawPr` | `{}` |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
 | `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |
@@ -1912,6 +1929,8 @@ The world is validated before the host is asked.
 | `stale_version` | The document version is not current |
 | `cannot_update` | `self.update` on a development build, or `mael self update --detach` refused; the message carries its stderr. 409 |
 | `language_server_failed` | A worktree's **Language server** did not start, crashed or did not answer. The status is 502 |
+| `unreachable` | A **Remote host** is offline or did not answer, or a delegated agent's **Parent server** did not answer. 502 |
+| `forbidden` | A state-changing `/api` request whose `Origin` is not this server's. 403 |
 | `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 
 `wrong_wait_kind` reads the kind off the request the reply names, never off the agent's state —
@@ -1923,6 +1942,24 @@ The host's own refusals map to the same codes: "no such agent" to `unknown_id`, 
 `agent_exited`, "not waiting" to `not_waiting`, "not waiting on a question" to `wrong_wait_kind`,
 anything else to `invalid`.
 
+
+## Remote hosts
+
+`cli.build_orchestrator` makes the server's `IdSpace` from `host_name:`, and one `RemoteHost` for
+each entry in `hosts:`. The `Orchestrator` runs each host's `run` beside its pollers. `run` holds
+the remote host's `GET /api/events` stream open. A `reset` whose `idPrefix` is the host's name
+sets it online, and a drop sets it offline. Each flip publishes the `host` entity, whose
+`remoteHosts` list says which host is online.
+
+Each `reset` and `change` from the remote host runs `_remote_changed`, which merges that kind's
+list into the world. Two middlewares in `routes.py` sit in front of every handler:
+
+| Middleware | Does |
+|---|---|
+| `_same_origin` | Refuses a state-changing `/api` request whose `Origin` is not this server's, with `forbidden`. |
+| `_host_owned` | Forwards a request for an id that a remote host owns, on the routes in `HOST_OWNED_ROUTES`, to that host. Resolves a bare agent or worktree id to this server's own prefix. |
+
+See [remote-hosts.md](remote-hosts.md) for the merge, the dispatch and the delegated launch.
 
 ## Running it
 

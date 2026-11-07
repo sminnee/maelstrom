@@ -255,6 +255,18 @@ PR in its **Chain**. A free agent's card shows no PR.
 `PrChip` draws a `PrReading`, not a `Worktree`. The worktree table and the **Worktree box** pass
 `worktreePr(worktree)`, the branch's own PR: those views are about the branch, not a task.
 
+### Where a task launches
+
+`session/useLaunchOptions.ts` gives the launch choices: "Launch here", then "Launch on <host>" for
+each online **Remote host** in `GET /api/host`'s `remoteHosts`. The node card's split button and
+the deck row's swipe both use these choices, so the two cannot launch in different places.
+
+The default is the host of the task's newest agent when that host is online. Else it is here. The
+host comes from the agent's **Id prefix** (`Agent.host`).
+
+The session tab's meta line starts with the agent's remote host, or `<host> offline` while its
+link is down. An agent on this server shows no host.
+
 ### The worktree table
 
 `worktrees/WorktreeTable.tsx` draws one project's worktrees, in the Project dialog's Worktrees tab.

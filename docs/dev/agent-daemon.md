@@ -482,6 +482,12 @@ The daemon drives Claude Code agents only. The Codex harness is orchestrator cod
 `CodexDaemonClient` fans the connection-wide app-server stream out by thread id.
 [codex-app-server-events.md](codex-app-server-events.md) is the contract.
 
+### The id prefix and the parent
+
+The daemon keeps bare ids and has no part in remote hosts. The orchestrator's `DaemonRouter` adds
+and removes the server's **Id prefix**, and keeps a delegated agent's `parentUrl` and `taskId` on
+its record. See [remote-hosts.md](remote-hosts.md#the-id-prefix).
+
 Import-linter contracts hold the split; see
 [architecture-patterns.md](architecture-patterns.md#the-packages). The `mael` CLI meets the
 daemon only at the wire contract.
