@@ -429,6 +429,20 @@ when that key is unset or no server answers. The server runs the status actions,
 prints each action's line on stderr. The server writes each task that `add`, `promote` and
 `load-many` create, and puts it on the desk, so it shows on the canvas at once.
 
+In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
+commands call the parent in place of `orchestrator_url:`, and `mael gh create-pr` registers its PR
+there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
+uses the local state database, and this agent's task is on <url>.":
+
+- `task log`, `next`, `edit`, `reconcile`, `update`, `rm` and `run`
+- `comms new`, `list`, `close`, `edit`, `link` and `landings`
+- `wiki` and each of its commands
+- `gh link-pr` and `withdraw-pr`
+- `session list` and `info`
+- `linear plan`
+
+See [Remote hosts](configuration.md#remote-hosts).
+
 Quote `'*'` — an unquoted `*` is expanded by the shell before `mael` sees it.
 
 `'*'` resolves against the task's parent, which defaults to `$MAEL_TASK_PARENT`. It therefore

@@ -681,9 +681,34 @@ is read-only by construction: it has no channel back to the agent at all.
 
 **Agent host**:
 The agent daemon as the orchestrator server sees it: the thing agents run in and are answered
-through, reached only over its control socket. The name says the server has a client's view of
-it, and that it may later run on another machine.
+through. The server sees it only through the `AsyncDaemonClient` boundary: the local control
+socket or the in-process Codex adapter. The name says the server has a client's view of it.
 _Avoid_: Daemon (in UI-facing prose)
+
+**Remote host**:
+A second orchestrator server, with its own `host_name:`, that a **Parent server** names in `hosts:`. It
+is a normal server with its own UI, tasks and agents. The parent delegates launches to it and
+merges its world. See `docs/dev/remote-hosts.md`.
+_Avoid_: Node, worker, slave, runner, child machine (in UI-facing prose)
+
+**Delegated agent**:
+An agent that a **Remote host** runs for a **Parent server**, whose task stays on the parent. Its Agent
+record keeps the parent's URL and the task id, and its env has `MAEL_PARENT_URL`. Its task work
+and its `mael` task commands go to the parent.
+_Avoid_: Remote agent (for the direct agents of a remote host), runner agent
+
+**Parent server**:
+The orchestrator server that delegated a launch and holds the agent's task. It is a fact about
+one agent, not about a server: one remote host can run agents for several parents and its own
+direct agents. Not the task **Parent**, which groups a chain.
+_Avoid_: Master, primary
+
+**Id prefix**:
+A server's `host_name:` and `:` at the head of each agent, worktree and gate job id it makes:
+`cobalt:<agent id>`, `cobalt:<project>-<nato>`. A server with no `host_name:` makes bare ids. A
+parent finds the owner of each merged id from its prefix. A desk id such as `agent:cobalt:x` is
+not read for one.
+_Avoid_: Host id, namespace
 
 **Orchestrator server**:
 The process that builds the world from the notebook, `list-all` and the agent host, and serves

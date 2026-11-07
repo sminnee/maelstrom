@@ -47,6 +47,14 @@ terminal. `--cli` runs the model CLI in your current shell, in the task's worktr
 `mael task add --run` and `mael linear plan` default to the daemon. `mael add`, `mael task run`
 and `mael task next --run` default to `--cli`.
 
+A remote host is a second machine with its own orchestrator server, named by `host_name:` in its
+config. Your `~/.maelstrom/config.yaml` names it under `hosts:`. A task card's Launch button then
+offers "Launch on <host>" for each remote host that is online. The remote host runs the agent and
+its worktree. The task stays on your orchestrator, and the agent's `mael task` commands reach it
+there. You follow and answer an agent on a remote host as a local one, and your desk shows the
+remote host's other agents too. When the remote host sleeps, its agents show their last state and the host
+shows "offline". See [Remote hosts](../reference/configuration.md#remote-hosts).
+
 cmux is optional. The orchestrator's `cmux` link opens a worktree's terminal in a cmux workspace
 named `<project>-<worktree>`, and closing the worktree closes it.
 

@@ -311,6 +311,8 @@ uptimerobot:
 | `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
 | `github.orchestrator_token` | string | — | GitHub token the orchestrator uses for UI actions that write to GitHub. Read from this file only. See [API keys](#api-keys). |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
+| `hosts` | map | `{}` | Each remote host this orchestrator server can delegate a launch to: its name and the base URL of its orchestrator server, as `name: <url>` or `name: {url: <url>}`. The name must be the remote host's own `host_name:`. A name is lower-case letters, digits and `-`. An entry with a bad name or a URL that is not `http://` or `https://` is ignored. See [Remote hosts](#remote-hosts). |
+| `host_name` | string | — | This server's name, and so its id prefix: each agent, worktree and gate job id it makes starts with `<host_name>:`. Unset, ids are bare. Lower-case letters, digits and `-`; any other value is ignored. See [Remote hosts](#remote-hosts). |
 
 ```yaml
 projects_dir: ~/Projects
@@ -363,6 +365,42 @@ server.
 # ~/.maelstrom/playpen/kilo/config.yaml
 orchestrator_url: http://127.0.0.1:3222   # this worktree's ORCHESTRATOR_PORT
 ```
+
+### Remote hosts
+
+An orchestrator server (the parent) can launch a task on a second orchestrator server, a remote
+host. The remote host runs the agent, and the task stays on the parent. The remote host is a
+normal server, with its own UI, tasks and agents.
+
+Give the remote host a name with `host_name:`. Its ids then start with that name, so the parent
+can tell them from its own:
+
+```yaml
+# ~/.maelstrom/config.yaml on the remote host (cobalt)
+host_name: cobalt
+```
+
+Name the remote host under `hosts:` on the parent. The key must equal the remote host's
+`host_name:`. A mismatch keeps the host offline, and the parent logs it once. Restart the
+parent's server after a change.
+
+```yaml
+# ~/.maelstrom/config.yaml on the parent (monolith)
+hosts:
+  cobalt: https://cobalt.tailnet.ts.net:2772
+  # or: cobalt: {url: https://cobalt.tailnet.ts.net:2772}
+```
+
+The parent gives the remote host its own `orchestrator_url` with each launch, and refuses a
+remote launch when it has none. The agent gets it as `MAEL_PARENT_URL`. Nothing on the remote
+host names the parent.
+
+When a server with live agents gets a `host_name:`, it adopts those agents again under prefixed
+ids.
+
+A dev environment takes `host_name:` and `hosts:` from its own notebook root's `config.yaml`
+alone, as it takes `orchestrator_url:`. So a dev server never takes production's name or remote
+hosts.
 
 ### API keys
 
