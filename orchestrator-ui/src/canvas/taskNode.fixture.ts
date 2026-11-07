@@ -81,6 +81,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     pid: 4711,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
+    parentUrl: '',
     ...over,
   };
 }

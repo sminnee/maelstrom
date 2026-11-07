@@ -217,6 +217,8 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
+    parentUrl: '',
     ...over,
   };
 }
@@ -255,6 +257,8 @@ function freeAgent(
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
+    parentUrl: '',
     ...over,
   };
 }
@@ -707,6 +711,7 @@ body rather than the query builder.
       socket: '',
       usage: null,
       codexUsage: null,
+      remoteHosts: [],
     },
     // Every worktree reads as clean; a test that needs changes seeds them.
     changes: {},

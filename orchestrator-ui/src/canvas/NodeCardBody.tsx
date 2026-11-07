@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMilestones } from '../api/milestones';
-import { useLaunch, useSetStatus, useTask } from '../api/tasks';
+import { useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { useEditor } from '../nav/useOverlays';
 import { useAgentStream } from '../live/useAgentStream';
@@ -32,6 +32,8 @@ import { contextFigure } from '../protocol/tokens';
 import { useNow } from '../ui/useNow';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
+import { SplitButton } from '../ui/SplitButton';
+import { useLaunchOptions } from '../session/useLaunchOptions';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { StatusPicker } from '../ui/StatusPicker';
 import { WorktreeSection } from '../worktrees/WorktreeSection';
@@ -122,7 +124,6 @@ function WorkCardBody({
   const { world } = useWorld();
   const transcript = useAgentStream(node.agent?.id ?? null);
   const milestones = useMilestones(node.agent?.id ?? null);
-  const launch = useLaunch();
   const setStatus = useSetStatus();
   const { open: editTask } = useEditor();
   const [picking, setPicking] = useState(false);
@@ -411,16 +412,7 @@ function WorkCardBody({
         {/* While an operation runs on the unit, nothing else may act on it. */}
         <CommandSet disabled={op?.state === 'running'}>
           <div className={styles.commands} data-testid="node-commands">
-            {!agent && task?.actionable && (
-              <AppButton
-                variant="primary"
-                icon={actionIcon('launch')}
-                processingChildren="Launching"
-                onClick={() => launch.mutateAsync({ taskId: task.id })}
-              >
-                Launch
-              </AppButton>
-            )}
+            {!agent && task?.actionable && <LaunchButton task={task} />}
             {node.kind === 'task' && task && (
               <AppButton
                 variant="quiet"
@@ -562,5 +554,16 @@ function FollowsGroup({
         );
       })}
     </div>
+  );
+}
+
+/** Launch, with a menu of the remote hosts it can launch on when any is online. */
+function LaunchButton({ task }: { task: TaskRow }) {
+  return (
+    <SplitButton
+      variant="primary"
+      menuLabel="Launch on another host"
+      options={useLaunchOptions(task)}
+    />
   );
 }

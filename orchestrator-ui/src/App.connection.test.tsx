@@ -62,6 +62,7 @@ describe('the agent host', () => {
           socket: '/x/agent-daemon.sock',
           usage: null,
           codexUsage: null,
+          remoteHosts: [],
         };
       });
     });
