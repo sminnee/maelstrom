@@ -17,6 +17,7 @@ from mael_cli.worktree_launcher import (
     start_agent_in_worktree,
     start_install_async,
 )
+from mael_domain.install_status import wait_for_install
 
 
 class TestOpenWorktree:
@@ -57,16 +58,19 @@ def no_core_plugin(monkeypatch):
 
 
 class TestAddLauncher:
-    def test_install_starts_asynchronously_in_the_worktree(self, tmp_path):
-        with (
-            patch("mael_cli.worktree_launcher.load_config_or_default") as config,
-            patch("mael_cli.worktree_launcher.subprocess.Popen") as popen,
-        ):
-            config.return_value.install_cmd = "uv sync"
-            assert start_install_async(tmp_path)
-        popen.assert_called_once_with(
-            ["sh", "-c", "uv sync"], cwd=tmp_path, start_new_session=True
-        )
+    def test_the_background_install_logs_its_output_in_the_worktree(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        worktree = tmp_path / "proj" / "proj-bravo"
+        worktree.mkdir(parents=True)
+        (worktree / ".maelstrom.yaml").write_text('install_cmd: "pwd"\n')
+
+        log = start_install_async(worktree)
+
+        assert log == tmp_path / "home/.maelstrom/logs/proj/bravo/install.log"
+        assert wait_for_install("proj", "bravo") is not None
+        assert log.read_text().split() == [str(worktree)]
 
     @pytest.mark.asyncio
     async def test_regular_cli_runs_in_the_prepared_worktree(self, tmp_path):

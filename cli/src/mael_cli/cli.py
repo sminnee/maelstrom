@@ -122,8 +122,8 @@ async def _finish_add(
     no_agent: bool,
 ) -> None:
     """Start the installer, then the prepared worktree's agent or shell."""
-    if start_install_async(worktree_path):
-        click.echo("Installer: started in the background.")
+    if log := start_install_async(worktree_path):
+        click.echo(f"Installer: started in the background. Log: {log}")
     else:
         click.echo("Installer: no install command configured.")
 

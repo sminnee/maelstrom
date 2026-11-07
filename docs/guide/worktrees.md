@@ -98,7 +98,8 @@ mael add feature/x --no-agent     # prepare the worktree and open a shell
 ```
 
 `mael add` fetches, creates the branch from `origin/main`, allocates ports, writes `.env`,
-and starts the configured installer asynchronously. It then starts an agent or a shell.
+and starts the configured installer in the background. It prints the install log's path, and
+`mael env status` shows whether the install passed. It then starts an agent or a shell.
 Alpha is created for you by `mael project add`.
 
 `--model` accepts a **Model reference**. A bare value selects Claude. A qualified

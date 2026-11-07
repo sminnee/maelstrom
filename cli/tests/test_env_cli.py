@@ -1,5 +1,6 @@
 """Tests for mael_cli.env_cli module."""
 
+import subprocess
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
@@ -20,6 +21,7 @@ from mael_domain.env import (
     VersionChange,
 )
 from mael_domain.env_store import InMemoryEnvStore
+from mael_domain.install_status import install_argv
 from mael_domain.worktree_model import CopyBackResult
 
 
@@ -231,6 +233,19 @@ class TestEnvStatus:
         result = runner.invoke(cli, ["env", "status"])
         assert result.exit_code == 0
         assert "APP RUNNING AT: *3000" in result.output
+
+    @patch("mael_cli.env_cli.load_env_state", return_value=None)
+    @patch("mael_cli.env_cli.resolve_context")
+    def test_shows_a_failed_install(self, mock_ctx, mock_load, tmp_path, monkeypatch):
+        """A failed install shows, with its log, even with no services up."""
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        mock_ctx.return_value = MagicMock(project="proj", worktree="bravo")
+        subprocess.run(install_argv("proj", "bravo", "exit 1"), check=True)
+
+        result = CliRunner().invoke(cli, ["env", "status"])
+
+        log = tmp_path / ".maelstrom/logs/proj/bravo/install.log"
+        assert f"Install: failed (exit 1) — {log}" in result.output
 
     @patch("mael_cli.env_cli.load_env_state", return_value=None)
     @patch("mael_cli.env_cli.resolve_context")

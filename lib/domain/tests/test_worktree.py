@@ -17,6 +17,7 @@ from git_helpers import advance_origin_main, create_commit, remote_tip
 from git_helpers import run_git as git
 
 from mael_common.claude_paths import sanitise_path_for_claude
+from mael_domain.install_status import read_install_status
 from mael_domain.ports import get_port_allocation, record_port_allocation
 from mael_domain.worktree import (
     WorktreeInfo,
@@ -53,6 +54,7 @@ from mael_domain.worktree import (
     rename_remote_branch,
     run_git,
     run_git_async,
+    run_install_cmd,
     setup_claude_memory_symlink,
     setup_worktree_for_branch,
     sync_worktree,
@@ -2856,3 +2858,23 @@ class TestTheAsyncReaders:
         )
 
         assert result.stdout.strip() == "feature/work"
+
+
+class TestRunInstallCmd:
+    """The foreground install records its exit code in the install status."""
+
+    @pytest.mark.parametrize("code", [0, 3])
+    def test_it_records_the_exit_code(self, tmp_path, monkeypatch, code):
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        worktree = tmp_path / "proj" / "proj-bravo"
+        worktree.mkdir(parents=True)
+        (worktree / ".maelstrom.yaml").write_text(f'install_cmd: "exit {code}"\n')
+
+        if code:
+            with pytest.raises(subprocess.CalledProcessError):
+                run_install_cmd(worktree)
+        else:
+            run_install_cmd(worktree)
+
+        status = read_install_status("proj", "bravo")
+        assert status is not None and status.code == code

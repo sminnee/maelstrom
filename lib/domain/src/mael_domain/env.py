@@ -25,6 +25,7 @@ from .config import (
 )
 from .dev_cert import TLS_ENV_VARS, dev_env_vars, ensure_configured_dev_cert
 from .env_store import EnvStore
+from .install_status import log_dir, wait_for_install
 from .protocol import EnvStateName
 from .services import (
     ENGINES,
@@ -322,7 +323,7 @@ def _env_key(project: str, worktree: str) -> str:
 
 def _get_log_dir(project: str, worktree: str) -> Path:
     """Return the directory for service log files."""
-    return context.get_maelstrom_dir() / "logs" / project / worktree
+    return log_dir(project, worktree)
 
 
 def load_env_state(store: EnvStore, project: str, worktree: str) -> EnvState | None:

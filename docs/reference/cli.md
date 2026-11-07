@@ -311,7 +311,9 @@ none of those reaches the approval that would perform the switch.
 `mael add --no-agent` prepares a shell without an agent. It conflicts with
 `--open`, `--cli`, and `--daemon`.
 
-`mael add` starts the installer in the background in every case.
+`mael add` starts the installer in the background in every case. It prints the path of the
+install log, `~/.maelstrom/logs/<project>/<worktree>/install.log`. `mael env status` shows
+whether the install passed.
 
 | Harness | What runs | Who owns the agent |
 |---|---|---|
