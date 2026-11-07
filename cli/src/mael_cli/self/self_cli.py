@@ -143,6 +143,7 @@ def cmd_check_host(dev: bool) -> None:
         run_interactive=_run_interactive,
         confirm=lambda text: click.confirm(text, default=False),
         echo=click.echo,
+        prompt=lambda text, default: click.prompt(text, default=default),
         dev=dev,
         caller_path=caller_path,
     )()

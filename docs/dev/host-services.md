@@ -162,7 +162,11 @@ in the list.
 | `Tool` × `HOST_TOOLS` | In install order. For a missing tool, prints the platform command, and runs it after a yes. A `brew` command waits for Homebrew |
 | `SecretFiles` | Tightens `~/.maelstrom`, `config.yaml`, the port allocations and the spawn records of both daemon roots |
 | `SignIn` × 3 | `gh auth status`, `claude auth status`, `codex login status`. Offers each login |
+| `GitIdentity` | Required. A global `user.name` and `user.email`. The fix asks for each, with the `gh api user` values as defaults |
+| `DockerRunning` | With `docker` on the host: `docker info` answers. Offers `open -a Docker`, `systemctl enable --now docker`, or, for a refused socket, `usermod -aG docker` |
 | `PracticesPlugin` | With `claude` on the host: offers to install `minnstack` into Claude Code, and into Codex when it is there |
+| `AgentBrowserSkill` | With `agent-browser` on the host: its skill in `~/.agents/skills` and `~/.claude/skills`, installed with the `skills` CLI |
+| `ChromeUserns` | On Linux with `agent-browser`, when `kernel.apparmor_restrict_unprivileged_userns` is `1`: an AppArmor profile that lets Chrome make its sandbox |
 | `TailscaleUp`, `TailscaleOperator`, `DevHost`, `DevHttps` | `tailscale up`, the operator (Linux), `dev_host:`, and `dev_https:` once the certificate issues |
 | `ShimOnPath` | Warns when `~/.local/bin` is not on the caller's PATH |
 
@@ -179,7 +183,7 @@ gives the Node rationale.
 
 Without a tty, the check asks nothing. It runs only the secret-file fix, which only narrows a mode.
 It exits 1 when a required tool is
-missing, or `gh` or `claude` is signed out.
+missing, `gh` or `claude` is signed out, or git has no author identity.
 
 `mael project check` keeps the worktree `.env` permissions. The files under `~/.maelstrom` are the
 host check's.
