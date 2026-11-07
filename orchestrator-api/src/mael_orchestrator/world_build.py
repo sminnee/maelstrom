@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, TypedDict, cast
 
 from mael_agent.harness_model import HARNESS_CLAUDE
+from mael_agent.host_ids import split_host
 from mael_domain import comms as comms_model
 from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
@@ -94,11 +95,14 @@ def task_entity(
     actionable: bool,
     started_at: str = "",
     landing: TaskLanding | None = None,
+    last_host: str = "",
 ) -> Task:
     """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule.
 
-    ``started_at`` comes from the Agent records and ``landing`` from the
-    landing tables; the notebook knows neither.
+    ``started_at`` and ``last_host`` come from the Agent records and
+    ``landing`` from the landing tables; the notebook knows neither.
+    ``last_host`` is the remote host of the task's newest session, ``""`` for
+    a local one.
 
     ``follows`` is qualified with the task's own project: a task only ever
     follows a task beside it in the notebook. ``parent`` is left bare, because
@@ -128,6 +132,7 @@ def task_entity(
         "updated": task.updated,
         "actionable": actionable,
         "startedAt": started_at,
+        "lastHost": last_host,
         "landing": landing,
         "comms": list(task.comms),
         "schedule": task.schedule,
@@ -315,6 +320,7 @@ def agent_entity(
         "backgroundShells": background_shells_of_row(row.get("background")),
         # A row from the Claude daemon, read without the router, names none.
         "harness": row.get("harness") or HARNESS_CLAUDE,
+        "host": split_host(str(row["id"]))[0],
     }
 
 
@@ -376,10 +382,18 @@ def link_agent(
     follows from it. The task is the one whose task session id the agent
     reports as its session: a launch pins ``session_id_for(project, task.id)``
     on the agent, so the reverse lookup is exact. No match leaves the ids empty.
+
+    An agent on a remote host links to no worktree here: its ``cwd`` is a path
+    on that host, and a worktree on this machine can have the same path.
     """
     cwd = row.get("cwd") or ""
     session = row.get("session") or ""
-    worktree = next((w for w in worktrees.values() if w["path"] == cwd), None)
+    remote = bool(split_host(str(row.get("id") or ""))[0])
+    worktree = (
+        None
+        if remote
+        else next((w for w in worktrees.values() if w["path"] == cwd), None)
+    )
     project = worktree["project"] if worktree else ""
     task = next(
         (

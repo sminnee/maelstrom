@@ -14,7 +14,7 @@ from mael_domain.attachments import is_bare_name
 from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
-from mael_domain.protocol import Agent, Worktree, World
+from mael_domain.protocol import HOST_ID, Agent, Worktree, World
 from mael_domain.task import PROMOTABLE_FIELDS
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
@@ -762,6 +762,8 @@ def validate_command(
             return _err("unknown_id", f"No task {task_id}")
         if not task["actionable"]:
             return _err("invalid", f"Task {task_id} is not actionable")
+        if host := cmd.get("host"):
+            return _remote_host_refusal(world, str(host))
         return None
 
     if kind == "desk.add":
@@ -1073,3 +1075,16 @@ def validate_command(
         return None
 
     return _err("invalid", f"Unknown command: {kind}")
+
+
+def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
+    """Why a launch on the remote host ``name`` is refused, or ``None``."""
+    host = world["host"].get(HOST_ID)
+    remote = next(
+        (h for h in (host or {}).get("remoteHosts", []) if h["name"] == name), None
+    )
+    if remote is None:
+        return _err("invalid", f"No remote host {name}")
+    if not remote["online"]:
+        return _err("invalid", f"{name} is offline")
+    return None

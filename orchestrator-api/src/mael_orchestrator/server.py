@@ -16,7 +16,7 @@ import os
 import subprocess
 import sys
 import uuid
-from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable
+from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping
 from concurrent.futures import Executor
 from contextlib import aclosing
 from dataclasses import dataclass
@@ -34,6 +34,7 @@ from mael_agent.agent_wire import (
     build_start_payload,
 )
 from mael_agent.harness_model import HARNESS_CODEX
+from mael_agent.host_ids import split_host, with_host
 from mael_common.image import MAX_BYTES, is_image
 from mael_common.shell import run_cmd_async
 from mael_common.util import now_iso
@@ -49,7 +50,12 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
-from mael_domain.document_tags import FINAL_STAGE, CompactRequest, ParamSet
+from mael_domain.document_tags import (
+    FINAL_STAGE,
+    CompactRequest,
+    ParamSet,
+    read_worktree_file,
+)
 from mael_domain.external_event import (
     CHANGES_COMMENTED,
     DOCUMENT_APPROVED,
@@ -110,6 +116,7 @@ from mael_domain.protocol import (
     GateJob,
     Host,
     HostUsage,
+    RemoteHostState,
     ServerEvent,
     TranscriptItem,
     World,
@@ -162,6 +169,7 @@ from .operations import (
     OperationRunner,
     worktree_key,
 )
+from .remote_hosts import RemoteHost
 from .sources import (
     CloseBlocked,
     PreparedLaunch,
@@ -545,8 +553,12 @@ class Orchestrator:
         system: SystemPaths | None = None,
         start_update: Callable[[], Awaitable[subprocess.CompletedProcess]]
         | None = None,
+        remote_hosts: Mapping[str, RemoteHost] | None = None,
     ) -> None:
         self.tasks = tasks
+        #: Each **Remote host** in ``hosts:``, by name. Its agents reach the
+        #: router as a remote client; this holds the link and the open.
+        self.remote_hosts: Mapping[str, RemoteHost] = remote_hosts or {}
         self.worktrees = worktrees
         self.daemon = daemon
         self.desk = desk if desk is not None else InMemoryDeskStore()
@@ -730,6 +742,10 @@ class Orchestrator:
         ]
         if self._gate_watch is not None:
             self._pollers.append(asyncio.create_task(self._watch_gates()))
+        for host in self.remote_hosts.values():
+            self._pollers.append(asyncio.create_task(host.run(self._remote_flipped)))
+        if self.remote_hosts:
+            self._remote_flipped()
 
     async def stop(self) -> None:
         # First: a shielded PR read outlives its cancelled caller, and must not
@@ -765,6 +781,8 @@ class Orchestrator:
         await self.operations.stop()
         await asyncio.gather(*self._server_stops, return_exceptions=True)
         await self.language_servers.stop_all()
+        for host in self.remote_hosts.values():
+            await host.close()
         # Cleared so a subscriber arriving after the stop schedules no read.
         self._started.clear()
         self._detaches.clear()
@@ -1435,7 +1453,11 @@ class Orchestrator:
             if state == "exited":
                 await self._exit(agent_id, exit_code)
                 continue
-            if agent_id not in self._watches and not is_child:
+            if (
+                agent_id not in self._watches
+                and not is_child
+                and self._host_online(agent_id)
+            ):
                 await self._attach(agent_id)
             await self._relink(row)
             await self._close_wait_the_host_no_longer_holds(
@@ -1444,6 +1466,12 @@ class Orchestrator:
         for agent_id, agent in list(agents.items()):
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
+
+    def _host_online(self, agent_id: str) -> bool:
+        """Whether ``agent_id``'s host answers. An offline host keeps its rows."""
+        host = split_host(agent_id)[0]
+        remote = self.remote_hosts.get(host) if host else None
+        return remote is None or remote.online
 
     def _set_host_reachable(self, reachable: bool) -> None:
         """Record whether the host answers, publishing only a change.
@@ -1470,12 +1498,23 @@ class Orchestrator:
         if usage is not None or codex_usage is not None:
             self._set_host(usage=usage, codex_usage=codex_usage)
 
+    def _remote_flipped(self) -> None:
+        """Publish the remote hosts' online state after a link went up or down.
+
+        A remote host's agents are never exited for it: see "Offline is not
+        dead" in ``docs/dev/remote-hosts.md``.
+        """
+        self._set_host(
+            remote_hosts=[host.state() for host in self.remote_hosts.values()]
+        )
+
     def _set_host(
         self,
         *,
         reachable: bool | None = None,
         usage: HostUsage | None = None,
         codex_usage: HostUsage | None = None,
+        remote_hosts: list[RemoteHostState] | None = None,
     ) -> None:
         """Publish the host entity when a fact on it has changed.
 
@@ -1496,11 +1535,17 @@ class Orchestrator:
             if codex_usage is None
             else codex_usage
         )
+        next_remote_hosts = (
+            (current.get("remoteHosts", []) if current else [])
+            if remote_hosts is None
+            else remote_hosts
+        )
         if (
             current is not None
             and current["reachable"] == next_reachable
             and current.get("usage") == next_usage
             and current.get("codexUsage") == next_codex_usage
+            and current.get("remoteHosts", []) == next_remote_hosts
         ):
             return
         entity: Host = {
@@ -1512,6 +1557,7 @@ class Orchestrator:
             "socket": str(getattr(self.daemon, "socket_path", "")),
             "usage": next_usage,
             "codexUsage": next_codex_usage,
+            "remoteHosts": next_remote_hosts,
         }
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 
@@ -1832,12 +1878,16 @@ class Orchestrator:
 
     async def _normalise(self, watch: AgentWatch, raw: dict[str, Any]) -> None:
         replay = not watch.caught_up.is_set()
+        # A remote agent's paths are on its own host. The same path here can
+        # be another file, so none is read or served.
+        remote = bool(split_host(watch.agent_id)[0])
         out = normalise_stream_event(
             self.state.state,
             watch.ctx,
             raw,
             self.clock(),
-            files=self.files,
+            files=_NO_FILES if remote else self.files,
+            read_file=_no_file if remote else read_worktree_file,
             show_refs=attachment_urls,
             # A replayed turn is already in the row's own totals: the host
             # summed it before it handed the row over. Only a live turn adds.
@@ -2053,7 +2103,8 @@ class Orchestrator:
         event first ran. Only a live event may replace what is attached.
         """
         task = self.world["tasks"].get(document["taskId"])
-        if task is None:
+        if task is None or split_host(document["agentId"])[0]:
+            # A remote agent's file is on its own host: see `_normalise`.
             return
         source = document["source"]
         body: str | None = None
@@ -3236,14 +3287,22 @@ class Orchestrator:
     # -- launch kinds --
 
     def _task_launch_steps(
-        self, launching: "_Launching", model_name: str | None, hook: OperationHook
+        self,
+        launching: "_Launching",
+        model_name: str | None,
+        hook: OperationHook,
+        host: str = "",
     ) -> list[Step]:
         """Open a task's worktree, write its ``.env``, and start its agent.
 
         The steps of a launch, and the tail of a create or a plan that
         launches. The task moves in-progress as its worktree opens; the
         operation's work rolls it back when a later step does not finish.
+
+        ``host`` names a **Remote host** to launch on. Its worktree opens and
+        its ``.env`` is written there, in one call.
         """
+        remote = self.remote_hosts.get(host) if host else None
 
         async def open_worktree() -> StepOutcome:
             if holder := self._session_holder(launching.task_id):
@@ -3251,9 +3310,16 @@ class Orchestrator:
                     blocked=f"Task {launching.task_id} already has a live agent, "
                     f"{holder}. Stop it before relaunching."
                 )
+            if host and remote is None:
+                return StepOutcome(blocked=f"No remote host {host}")
             try:
                 prepared = await self._run(
-                    self.tasks.prepare_launch, launching.task_id, model_name
+                    functools.partial(
+                        self.tasks.prepare_launch,
+                        open_remote=remote.open_worktree if remote else None,
+                    ),
+                    launching.task_id,
+                    model_name,
                 )
             except KeyError:
                 return StepOutcome(blocked=f"No task {launching.task_id}")
@@ -3261,14 +3327,15 @@ class Orchestrator:
                 return StepOutcome(blocked=str(exc))
             launching.prepared = prepared
             setup = prepared.setup
-            hook.target(
-                worktree_id=get_worktree_folder_name(launching.project, setup.name)
-            )
+            worktree_id = get_worktree_folder_name(launching.project, setup.name)
+            hook.target(worktree_id=with_host(host, worktree_id))
             await self.refresh_tasks(force=True)
             return StepOutcome(messages=[_opened(setup)])
 
         async def write_env() -> StepOutcome:
             assert launching.prepared is not None  # open_worktree ran first
+            if launching.prepared.remote is not None:
+                return StepOutcome(messages=launching.prepared.remote.env_lines)
             lines = await self.tasks.write_env(
                 launching.project, launching.prepared.setup
             )
@@ -3277,6 +3344,8 @@ class Orchestrator:
         async def start_agent() -> StepOutcome:
             assert launching.prepared is not None  # open_worktree ran first
             payload = self.tasks.finish_launch(launching.prepared)
+            if host:
+                payload["host"] = host
             reply = await self.daemon.request(payload)
             agent_id = reply.get("id") if "error" not in reply else None
             if not agent_id:
@@ -3340,7 +3409,9 @@ class Orchestrator:
         launching = _Launching(project=split_task_key(task_id)[0], task_id=task_id)
 
         async def work(hook: OperationHook) -> None:
-            steps = self._task_launch_steps(launching, command.get("model"), hook)
+            steps = self._task_launch_steps(
+                launching, command.get("model"), hook, str(command.get("host") or "")
+            )
             await self._run_launch(steps, hook, launching)
 
         title = self._task_title(task_id)
@@ -4202,6 +4273,14 @@ def _attachment_paths(attachments: Any) -> list[dict[str, str]]:
 
 
 _NEVER = object()
+
+#: The file registry of a remote agent: it refuses every file.
+_NO_FILES = FileRegistry(is_file=lambda _path: False)
+
+
+def _no_file(_cwd: str, _filename: str) -> str | None:
+    """The file reader of a remote agent: every file is unreadable."""
+    return None
 
 
 def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:

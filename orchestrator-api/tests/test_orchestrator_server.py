@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 import aiohttp
@@ -36,6 +36,7 @@ from mael_daemon.agent_model import (
 from mael_domain import comms as comms_model
 from mael_domain import operations as operations_model
 from mael_domain import task as model
+from mael_domain.agent_store import SqliteAgentStore
 from mael_domain.comm_store import (
     CommItem,
     CommUpdate,
@@ -69,18 +70,22 @@ from mael_domain.protocol import HostUsage
 from mael_domain.release_bundle.layout import MANIFEST, Manifest
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
+from mael_domain.state_db.migrate import open_state_db
 from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable
 from mael_domain.task_metadata_generator import TaskNames
+from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
 from mael_domain.worktree_model import extract_project_name
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
 from mael_orchestrator.cli import clone_project
+from mael_orchestrator.daemon_bridge import DaemonRouter
 from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.language_servers import LanguageServers
 from mael_orchestrator.live_feedback import LiveFeedbackHub
+from mael_orchestrator.remote_hosts import RemoteDaemonClient, RemoteHost
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
 from mael_orchestrator.sources import (
@@ -102,7 +107,7 @@ read_fixture = read_stamped_fixture
 class Harness:
     """An orchestrator over in-memory sources and a scripted agent host."""
 
-    def __init__(self, store, *, desk=None, projects=(PROJECT,), **over):
+    def __init__(self, store, *, desk=None, projects=(PROJECT,), daemon=None, **over):
         self.store = store
         self.version = 0
         self.projects = list(projects)
@@ -151,7 +156,8 @@ class Harness:
                 }
             ],
         )
-        self.daemon = ScriptedAsyncDaemonClient()
+        #: The scripted host, or the router a remote-host test puts in front.
+        self.daemon = daemon if daemon is not None else ScriptedAsyncDaemonClient()
         self.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
             path=Path(WORKTREE_PATH), name="alpha", action="reused"
         )
@@ -12455,3 +12461,238 @@ def test_a_refused_update_detach_is_refused_with_its_message(harness_factory, tm
 
     assert reply.status == 409
     assert reply.body["error"]["message"] == "Error: An update is running (pid 7)."
+
+
+# --- remote hosts ------------------------------------------------------------
+
+
+@asynccontextmanager
+async def runner_and_parent(store, cobalt_path: Path, *, records=()):
+    """A runner served on loopback as ``cobalt``, and a parent that names it.
+
+    The runner opens every worktree at ``cobalt_path``. Its agent host is
+    scripted; the parent's is a ``DaemonRouter`` with ``cobalt`` as a remote,
+    over real HTTP. ``records`` seeds the parent's Agent records. Yields the
+    runner's harness, the parent's, and a call that stops the runner.
+    """
+    child = Harness(InMemoryTaskTable(), projects=())
+    child.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+        path=cobalt_path, name="bravo", action="created"
+    )
+    child.tasks.has_transcript = lambda path, session: True
+    db = open_state_db(":memory:")
+    await db.migrate()
+    agents = SqliteAgentStore(db)
+    for record in records:
+        await agents.save(record)
+    async with AsyncExitStack() as runner:
+        port = await runner.enter_async_context(
+            serving(build_app(child.orch, runner=True), [("127.0.0.1", None)], 0)
+        )
+        cobalt = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
+        router = DaemonRouter(
+            ScriptedAsyncDaemonClient(),
+            ScriptedAsyncDaemonClient(),
+            agents,
+            remotes={"cobalt": RemoteDaemonClient(cobalt)},
+        )
+        parent = Harness(store, daemon=router, remote_hosts={"cobalt": cobalt})
+        # The third value stops the runner, as a host that goes to sleep.
+        yield child, parent, runner.aclose
+    db.close()
+
+
+def online(body) -> bool:
+    return [(h["name"], h["online"]) for h in body["host"]["remoteHosts"]] == [
+        ("cobalt", True)
+    ]
+
+
+def test_a_task_launched_on_a_remote_host_is_followed_and_driven_there(store, tmp_path):
+    """The whole remote path: open, start, stream, approve, say, stop."""
+    # The parent can read this path too. A remote document must still not be
+    # read from it: the parent's file at the same path is another file.
+    (tmp_path / "note.md").write_text("Read this.\n")
+    backlog, _rest = split_at_control_response(read_fixture("permission-request.jsonl"))
+
+    async def scenario():
+        async with runner_and_parent(store, tmp_path) as (child, parent, _app):
+            await parent.add_task_async("NORT-7", content="Do it.")
+            async with parent.client() as api:
+                await until(api, "/api/host", online)
+                op = await operated(
+                    api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+                )
+                agent = await until(
+                    api, "/api/agents/cobalt:new1", lambda a: a["taskId"]
+                )
+                for event in read_fixture("normal-turn.jsonl"):
+                    child.daemon.push("new1", event)
+                await until(
+                    api,
+                    "/api/agents/cobalt:new1",
+                    lambda a: a["lastMessage"] == "Hello there, friend",
+                )
+                child.daemon.push("new1", tag_event(DRAFT_TAG))
+                docs = await until(api, "/api/documents", lambda b: b["documents"])
+                document = await api.get_json(
+                    f"/api/documents/{docs['documents'][0]['id']}"
+                )
+                # The host's row follows the wait, as `waiting_on` explains.
+                pending = pending_from(backlog)
+                child.daemon.pending["new1"] = pending
+                child.daemon.rows["new1"]["state"] = pending.wait_kind
+                child.daemon.rows["new1"]["waiting_on"] = pending.summary
+                for event in backlog:
+                    child.daemon.push("new1", event)
+                request_id = (
+                    await until(
+                        api,
+                        "/api/agents/cobalt:new1",
+                        lambda a: a["pendingRequestIds"],
+                    )
+                )["pendingRequestIds"][0]
+                approved = await api.post(
+                    "/api/agents/cobalt:new1/approve", {"requestId": request_id}
+                )
+                said = await api.post("/api/agents/cobalt:new1/say", {"text": "hi"})
+                stopped = await operated(api, "/api/agents/cobalt:new1/stop")
+                return op, agent, document, approved, said, stopped, child, request_id
+
+    op, agent, document, approved, said, stopped, child, request_id = run(scenario())
+    assert (op["state"], op["agentId"]) == ("done", "cobalt:new1")
+    assert op["worktreeId"] == "cobalt:northwind-bravo"
+    start = next(c for c in child.daemon.calls if c["cmd"] == "start")
+    assert start["cwd"] == str(tmp_path)
+    # The runner's own prompt, in place of the path the parent named.
+    assert start["system_prompt_file"] == str(agent_prompt_file())
+    # The runner has the session's transcript, so the launch resumes it.
+    assert start["resume"] is True
+    assert (agent["taskId"], agent["worktreeId"], agent["host"]) == (
+        "northwind/NORT-7",
+        "",
+        "cobalt",
+    )
+    assert document["source"]["fileId"] is None
+    assert "Read this." not in document["markdown"]
+    assert approved.status == 200
+    assert said.status == 200
+    assert stopped["state"] == "done"
+    sent = [c for c in child.daemon.calls if c["cmd"] in ("approve", "say", "stop")]
+    assert [(c["cmd"], c["id"]) for c in sent] == [
+        ("approve", "new1"),
+        ("say", "new1"),
+        ("stop", "new1"),
+    ]
+    assert sent[0]["request"] == request_id
+
+
+def test_a_launch_blocked_on_the_remote_host_leaves_the_task_todo(store, tmp_path):
+    from mael_domain.worktree import SyncResult
+
+    async def scenario():
+        async with runner_and_parent(store, tmp_path) as (child, parent, _stop):
+            child.tasks.open_worktree = lambda project, branch, base: WorktreeSetup(
+                path=tmp_path,
+                name="bravo",
+                action="recycled",
+                sync=SyncResult(
+                    success=False, branch=branch, message="rebase conflict"
+                ),
+            )
+            await parent.add_task_async("NORT-7")
+            async with parent.client() as api:
+                await until(api, "/api/host", online)
+                op = await operated(
+                    api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+                )
+            task = await model.load(parent.store, PROJECT, "NORT-7")
+            return op, task, child
+
+    op, task, child = run(scenario())
+    assert op["state"] == "refused"
+    assert "rebase conflict" in op["words"]
+    assert task.status == "todo"
+    assert not [c for c in child.daemon.calls if c["cmd"] == "start"]
+
+
+def test_a_remote_host_that_goes_away_is_offline_and_keeps_its_agent(store, tmp_path):
+    record = {
+        "id": "cobalt:r1",
+        "harness": "claude",
+        "task_session_id": "",
+        "task_id": "",
+        "cwd": "/cobalt/w",
+        "model": "",
+        "mode": "normal",
+        "status": "running",
+        "started_at": "2026-01-01T00:00:00+00:00",
+        "ended_at": "",
+    }
+
+    async def scenario():
+        async with runner_and_parent(store, tmp_path, records=[record]) as (
+            child,
+            parent,
+            stop_runner,
+        ):
+            child.daemon.rows["r1"] = agent_row("r1", cwd="/cobalt/w")
+            async with parent.client() as api:
+                await until(api, "/api/host", online)
+                live = await until(
+                    api, "/api/agents/cobalt:r1", lambda a: a["state"] == "idle"
+                )
+                await stop_runner()
+                host = await until(api, "/api/host", lambda b: not online(b))
+                return live, host
+
+    live, host = run(scenario())
+    assert live["host"] == "cobalt"
+    assert host["host"]["remoteHosts"][0]["online"] is False
+
+
+def test_a_runner_serves_only_its_surface_and_a_parent_has_no_host_routes(store):
+    harness = Harness(store)
+
+    async def statuses(runner: bool) -> dict[str, int]:
+        app = build_app(harness.orch, runner=runner)
+        async with serving(app, [("127.0.0.1", None)], 0) as port:
+            async with aiohttp.ClientSession(
+                base_url=f"http://127.0.0.1:{port}"
+            ) as session:
+                api = Api(session)
+                return {
+                    "tasks": (await api.get("/api/tasks")).status,
+                    "hosts": (await api.get("/api/hosts")).status,
+                    "host": (await api.get("/api/host")).status,
+                    "request": (
+                        await api.post("/api/host/request", {"cmd": "list"})
+                    ).status,
+                    "from a page": (
+                        await session.post(
+                            "/api/host/request",
+                            json={"cmd": "list"},
+                            headers={"Origin": "https://example.com"},
+                        )
+                    ).status,
+                    "a path for a project": (
+                        await api.post(
+                            "/api/host/worktrees/open",
+                            {"project": "../etc", "branch": "b"},
+                        )
+                    ).status,
+                }
+
+    async def scenario():
+        return await statuses(True), await statuses(False)
+
+    runner, parent = run(scenario())
+    assert runner == {
+        "tasks": 501,
+        "hosts": 501,
+        "host": 200,
+        "request": 200,
+        "from a page": 403,
+        "a path for a project": 400,
+    }
+    assert parent["request"] == 404

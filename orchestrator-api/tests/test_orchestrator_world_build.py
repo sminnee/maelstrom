@@ -463,6 +463,29 @@ def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
     assert link.worktree_id == "northwind-alpha"
 
 
+def test_a_remote_agent_links_its_task_but_no_worktree_at_the_same_path():
+    """Its ``cwd`` is a path on the remote host, not on this machine."""
+    worktrees = {"northwind-alpha": worktree_entity("northwind", LIST_ALL_ROW)}
+    task = task_entity(
+        model.Task(id="NORT-7", title="x", project="northwind", command="plan-task"),
+        actionable=True,
+    )
+    link = link_agent(
+        {
+            "id": "cobalt:r1",
+            "cwd": LIST_ALL_ROW["path"],
+            "session": model.session_id_for("northwind", "NORT-7"),
+        },
+        worktrees=worktrees,
+        tasks={"northwind/NORT-7": task},
+    )
+    assert (link.task_id, link.project, link.worktree_id) == (
+        "northwind/NORT-7",
+        "northwind",
+        "",
+    )
+
+
 def test_link_agent_with_no_match_is_unlinked():
     link = link_agent(
         {"cwd": "/private/tmp", "session": "nope"}, worktrees={}, tasks={}
