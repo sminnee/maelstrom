@@ -1,0 +1,68 @@
+.screen {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--u-2);
+  background: var(--bg-sunken);
+  font-family: var(--font);
+  color: var(--fg);
+}
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-2);
+  width: min(100%, 360px);
+  padding: var(--u-3);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.title {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+.mark {
+  width: 24px;
+  height: 24px;
+}
+.rule {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+}
+.rule::before,
+.rule::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+.lede {
+  margin: 0;
+}
+.command {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  padding: var(--u) var(--u-2);
+  background: var(--bg-sunken);
+  border-radius: var(--radius);
+}
+/* Mono Means Literal: the command is typed as shown. */
+.command code {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--fg-literal);
+  user-select: all;
+}
+.faint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+}

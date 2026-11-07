@@ -1277,6 +1277,18 @@ function hostDown(): Seed {
   return seed;
 }
 
+function signedOut(): Seed {
+  const seed = seedWorld();
+  seed.world.auth = { state: 'anonymous' };
+  return seed;
+}
+
+function pendingPasskey(): Seed {
+  const seed = seedWorld();
+  seed.world.auth = { state: 'pending', code: 'K7QF-2M9D', label: 'Chrome on macOS' };
+  return seed;
+}
+
 export const SCENARIOS = {
   desk: { about: 'The seed: two projects, working agents and three open asks.', build: seedWorld },
   'every-state': {
@@ -1324,6 +1336,11 @@ export const SCENARIOS = {
   empty: { about: 'An empty desk, with no worktree.', build: empty },
   'first-run': { about: 'A fresh install with no project: the Welcome dialog.', build: firstRun },
   'host-down': { about: 'The agent host does not answer.', build: hostDown },
+  'signed-out': { about: 'A browser with no sign-in: the Sign-in screen.', build: signedOut },
+  'pending-passkey': {
+    about: 'A new passkey that waits for `mael auth verify` on the host.',
+    build: pendingPasskey,
+  },
   comms: {
     about: 'Two open comms and a closed one, over tasks at each landing step.',
     build: comms,

@@ -12,6 +12,12 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Passkey sign-in for the orchestrator UI.** Each browser signs in with a **Passkey**, over
+  HTTPS or at `localhost`. A new passkey has no access until you run the `mael auth verify`
+  command it shows, on the host. `mael auth list` and `mael auth revoke` manage the passkeys.
+  The CLI and the jig carry an **API key**, which the server writes under
+  `<notebook root>/auth/` at start. Restart each dev service that an older `mael` started, so
+  its `MAEL_FEEDBACK_URL` carries the key.
 - **Update maelstrom from the Welcome dialog.** The **Update maelstrom** button asks to confirm,
   with the number of live agents the restart stops, then starts an update job. The dialog
   follows the job through the orchestrator restart, and shows the new version or the failure.

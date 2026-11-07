@@ -90,8 +90,11 @@ function perId(
  * wait that doubles to 30 s. Returns the function that stops it all.
  */
 export function startChangeStream(opts: ChangeStreamOptions): () => void {
+  // With credentials: in dev the stream is on the orchestrator's own port, so
+  // the sign-in cookie goes only if the request asks for it.
   const factory =
-    opts.eventSourceFactory ?? ((url) => new EventSource(url) as unknown as EventSourceLike);
+    opts.eventSourceFactory ??
+    ((url) => new EventSource(url, { withCredentials: true }) as unknown as EventSourceLike);
   const coalesceMs = opts.coalesceMs ?? 150;
   const reconnectMs = opts.reconnectMs ?? 1000;
   const pending = new Map<string, QueryKey>();

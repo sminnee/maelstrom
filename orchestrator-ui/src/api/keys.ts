@@ -10,6 +10,8 @@ export const keys = {
   desk: () => ['desk'] as const,
   host: () => ['host'] as const,
   system: () => ['system'] as const,
+  /** The browser's sign-in. Not part of the world: no notice names it. */
+  auth: () => ['auth'] as const,
   gateJobs: () => ['gateJobs'] as const,
   attention: () => ['attention'] as const,
   tasks: {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAuthStatus, useSignOut } from '../api/auth';
 import { useHost } from '../api/host';
 import {
   JOB_START_MS,
@@ -26,6 +27,8 @@ export function WelcomeDialog() {
   const [startedJob, setStartedJob] = useState<StartedJob>();
   const system = useSystem({ startedJob });
   const host = useHost();
+  const auth = useAuthStatus();
+  const signOut = useSignOut();
   const firstProject = Object.keys(world.projects).length === 0;
   const info = system.data;
   // A subagent stops and resumes with its parent: count the top-level agents.
@@ -85,6 +88,17 @@ export function WelcomeDialog() {
             <dd data-testid="welcome-host">
               {reachable === undefined ? '…' : reachable ? 'reachable' : 'not reachable'}
             </dd>
+            {auth.data?.state === 'signed_in' && (
+              <>
+                <dt>Passkey</dt>
+                <dd className={styles.actions}>
+                  {auth.data.label}
+                  <AppButton variant="link" onClick={() => signOut.mutateAsync()}>
+                    Sign out
+                  </AppButton>
+                </dd>
+              </>
+            )}
           </dl>
         )}
       </div>

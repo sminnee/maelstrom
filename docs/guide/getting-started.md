@@ -288,6 +288,23 @@ mael session list     # live Claude sessions
 `mael list` and `mael task list` read the orchestrator server, which the `orchestrator` host
 service runs. If it is down, run `mael self restart orchestrator`.
 
+### Sign in to the orchestrator UI
+
+The orchestrator UI asks each browser to sign in with a **Passkey**. A browser offers passkeys
+only over HTTPS, so set `dev_https: true`, or open `http://localhost:<port>` on the host. The first time, click
+"Create a passkey". The screen then shows a command, such as `mael auth verify K7QF-2M9D`. Run it
+in a shell on the host, and the app opens. Only a person with a shell on the host can admit a
+device. Next time, click "Sign in with a passkey".
+
+```bash
+mael auth verify K7QF-2M9D   # admit the new passkey
+mael auth list               # each passkey, and its state
+mael auth revoke <id>        # remove a lost device
+```
+
+The `mael` commands need no passkey. They carry the **Host key**, which the server writes under
+the notebook root when it starts.
+
 ## 8. Close the worktree
 
 When the work has merged:

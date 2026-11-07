@@ -8,7 +8,7 @@ import { routes } from '../nav/routes';
 import { keys } from '../api/keys';
 import { resetToPageLoad } from '../store/store';
 import { fakeDeps } from '../fake/fakeDeps';
-import type { FakeServer, FakeServerOptions } from '../fake/fakeServer';
+import type { FakeServer, FakeServerOptions, Refusal } from '../fake/fakeServer';
 import { SCENARIOS, type ScenarioName } from '../fake/scenarios';
 import { setViewportWidth } from './setup';
 
@@ -36,6 +36,7 @@ const LIST_KEYS = [
  *
  * With `ready: false` the server holds every reply, so every list query is
  * still loading. The test releases when it is ready to see the world arrive.
+ * A scenario whose browser is not signed in returns at once, too.
  *
  * With `strict: true` the tree is wrapped in `<StrictMode>`, the way `main.tsx`
  * mounts it, so the test sees the remount.
@@ -59,6 +60,8 @@ export async function renderApp(
     transcripts?: FakeServerOptions['transcripts'];
     /** The URL to open on: a path and a search. The desk when left out. */
     url?: string;
+    /** Routes the server refuses from the first request, as `server.refuse` sets them. */
+    refuse?: { route: RegExp; error: Refusal }[];
   } = {},
 ): Promise<
   RenderResult & {
@@ -83,6 +86,7 @@ export async function renderApp(
     { stepMs: OPERATION_STEP_MS },
   );
   if (opts.ready === false) server.hold();
+  for (const { route, error } of opts.refuse ?? []) server.refuse(route, error);
   // A memory router, so a test reads `router.state.location` and moves with `router.navigate`.
   const router = createMemoryRouter(routes, { initialEntries: [opts.url ?? '/desk'] });
   deps.router = router;
@@ -112,6 +116,14 @@ export async function renderApp(
     render(opts.strict ? <StrictMode>{app}</StrictMode> : app);
     await loaded(client);
   };
+  // A browser with no sign-in draws the Sign-in screen and reads no world.
+  if (seed.world.auth.state !== 'signed_in') {
+    return { server, queryClient, router, reload, ...utils };
+  }
+  // The app mounts once the sign-in is read; a held server still answers it.
+  await waitFor(() => {
+    if (queryClient.getQueryState(keys.auth())?.status === 'pending') throw new Error('gated');
+  });
   if (opts.ready === false) return { server, queryClient, router, reload, ...utils };
   await loaded(queryClient);
   return { server, queryClient, router, reload, ...utils };

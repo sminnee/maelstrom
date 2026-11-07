@@ -417,7 +417,9 @@ describe('the task list', () => {
     // Status goes out on its own route, not folded into the PATCH body.
     const patch = server.requests.find((r) => r.method === 'PATCH');
     expect(patch?.body).toEqual({ title: 'Migrate to Postgres 17' });
-    const statusPost = server.requests.find((r) => r.path.endsWith('/status'));
+    const statusPost = server.requests.find(
+      (r) => r.method === 'POST' && r.path.endsWith('/status'),
+    );
     expect(statusPost?.body).toEqual({ status: 'blocked' });
     expect(server.world.tasks['NORT-9']?.status).toBe('blocked');
   });
@@ -814,7 +816,9 @@ describe('the task list', () => {
           await within(listRow(id) as HTMLElement).findByRole('button', { name: 'blocked' }),
         ).toBeInTheDocument();
       }
-      const posts = server.requests.filter((r) => r.path.endsWith('/status'));
+      const posts = server.requests.filter(
+        (r) => r.method === 'POST' && r.path.endsWith('/status'),
+      );
       expect(posts.map((r) => r.path).sort()).toEqual([
         '/api/tasks/NORT-9.1/status',
         '/api/tasks/NORT-9/status',

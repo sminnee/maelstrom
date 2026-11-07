@@ -90,6 +90,14 @@ queue. The wire fix is a `hasRun` flag on the task row, from `has_claude_transcr
 The server is the source of truth, and the app reaches it three ways.
 [orchestrator-server.md](orchestrator-server.md) documents each.
 
+**The app opens after a sign-in.** `auth/AuthGate.tsx` sits above `LiveProvider` in `App.tsx`. It
+reads `GET /api/auth/status`, and draws `auth/SignIn.tsx` until the state is `signed_in`.
+Nothing under the gate mounts before then, so no stream opens without a **Sign-in**. The screen
+creates a **Passkey** or signs in with one, through `@simplewebauthn/browser`. A **Pending
+passkey** shows its `mael auth verify` command, and the status is read every `PENDING_POLL_MS`
+until the host verifies it. Any query refused with 401, or with `passkey_pending`, reads the
+status again, so a revoke on the host closes the app. Sign out is in the **Welcome dialog**.
+
 **Reads are REST.** `api/http.ts` is the client: every failure is an `ApiError` with a code —
 the server's, or `transport` and `timeout` for a request that got no answer. A caller's abort
 is the exception: it rejects with the caller's own reason, because TanStack ignores the rejection
@@ -320,8 +328,8 @@ reopens the dialog.
 
 `welcome/WelcomeDialog.tsx` reads `GET /api/system` and `GET /api/host`. It shows the projects
 directory, the core plugin's skills, whether `minnstack` is installed, the config directory, the
-version, the last **Update job** and whether the agent host answers. A run with no release
-manifest reads "development build". Its main action opens Add project in its place.
+version, the last **Update job**, whether the agent host answers, and the **Passkey** this browser
+signed in with, beside Sign out. A run with no release manifest reads "development build". Its main action opens Add project in its place.
 
 `welcome/UpdateRow.tsx` starts an **Update job** after a confirm that counts the live top-level
 agents. `useSystem` then reads `/api/system` every `UPDATE_POLL_MS`: from the click until the job's
@@ -1999,8 +2007,9 @@ tab stops the poll.
 The port reaches the bundle through `VITE_ORCHESTRATOR_PORT`, which `vite.config.ts` derives from
 `ORCHESTRATOR_URL`. The port alone travels, never the host: the dev server binds every interface
 so the tailnet reaches it, and an address pinned to `localhost` would leave a remote page dialling
-its own machine. `GET /api/events` echoes the request's `Origin` back, so the cross-origin read is
-allowed.
+its own machine. `GET /api/events` echoes the request's `Origin` back when it is a **UI origin**,
+with `Access-Control-Allow-Credentials`, so the cross-origin read is allowed. The `EventSource`
+opens `withCredentials`, so the **Sign-in** cookie goes with it.
 
 Under `dev_https:` the page is `https://`, so the stream dials `https://` too, and the orchestrator
 must speak TLS on its port. The orchestrator has two listeners on that port. `--host 127.0.0.1`
@@ -2104,7 +2113,7 @@ The desk is the exception to persistence: it lives on the server and survives a 
 open tabs, the filters and the expanded node do not. The distinction is deliberate rather than
 incidental: view state is not kept, but unsubmitted text is — see "Holding what was typed".
 
-Also out of scope: an embedded terminal, auth, an elk layout, a global keyboard shortcut layer
+Also out of scope: an embedded terminal, an elk layout, a global keyboard shortcut layer
 (Esc on the card and the question's digit keys are local to their components), syntax
 highlighting in markdown, and answering a plan review from the session tab (the expanded node
 and the document tab answer it).
