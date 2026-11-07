@@ -1141,6 +1141,19 @@ A Codex launch always sets `resume`. The router resumes the newest Codex thread 
 session id, keeping its record's start time. It starts a fresh thread when none ran, or when Codex
 cannot resume the thread.
 
+### A launch on a remote host
+
+The launch route takes a `host` that names a **Remote host** from `hosts:`. The validator refuses
+a host the server does not name, or one that is offline. Then `open_worktree` posts to the remote
+host's `POST /api/host/worktrees/open`. The remote host opens the worktree, writes its `.env`
+and says whether the task session has a transcript there, in one call. `write_env` only reports
+the remote host's lines, and `resume` follows the remote host's answer. The router sends the
+`start` to the remote host, and the agent is adopted as `<host>:<id>`. The operation's
+`worktreeId` is `<host>:<project>-<nato>`.
+
+The task entity's `lastHost` is the host prefix of the newest Agent record for its session. The UI
+uses it as the default launch host; see [remote-hosts.md](remote-hosts.md#a-task-sticks-to-its-host).
+
 A newly adopted live agent joins the desk: `task:` when the agent has a task, `agent:` when it
 does not. The canvas draws running work whether or not the desk names it, so the entry is not
 what makes an agent visible — it is what keeps it visible after the agent stops, until the user
@@ -1905,6 +1918,25 @@ The host's own refusals map to the same codes: "no such agent" to `unknown_id`, 
 `agent_exited`, "not waiting" to `not_waiting`, "not waiting on a question" to `wrong_wait_kind`,
 anything else to `invalid`.
 
+
+## Remote hosts and runner mode
+
+`cli.build_orchestrator` builds one `RemoteHost` for each entry in `hosts:`, and gives the router
+a `RemoteDaemonClient` for it. The `Orchestrator` runs each host's `run` beside its pollers.
+`run` holds the remote host's `GET /api/events` stream open. The first `reset` event sets the host
+online, and a drop sets it offline. It reconnects with backoff from 1 s to 30 s. A stream that is
+silent for 40 s counts as dropped, because the remote host pings every 15 s. Each change publishes
+the `host` entity, whose `remoteHosts` list says which host is online.
+
+On the remote host, `role: runner` turns on runner mode. `build_app(..., runner=True)` adds the
+three routes a parent calls, and answers every `/api` route outside `RUNNER_SURFACE` with
+`not_implemented`. See [remote-hosts.md](remote-hosts.md#runner-mode-is-a-config-key).
+
+| Route | What it does |
+|---|---|
+| `POST /api/host/request` | One router request. A `start` or `resume` gets this host's prompt file and plugin dir. |
+| `GET /api/host/agents/{id}/attach` | A WebSocket that sends each frame of the router's `attach` stream. A client close stops the stream. |
+| `POST /api/host/worktrees/open` | `{project, branch, base, session}` in; `{setup, envLines, hasTranscript}` out. A refused open answers `409 launch_blocked`. |
 
 ## Running it
 
