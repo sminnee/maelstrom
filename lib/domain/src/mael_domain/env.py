@@ -19,6 +19,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from mael_common.util import now_iso, sanitise_child_env
 
 from . import context
+from .auth.keys import read_key
+from .auth.model import LIVE_FEEDBACK
 from .config import (
     ServiceDef,
     load_config_or_default,
@@ -411,13 +413,17 @@ def live_feedback_url() -> str | None:
     The ``orchestrator_url:`` the notebook names, as a WebSocket URL. The
     agents run under that orchestrator, whichever worktree's dev server the
     client is in. ``None`` when no URL is set.
+
+    The URL carries the **Feedback key** as ``key=`` when its file exists.
     """
     url = context.load_global_config().orchestrator_url
     if not url:
         return None
     scheme, rest = url.split("://", 1)
     ws_scheme = "wss" if scheme == "https" else "ws"
-    return f"{ws_scheme}://{rest.rstrip('/')}/api/live-feedback"
+    feedback_url = f"{ws_scheme}://{rest.rstrip('/')}/api/live-feedback"
+    key = read_key(LIVE_FEEDBACK)
+    return _with_query(feedback_url, key=key) if key else feedback_url
 
 
 def _with_query(url: str, **params: str) -> str:

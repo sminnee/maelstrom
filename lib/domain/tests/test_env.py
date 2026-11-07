@@ -470,6 +470,23 @@ class TestFeedbackUrl:
         url = build_service_env(alpha)["MAEL_FEEDBACK_URL"]
         assert url == f"{feedback_url}?{urlencode({'path': str(alpha)})}"
 
+    def test_it_carries_the_feedback_key_when_the_server_wrote_one(
+        self, home, notebook
+    ):
+        """A Node ``WebSocket`` cannot set a header, so the key rides the query."""
+        (notebook / "config.yaml").write_text(
+            "orchestrator_url: http://127.0.0.1:2770\n"
+        )
+        (notebook / "auth").mkdir()
+        (notebook / "auth" / "live-feedback.key").write_text("mael_fb\n")
+        alpha = self.worktree(home, "")
+
+        url = build_service_env(alpha)["MAEL_FEEDBACK_URL"]
+        assert url == (
+            "ws://127.0.0.1:2770/api/live-feedback?"
+            + urlencode({"key": "mael_fb", "path": str(alpha)})
+        )
+
     def test_the_worktree_env_overrides_it(self, home, notebook):
         (notebook / "config.yaml").write_text(
             "orchestrator_url: http://127.0.0.1:2770\n"
