@@ -222,6 +222,18 @@ def test_setup_replaces_a_stored_url_with_the_one_dev_host_names(bare_home):
     assert run.output[-1].endswith("runs at https://box.ts.net:2772.")
 
 
+def test_setup_keeps_a_runners_parent_url(bare_home):
+    run = SetupRun(bare_home)
+    run.config.parent.mkdir()
+    run.config.write_text(
+        TLS_CONFIG + "role: runner\norchestrator_url: https://monolith.ts.net:2772\n"
+    )
+
+    run()
+
+    assert "orchestrator_url: https://monolith.ts.net:2772" in run.config.read_text()
+
+
 def test_setup_without_a_dev_host_serves_loopback_only(bare_home):
     run = SetupRun(bare_home)
 

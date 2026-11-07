@@ -1380,6 +1380,22 @@ def _next_fire_display(schedule: str) -> str:
     return nxt.isoformat(timespec="minutes") if nxt else ""
 
 
+def _refuse_in_runner_mode(command: str) -> None:
+    """Refuse a command that writes the local task database, on a runner.
+
+    A runner keeps no tasks: its parent does. These commands do not reach the
+    parent over the API yet, so a write here would go to a database no one
+    reads.
+    """
+    config = load_global_config()
+    if config.is_runner:
+        raise click.ClickException(
+            f"`mael task {command}` writes the local task database, and this "
+            f"host runs in runner mode. Run it on the parent, "
+            f"{config.orchestrator_url}."
+        )
+
+
 @task.command("next")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 @click.option("--parent", default=None, help="Restrict to children of this id.")
@@ -1407,6 +1423,7 @@ async def task_next(
     global next task. With ``--branch``, restricts strictly to that branch (no
     fallback).
     """
+    _refuse_in_runner_mode("next")
     proj = resolve_project(project)
     table = await _table()
     if branch is not None:
@@ -1715,6 +1732,7 @@ async def task_prompt(id: str, project: str | None) -> None:
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_log(id: str, msg: str, project: str | None) -> None:
     """Append a line to a task's log."""
+    _refuse_in_runner_mode("log")
     proj = resolve_project(project)
     table = await _table()
     try:
@@ -1857,6 +1875,7 @@ async def task_update(
 @click.option("--project", default=None, help="Project name (default: from cwd).")
 async def task_edit(id: str, project: str | None) -> None:
     """Open the task in $EDITOR (vi); write it back if changed."""
+    _refuse_in_runner_mode("edit")
     proj = resolve_project(project)
     table = await _table()
     try:

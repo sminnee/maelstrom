@@ -27,6 +27,7 @@ from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_steps import StepHook
+from mael_orchestrator.remote_hosts import HostOpened
 from mael_orchestrator.sources import (
     CloseBlocked,
     ListAllWorktreeSource,
@@ -530,6 +531,60 @@ async def test_launch_asks_about_the_worktree_the_session_will_run_in(table):
     prepared = await source.prepare_launch(f"{PROJECT}/NORT-7", None)
     payload = source.finish_launch(prepared)
     assert seen == [(Path("/w/alpha"), payload["session"])]
+
+
+async def test_a_remote_launch_opens_nothing_here_and_resumes_as_the_host_says(
+    table,
+):
+    """The worktree and the transcript are on the remote host."""
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    opened: list[tuple] = []
+
+    async def open_remote(project, branch, base, session):
+        opened.append((project, session))
+        return HostOpened(
+            setup=WorktreeSetup(
+                path=Path("/cobalt/bravo"), name="bravo", action="created"
+            ),
+            env_lines=[".env unchanged."],
+            has_transcript=False,
+        )
+
+    def no_local_open(project, branch, base):
+        raise AssertionError("a remote launch opened a local worktree")
+
+    source = NotebookTaskSource(
+        table,
+        lambda: [PROJECT],
+        open_worktree=no_local_open,
+        # A local session or transcript at the same path says nothing.
+        live_sessions=lambda: LiveSessionSet([]),
+        has_transcript=lambda path, sid: True,
+    )
+    prepared = await source.prepare_launch(
+        f"{PROJECT}/NORT-7", None, open_remote=open_remote
+    )
+    payload = source.finish_launch(prepared)
+
+    assert opened == [(PROJECT, payload["session"])]
+    assert payload["cwd"] == "/cobalt/bravo"
+    assert payload["resume"] is False
+    assert (await model.load(table, PROJECT, "NORT-7")).status == "in-progress"
+
+
+async def test_a_tasks_last_host_is_the_host_of_its_newest_agent(table, agents):
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
+    await an_agent(agents, "NORT-7", "2026-09-21T10:00:00+00:00", id="ag1")
+    await an_agent(agents, "NORT-7", "2026-09-22T10:00:00+00:00", id="cobalt:r1")
+    source = NotebookTaskSource(table, lambda: [PROJECT], agents=agents)
+    first = {t["id"]: t["lastHost"] for t in await source.read()}
+    before = await table.revision()
+
+    await an_agent(agents, "NORT-7", "2026-09-23T10:00:00+00:00", id="ag2")
+    back = await source.read_since(before)
+
+    assert first == {f"{PROJECT}/NORT-7": "cobalt"}
+    assert [(t["id"], t["lastHost"]) for t in back.tasks] == [(f"{PROJECT}/NORT-7", "")]
 
 
 # --- ListAllWorktreeSource: the terminal's link -----------------------------

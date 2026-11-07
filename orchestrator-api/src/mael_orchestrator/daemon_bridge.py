@@ -9,17 +9,21 @@ Tests stand in for the agent host with
 :class:`~mael_agent.agent_transport.ScriptedAsyncDaemonClient`.
 """
 
-from collections.abc import AsyncIterator, Callable
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from mael_agent.agent_transport import AsyncDaemonClient
+from mael_agent.agent_wire import AGENT_DETAIL
 from mael_agent.harness_model import (
     HARNESS_CLAUDE,
     HARNESS_CODEX,
     resolve_model_reference,
 )
+from mael_agent.host_ids import split_host, with_host
 from mael_common.util import now_iso
 from mael_domain.agent_store import (
     AGENT_ENDED,
@@ -52,6 +56,8 @@ class DaemonRouter:
     agents: AgentStore
     #: What stamps a record's start and end. Injected so a test can pin them.
     clock: Callable[[], str] = now_iso
+    #: Each **Remote host**'s agent host, by host name.
+    remotes: dict[str, DaemonClient] = field(default_factory=dict)
     _harnesses: dict[str, str] = field(default_factory=dict, init=False)
     _agents: dict[str, dict[str, Any]] = field(default_factory=dict, init=False)
     _restored: bool = field(default=False, init=False)
@@ -69,73 +75,26 @@ class DaemonRouter:
     async def request(self, payload: dict[str, Any]) -> dict[str, Any]:
         command = str(payload.get("cmd", ""))
         if command == "list":
-            await self._restore()
-            claude = await self.claude.request(payload)
-            codex = await self.codex.request(payload)
-            live_rows: dict[str, dict[str, Any]] = {}
-            for reply, harness in ((claude, HARNESS_CLAUDE), (codex, HARNESS_CODEX)):
-                for row in reply.get("agents", []):
-                    if isinstance(row, dict) and row.get("id"):
-                        live_rows[str(row["id"])] = row
-                        self._last_seen[str(row["id"])] = (harness, row)
-            # A live top-level row the store does not know is an agent started
-            # outside the router — `mael add` and `mael agent start` both reach
-            # the socket directly. Adopt it rather than dropping it, or it is
-            # invisible to every reader of this `list`.
-            for agent_id, row in live_rows.items():
-                if not row.get("parent") and agent_id not in self._agents:
-                    await self._adopt(agent_id, row)
-            # Count the misses before the rows are built, so a row that says
-            # `exited` is the same decision that retires the record rather
-            # than one list behind it. A reply that errored carries no agents,
-            # which says nothing about what is alive, so it counts as no
-            # information: neither a sighting nor a miss.
-            retiring: set[str] = set()
-            if not (claude.get("error") or codex.get("error")):
-                for agent_id, agent in self._agents.items():
-                    if agent_id in live_rows:
-                        self._misses.pop(agent_id, None)
-                        continue
-                    self._misses[agent_id] = self._misses.get(agent_id, 0) + 1
-                    if self._is_retiring(agent_id, agent):
-                        retiring.add(agent_id)
-            rows: list[dict[str, Any]] = []
-            for agent_id, agent in self._agents.items():
-                last_seen = self._last_seen.get(agent_id)
-                rows.append(
-                    _stored_agent_row(
-                        agent,
-                        live_rows.get(agent_id),
-                        retiring=agent_id in retiring,
-                        last_state=str(last_seen[1].get("state", ""))
-                        if last_seen
-                        else "",
-                    )
-                )
-                # A live subagent has no record of its own — see Agent
-                # record in CONTEXT.md — so it rides through unchanged.
-                rows.extend(
-                    row for row in live_rows.values() if row.get("parent") == agent_id
-                )
-            # An agent the daemon no longer holds has ended, however it went.
-            # Only `stop` writes the status directly, and a crash, an outside
-            # kill and a `gc` reap all bypass it — so a record left `running`
-            # would be restored live for ever and report `exited` on every poll.
-            for agent_id in retiring:
-                await self._end(agent_id, revivable=True)
-            return {
-                "agents": rows,
-                "usage": claude.get("usage"),
-                "codex_usage": codex.get("usage"),
-            }
+            return await self._list(payload)
         await self._restore()
+        payload = dict(payload)
+        host = (
+            str(payload.pop("host", "") or "")
+            if command == "start"
+            else split_host(str(payload.get("id", "")))[0]
+        )
         try:
             client, harness = self._client_for(
-                payload, await self._harness_of(str(payload.get("id", "")))
+                payload, await self._harness_of(str(payload.get("id", ""))), host
             )
         except ValueError as error:
             return {"ok": False, "error": str(error)}
-        reply = await self._start_or_resume(client, harness, payload)
+        if host:
+            # The remote host's own router resumes a Codex thread: it holds
+            # the thread records.
+            reply = _with_host_id(host, await client.request(_bare(payload)))
+        else:
+            reply = await self._start_or_resume(client, harness, payload)
         if command == "start" and reply.get("ok") and reply.get("id"):
             agent_id = str(reply["id"])
             self._harnesses[agent_id] = harness
@@ -187,6 +146,92 @@ class DaemonRouter:
                 reply = {"ok": True, "id": agent_id}
         return reply
 
+    async def _list(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Every stored agent, with the live state its source reports.
+
+        Each remote host's rows carry the host prefix. A miss counts only
+        against an agent whose own source answered: an offline remote host
+        keeps its agents' last state, and so does a local daemon in error.
+        """
+        await self._restore()
+        claude = await self.claude.request(payload)
+        codex = await self.codex.request(payload)
+        # Together, so one slow host does not hold the others' rows back.
+        replies = await asyncio.gather(
+            *(client.request(payload) for client in self.remotes.values())
+        )
+        remote = dict(zip(self.remotes, replies, strict=True))
+        live_rows: dict[str, dict[str, Any]] = {}
+        for reply, harness in ((claude, HARNESS_CLAUDE), (codex, HARNESS_CODEX)):
+            for row in reply.get("agents", []):
+                if isinstance(row, dict) and row.get("id"):
+                    live_rows[str(row["id"])] = row
+                    self._last_seen[str(row["id"])] = (harness, row)
+        for host, reply in remote.items():
+            for row in reply.get("agents", []):
+                if isinstance(row, dict) and row.get("id"):
+                    row = _with_host_row(host, row)
+                    live_rows[row["id"]] = row
+                    # The remote router names the harness on each row.
+                    harness = str(row.get("harness") or HARNESS_CLAUDE)
+                    self._last_seen[row["id"]] = (harness, row)
+        # A live top-level row the store does not know is an agent started
+        # outside the router — `mael add` and `mael agent start` both reach
+        # the socket directly. Adopt it rather than dropping it, or it is
+        # invisible to every reader of this `list`.
+        for agent_id, row in live_rows.items():
+            if not row.get("parent") and agent_id not in self._agents:
+                await self._adopt(agent_id, row)
+        # Count the misses before the rows are built, so a row that says
+        # `exited` is the same decision that retires the record rather
+        # than one list behind it. A reply that errored carries no agents,
+        # which says nothing about what is alive, so it counts as no
+        # information for the agents of its source: neither a sighting nor a
+        # miss. The two local daemons count as one source. A host no longer
+        # in `hosts:` answers with no rows, so the sweep ends its agents.
+        answered = {
+            "": not (claude.get("error") or codex.get("error")),
+            **{host: not reply.get("error") for host, reply in remote.items()},
+        }
+        retiring: set[str] = set()
+        for agent_id, agent in self._agents.items():
+            if not answered.get(split_host(agent_id)[0], True):
+                continue
+            if agent_id in live_rows:
+                self._misses.pop(agent_id, None)
+                continue
+            self._misses[agent_id] = self._misses.get(agent_id, 0) + 1
+            if self._is_retiring(agent_id, agent):
+                retiring.add(agent_id)
+        rows: list[dict[str, Any]] = []
+        for agent_id, agent in self._agents.items():
+            last_seen = self._last_seen.get(agent_id)
+            rows.append(
+                _stored_agent_row(
+                    agent,
+                    live_rows.get(agent_id),
+                    retiring=agent_id in retiring,
+                    last_state=str(last_seen[1].get("state", "")) if last_seen else "",
+                )
+            )
+            # A live subagent has no record of its own — see Agent
+            # record in CONTEXT.md — so it rides through unchanged.
+            rows.extend(
+                row for row in live_rows.values() if row.get("parent") == agent_id
+            )
+        # An agent the daemon no longer holds has ended, however it went.
+        # Only `stop` writes the status directly, and a crash, an outside
+        # kill and a `gc` reap all bypass it — so a record left `running`
+        # would be restored live for ever and report `exited` on every poll.
+        for agent_id in retiring:
+            await self._end(agent_id, revivable=True)
+        # A remote host's budget is its own account's, and is not shown yet.
+        return {
+            "agents": rows,
+            "usage": claude.get("usage"),
+            "codex_usage": codex.get("usage"),
+        }
+
     async def _start_or_resume(
         self, client: DaemonClient, harness: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
@@ -230,17 +275,19 @@ class DaemonRouter:
         self, client: DaemonClient, agent_id: str
     ) -> dict[str, Any] | None:
         """The row ``client``'s daemon lists for ``agent_id``, if it is live."""
+        host, bare = split_host(agent_id)
         reply = await client.request({"cmd": "list"})
-        return next(
+        row = next(
             (
                 row
                 for row in reply.get("agents", [])
                 if isinstance(row, dict)
-                and row.get("id") == agent_id
+                and row.get("id") == bare
                 and not str(row.get("state", "")).startswith("exited")
             ),
             None,
         )
+        return _with_host_row(host, row) if row is not None else None
 
     async def _register(
         self, agent_id: str, harness: str, row: dict[str, Any] | None = None
@@ -332,12 +379,34 @@ class DaemonRouter:
     def attach(
         self, agent_id: str, from_seq: int = 0, epoch: str = ""
     ) -> AsyncIterator[dict[str, Any]]:
+        host, bare = split_host(agent_id)
+        if host:
+            return self._attach_remote(host, bare, from_seq, epoch)
         client = (
             self.codex
             if self._harnesses.get(agent_id) == HARNESS_CODEX
             else self.claude
         )
         return client.attach(agent_id, from_seq, epoch)
+
+    async def _attach_remote(
+        self, host: str, bare: str, from_seq: int, epoch: str
+    ) -> AsyncIterator[dict[str, Any]]:
+        """A remote agent's stream, with the host prefix on the detail frame."""
+        client = self.remotes.get(host)
+        if client is None:
+            yield {"error": f"No remote host {host}"}
+            return
+        stream = cast(
+            AsyncGenerator[dict[str, Any]], client.attach(bare, from_seq, epoch)
+        )
+        async with aclosing(stream) as frames:
+            async for frame in frames:
+                if frame.get("type") == AGENT_DETAIL and isinstance(
+                    frame.get("agent"), dict
+                ):
+                    frame = {**frame, "agent": _with_host_row(host, frame["agent"])}
+                yield frame
 
     async def _harness_of(self, agent_id: str) -> str:
         """The harness that holds ``agent_id``, from the live set or its record.
@@ -351,16 +420,21 @@ class DaemonRouter:
         return str((stored or {}).get("harness") or HARNESS_CLAUDE)
 
     def _client_for(
-        self, payload: dict[str, Any], harness: str
+        self, payload: dict[str, Any], harness: str, host: str = ""
     ) -> tuple[DaemonClient, str]:
+        """The client that holds the agent, and its harness.
+
+        ``host`` names a remote host, which holds agents of either harness.
+        """
+        if host and host not in self.remotes:
+            raise ValueError(f"No remote host {host}")
         if payload.get("cmd") == "start":
             model = str(payload.get("model") or "")
             harness = resolve_model_reference(model).harness
-            if harness == HARNESS_CODEX:
-                return self.codex, harness
-            if harness == HARNESS_CLAUDE:
-                return self.claude, harness
-            raise ValueError(f"The {harness} daemon is not available.")
+            if harness not in (HARNESS_CLAUDE, HARNESS_CODEX):
+                raise ValueError(f"The {harness} daemon is not available.")
+        if host:
+            return self.remotes[host], harness
         return (
             (self.codex, harness)
             if harness == HARNESS_CODEX
@@ -383,10 +457,36 @@ class DaemonRouter:
         }
         restore = getattr(self.codex, "restore", None)
         if restore is not None:
-            await restore(agents)
+            # A remote host's Codex threads are its own router's to restore.
+            await restore(
+                [a for a in agents if not split_host(str(a.get("id") or ""))[0]]
+            )
         for agent_id, agent in self._agents.items():
             if agent.get("harness"):
                 self._harnesses[agent_id] = str(agent["harness"])
+
+
+def _bare(payload: dict[str, Any]) -> dict[str, Any]:
+    """``payload`` as the remote host names its agent: with no host prefix."""
+    if "id" not in payload:
+        return payload
+    return {**payload, "id": split_host(str(payload["id"]))[1]}
+
+
+def _with_host_id(host: str, reply: dict[str, Any]) -> dict[str, Any]:
+    """A remote host's reply, with the agent id it names prefixed."""
+    if not reply.get("id"):
+        return reply
+    return {**reply, "id": with_host(host, str(reply["id"]))}
+
+
+def _with_host_row(host: str, row: dict[str, Any]) -> dict[str, Any]:
+    """A remote host's row, with its ``id`` and ``parent`` prefixed."""
+    return {
+        **row,
+        "id": with_host(host, str(row.get("id") or "")),
+        "parent": with_host(host, str(row.get("parent") or "")),
+    }
 
 
 def _is_revivable(agent: dict[str, Any]) -> bool:

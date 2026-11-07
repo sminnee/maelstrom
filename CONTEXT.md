@@ -676,9 +676,26 @@ is read-only by construction: it has no channel back to the agent at all.
 
 **Agent host**:
 The agent daemon as the orchestrator server sees it: the thing agents run in and are answered
-through, reached only over its control socket. The name says the server has a client's view of
-it, and that it may later run on another machine.
+through. The server sees it only through the `AsyncDaemonClient` boundary: the local control
+socket, the in-process Codex adapter, or a remote host's `/api/host` routes. The name says the
+server has a client's view of it, wherever it runs.
 _Avoid_: Daemon (in UI-facing prose)
+
+**Remote host**:
+A second machine that runs worktrees and agents for a parent orchestrator server. The parent's
+`hosts:` config names it. The ids of its entities start with the host name:
+`cobalt:<project>-<nato>`, `cobalt:<agent id>`. See `docs/dev/remote-hosts.md`.
+_Avoid_: Node, worker, slave, child machine (in UI-facing prose)
+
+**Worktree host**:
+The machine whose disk holds a worktree, and so the orchestrator server that serves its routes.
+A task sticks to the host of its last session.
+
+**Runner mode**:
+An orchestrator server on a host whose config says `role: runner`. It serves worktrees and agents
+to a parent and has no UI or task store. Its agents use the parent for task state through
+`orchestrator_url:`.
+_Avoid_: Headless mode, worker mode
 
 **Orchestrator server**:
 The process that builds the world from the notebook, `list-all` and the agent host, and serves

@@ -91,7 +91,7 @@ fails the setup.
 |---|---|
 | Global config | Makes sure `~/.maelstrom/config.yaml` holds `projects_dir:`, and creates the directory. The installer writes the key, so this asks only on a host whose key was removed after the install, when stdin is a tty |
 | Relocate | Once: moves `state.db`, `tasks/`, `desk.json` and `daemons/_main/` from an older layout into `~/.maelstrom/state/` |
-| Migrate | Migrates `state/state.db`, moves `service_path:` up from an older `state/config.yaml` and writes it when it is unset, and deletes a stored `orchestrator_url:`. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
+| Migrate | Migrates `state/state.db`, moves `service_path:` up from an older `state/config.yaml` and writes it when it is unset, and deletes a stored `orchestrator_url:` unless `role: runner` is set. Once, the migration imports the wiki from an old `tasks/` git notebook and moves its media into `state/attachments/` |
 | Integrate | The Claude sandbox exclusions, then the plugins (see [Skills and plugins](#skills-and-plugins)), then `harden_global_config` |
 | Shim | Writes `~/.local/bin/mael` |
 | Jig | With `--source` only: builds the checkout's jig plugin and runs `pnpm link --global` |
@@ -111,7 +111,8 @@ both.
 The production URL is derived, not stored: `GlobalConfig.derived_orchestrator_url` builds it
 from `dev_host:` and `dev_https:`, on `PRODUCTION_ORCHESTRATOR_PORT` (2772). For the production
 root, `~/.maelstrom/state`, `load_config_at()` reads `~/.maelstrom/config.yaml` alone, ignores an
-`orchestrator_url:` in it, and sets the derived URL. For every other notebook root it drops the
+`orchestrator_url:` in it, and sets the derived URL. A runner (`role: runner`) is the exception:
+it reads the key, which names its parent. For every other notebook root it drops the
 global key, so a dev environment never reaches the real server. Setup deletes a stored
 `orchestrator_url:`, which an older setup wrote. When the stored value differs from the derived
 one, setup prints both.

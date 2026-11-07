@@ -101,6 +101,8 @@ navigable  # unused variable (lib/domain/src/mael_domain/protocol.py FileDiff, F
 inRev  # unused variable (lib/domain/src/mael_domain/protocol.py CodeTarget)
 moreReferences  # unused variable (lib/domain/src/mael_domain/protocol.py Definition)
 codexUsage  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
+lastHost  # unused variable (lib/domain/src/mael_domain/protocol.py Task)
+remoteHosts  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or
 # that a constructor fills and only a caller reads back.

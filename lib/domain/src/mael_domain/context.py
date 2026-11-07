@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+from mael_agent.host_ids import HOST_NAME
 from mael_common.util import get_maelstrom_dir, harden_path
 
 from .notebook_root import NOTEBOOK_ROOT_ENV
@@ -40,6 +41,23 @@ def _host_name(value: object) -> str | None:
         return None
     value = value.strip()
     return value if _HOST_NAME.fullmatch(value) else None
+
+
+#: The ``role:`` value of a host that runs worktrees and agents for a parent.
+#: See ``docs/dev/remote-hosts.md``.
+ROLE_RUNNER = "runner"
+
+
+def _remote_hosts(raw: object) -> dict[str, str]:
+    """The ``hosts:`` map, less each entry with a bad name or URL."""
+    if not isinstance(raw, dict):
+        return {}
+    hosts: dict[str, str] = {}
+    for name, value in raw.items():
+        url = _url(value)
+        if isinstance(name, str) and HOST_NAME.fullmatch(name) and url:
+            hosts[name] = url
+    return hosts
 
 
 def _url(value: object) -> str | None:
@@ -72,6 +90,15 @@ class GlobalConfig:
     slack_webhooks: dict[str, str] = field(default_factory=dict)
     #: One of :data:`UPDATE_CHANNELS`.
     update_channel: str = UPDATE_CHANNELS[0]
+    #: Each **Remote host** this server runs agents on: name to base URL.
+    hosts: dict[str, str] = field(default_factory=dict)
+    #: :data:`ROLE_RUNNER` on a host in **Runner mode**, else ``""``.
+    role: str = ""
+
+    @property
+    def is_runner(self) -> bool:
+        """Whether this host runs worktrees and agents for a parent server."""
+        return self.role == ROLE_RUNNER
 
     @property
     def url_host(self) -> str:
@@ -163,6 +190,8 @@ class GlobalConfig:
                 if (channel := data.get(UPDATE_CHANNEL_KEY)) in UPDATE_CHANNELS
                 else UPDATE_CHANNELS[0]
             ),
+            hosts=_remote_hosts(data.get("hosts")),
+            role=ROLE_RUNNER if data.get("role") == ROLE_RUNNER else "",
         )
 
 
@@ -218,12 +247,13 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
 
     - **Production**: the root is ``~/.maelstrom/state``. The config is
       ``~/.maelstrom/config.yaml``, and nothing else. ``orchestrator_url`` is
-      not read: it is derived from ``dev_host`` and ``dev_https``.
+      derived from ``dev_host`` and ``dev_https``, except on a host in runner
+      mode (``role: runner``): there it is read, and names the parent server.
     - **A dev environment**: any other root, such as
       ``~/.maelstrom/playpen/kilo``. Its own ``config.yaml``, if it has one,
-      overlays the production file key by key. ``orchestrator_url`` comes from
-      the dev environment's file alone, so it never reaches the production
-      server.
+      overlays the production file key by key. ``orchestrator_url``, ``role``
+      and ``hosts`` come from the dev environment's file alone, so a dev
+      server is never a runner and never reaches production's remote hosts.
 
     With no root there is no notebook, and so no server.
     """
@@ -231,11 +261,13 @@ def load_config_at(root_dir: Path | None) -> GlobalConfig:
     if root_dir is None:
         return GlobalConfig.from_dict({**production, "orchestrator_url": None})
     if is_production_root(root_dir):
-        config = GlobalConfig.from_dict({**production, "orchestrator_url": None})
-        config.orchestrator_url = config.derived_orchestrator_url
+        config = GlobalConfig.from_dict(production)
+        if not config.is_runner:
+            config.orchestrator_url = config.derived_orchestrator_url
         return config
     dev_env = _read_config(root_dir / GLOBAL_CONFIG_FILENAME) or {}
-    return GlobalConfig.from_dict({**production, "orchestrator_url": None, **dev_env})
+    own_keys = {"orchestrator_url": None, "role": None, "hosts": None}
+    return GlobalConfig.from_dict({**production, **own_keys, **dev_env})
 
 
 def production_config_path() -> Path:

@@ -422,6 +422,10 @@ mael task next --run                          # launch the next actionable task
 mael task status done                         # close $MAEL_TASK_ID
 ```
 
+On a host in runner mode (`role: runner`), `mael task log`, `next` and `edit` refuse: they write
+the local task database, and a runner keeps no tasks. Run them on the parent server's host. See
+[Remote hosts](configuration.md#remote-hosts).
+
 `mael task list`, `show`, `read`, `status`, `add`, `promote` and `load-many` call the
 orchestrator server that
 [`orchestrator_url:`](configuration.md#global-configuration--maelstromconfigyaml) names. They fail
@@ -820,7 +824,7 @@ runs it as the `orchestrator` host service. In a maelstrom checkout, run it with
 
 | Command | Description |
 |---|---|
-| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (plain HTTP; default `127.0.0.1`), `--public-host` (a host name to listen on as well, on each IPv4 address it resolves to, less loopback; `serve` exits when it does not resolve), `--port` (default `8765`; both listeners share it), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS on the `--public-host` listener only, and need one; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag; with no `--public-host`, `serve` ignores the two variables). `--public-host` cannot go with a wildcard `--host` such as `0.0.0.0`, `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (plain HTTP; default `127.0.0.1`), `--public-host` (a host name to listen on as well, on each IPv4 address it resolves to, less loopback; `serve` exits when it does not resolve), `--port` (default `8765`; both listeners share it), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS on the `--public-host` listener only, and need one; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag; with no `--public-host`, `serve` ignores the two variables). `--public-host` cannot go with a wildcard `--host` such as `0.0.0.0`, `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. With `role: runner` in `~/.maelstrom/config.yaml`, `serve` runs in runner mode: it serves no UI and ignores `--web-root`, it answers `/api` routes outside the runner's surface with `not_implemented`, and it exits when `orchestrator_url:` is not set. See [Remote hosts](configuration.md#remote-hosts). |
 
 ```bash
 uv run mael-orchestrator serve                     # http://127.0.0.1:8765
@@ -1383,7 +1387,7 @@ mael self import maelstrom-old-2026-11-06.zip   # load it on the new host
 
 The installer writes `projects_dir:`. Setup asks for it only when the key is unset and a terminal
 can answer. Without a terminal, it writes `~/Projects`. It moves an older install's state into `~/.maelstrom/state` once,
-migrates `state.db`, deletes a stored `orchestrator_url:` (see
+migrates `state.db`, deletes a stored `orchestrator_url:` unless the host is in runner mode (see
 [configuration.md](configuration.md)), renews the dev certificate under `dev_https:`, installs the Claude integration, the plugins (see below) and the `mael` shim, then
 loads the host services and the scheduler. Its last line names the orchestrator URL. It
 restarts only the host services whose components or unit files changed. See

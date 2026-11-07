@@ -25,6 +25,7 @@ from mael_agent.harness_model import (
     HARNESS_CODEX,
     resolve_execute_model,
 )
+from mael_agent.host_ids import split_host
 from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
 from mael_domain import task_actions
@@ -67,6 +68,7 @@ from mael_domain.worktree import (
 )
 from mael_domain.worktree_steps import StepHook
 
+from .remote_hosts import HostOpened
 from .validate import CREATABLE, EDITABLE, WIRE_RENAMES
 from .world_build import (
     project_entity,
@@ -83,6 +85,9 @@ log = logging.getLogger(__name__)
 #: it to the launcher. Named without a task, so work that has none — a free
 #: agent — opens a worktree through the same injected collaborator.
 OpenWorktree = Callable[[str, str, str], WorktreeSetup]
+
+#: Opens a worktree on a remote host: ``(project, branch, base, session)``.
+OpenRemote = Callable[[str, str, str, str], Awaitable[HostOpened]]
 
 #: Rebuilds an opened worktree's ``.env``, and says what it did:
 #: ``(project, setup) -> lines``. Blocking: it reads and writes files.
@@ -227,6 +232,8 @@ class PreparedLaunch:
     previous_status: str
     setup: WorktreeSetup
     plan: LaunchPlan
+    #: What the remote host's open reported, for a launch on a remote host.
+    remote: HostOpened | None = None
 
 
 @dataclass(frozen=True)
@@ -297,9 +304,16 @@ class TaskSource(Protocol):
     version_is_revision: bool
 
     async def prepare_launch(
-        self, task_id: str, model_name: str | None
+        self,
+        task_id: str,
+        model_name: str | None,
+        *,
+        open_remote: OpenRemote | None = None,
     ) -> PreparedLaunch:
         """Open the task's worktree and move the task in-progress.
+
+        ``open_remote`` opens it on a remote host instead, which has its own
+        live sessions: the local sweep is skipped.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -309,6 +323,16 @@ class TaskSource(Protocol):
 
     async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
         """Rebuild an opened worktree's ``.env`` when it needs it, and say what it did."""
+        ...
+
+    async def open_for_host(
+        self, project: str, branch: str, base: str, session: str
+    ) -> HostOpened:
+        """Open a worktree and write its ``.env`` for a parent's remote launch.
+
+        Raises:
+            LaunchBlocked: If the worktree cannot be opened.
+        """
         ...
 
     def finish_launch(self, prepared: PreparedLaunch) -> dict[str, Any]:
@@ -547,6 +571,9 @@ class NotebookTaskSource:
         #: Task session id -> when its first agent started, folded from the
         #: Agent records a revision at a time.
         self._first_starts: dict[str, str] = {}
+        #: Task session id -> the start and host of its newest agent. The
+        #: host is ``""`` for a local agent.
+        self._last_hosts: dict[str, tuple[str, str]] = {}
         self._agents_revision = 0
         self.projects = projects
         self._version = version
@@ -612,6 +639,12 @@ class NotebookTaskSource:
                 continue
             if not session or at.tzinfo is None:
                 continue
+            host = split_host(str(record.get("id") or ""))[0]
+            newest = self._last_hosts.get(session)
+            if newest is None or at >= datetime.fromisoformat(newest[0]):
+                if newest is None or newest[1] != host:
+                    moved.add(session)
+                self._last_hosts[session] = (stamp, host)
             known = self._first_starts.get(session)
             if known is None or at < datetime.fromisoformat(known):
                 self._first_starts[session] = stamp
@@ -624,6 +657,7 @@ class NotebookTaskSource:
             task,
             actionable=await model.is_actionable(task, self.table),
             started_at=self._first_starts.get(session, ""),
+            last_host=self._last_hosts.get(session, ("", ""))[1],
             landing=await self.landings.landing_of(task),
         )
 
@@ -670,10 +704,14 @@ class NotebookTaskSource:
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 
     async def prepare_launch(
-        self, task_id: str, model_name: str | None
+        self,
+        task_id: str,
+        model_name: str | None,
+        *,
+        open_remote: OpenRemote | None = None,
     ) -> PreparedLaunch:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
-        if self.open_worktree is None:
+        if self.open_worktree is None and open_remote is None:
             raise LaunchBlocked("This server cannot open worktrees")
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
@@ -686,12 +724,34 @@ class NotebookTaskSource:
                 resolve_execute_model(plan.execute_model)
             except ValueError as exc:
                 raise LaunchBlocked(str(exc)) from exc
-        live = await self.live_sessions().sweep()
-        check_not_live(task.id, plan.session_id, live)
-        setup = await self._open(task.project, plan.branch, task.base or "")
+        remote: HostOpened | None = None
+        if open_remote is not None:
+            remote = await open_remote(
+                task.project, plan.branch, task.base or "", plan.session_id
+            )
+            setup = remote.setup
+        else:
+            live = await self.live_sessions().sweep()
+            check_not_live(task.id, plan.session_id, live)
+            setup = await self._open(task.project, plan.branch, task.base or "")
         check_synced(task.id, plan.branch, setup)
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        return PreparedLaunch(task.project, task.id, task.status, setup, plan)
+        return PreparedLaunch(task.project, task.id, task.status, setup, plan, remote)
+
+    async def open_for_host(
+        self, project: str, branch: str, base: str, session: str
+    ) -> HostOpened:
+        """Open a worktree for a parent server, which launches on this host.
+
+        The runner's half of a remote launch: the open, the ``.env`` and
+        whether the session has a transcript here, in one call.
+        """
+        setup = await self._open(project, branch, base)
+        return HostOpened(
+            setup=setup,
+            env_lines=await self.write_env(project, setup),
+            has_transcript=self.has_transcript(setup.path, session),
+        )
 
     async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:
         """Rebuild the ``.env`` of a worktree that was reused or recycled.
@@ -717,7 +777,13 @@ class NotebookTaskSource:
             env=plan.env,
             # A task that has run before already owns its session id. A Codex
             # session is a thread the router finds by session id, if one ran.
-            resume=codex or self.has_transcript(setup.path, plan.session_id),
+            # A remote host has the transcript, and its open said whether.
+            resume=codex
+            or (
+                prepared.remote.has_transcript
+                if prepared.remote is not None
+                else self.has_transcript(setup.path, plan.session_id)
+            ),
             system_prompt_file=agent_prompt_file(),
             plugin_dir=core_plugin_dir(),
         )

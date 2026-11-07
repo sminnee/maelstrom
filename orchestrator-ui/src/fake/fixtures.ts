@@ -71,6 +71,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     schedule: '',
     trigger: '',
     lastRun: '',
+    lastHost: '',
     ...over,
   };
 }
@@ -103,6 +104,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
     ...over,
   };
 }

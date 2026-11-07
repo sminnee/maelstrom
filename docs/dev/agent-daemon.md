@@ -482,6 +482,29 @@ The daemon drives Claude Code agents only. The Codex harness is orchestrator cod
 `CodexDaemonClient` fans the connection-wide app-server stream out by thread id.
 [codex-app-server-events.md](codex-app-server-events.md) is the contract.
 
+### A remote agent host
+
+A **Remote host** runs its own daemon and its own Codex adapter behind its own `DaemonRouter`. The
+parent reaches them through `RemoteDaemonClient` (`remote_hosts.py`), a third kind of
+`AsyncDaemonClient`. It speaks two routes of the remote host's server: `POST /api/host/request`
+for one request, and a WebSocket on `GET /api/host/agents/{id}/attach` for the attach stream. See
+[remote-hosts.md](remote-hosts.md).
+
+The parent's `DaemonRouter` owns the host prefix. Ids that come back from a remote host get
+`<host>:` added: a `list` row's `id` and `parent`, the `id` of a `start` or `resume` reply, and
+`agent.id` in the detail frame. Ids that go out lose it. The remote host and its daemon only ever
+see bare ids. A `start` names its host with a `host` key, which the router removes.
+
+Paths do not cross between machines. `RemoteDaemonClient` removes `system_prompt_file` and
+`plugin_dirs` from each payload, and the remote host puts in its own for `start` and `resume`.
+On the parent, a remote agent's `cwd` names a path on the remote host. The server reads no file
+there, and links the agent to no worktree by it, because the same path on the parent can be
+another file.
+
+An offline remote host is not a dead one. `RemoteDaemonClient` answers each request at once with
+`kind: unreachable` while the link is down. The router counts a missed `list` only against an
+agent whose own source answered, so the agents of an offline host keep their last state.
+
 Import-linter contracts hold the split; see
 [architecture-patterns.md](architecture-patterns.md#the-packages). The `mael` CLI meets the
 daemon only at the wire contract.

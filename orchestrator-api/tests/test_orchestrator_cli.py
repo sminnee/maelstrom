@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from click.testing import CliRunner
 
+from mael_domain.context import GlobalConfig
 from mael_domain.github_model import GitHubCommandFailed, PrState, PrStatus
 from mael_domain.state_db.types import SchemaTooOldError
 from mael_domain.task import list_tasks
@@ -43,7 +44,7 @@ def test_serve_passes_its_flags_to_the_server():
         )
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with(
-        [("0.0.0.0", None)], 9000, DEFAULT_LOG_LEVEL, web_root=None
+        [("0.0.0.0", None)], 9000, DEFAULT_LOG_LEVEL, web_root=None, runner=False
     )
 
 
@@ -53,7 +54,11 @@ def test_serve_defaults_to_localhost_and_the_default_port():
     assert result.exit_code == 0, result.output
     # The suite's venv is a worktree's, not an installed release: no UI.
     run_server.assert_called_once_with(
-        [(DEFAULT_HOST, None)], DEFAULT_PORT, DEFAULT_LOG_LEVEL, web_root=None
+        [(DEFAULT_HOST, None)],
+        DEFAULT_PORT,
+        DEFAULT_LOG_LEVEL,
+        web_root=None,
+        runner=False,
     )
 
 
@@ -64,6 +69,35 @@ def test_serve_passes_a_web_root(tmp_path):
         )
     assert result.exit_code == 0, result.output
     assert run_server.call_args.kwargs["web_root"] == tmp_path
+
+
+def test_a_runner_with_no_parent_refuses_to_serve():
+    """A runner's agents need the parent for task state, so it must name one."""
+    config = GlobalConfig(projects_dir=Path("/p"), role="runner")
+    with (
+        patch("mael_orchestrator.cli.load_global_config", return_value=config),
+        patch("mael_orchestrator.cli.run_server") as run_server,
+    ):
+        result = CliRunner().invoke(cli, ["serve"])
+    assert result.exit_code == 1
+    assert "runner mode" in result.output
+    assert "orchestrator_url" in result.output
+    run_server.assert_not_called()
+
+
+def test_a_runner_serves_no_ui(tmp_path):
+    config = GlobalConfig(
+        projects_dir=Path("/p"), role="runner", orchestrator_url="https://parent:1"
+    )
+    with (
+        patch("mael_orchestrator.cli.load_global_config", return_value=config),
+        patch("mael_orchestrator.cli.run_server") as run_server,
+    ):
+        result = CliRunner().invoke(
+            cli, ["serve"], env={"MAEL_WEB_ROOT": str(tmp_path)}
+        )
+    assert result.exit_code == 0, result.output
+    assert run_server.call_args.kwargs == {"web_root": None, "runner": True}
 
 
 def serve_public(args: list[str], resolved, env=None):
@@ -193,7 +227,6 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     The daemon socket comes from the environment's own root, so this pins that
     the orchestrator talks to the daemon its environment names."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
-    from types import SimpleNamespace
     from unittest.mock import patch
 
     from mael_domain.desk_store import SqliteDeskStore
@@ -212,7 +245,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     with (
         patch(
             "mael_orchestrator.cli.load_global_config",
-            return_value=SimpleNamespace(projects_dir=projects_dir),
+            return_value=GlobalConfig(projects_dir=projects_dir),
         ),
         patch("mael_orchestrator.cli.SqliteTaskTable") as table,
         patch("mael_orchestrator.cli.open_state_db"),
@@ -265,7 +298,6 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
 def test_a_failed_env_refresh_is_a_warning_line_not_a_fault(tmp_path, monkeypatch):
     """A stale .env must not refuse a launch from the UI."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
-    from types import SimpleNamespace
 
     from mael_domain.worktree import WorktreeSetup
 
@@ -273,7 +305,7 @@ def test_a_failed_env_refresh_is_a_warning_line_not_a_fault(tmp_path, monkeypatc
     with (
         patch(
             "mael_orchestrator.cli.load_global_config",
-            return_value=SimpleNamespace(projects_dir=tmp_path),
+            return_value=GlobalConfig(projects_dir=tmp_path),
         ),
         patch("mael_orchestrator.cli.SqliteTaskTable"),
         patch("mael_orchestrator.cli.open_state_db"),
@@ -295,7 +327,7 @@ def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource
     with (
         patch(
             "mael_orchestrator.cli.load_global_config",
-            return_value=SimpleNamespace(projects_dir=tmp_path),
+            return_value=GlobalConfig(projects_dir=tmp_path),
         ),
         patch(
             "mael_orchestrator.cli.SqliteTaskTable",

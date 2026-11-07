@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
-import { useLaunch } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { type NodeState, zoneForState } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { nodeWorktree } from '../selectors/graph';
 import { useEndOfWorkLater } from '../session/useEndOfWork';
+import { useLaunchOptions } from '../session/useLaunchOptions';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { actionIcon } from '../ui/actionIcons';
 
@@ -25,7 +25,7 @@ const ENDED: readonly NodeState[] = ['done', 'cancelled', 'stopped', 'exited'];
  */
 export function useRowAction(node: GraphNode): RowAction | null {
   const { world } = useWorld();
-  const launch = useLaunch();
+  const launchChoices = useLaunchOptions(node.task);
   const endOfWork = useEndOfWorkLater({
     agent: node.agent,
     taskId: node.task?.id,
@@ -40,7 +40,7 @@ export function useRowAction(node: GraphNode): RowAction | null {
       kind: 'launch',
       label: 'Launch',
       icon: actionIcon('launch'),
-      run: () => launch.mutateAsync({ taskId: task.id }),
+      run: () => (launchChoices.find((o) => o.isDefault) ?? launchChoices[0]!).run(),
     };
   if (ENDED.includes(state))
     return {
