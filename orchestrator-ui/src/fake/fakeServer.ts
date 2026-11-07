@@ -167,6 +167,7 @@ export function emptyFakeWorld(): FakeWorld {
       socket: '',
       usage: null,
       codexUsage: null,
+      remoteHosts: [],
     },
   };
 }
@@ -2228,6 +2229,7 @@ function makeNewTask(
     schedule: '',
     trigger: '',
     lastRun: '',
+    lastHost: '',
     log: [],
     created: new Date().toISOString(),
     updated: new Date().toISOString(),
@@ -2267,6 +2269,7 @@ function makeNewAgent(
     pid: null,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
   };
 }
 

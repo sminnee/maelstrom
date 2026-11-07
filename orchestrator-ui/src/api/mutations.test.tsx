@@ -222,6 +222,14 @@ describe('the mutation hooks', () => {
       [...taskKeys, keys.agents.list(), keys.desk()],
     ],
     [
+      'useLaunch on a remote host',
+      useLaunch,
+      { taskId: 'northwind/NORT-7', host: 'cobalt' },
+      'POST /api/tasks/northwind/NORT-7/launch',
+      { host: 'cobalt' },
+      [...taskKeys, keys.agents.list(), keys.desk()],
+    ],
+    [
       'useSetStatus',
       useSetStatus,
       { taskId: 'northwind/NORT-7', status: 'done' },

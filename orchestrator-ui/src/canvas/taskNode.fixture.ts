@@ -48,6 +48,7 @@ function task(over: Partial<Task> = {}): Task {
     schedule: '',
     trigger: '',
     lastRun: '',
+    lastHost: '',
     ...over,
   };
 }
@@ -80,6 +81,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     pid: 4711,
     backgroundShells: [],
     harness: 'claude',
+    host: '',
     ...over,
   };
 }

@@ -352,6 +352,8 @@ export interface Task {
    * Unlike an agent's, it outlives the agent.
    */
   startedAt: string;
+  /** The **Remote host** of the task's newest session; `''` for the server's own host. */
+  lastHost: string;
   /** The task's **Landing**: `null` until the task is `done`. */
   landing: TaskLanding | null;
   /** The ids of the comms the task feeds, e.g. `c3`. */
@@ -552,6 +554,8 @@ export interface Agent {
   backgroundShells: BackgroundShell[];
   /** The harness that runs the agent. */
   harness: Harness;
+  /** The **Remote host** the agent runs on; `''` for the server's own host. */
+  host: string;
 }
 
 /** What runs an agent. */
@@ -609,6 +613,16 @@ export interface Host {
   usage: HostUsage | null;
   /** The Codex account's budget, or `null` until a Codex turn reports one. */
   codexUsage: HostUsage | null;
+  /** Each **Remote host** the server names, and whether its link is up. */
+  remoteHosts: RemoteHostState[];
+}
+
+/** One **Remote host**, as the server's link to it last saw it. */
+export interface RemoteHostState {
+  name: string;
+  online: boolean;
+  /** When `online` last changed; `''` before the first change. */
+  since: string;
 }
 
 /** One gate inside a gate job, as tangier reports it. */
