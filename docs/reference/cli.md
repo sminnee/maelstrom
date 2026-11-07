@@ -689,6 +689,27 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 
 ---
 
+## Auth
+
+Admit, list and revoke the **Passkeys** that sign in to the orchestrator UI. Each command calls
+the orchestrator server with the **Host key**, which the server writes to
+`<notebook root>/auth/host.key` at start. See
+[orchestrator-server.md](../dev/orchestrator-server.md), "Authentication".
+
+| Command | Description |
+|---|---|
+| `mael auth verify CODE` | Admit the **Pending passkey** whose sign-up screen shows `CODE`. Case and dashes do not matter. |
+| `mael auth list` | Print each passkey with its id, state, verify code (pending only), label and creation time. |
+| `mael auth revoke ID` | Remove the passkey `ID` and end each of its sign-ins. |
+
+```bash
+mael auth verify K7QF-2M9D    # the code the browser shows
+mael auth list                # every passkey
+mael auth revoke 3q2-7wEXr…   # an id from the list
+```
+
+---
+
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
