@@ -15,10 +15,14 @@ single integers, comma lists, and ``a-b`` ranges (and combinations like
 and day-of-week are AND-combined (both must match) for simplicity — the common
 schedules ("every weekday at 9", "hourly") never set both, so the distinction
 from cron's OR-semantics does not bite.
+
+Every schedule is read in one zone, the *schedule zone*, which the callers pass
+as ``tz`` (see :func:`mael_domain.zone.zone_named`). For the DST rules and the
+watermark comparison, see docs/dev/scheduled-tasks.md, "The schedule zone".
 """
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, tzinfo
 
 from .build_runs import (
     BuildRun,
@@ -129,32 +133,66 @@ def _matches(dt: datetime, parsed) -> bool:
 _MAX_MINUTES = 366 * 24 * 60
 
 
-def previous_fire(expr: str, now: datetime) -> datetime | None:
+# The largest DST shift the scan allows for. A scan starts this far past
+# ``now``'s wall minute, so a minute whose instant is on the other side of a
+# shift is still visited. One hour covers every zone in use.
+_DST_SHIFT = timedelta(hours=1)
+
+
+def _resolve(wall: datetime, tz: tzinfo) -> datetime:
+    """The instant a naive wall-clock minute in ``tz`` names (``fold=0``), in ``tz``.
+
+    The trip through UTC moves a skipped-hour minute to the real time it names.
+    """
+    return wall.replace(tzinfo=tz, fold=0).astimezone(timezone.utc).astimezone(tz)
+
+
+def _wall_minute(now: datetime, tz: tzinfo) -> datetime:
+    """``now`` as a naive wall-clock minute in ``tz``."""
+    return now.astimezone(tz).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def _utc(now: datetime) -> datetime:
+    """``now`` in UTC. Two datetimes with one tzinfo compare by wall clock and
+    ignore ``fold``, so each instant comparison has ``now`` in another zone."""
+    return now.astimezone(timezone.utc)
+
+
+def previous_fire(expr: str, now: datetime, *, tz: tzinfo) -> datetime | None:
     """Return the most recent fire boundary at or before ``now``, or ``None``.
 
-    Scans minute-by-minute backwards from ``now`` (truncated to the minute).
-    Returns ``None`` if no boundary is found within ~one year (e.g. an
-    unsatisfiable expression).
+    Scans wall-clock minutes in ``tz`` backwards, from one DST shift past
+    ``now``. A minute whose instant is after ``now`` is skipped: a skipped-hour
+    minute resolves one hour later. Returns ``None`` if no boundary is found
+    within ~one year (e.g. an unsatisfiable expression).
     """
     parsed = _parse_cron(expr)
-    cursor = now.replace(second=0, microsecond=0)
+    at = _utc(now)
+    cursor = _wall_minute(now, tz) + _DST_SHIFT
     for _ in range(_MAX_MINUTES):
         if _matches(cursor, parsed):
-            return cursor
+            instant = _resolve(cursor, tz)
+            if instant <= at:
+                return instant
         cursor -= timedelta(minutes=1)
     return None
 
 
-def next_fire(expr: str, now: datetime) -> datetime | None:
+def next_fire(expr: str, now: datetime, *, tz: tzinfo) -> datetime | None:
     """Return the next fire boundary strictly after ``now``, or ``None``.
 
-    Used for display (e.g. a template listing). Scans minute-by-minute forward.
+    Used for display (e.g. a template listing). Scans wall-clock minutes in
+    ``tz`` forward, from one DST shift before ``now``, and skips a minute whose
+    instant is at or before ``now``.
     """
     parsed = _parse_cron(expr)
-    cursor = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    at = _utc(now)
+    cursor = _wall_minute(now, tz) - _DST_SHIFT
     for _ in range(_MAX_MINUTES):
         if _matches(cursor, parsed):
-            return cursor
+            instant = _resolve(cursor, tz)
+            if instant > at:
+                return instant
         cursor += timedelta(minutes=1)
     return None
 
@@ -163,25 +201,26 @@ def next_fire(expr: str, now: datetime) -> datetime | None:
 
 
 def _parse_iso(value: str) -> datetime | None:
-    """Parse an ISO timestamp to an aware local datetime, or ``None`` if empty.
+    """Parse an ISO timestamp to an aware datetime, or ``None`` if empty.
 
-    Normalising to local (rather than UTC) keeps the stored ``last-run``
-    watermark and the incoming local ``now`` in the same zone, so the
-    ``date_of()`` boundary key aligns with the local calendar day.
+    An aware value stays as it is: watermarks compare with boundaries as
+    instants, whatever zone wrote them. A naive value reads as host local.
     """
     if not value:
         return None
-    # astimezone() handles both: a naive value is assumed local wall-clock, an
-    # aware value (e.g. the UTC `created` stamp) is converted to local.
-    return datetime.fromisoformat(value).astimezone()
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.astimezone()
 
 
 def date_of(dt: datetime) -> str:
-    """Return the ISO date (``YYYY-MM-DD``) of a datetime — the run-id key."""
+    """Return the ISO date (``YYYY-MM-DD``) of a datetime — the run-id key.
+
+    Pass a datetime in the schedule zone, so the key is the day in that zone.
+    """
     return dt.date().isoformat()
 
 
-def _due_boundary(tmpl: Task, now: datetime) -> datetime | None:
+def _due_boundary(tmpl: Task, now: datetime, tz: tzinfo) -> datetime | None:
     """The cron boundary ``tmpl`` is due at, or ``None`` when it is not due.
 
     It is due when the most recent boundary at/before ``now`` is *after* its
@@ -190,7 +229,7 @@ def _due_boundary(tmpl: Task, now: datetime) -> datetime | None:
     exactly one run — never a backfill.
     """
     last = _parse_iso(tmpl.last_run) or _parse_iso(tmpl.created)
-    prev = previous_fire(tmpl.schedule, now)
+    prev = previous_fire(tmpl.schedule, now, tz=tz)
     if prev is None or (last is not None and last >= prev):
         return None
     return prev
@@ -228,7 +267,12 @@ def run_to_fire(
 
 
 async def due_firings(
-    table: TaskTable, project: str, build_runs: BuildRuns, *, now: datetime
+    table: TaskTable,
+    project: str,
+    build_runs: BuildRuns,
+    *,
+    now: datetime,
+    tz: tzinfo,
 ) -> tuple[list[Firing], list[str]]:
     """One firing per template that fires at ``now`` or moves its watermark.
 
@@ -236,7 +280,7 @@ async def due_firings(
     the boundary fires only when the newest completed run has a listed
     conclusion, and is skipped otherwise. A template with a trigger and no cron
     fires on :func:`run_to_fire`. Runs are read once per triggered template that
-    is due, and only for those.
+    is due, and only for those. Every cron and run date is read in ``tz``.
 
     The second list holds one warning per template the tick could not decide: a
     trigger that does not parse, or a failed read. Its watermark does not move.
@@ -246,7 +290,7 @@ async def due_firings(
     for tmpl in await list_tasks(table, project=project, status=STATUS_TEMPLATE):
         boundary = None
         if tmpl.schedule:
-            boundary = _due_boundary(tmpl, now)
+            boundary = _due_boundary(tmpl, now, tz)
             if boundary is None:
                 continue
         if not tmpl.trigger:
@@ -261,7 +305,7 @@ async def due_firings(
         if runs is None:
             warnings.append(f"{tmpl.id}: could not read the {trigger.workflow} runs")
             continue
-        firing = _triggered(tmpl, trigger, runs, boundary, now)
+        firing = _triggered(tmpl, trigger, runs, boundary, tz)
         if firing is not None:
             firings.append(firing)
     return firings, warnings
@@ -272,7 +316,7 @@ def _triggered(
     trigger: BuildTrigger,
     runs: list[BuildRun],
     boundary: datetime | None,
-    now: datetime,
+    tz: tzinfo,
 ) -> Firing | None:
     """The firing of a template with a trigger; ``boundary`` is its due cron boundary."""
     if boundary is not None:
@@ -286,8 +330,8 @@ def _triggered(
         return None
     if run is None:
         return Firing(tmpl, watermark)
-    # Keyed by the date in ``now``'s zone, as a cron boundary is.
-    date = date_of(run.completed_at.astimezone(now.tzinfo))
+    # Keyed by the date in the schedule zone, as a cron boundary is.
+    date = date_of(run.completed_at.astimezone(tz))
     return Firing(tmpl, watermark, date, run_section(trigger, run))
 
 
@@ -300,7 +344,12 @@ class FireResult:
 
 
 async def fire_due(
-    table: TaskTable, project: str, build_runs: BuildRuns, *, now: datetime
+    table: TaskTable,
+    project: str,
+    build_runs: BuildRuns,
+    *,
+    now: datetime,
+    tz: tzinfo,
 ) -> FireResult:
     """Make one run per template that fires at ``now``, and move each watermark.
 
@@ -315,7 +364,7 @@ async def fire_due(
     docs/dev/tasks.md, "Scheduled runs".
     """
     created: list[Task] = []
-    firings, warnings = await due_firings(table, project, build_runs, now=now)
+    firings, warnings = await due_firings(table, project, build_runs, now=now, tz=tz)
     for firing in firings:
         tmpl = firing.tmpl
         last_run = firing.watermark.isoformat()

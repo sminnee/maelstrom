@@ -1,6 +1,8 @@
 """Tests for the scheduler: cron math, the due computation, and the fire step."""
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from zoneinfo import TZPATH, ZoneInfo
 
 import pytest
 from domain_fixtures import FakeBuildRuns
@@ -9,6 +11,10 @@ from mael_domain import schedule as sched
 from mael_domain import task as model
 from mael_domain.build_runs import BuildRun
 from mael_domain.task_table import InMemoryTaskTable
+from mael_domain.zone import host_zone
+
+UTC = timezone.utc
+NZ = ZoneInfo("Pacific/Auckland")
 
 
 def _dt(s: str) -> datetime:
@@ -39,13 +45,13 @@ class TestPreviousFire:
         ],
     )
     def test_boundaries(self, expr, now, expected):
-        assert sched.previous_fire(expr, _dt(now)) == _dt(expected)
+        assert sched.previous_fire(expr, _dt(now), tz=UTC) == _dt(expected)
 
     def test_weekday_range_excludes_weekend(self):
         # Sunday 2026-06-21 at 10:00, weekdays-only -> previous Friday 09:00.
-        assert sched.previous_fire("0 9 * * 1-5", _dt("2026-06-21T10:00:00")) == _dt(
-            "2026-06-19T09:00:00"
-        )
+        assert sched.previous_fire(
+            "0 9 * * 1-5", _dt("2026-06-21T10:00:00"), tz=UTC
+        ) == _dt("2026-06-19T09:00:00")
 
 
 class TestNextFire:
@@ -61,7 +67,7 @@ class TestNextFire:
         ],
     )
     def test_boundaries(self, expr, now, expected):
-        assert sched.next_fire(expr, _dt(now)) == _dt(expected)
+        assert sched.next_fire(expr, _dt(now), tz=UTC) == _dt(expected)
 
 
 class TestCronParseErrors:
@@ -78,13 +84,13 @@ class TestCronParseErrors:
     )
     def test_invalid_raises(self, expr):
         with pytest.raises(ValueError):
-            sched.previous_fire(expr, _dt("2026-06-18T10:00:00"))
+            sched.previous_fire(expr, _dt("2026-06-18T10:00:00"), tz=UTC)
 
     def test_list_field(self):
         # "0,30" minutes -> matches both.
-        assert sched.previous_fire("0,30 * * * *", _dt("2026-06-18T10:45:00")) == _dt(
-            "2026-06-18T10:30:00"
-        )
+        assert sched.previous_fire(
+            "0,30 * * * *", _dt("2026-06-18T10:45:00"), tz=UTC
+        ) == _dt("2026-06-18T10:30:00")
 
 
 # --- due computation ---
@@ -107,10 +113,10 @@ async def _add_template(
     )
 
 
-async def _due(store, now):
+async def _due(store, now, tz=UTC):
     """``(template id, date)`` per firing at ``now``, for templates with no trigger."""
     runs = FakeBuildRuns(None)
-    firings, warnings = await sched.due_firings(store, "p", runs, now=now)
+    firings, warnings = await sched.due_firings(store, "p", runs, now=now, tz=tz)
     assert warnings == [] and runs.reads == []
     return [(f.tmpl.id, f.date) for f in firings]
 
@@ -175,24 +181,131 @@ class TestDueFirings:
             ("maintenance", "2026-06-18")
         ]
 
-    async def test_due_matches_local_wall_clock_not_utc(self):
-        # A "0 9 * * *" template fires against the wall-clock fields of the
-        # local-aware `now` the CLI passes in — 09:00 *local*, not 09:00 UTC.
-        # Model a +12 zone (e.g. NZ): at 09:30 local it's still 21:30 the
-        # previous day in UTC, so a UTC-based scheduler would consider the
-        # 09:00 boundary un-reached. It must be due here.
-        store = InMemoryTaskTable()
-        tz = timezone(timedelta(hours=12))
+
+@pytest.fixture(params=["utc", "zone"])
+def at(request):
+    """A UTC ISO string as ``now``: in UTC, or in NZ as the CLI passes it.
+
+    Two datetimes with one tzinfo compare by wall clock, so each test runs both.
+    """
+
+    def make(s: str) -> datetime:
+        now = _dt(s)
+        return now if request.param == "utc" else now.astimezone(NZ)
+
+    return make
+
+
+class TestScheduleZone:
+    """Schedules read in NZ."""
+
+    async def _template(self, store, schedule, last_run):
         await _add_template(
             store,
             "p",
-            schedule="0 9 * * *",
-            last_run="2026-06-17T09:00:00+12:00",
-            created="2026-06-01T00:00:00+12:00",
+            schedule=schedule,
+            last_run=last_run,
+            created="2026-01-01T00:00:00+00:00",
         )
-        now_local = datetime(2026, 6, 18, 9, 30, tzinfo=tz)
-        # Boundary date is the local calendar day, keyed off local 09:00.
-        assert await _due(store, now_local) == [("maintenance", "2026-06-18")]
+
+    async def test_a_boundary_fires_at_its_zone_time(self, at):
+        # Mon 2026-11-09 08:00 NZDT is Sun 2026-11-08 19:00 UTC.
+        store = InMemoryTaskTable()
+        await self._template(store, "0 8 * * 1,5", "2026-11-06T08:00:00+13:00")
+        assert await _due(store, at("2026-11-08T18:55:00"), NZ) == []
+        assert await _due(store, at("2026-11-08T19:05:00"), NZ) == [
+            ("maintenance", "2026-11-09")
+        ]
+
+    async def test_a_skipped_hour_boundary_fires_one_hour_later(self, at):
+        # NZ springs forward 2026-09-27 02:00 NZST -> 03:00 NZDT (14:00 UTC).
+        # 02:30 names 03:30 NZDT (14:30 UTC). At 03:10 NZDT it is still ahead.
+        boundary = datetime(2026, 9, 27, 3, 30, tzinfo=NZ)
+        assert sched.previous_fire(
+            "30 2 * * *", at("2026-09-26T14:10:00"), tz=NZ
+        ) == datetime(2026, 9, 26, 2, 30, tzinfo=NZ)
+        assert sched.next_fire("30 2 * * *", at("2026-09-26T14:10:00"), tz=NZ) == (
+            boundary
+        )
+        store = InMemoryTaskTable()
+        await self._template(store, "30 2 * * *", "2026-09-26T02:30:00+12:00")
+        assert await _due(store, at("2026-09-26T14:10:00"), NZ) == []
+        assert await _due(store, at("2026-09-26T14:30:00"), NZ) == [
+            ("maintenance", "2026-09-27")
+        ]
+
+    async def test_a_repeated_hour_boundary_fires_once(self, at):
+        # NZ falls back 2026-04-05 03:00 NZDT -> 02:00 NZST. 02:00 NZDT is
+        # 13:00 UTC, and the second 02:00 (NZST) is 14:00 UTC.
+        store = InMemoryTaskTable()
+        await self._template(store, "0 2 * * *", "2026-04-04T02:00:00+13:00")
+        result = await sched.fire_due(
+            store, "p", FakeBuildRuns(None), now=at("2026-04-04T13:05:00"), tz=NZ
+        )
+        assert [t.id for t in result.created] == ["maintenance.2026-04-05"]
+        assert await _due(store, at("2026-04-04T14:05:00"), NZ) == []
+
+    async def test_a_boundary_missed_in_the_first_pass_fires_in_the_second(self, at):
+        # No tick in the first 02:xx. At 02:15 NZST the 02:30 NZDT boundary
+        # (13:30 UTC) is past, though its wall minute is later than now's.
+        # An ambiguous time never equals one in another zone (PEP 495): compare in UTC.
+        boundary = sched.previous_fire("30 2 * * *", at("2026-04-04T14:15:00"), tz=NZ)
+        assert boundary.astimezone(UTC) == _dt("2026-04-04T13:30:00")
+
+    async def test_a_frequent_schedule_skips_the_second_pass(self, at):
+        store = InMemoryTaskTable()
+        await self._template(store, "*/5 * * * *", "2026-04-05T02:55:00+13:00")
+        # 02:10 NZST, the second pass of the repeated hour.
+        assert await _due(store, at("2026-04-04T14:10:00"), NZ) == []
+        # 03:00 NZST, after the repeated hour, fires again.
+        assert await _due(store, at("2026-04-04T15:00:00"), NZ) == [
+            ("maintenance", "2026-04-05")
+        ]
+
+    async def test_an_old_utc_host_watermark_does_not_double_fire(self, at):
+        # The old UTC host fired Mon 08:00 UTC (Mon 21:00 NZDT). On Tue 10:00
+        # NZDT the nearest boundary, Mon 08:00 NZDT, is before it.
+        store = InMemoryTaskTable()
+        await self._template(store, "0 8 * * 1,5", "2026-11-09T08:00:00+00:00")
+        assert await _due(store, at("2026-11-09T21:00:00"), NZ) == []
+        # Fri 2026-11-13 08:05 NZDT fires.
+        assert await _due(store, at("2026-11-12T19:05:00"), NZ) == [
+            ("maintenance", "2026-11-13")
+        ]
+
+
+class TestHostZone:
+    """With no ``schedule_timezone``, the host's zone, never a fixed offset."""
+
+    def test_tz_wins(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("TZ", ":Europe/London")
+        assert host_zone(tmp_path / "missing").key == "Europe/London"
+
+    def test_the_localtime_link_names_the_zone(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("TZ", raising=False)
+        target = tmp_path / "zoneinfo" / "Pacific" / "Auckland"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"")
+        link = tmp_path / "localtime"
+        link.symlink_to(target)
+        assert host_zone(link).key == "Pacific/Auckland"
+
+    def test_a_localtime_file_is_read(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("TZ", raising=False)
+        localtime = tmp_path / "localtime"
+        [source] = [
+            Path(root, "Pacific", "Auckland")
+            for root in TZPATH
+            if Path(root, "Pacific", "Auckland").exists()
+        ][:1]
+        localtime.write_bytes(source.read_bytes())
+        zone = host_zone(localtime)
+        assert datetime(2026, 1, 1, tzinfo=zone).utcoffset() == timedelta(hours=13)
+        assert datetime(2026, 7, 1, tzinfo=zone).utcoffset() == timedelta(hours=12)
+
+    def test_no_localtime_is_utc(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("TZ", raising=False)
+        assert host_zone(tmp_path / "missing").key == "UTC"
 
 
 # --- the fire step ---
@@ -212,7 +325,7 @@ class TestFireDue:
     NOW = _dt("2026-06-18T10:00:00")
 
     async def _fire(self, store, now=NOW):
-        return await sched.fire_due(store, "p", FakeBuildRuns(None), now=now)
+        return await sched.fire_due(store, "p", FakeBuildRuns(None), now=now, tz=UTC)
 
     async def test_a_due_template_makes_one_parentless_run_and_moves_its_watermark(
         self,
@@ -285,8 +398,11 @@ class TestFireDue:
 
 
 def _local(day, hour):
-    """A local wall-clock time on 2026-10-``day``, so the run's date is ``day``."""
-    return datetime(2026, 10, day, hour, 0).astimezone()
+    """An NZ wall-clock time on 2026-10-``day``, so the run's date is ``day``.
+
+    NZ is UTC+13 then, so a morning time is on the previous UTC day.
+    """
+    return datetime(2026, 10, day, hour, 0, tzinfo=NZ)
 
 
 def _build_run(id, conclusion, completed_at):
@@ -300,7 +416,7 @@ def _build_run(id, conclusion, completed_at):
 
 
 class TestFireDueOnTrigger:
-    """Templates with a build trigger, fired at 2026-10-08 10:00 local."""
+    """Templates with a build trigger, fired at 2026-10-08 10:00 NZ."""
 
     NOW = _local(8, 10)
 
@@ -319,7 +435,9 @@ class TestFireDueOnTrigger:
         )
 
     async def _tick(self, store, runs):
-        return await sched.fire_due(store, "p", runs, now=self.NOW)
+        return await sched.fire_due(
+            store, "p", runs, now=self.NOW.astimezone(UTC), tz=NZ
+        )
 
     async def _watermark(self, store):
         return datetime.fromisoformat(

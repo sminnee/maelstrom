@@ -9,7 +9,7 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, tzinfo
 from pathlib import Path
 from urllib.parse import quote
 
@@ -1189,6 +1189,7 @@ async def _fire_due_templates(
     project: str,
     *,
     now: datetime,
+    tz: tzinfo,
     build_runs: BuildRuns,
     run: bool,
 ) -> list["model.Task"]:
@@ -1199,7 +1200,7 @@ async def _fire_due_templates(
     """
     from mael_domain import schedule as sched
 
-    fired = await sched.fire_due(table, project, build_runs, now=now)
+    fired = await sched.fire_due(table, project, build_runs, now=now, tz=tz)
     for warning in fired.warnings:
         click.echo(f"warning: {project}/{warning}", err=True)
     created = fired.created
@@ -1247,10 +1248,19 @@ async def task_add_scheduled(
     Each run launches on the daemon, whatever ``MAEL_HARNESS_TYPE`` says.
     """
     _refuse_bulk_cli(run, cli, daemon)
-    now = datetime.now().astimezone()
+    config = load_global_config()
+    try:
+        tz = config.schedule_zone()
+    except ValueError as e:
+        # Nothing fires in the wrong zone: schedule.log shows the bad key.
+        raise click.ClickException(f"schedule_timezone in config.yaml: {e}")
+    now = datetime.now(tz)
     # Stamp every run so schedule.log records when the agent fired, even when
     # nothing is due — the answer to "did the scheduler run?" at diagnosis time.
-    click.echo(f"[{now.isoformat(timespec='seconds')}] add-scheduled")
+    click.echo(
+        f"[{now.isoformat(timespec='seconds')}] add-scheduled "
+        f"({config.schedule_zone_label()})"
+    )
     table = await _table()
     build_runs = _build_runs()
     total = 0
@@ -1259,6 +1269,7 @@ async def task_add_scheduled(
             table,
             proj,
             now=now,
+            tz=tz,
             build_runs=build_runs,
             run=run,
         )
@@ -1322,6 +1333,13 @@ async def task_list(
         key=lambda t: model.pick_order(t["priority"], t["created"], t["notebookId"])
     )
 
+    config = load_global_config()
+    tz: tzinfo | None = None
+    if show_all_in_folder:
+        try:
+            tz = config.schedule_zone()
+        except ValueError:
+            pass  # NEXT-FIRE and the footer say the zone is unknown.
     rows = []
     for t in tasks:
         actionable = t["actionable"]
@@ -1341,7 +1359,7 @@ async def task_list(
         if show_all_in_folder:
             # The trigger fills the column for a template with no cron.
             row["SCHEDULE"] = t.get("schedule", "") or t.get("trigger", "")
-            row["NEXT-FIRE"] = _next_fire_display(t.get("schedule", ""))
+            row["NEXT-FIRE"] = _next_fire_display(t.get("schedule", ""), tz)
         row["BRANCH"] = t["branch"]
         row["TITLE"] = t["title"]
         rows.append(row)
@@ -1365,16 +1383,23 @@ async def task_list(
     else:
         columns = ["ID", "STATUS", "PRIORITY", "BRANCH", "TITLE"]
     draw_table(rows, columns)
+    if show_all_in_folder:
+        click.echo(f"Schedules read in {config.schedule_zone_label()}.")
 
 
-def _next_fire_display(schedule: str) -> str:
-    """Render a template's next scheduled fire for the listing, or ''."""
+def _next_fire_display(schedule: str, tz: tzinfo | None) -> str:
+    """Render a template's next scheduled fire in ``tz`` for the listing, or ''.
+
+    ``None`` is an unknown schedule zone: the footer names it.
+    """
     if not schedule:
         return ""
+    if tz is None:
+        return "(unknown zone)"
     from mael_domain import schedule as sched
 
     try:
-        nxt = sched.next_fire(schedule, datetime.now().astimezone())
+        nxt = sched.next_fire(schedule, datetime.now(tz), tz=tz)
     except ValueError:
         return "(invalid)"
     return nxt.isoformat(timespec="minutes") if nxt else ""

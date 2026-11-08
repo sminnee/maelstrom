@@ -164,6 +164,34 @@ sudo pmset repeat cancel
 macOS keeps **one** system-wide repeating wake, so `pmset repeat cancel` clears a wake you
 set yourself as well.
 
+### The schedule zone
+
+The cron in a `schedule` is read in the **Schedule zone**. Set it in `~/.maelstrom/config.yaml`:
+
+```yaml
+schedule_timezone: Pacific/Auckland
+```
+
+With no key, the host's own zone applies, and the listing shows it as `<zone> (host local)`. One zone covers every template on the host. A host on
+UTC that serves a person in NZ needs the key: without it, `0 8 * * 1` fires at 08:00 UTC.
+
+Daylight saving time (DST) changes move the clock. A boundary in an hour that DST changes fires
+once:
+
+| Change | Example (NZ) | Behaviour |
+|---|---|---|
+| Skipped hour | 02:00 → 03:00 in September | A boundary in the gap fires one hour later by the clock. `30 2 * * *` fires at 03:30. |
+| Repeated hour | 03:00 → 02:00 in April | A boundary in the repeated hour fires at its first occurrence only. `*/5 * * * *` does not fire again in the second pass. |
+
+Two places show the zone:
+
+- `mael task list --status template` gives `NEXT-FIRE` with its UTC offset, and ends with
+  `Schedules read in <zone>.`
+- Each `add-scheduled` line in `schedule.log` starts with the time and the zone.
+
+An unknown zone name stops `add-scheduled` with an error, and nothing fires. The listing shows
+`unknown zone <name>`.
+
 ## When a scheduled task did not fire
 
 Run `mael self status` first. See

@@ -195,6 +195,11 @@ _Avoid_: Ready, unblocked
 A task parked in `template/` as a recipe to duplicate from. A template never launches directly.
 A `schedule`, a `trigger`, or both on a template drive the scheduler.
 
+**Schedule zone**:
+The time zone every template `schedule` on a host is read in. `schedule_timezone:` in
+`~/.maelstrom/config.yaml` sets it. With no key, it is the host's own zone.
+_Avoid_: Cron zone, local time
+
 **Trigger**:
 The event that fires a template, written `<kind>/<spec>`. `gh-action/nightly.yml` fires when a
 run of that GitHub Actions workflow finishes with a listed conclusion. With a `schedule` too, a

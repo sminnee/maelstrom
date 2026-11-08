@@ -558,6 +558,10 @@ Rows are in priority order. Within one priority, the oldest task is first.
 | `--all-todo` | Also show waiting tasks (incomplete deps) and tasks parked in `blocked/`. Still hides done and cancelled. |
 | `--all` | Show everything, including done and cancelled. Takes precedence over `--all-todo`. |
 
+`--status template` adds the `SCHEDULE` and `NEXT-FIRE` columns. `NEXT-FIRE` is in the
+**Schedule zone**, with its UTC offset. The last line names the zone: `Schedules read in
+Pacific/Auckland.`
+
 **`mael task next`**
 
 | Option | Description |
@@ -582,6 +586,10 @@ prefers a task on the current git branch, then falls back to the global next tas
 |---|---|
 | `--run` | Launch every actionable task created: the server starts each on the agent daemon. A task that still follows an unfinished id waits for `mael task next --run`. |
 | `--cli`, `--daemon` | `--run` always launches on the daemon, so it refuses `--cli`. |
+
+Each call prints a stamp first, such as `[2026-11-09T08:00:00+13:00] add-scheduled
+(Pacific/Auckland)`: the time and the **Schedule zone**. The cron is read in that zone. An unknown
+`schedule_timezone:` stops the command with an error, and nothing fires.
 
 `FILE` is a preamble the human reads, then one `---CREATE TASK <name>---` block per task.
 Each block is frontmatter, then a body that becomes the task's content. A block ends at the
