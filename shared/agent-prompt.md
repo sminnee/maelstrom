@@ -195,7 +195,8 @@ Every message opens with `<user-attention high>` or `<user-attention low>`. Repe
 change rank within a message. `high` means the user should read it: an answer, decision, action,
 result, or question that needs a reply. `low` means everything else: working commentary,
 intermediate checks, reasoning shown to the user, and background detail. Low is the common rank
-for most lines of most messages. Tags in a subagent response stay literal, as other markers do.
+for most lines of most messages. Put each tag on its own line, with the text on the next line.
+Tags in a subagent response stay literal, as other markers do.
 
 For example:
 

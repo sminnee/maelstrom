@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Markdown } from './Markdown';
+import { Markdown, attentionSegments } from './Markdown';
 
 const SHOT = '![The failing dialog](/api/files/ag1-2-shot.png)';
 
@@ -112,6 +112,26 @@ describe('user attention in a message', () => {
     );
     expect(screen.getByTestId('quiet')).toHaveTextContent('Checking.');
     expect(screen.getByText('Finished.')).toBeInTheDocument();
+  });
+
+  it('switches rank on each inline tag and keeps the text after it', () => {
+    // Codex writes this shape; the tag sets the rank and the text stays.
+    const source = 'Answer.\n\n<user-attention low>Detail.\n\n<user-attention high>Done.';
+    const { container } = render(<Markdown source={source} />);
+    const quiet = screen.getByTestId('quiet');
+    expect(quiet).toHaveTextContent('Detail.');
+    expect(quiet).not.toHaveTextContent('Answer.');
+    expect(quiet).not.toHaveTextContent('Done.');
+    expect(screen.getByText('Answer.')).toBeInTheDocument();
+    expect(screen.getByText('Done.')).toBeInTheDocument();
+    expect(container).not.toHaveTextContent('user-attention');
+  });
+
+  it('reads a fence that opens on the tag line, so a tag inside it stays literal', () => {
+    const source = '<user-attention low>```\n<user-attention high>\n```\nAfter.';
+    expect(attentionSegments(source)).toEqual([
+      { attention: 'low', source: '```\n<user-attention high>\n```\nAfter.' },
+    ]);
   });
 
   it('treats an unknown attention value as high', () => {

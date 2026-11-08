@@ -112,12 +112,15 @@ describe('Transcript', () => {
           said('m2', '', {
             markdown: 'Free port 342.\n\n<user-attention low>\nChecking the allocator first.',
           }),
+          // Codex writes the text on the tag's line.
+          said('m3', '', { markdown: '<user-attention low>Checking the allocator first.' }),
         ]}
       />,
     );
     const cards = screen.getAllByTestId('transcript-card');
     expect(cards[0]).toHaveAttribute('data-register', 'machinery');
     expect(cards[1]).toHaveAttribute('data-register', 'prose');
+    expect(cards[2]).toHaveAttribute('data-register', 'machinery');
   });
 
   it('draws no visible role label, agent or you, on any message', () => {
