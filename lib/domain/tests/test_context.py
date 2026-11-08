@@ -764,3 +764,25 @@ class TestUpdateChannel:
 
         assert path.read_text() == "update_channel: main\n"
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+class TestScheduleZone:
+    """``schedule_timezone``: the zone every template schedule is read in."""
+
+    def test_the_key_parses(self):
+        config = GlobalConfig.from_dict({"schedule_timezone": "Pacific/Auckland"})
+        assert config.schedule_zone().key == "Pacific/Auckland"
+        assert config.schedule_zone_label() == "Pacific/Auckland"
+
+    def test_no_key_reads_the_host_zone_from_tz(self, monkeypatch):
+        monkeypatch.setenv("TZ", "Europe/London")
+        config = GlobalConfig.from_dict({})
+        assert config.schedule_timezone is None
+        assert config.schedule_zone().key == "Europe/London"
+        assert config.schedule_zone_label() == "Europe/London (host local)"
+
+    def test_an_unknown_zone_raises_and_labels_itself(self):
+        config = GlobalConfig.from_dict({"schedule_timezone": "Mars/Olympus"})
+        with pytest.raises(ValueError, match="unknown zone Mars/Olympus"):
+            config.schedule_zone()
+        assert config.schedule_zone_label() == "unknown zone Mars/Olympus"

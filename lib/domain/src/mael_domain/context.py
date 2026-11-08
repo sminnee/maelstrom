@@ -10,12 +10,14 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import yaml
 
 from mael_common.util import get_maelstrom_dir, harden_path
 
 from .notebook_root import NOTEBOOK_ROOT_ENV
+from .zone import zone_named
 
 GLOBAL_CONFIG_FILENAME = "config.yaml"
 
@@ -72,6 +74,23 @@ class GlobalConfig:
     slack_webhooks: dict[str, str] = field(default_factory=dict)
     #: One of :data:`UPDATE_CHANNELS`.
     update_channel: str = UPDATE_CHANNELS[0]
+    #: The zone every template schedule is read in, such as
+    #: ``Pacific/Auckland``. ``None`` means the host's own zone. Kept as
+    #: written: :meth:`schedule_zone` checks it.
+    schedule_timezone: str | None = None
+
+    def schedule_zone(self) -> ZoneInfo:
+        """The schedule zone. Raises ``ValueError`` on an unknown name."""
+        return zone_named(self.schedule_timezone)
+
+    def schedule_zone_label(self) -> str:
+        """The schedule zone as the listing and the UI show it."""
+        if not self.schedule_timezone:
+            return f"{self.schedule_zone().key} (host local)"
+        try:
+            return self.schedule_zone().key
+        except ValueError:
+            return f"unknown zone {self.schedule_timezone}"
 
     @property
     def url_host(self) -> str:
@@ -162,6 +181,11 @@ class GlobalConfig:
                 channel
                 if (channel := data.get(UPDATE_CHANNEL_KEY)) in UPDATE_CHANNELS
                 else UPDATE_CHANNELS[0]
+            ),
+            schedule_timezone=(
+                zone.strip() or None
+                if isinstance(zone := data.get("schedule_timezone"), str)
+                else None
             ),
         )
 

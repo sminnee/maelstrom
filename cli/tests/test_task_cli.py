@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import click
 import pytest
@@ -22,6 +23,7 @@ from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
 from mael_domain.comm_store import Comm, InMemoryCommStore
+from mael_domain.context import GlobalConfig
 from mael_domain.env import EnvRefresh
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
@@ -1291,17 +1293,30 @@ def no_build_runs(monkeypatch):
     monkeypatch.setattr(task_cli, "_build_runs", lambda: FakeBuildRuns(None))
 
 
+NZ = ZoneInfo("Pacific/Auckland")
+
+
+def _schedule_timezone(monkeypatch, name):
+    """Read every schedule in the zone ``name``, as config.yaml would say."""
+    config = GlobalConfig.from_dict({"schedule_timezone": name})
+    monkeypatch.setattr(task_cli, "load_global_config", lambda: config)
+
+
 @pytest.fixture
 def frozen_now(monkeypatch):
-    """Freeze the command's clock at 2026-06-18 10:00 local, and return it."""
-    frozen = datetime(2026, 6, 18, 10, 0).astimezone()
+    """Freeze the clock at 2026-06-18 10:00 NZ, read schedules in NZ, and return it.
+
+    That is 2026-06-17 22:00 UTC, so a run keyed 2026-06-18 shows the zone applies.
+    """
+    frozen = datetime(2026, 6, 18, 10, 0, tzinfo=NZ)
 
     class FrozenDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
-            return frozen
+            return frozen.astimezone(tz) if tz else frozen
 
     monkeypatch.setattr(task_cli, "datetime", FrozenDateTime)
+    _schedule_timezone(monkeypatch, "Pacific/Auckland")
     return frozen
 
 
@@ -1309,7 +1324,7 @@ async def _make_template(store, id="maintenance", **fields):
     """A daily 09:00 template whose last run was the day before ``frozen_now``."""
     fields = {
         "schedule": "0 9 * * *",
-        "last_run": datetime(2026, 6, 17, 9, 0).astimezone().isoformat(),
+        "last_run": datetime(2026, 6, 17, 9, 0, tzinfo=NZ).isoformat(),
         **fields,
     }
     return await model.create(
@@ -1343,7 +1358,7 @@ class TestAddScheduled:
         result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
         assert result.exit_code == 0, result.output
         stamp = frozen_now.isoformat(timespec="seconds")
-        assert result.output.startswith(f"[{stamp}] add-scheduled")
+        assert result.output.startswith(f"[{stamp}] add-scheduled (Pacific/Auckland)")
         assert "warning: p/nightly: unknown trigger 'nightly.yml'" in result.output
         assert "No scheduled tasks due." in result.output
 
@@ -1393,6 +1408,51 @@ class TestAddScheduled:
             c.kwargs["env"]["MAEL_TASK_ID"] for c in launch.session.call_args_list
         ]
         assert launched == ["maint-b.2026-06-18"]
+
+    async def test_an_unknown_zone_fails_and_fires_nothing(
+        self, runner, store, monkeypatch, frozen_now
+    ):
+        await _make_template(store)
+        _schedule_timezone(monkeypatch, "Mars/Olympus")
+        result = runner.invoke(task_cli.task, ["add-scheduled", "-p", "p"])
+        assert result.exit_code != 0
+        assert "schedule_timezone in config.yaml: unknown zone Mars/Olympus" in (
+            result.output
+        )
+        assert await store.load("p", "maintenance.2026-06-18") is None
+
+    def _list_templates(self, runner, monkeypatch):
+        row = {
+            "project": "p",
+            "notebookId": "maintenance",
+            "status": model.STATUS_TEMPLATE,
+            "parent": "",
+            "priority": "2",
+            "created": "2026-06-01T00:00:00+00:00",
+            "actionable": False,
+            "schedule": "0 9 * * *",
+            "trigger": "",
+            "branch": "",
+            "title": "Maintenance",
+        }
+        monkeypatch.setattr(task_cli, "_fetch_rows", lambda: [row])
+        monkeypatch.setattr(task_cli, "resolve_project", lambda p: "p")
+        result = runner.invoke(task_cli.task, ["list", "--status", "template"])
+        assert result.exit_code == 0, result.output
+        return result.output
+
+    def test_the_template_listing_shows_the_zone(self, runner, monkeypatch, frozen_now):
+        output = self._list_templates(runner, monkeypatch)
+        assert "2026-06-19T09:00+12:00" in output
+        assert output.rstrip().endswith("Schedules read in Pacific/Auckland.")
+
+    def test_the_template_listing_names_an_unknown_zone(
+        self, runner, monkeypatch, frozen_now
+    ):
+        _schedule_timezone(monkeypatch, "Mars/Olympus")
+        output = self._list_templates(runner, monkeypatch)
+        assert "(unknown zone)" in output
+        assert output.rstrip().endswith("Schedules read in unknown zone Mars/Olympus.")
 
     def test_conflicting_harness_flags_are_refused(self, runner, store, launch):
         result = runner.invoke(

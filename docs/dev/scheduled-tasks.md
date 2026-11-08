@@ -78,3 +78,37 @@ is created **parentless but dot-named**: its id names it under the template, whi
 its empty `parent` roots its own chain. The run's follow-ups therefore nest under
 the run rather than piling onto the template's chain. See
 [`tasks.md`](tasks.md#scheduled-runs) for the `parent`-vs-dot-id distinction.
+
+### The schedule zone
+
+`schedule.py` reads every cron in one zone, the `tz` argument of `previous_fire`, `next_fire`,
+`due_firings` and `fire_due`. The callers resolve it with `GlobalConfig.schedule_zone()`, from
+`schedule_timezone:`, through `zone.py`. `schedule.py` does not read the config, so its tests
+freeze `now` and pass any zone. They pass each `now` twice, in UTC and in `tz`, because the two
+take different comparison paths.
+
+- **Wall-clock scan.** The scan steps through naive wall-clock minutes in `tz`. Each match
+  resolves to one instant with `fold=0` (PEP 495). `previous_fire` skips an instant after `now`,
+  and `next_fire` skips one at or before `now`.
+- **Scan start.** Each scan starts one hour (`_DST_SHIFT`) past `now`'s wall minute. So it
+  reaches a minute on the other side of a DST shift, such as a first-pass boundary seen from the
+  second pass of a repeated hour.
+- **Instant comparison.** The guard compares with `now` in UTC. Two datetimes with one `tzinfo`
+  compare by wall clock and ignore `fold`.
+- **Skipped hour.** A gap minute resolves one hour later, and the guard stops it from firing
+  before that time. Cronie fires a gap boundary at the jump (03:00) instead. The `fold=0` rule
+  keeps the code simple, so the difference is accepted.
+- **Repeated hour.** A second-pass minute resolves to its first-pass instant. That instant is
+  not after the watermark, so the second pass does not fire.
+- **Watermarks compare as instants.** `_parse_iso` keeps an aware stamp in its own zone. A naive
+  stamp reads as host local.
+- **Run date.** `date_of` takes a datetime in `tz`, so the `<date>` in a run id is the day in the
+  Schedule zone. A firing from a build run keys by `completed_at.astimezone(tz)`.
+- **Host zone.** With no key, `zone.host_zone()` gives the host's zone as a DST-aware
+  `ZoneInfo`, or UTC. Its docstring lists the sources it tries.
+
+A change of zone does not double fire or skip a run. Only the nearest boundary at or before `now`
+counts, and it fires only when it is after the watermark. For example, a host on UTC fired
+`0 8 * * 1` at Mon 08:00 UTC, which is Mon 21:00 NZDT. On Tue in NZ, the nearest boundary is
+Mon 08:00 NZDT, before that watermark, so nothing fires until the next Mon. When a run id for the
+day already exists, `fire_due` makes nothing and moves only the watermark.

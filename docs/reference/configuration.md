@@ -304,6 +304,7 @@ uptimerobot:
 | `service_path` | string | set by `mael self setup` | The `PATH` of the host services and the scheduler. Read from `~/.maelstrom/config.yaml`. The first setup writes it: `~/.local/bin`, then the `PATH` setup ran with, less any venv `bin`, then the system directories. Later setups reuse it, so a setup from another shell restarts nothing. Edit it to change the units' `PATH`, then run `mael self setup`. |
 | `host_check_declined` | list | `[]` | The optional `mael self check-host` items you said no to. `check-host --quiet`, which each install runs, does not offer them again. `check-host` writes it. Remove an entry to be asked again. |
 | `update_channel` | string | `stable` | Where `mael self update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self update --channel` writes this line and keeps the rest of the file. `install-main.sh` writes `main`. |
+| `schedule_timezone` | string | host zone | The **Schedule zone**: the IANA zone every template `schedule` on this host is read in, such as `Pacific/Auckland`. With no key, the host's own zone applies. An unknown name stops `mael task add-scheduled` with an error, so nothing fires in the wrong zone. See [When it fires](../guide/scheduled-work.md#when-it-fires). |
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
@@ -317,6 +318,7 @@ open_command: "cursor"
 dev_host: desk.tailnet.ts.net
 dev_https: true
 update_channel: stable
+schedule_timezone: Pacific/Auckland
 
 linear:
   api_key: "lin_api_xxx"
