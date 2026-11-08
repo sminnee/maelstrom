@@ -138,7 +138,8 @@ def build_orchestrator(
     desk. It is never migrated here: an ordinary open refuses a database
     behind this build.
     """
-    projects_dir = load_global_config().projects_dir
+    config = load_global_config()
+    projects_dir = config.projects_dir
     # Resolved once: the tasks and the desk share one database, so opening a
     # second here would give the two halves of the world separate connections
     # and separate revision counters.
@@ -345,6 +346,8 @@ def build_orchestrator(
         worktree_executor=worktree_executor,
         agents=agent_store,
         landings=landings,
+        # Read at start: a config change needs an orchestrator restart.
+        schedule_zone=config.schedule_zone_label(),
     )
     worktrees = ListAllWorktreeSource(
         projects_dir,

@@ -1648,7 +1648,8 @@ async def task_show(id: str, project: str | None) -> None:
     if t["follows"]:
         click.echo(f"follows: {', '.join(_notebook_id(f) for f in t['follows'])}")
     if t.get("schedule"):
-        click.echo(f"schedule: {t.get('schedule', '')}")
+        zone = t.get("scheduleZone", "")
+        click.echo(f"schedule: {t['schedule']}" + (f" ({zone})" if zone else ""))
     if t.get("trigger"):
         click.echo(f"trigger: {t.get('trigger', '')}")
     if t["comms"]:

@@ -93,6 +93,7 @@ resetsAt  # unused variable (lib/domain/src/mael_domain/protocol.py:252)
 fiveHour  # unused variable (lib/domain/src/mael_domain/protocol.py:264)
 sevenDay  # unused variable (lib/domain/src/mael_domain/protocol.py:265)
 lastRun  # unused variable (lib/domain/src/mael_domain/protocol.py Task)
+scheduleZone  # unused variable (lib/domain/src/mael_domain/protocol.py Task): the UI task editor reads it
 actionLines  # unused variable (lib/domain/src/mael_domain/protocol.py StatusMoved)
 cpuPercent  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 rssBytes  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)

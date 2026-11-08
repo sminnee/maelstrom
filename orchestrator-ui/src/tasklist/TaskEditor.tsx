@@ -175,6 +175,12 @@ function TaskForm({ task }: { task: Task }) {
         bucket={task.notebookId}
         readOnly={!editing}
       />
+      {task.schedule && (
+        <p className={styles.schedule} data-testid="task-schedule">
+          Schedule: {task.schedule} — {task.scheduleZone}
+          {task.trigger && `, and on ${task.trigger}`}
+        </p>
+      )}
       <TaskComms taskId={task.id} held={task.comms} />
 
       {(confirming || pendingNav !== null) && (

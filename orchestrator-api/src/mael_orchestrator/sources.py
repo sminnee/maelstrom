@@ -539,8 +539,11 @@ class NotebookTaskSource:
         has_transcript: Callable[[Path, str], bool] = has_claude_transcript,
         agents: AgentStore | None = None,
         landings: Landings | None = None,
+        schedule_zone: str = "",
     ) -> None:
         self.table = table
+        #: The schedule zone's label, for each task with a ``schedule``.
+        self.schedule_zone = schedule_zone
         self.agents = agents
         #: Where each done task's landing is read. See CONTEXT.md, "Landing".
         self.landings = landings if landings is not None else Landings()
@@ -625,6 +628,7 @@ class NotebookTaskSource:
             actionable=await model.is_actionable(task, self.table),
             started_at=self._first_starts.get(session, ""),
             landing=await self.landings.landing_of(task),
+            schedule_zone=self.schedule_zone,
         )
 
     async def markdown(self, task_id: str) -> str | None:

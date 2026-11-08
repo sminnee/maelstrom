@@ -393,6 +393,9 @@ class Task(TypedDict):
     trigger: str
     #: When a template last fired, ISO 8601; ``""`` when it never has.
     lastRun: str
+    #: The schedule zone the cron is read in, as a label, such as
+    #: ``Pacific/Auckland``. ``""`` for a task with no ``schedule``.
+    scheduleZone: str
 
 
 class TaskRow(TypedDict):
@@ -428,6 +431,7 @@ class TaskRow(TypedDict):
     schedule: str
     trigger: str
     lastRun: str
+    scheduleZone: str
 
 
 class TaskFollower(TypedDict):

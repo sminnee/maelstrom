@@ -172,7 +172,8 @@ The cron in a `schedule` is read in the **Schedule zone**. Set it in `~/.maelstr
 schedule_timezone: Pacific/Auckland
 ```
 
-With no key, the host's own zone applies, and the listing shows it as `<zone> (host local)`. One zone covers every template on the host. A host on
+With no key, the host's own zone applies, and the listing and the UI show it as
+`<zone> (host local)`. One zone covers every template on the host. A host on
 UTC that serves a person in NZ needs the key: without it, `0 8 * * 1` fires at 08:00 UTC.
 
 Daylight saving time (DST) changes move the clock. A boundary in an hour that DST changes fires
@@ -183,14 +184,18 @@ once:
 | Skipped hour | 02:00 → 03:00 in September | A boundary in the gap fires one hour later by the clock. `30 2 * * *` fires at 03:30. |
 | Repeated hour | 03:00 → 02:00 in April | A boundary in the repeated hour fires at its first occurrence only. `*/5 * * * *` does not fire again in the second pass. |
 
-Two places show the zone:
+Four places show the zone:
 
 - `mael task list --status template` gives `NEXT-FIRE` with its UTC offset, and ends with
   `Schedules read in <zone>.`
+- `mael task show` prints `schedule: <cron> (<zone>)` for a template.
 - Each `add-scheduled` line in `schedule.log` starts with the time and the zone.
+- The task editor in the orchestrator UI shows `Schedule: <cron> — <zone>` for a template.
 
-An unknown zone name stops `add-scheduled` with an error, and nothing fires. The listing shows
-`unknown zone <name>`.
+An unknown zone name stops `add-scheduled` with an error, and nothing fires. The listing and the
+UI show `unknown zone <name>`. The orchestrator reads the key at start, so run
+`mael self restart orchestrator` after a change. Until then, `mael task show` and the UI name the
+old zone.
 
 ## When a scheduled task did not fire
 
