@@ -10,3 +10,9 @@
 .confirm > button {
   min-height: var(--control);
 }
+/* Read-only: the CLI sets a schedule. */
+.schedule {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}

@@ -361,6 +361,8 @@ export interface Task {
   trigger: string;
   /** When a template last fired, ISO 8601, or `''` when it never has. */
   lastRun: string;
+  /** The **Schedule zone** the cron is read in, as a label, or `''` with no `schedule`. */
+  scheduleZone: string;
 }
 
 /** One deploy environment's reading for a done task. `unknown` never counts as reached. */

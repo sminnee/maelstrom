@@ -42,6 +42,7 @@ def make_task(**over):
         "schedule": "",
         "trigger": "",
         "lastRun": "",
+        "scheduleZone": "",
     }
     task.update(over)
     return task

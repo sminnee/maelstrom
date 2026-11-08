@@ -152,6 +152,7 @@ export function task(spec: TaskSpec): Task {
     schedule: '',
     trigger: '',
     lastRun: '',
+    scheduleZone: '',
   };
 }
 

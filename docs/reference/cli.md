@@ -401,7 +401,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task next` | Print the id of the next actionable task. |
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
 | `mael task list` | List actionable tasks. |
-| `mael task show ID` | Show a summary of a task. |
+| `mael task show ID` | Show a summary of a task. For a template, the `schedule:` line ends with the **Schedule zone**, as the orchestrator read it at start. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
 | `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
 | `mael task read ID` | Print the task as markdown, rendered from its row. |

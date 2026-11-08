@@ -48,6 +48,7 @@ function task(over: Partial<Task> = {}): Task {
     schedule: '',
     trigger: '',
     lastRun: '',
+    scheduleZone: '',
     ...over,
   };
 }

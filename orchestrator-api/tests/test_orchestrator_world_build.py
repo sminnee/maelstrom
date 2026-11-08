@@ -95,6 +95,19 @@ def test_task_entity_defaults_a_missing_branch_to_the_default_branch():
     )
 
 
+def test_task_entity_names_the_schedule_zone_for_a_scheduled_task_only():
+    zone = "Pacific/Auckland"
+    plain = model.Task(id="NORT-9", title="x", project="northwind")
+    scheduled = model.Task(
+        id="maint", title="x", project="northwind", schedule="0 8 * * 1,5"
+    )
+    assert task_entity(plain, actionable=True, schedule_zone=zone)["scheduleZone"] == ""
+    assert (
+        task_entity(scheduled, actionable=False, schedule_zone=zone)["scheduleZone"]
+        == zone
+    )
+
+
 LIST_ALL_ROW = {
     "name": "alpha",
     "folder": "northwind-alpha",

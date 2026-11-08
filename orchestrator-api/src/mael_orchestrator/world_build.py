@@ -95,11 +95,14 @@ def task_entity(
     actionable: bool,
     started_at: str = "",
     landing: TaskLanding | None = None,
+    schedule_zone: str = "",
 ) -> Task:
     """The wire task for a notebook task. ``actionable`` comes from the notebook's own rule.
 
     ``started_at`` comes from the Agent records and ``landing`` from the
-    landing tables; the notebook knows neither.
+    landing tables; the notebook knows neither. ``schedule_zone`` is the
+    schedule zone's label from the config, set only on a task with a
+    ``schedule``.
 
     ``follows`` is qualified with the task's own project: a task only ever
     follows a task beside it in the notebook. ``parent`` is left bare, because
@@ -134,6 +137,7 @@ def task_entity(
         "schedule": task.schedule,
         "trigger": task.trigger,
         "lastRun": task.last_run,
+        "scheduleZone": schedule_zone if task.schedule else "",
     }
 
 
