@@ -15,11 +15,12 @@ and the client gives each one its label.
 worktree and the service, so a client dials it as it is and sends no identity of its own:
 
 ```
-MAEL_FEEDBACK_URL=wss://desk.tailnet.ts.net:2772/api/live-feedback?path=/Users/me/Projects/app/app-alpha&service=web
+MAEL_FEEDBACK_URL=wss://desk.tailnet.ts.net:2772/api/live-feedback?key=mael_…&path=/Users/me/Projects/app/app-alpha&service=web
 ```
 
 | Query key | Meaning |
 |---|---|
+| `key` | The **Feedback key**. Without it the server answers 401. See [orchestrator-server.md](orchestrator-server.md#authentication). |
 | `path` | The worktree's path. The server finds the worktree by real path. |
 | `service` | The service's name in `.maelstrom.yaml`. Each service keeps its own params. |
 

@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from mael_domain.auth.keys import read_key
+from mael_domain.auth.model import HOST
 from mael_domain.state_db.migrate import migrate_state_db
 from mael_domain.state_db.paths import get_state_db_path
 
@@ -59,10 +61,17 @@ def test_the_console_script_serves_the_world(tmp_path):
         while "projects" not in body:
             assert server.poll() is None, log.read_text()
             assert time.monotonic() < deadline, log.read_text()
+            # The server writes the host key at start; the CLI reads it so.
+            key = read_key(HOST)
+            if key is None:
+                time.sleep(0.05)
+                continue
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}/api/projects",
+                headers={"Authorization": f"Bearer {key}"},
+            )
             try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{port}/api/projects", timeout=5
-                ) as reply:
+                with urllib.request.urlopen(request, timeout=5) as reply:
                     body = json.load(reply)
             except urllib.error.HTTPError as error:
                 # Up, but failing: the regression this test is for.

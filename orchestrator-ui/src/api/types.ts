@@ -72,6 +72,9 @@ export const ERROR_CODES = [
   'stale_version',
   'invalid',
   'not_implemented',
+  'auth_required',
+  'forbidden',
+  'passkey_pending',
   'timeout',
   'transport',
 ] as const;

@@ -39,11 +39,24 @@ from mael_orchestrator.sources import (
 def test_serve_passes_its_flags_to_the_server():
     with patch("mael_orchestrator.cli.run_server") as run_server:
         result = CliRunner().invoke(
-            cli, ["serve", "--host", "0.0.0.0", "--port", "9000"]
+            cli,
+            [
+                "serve",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "9000",
+                "--ui-origin",
+                "https://box.ts.net:3040/",
+            ],
         )
     assert result.exit_code == 0, result.output
     run_server.assert_called_once_with(
-        [("0.0.0.0", None)], 9000, DEFAULT_LOG_LEVEL, web_root=None
+        [("0.0.0.0", None)],
+        9000,
+        DEFAULT_LOG_LEVEL,
+        web_root=None,
+        ui_origins=["https://box.ts.net:3040"],
     )
 
 
@@ -53,7 +66,11 @@ def test_serve_defaults_to_localhost_and_the_default_port():
     assert result.exit_code == 0, result.output
     # The suite's venv is a worktree's, not an installed release: no UI.
     run_server.assert_called_once_with(
-        [(DEFAULT_HOST, None)], DEFAULT_PORT, DEFAULT_LOG_LEVEL, web_root=None
+        [(DEFAULT_HOST, None)],
+        DEFAULT_PORT,
+        DEFAULT_LOG_LEVEL,
+        web_root=None,
+        ui_origins=[],
     )
 
 

@@ -19,7 +19,10 @@ from domain_fixtures import (  # noqa: F401  (pytest fixtures, found by name)
 from served_orchestrator import NOW, OTHER_PROJECT, PROJECT, Served, point_config_at
 
 from mael_agent.agent_transport import ScriptedAsyncDaemonClient
+from mael_domain.auth.keys import ensure_keys
+from mael_domain.auth.store import InMemoryAuthStore
 from mael_domain.task_table import InMemoryTaskTable
+from mael_orchestrator.auth import AuthParty
 from mael_orchestrator.routes import build_app, serving
 from mael_orchestrator.server import Orchestrator
 from mael_orchestrator.sources import InMemoryWorktreeSource, NotebookTaskSource
@@ -55,12 +58,17 @@ def start_server(table, home) -> Iterator:
             ScriptedAsyncDaemonClient(),
             clock=lambda: NOW,
         )
+        store = InMemoryAuthStore()
         loop = asyncio.new_event_loop()
         ready = threading.Event()
         stop = asyncio.Event()
 
         async def serve() -> None:
-            async with serving(build_app(orch), [("127.0.0.1", None)], 0) as port:
+            # The keys go into the notebook root, where the CLI reads them.
+            await ensure_keys(store)
+            party = AuthParty(store, user_name="maelstrom (test)")
+            app = build_app(orch, party)
+            async with serving(app, [("127.0.0.1", None)], 0) as port:
                 holder["port"] = port
                 ready.set()
                 await stop.wait()
@@ -71,7 +79,7 @@ def start_server(table, home) -> Iterator:
         holder.update(loop=loop, stop=stop, thread=thread)
         url = f"http://127.0.0.1:{holder['port']}"
         point_config_at(url)
-        return Served(table, url)
+        return Served(table, url, store)
 
     yield start  # type: ignore[misc]
     if "loop" in holder:

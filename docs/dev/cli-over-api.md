@@ -35,6 +35,7 @@ same shape: a wire contract and a client surface, so the CLI never imports `mael
 |---|---|
 | Where is the server? | The `orchestrator_url:` key: in `~/.maelstrom/config.yaml` for production, and in a dev environment's own `config.yaml` beside its `state.db`. A dev environment never reads the global key, so it never reaches the production server. The client has no default. `mael self setup` writes the production value when it is unset. |
 | What does it send? | Ids. The server runs on this machine, so the client resolves the cwd, `$MAEL_TASK_ID` and `--project` to the wire id `<project>/<notebook id>` itself. |
+| What does it carry? | The **Host key**, as `Authorization: Bearer`, read from `<notebook root>/auth/host.key` at each call. A 401 or 403 raises `OrchestratorUnauthorised`, whose message names that file. |
 | What if the key is unset? | `OrchestratorUnconfigured`. The message names the key. |
 | What if no server answers? | `OrchestratorUnreachable`. The message names the URL and `mael self restart orchestrator`. |
 | What if the server refuses? | `OrchestratorRefused`, with the `{"error": {code, message}}` the server sent. A command maps `unknown_id` to its own "not found" message. |

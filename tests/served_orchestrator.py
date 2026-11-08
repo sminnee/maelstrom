@@ -12,6 +12,7 @@ from click.testing import CliRunner
 
 from mael_cli.task_cli import task
 from mael_domain import task as model
+from mael_domain.auth.store import InMemoryAuthStore
 from mael_domain.task_table import InMemoryTaskTable
 
 PROJECT = "northwind"
@@ -21,10 +22,11 @@ NOW = "2026-09-01T00:00:00Z"
 
 @dataclass
 class Served:
-    """The table the server reads, and the URL it answers on."""
+    """The table the server reads, the URL it answers on, and its auth records."""
 
     table: InMemoryTaskTable
     url: str
+    auth: InMemoryAuthStore
 
 
 def seed(table: InMemoryTaskTable, **fields) -> model.Task:

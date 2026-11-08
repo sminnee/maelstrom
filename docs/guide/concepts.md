@@ -182,7 +182,9 @@ that is told not to change code. It reports what it finds, and writes only under
 The server names an empty title or branch from the prose you type, and the node draws hatched
 while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line
 otherwise.
-`uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
+A browser signs in to the UI with a **Passkey**. A new passkey has no access until you run
+`mael auth verify <code>` on the host.
+`uv run mael-orchestrator serve` runs the orchestrator server behind the UI, which builds that world
 from the task notebook, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and
 [the orchestrator server](../dev/orchestrator-server.md) for the server and its wire protocol.

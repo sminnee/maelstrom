@@ -27,6 +27,8 @@ import click
 from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
 from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
+from mael_domain.auth.keys import ensure_keys
+from mael_domain.auth.store import SqliteAuthStore
 from mael_domain.cmux.mael_layout import MaelCmux
 from mael_domain.comm_store import SqliteCommStore, SqliteCommUpdateStore
 from mael_domain.config import MaelstromConfig
@@ -39,7 +41,7 @@ from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.language_servers import LANGUAGE_SERVERS
-from mael_domain.notebook_root import NotebookRootUnset
+from mael_domain.notebook_root import NotebookRootUnset, notebook_root
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.release_bundle.layout import installed_web_root
@@ -67,6 +69,7 @@ from mael_domain.worktree_ops import run_env, run_sync
 from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import trash_worktree_fully
 
+from .auth import AuthParty
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
@@ -465,17 +468,26 @@ def _log_unhandled(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
     )
 
 
+def user_name() -> str:
+    """The name a passkey picker shows for this server: one per notebook root."""
+    if os.environ.get("MAEL_PRODUCTION") == "1":
+        return "maelstrom"
+    return f"maelstrom ({notebook_root().name})"
+
+
 def run_server(
     binds: Sequence[Bind],
     port: int,
     log_level: str = DEFAULT_LOG_LEVEL,
     *,
     web_root: Path | None = None,
+    ui_origins: Sequence[str] = (),
 ) -> None:
     """Build the orchestrator and serve it on each bind until interrupted.
 
     A bind with an SSL context serves HTTPS, for a page that is a secure
-    context. A ``web_root`` serves the built UI beside the API.
+    context. A ``web_root`` serves the built UI beside the API. ``ui_origins``
+    are the origins besides the server's own that may use a sign-in.
 
     The worker pool lives for the serve call, so an interrupt does not wait on
     a read in flight past the point the server has stopped.
@@ -490,8 +502,14 @@ def run_server(
         # check runs on the loop, because that is the thread the connection
         # binds to and every later call has to come from the same one.
         await db.check()
+        auth_store = SqliteAuthStore(db)
+        for scope in await ensure_keys(auth_store):
+            log.info("minted the %s key", scope)
+        party = AuthParty(
+            auth_store, user_name=user_name(), ui_origins=frozenset(ui_origins)
+        )
         serving = asyncio.ensure_future(
-            serve_app(build_app(orchestrator, web_root=web_root), binds, port)
+            serve_app(build_app(orchestrator, party, web_root=web_root), binds, port)
         )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up
@@ -606,6 +624,15 @@ def cli() -> None:
     help="The built UI to serve beside the API. Default: the installed "
     "release's web component, if this runs from one. [env: MAEL_WEB_ROOT]",
 )
+@click.option(
+    "--ui-origin",
+    "ui_origins",
+    multiple=True,
+    envvar="MAEL_UI_ORIGIN",
+    help="An origin, besides the server's own, that serves the UI and may use "
+    "a sign-in, such as a dev server. Repeatable. [env: MAEL_UI_ORIGIN, "
+    "space-separated]",
+)
 def cmd_serve(
     host: str,
     public_host: str | None,
@@ -614,6 +641,7 @@ def cmd_serve(
     tls_cert: str | None,
     tls_key: str | None,
     web_root: Path | None,
+    ui_origins: tuple[str, ...],
 ) -> None:
     """Run the orchestrator server in the foreground.
 
@@ -656,8 +684,22 @@ def cmd_serve(
     scheme = "https" if ssl_context else "http"
     for address in public:
         click.echo(f"Serving on {scheme}://{public_host}:{port} ({address})", err=True)
+    if public and not ssl_context:
+        # A browser offers passkeys only on HTTPS or localhost.
+        click.echo(
+            f"Warning: http://{public_host}:{port} has no TLS, so a browser there "
+            "cannot sign in with a passkey. Set dev_https: true, or use "
+            f"http://localhost:{port} on the host.",
+            err=True,
+        )
     try:
-        run_server(binds, port, log_level, web_root=web_root)
+        run_server(
+            binds,
+            port,
+            log_level,
+            web_root=web_root,
+            ui_origins=[o.rstrip("/") for o in ui_origins],
+        )
     except (StateDbError, NotebookRootUnset, RootUnset) as exc:
         # The refusal already names the fix; repeating it as a traceback would
         # bury it.

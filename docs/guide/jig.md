@@ -43,7 +43,8 @@ The plugin needs Vite 6 or later. It needs no options and no guard:
 
 `mael env start` sets `MAEL_FEEDBACK_URL` for each service when the notebook root's `config.yaml`
 has `orchestrator_url:`. See [environment.md](../reference/environment.md). To set the URL in the
-config, pass `maelJig({ providerUrl })`.
+config, pass `maelJig({ providerUrl })`. That URL must carry the **Feedback key** as `key=`, from
+`<notebook root>/auth/live-feedback.key`.
 
 ## A server in middleware mode
 

@@ -689,6 +689,27 @@ Give each page a one-line `description:` in YAML frontmatter. `mael wiki list` p
 
 ---
 
+## Auth
+
+Admit, list and revoke the **Passkeys** that sign in to the orchestrator UI. Each command calls
+the orchestrator server with the **Host key**, which the server writes to
+`<notebook root>/auth/host.key` at start. See
+[orchestrator-server.md](../dev/orchestrator-server.md), "Authentication".
+
+| Command | Description |
+|---|---|
+| `mael auth verify CODE` | Admit the **Pending passkey** whose sign-up screen shows `CODE`. Case and dashes do not matter. |
+| `mael auth list` | Print each passkey with its id, state, verify code (pending only), label and creation time. |
+| `mael auth revoke ID` | Remove the passkey `ID` and end each of its sign-ins. |
+
+```bash
+mael auth verify K7QF-2M9D    # the code the browser shows
+mael auth list                # every passkey
+mael auth revoke 3q2-7wEXr…   # an id from the list
+```
+
+---
+
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
@@ -820,7 +841,7 @@ runs it as the `orchestrator` host service. In a maelstrom checkout, run it with
 
 | Command | Description |
 |---|---|
-| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (plain HTTP; default `127.0.0.1`), `--public-host` (a host name to listen on as well, on each IPv4 address it resolves to, less loopback; `serve` exits when it does not resolve), `--port` (default `8765`; both listeners share it), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS on the `--public-host` listener only, and need one; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag; with no `--public-host`, `serve` ignores the two variables). `--public-host` cannot go with a wildcard `--host` such as `0.0.0.0`, `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component). The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
+| `mael-orchestrator serve` | Run the orchestrator server in the foreground. `--host` (plain HTTP; default `127.0.0.1`), `--public-host` (a host name to listen on as well, on each IPv4 address it resolves to, less loopback; `serve` exits when it does not resolve), `--port` (default `8765`; both listeners share it), `--log-level` (`debug`, `info`, `warning`, `error`; default `info`), `--tls-cert` and `--tls-key` (serve HTTPS on the `--public-host` listener only, and need one; default `DEV_TLS_CERT` and `DEV_TLS_KEY`, so a worktree under `dev_https:` serves HTTPS with no flag; with no `--public-host`, `serve` ignores the two variables). `--public-host` cannot go with a wildcard `--host` such as `0.0.0.0`, `--web-root` (the built UI to serve beside the API; default `MAEL_WEB_ROOT`, else the installed release's `web` component), `--ui-origin` (an origin besides the server's own that may use a sign-in, such as a Vite dev server; repeatable; default `MAEL_UI_ORIGIN`, space-separated). A passkey is bound to the host name the browser dialled. A browser offers passkeys only on HTTPS or at `localhost`, so `serve` warns when `--public-host` has no TLS. At start the server writes the API key files under `<notebook root>/auth/`. The agent host is the daemon `MAEL_AGENT_ROOT` names, so a worktree's orchestrator talks to that worktree's daemon. |
 
 ```bash
 uv run mael-orchestrator serve                     # http://127.0.0.1:8765

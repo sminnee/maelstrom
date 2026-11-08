@@ -15,6 +15,7 @@ import pytest
 from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_domain import worktree
+from mael_domain.auth.model import Passkey
 from mael_domain.build_runs import BuildRuns
 from mael_domain.cmux.api import FakeCmux
 from mael_domain.cmux.mael_layout import MaelCmux
@@ -332,3 +333,18 @@ class FakeBuildRuns(BuildRuns):
     async def completed(self, project, trigger):
         self.reads.append((project, trigger.workflow))
         return self.answer
+
+
+def make_passkey(id: str = "cred1", **over) -> Passkey:
+    """A pending **Passkey** with code ``K7QF-2M9D``; ``over`` sets any field."""
+    fields = dict(
+        id=id,
+        public_key="pk",
+        sign_count=0,
+        label="Laptop",
+        created="2026-11-07T09:00:00+00:00",
+        state="pending",
+        verify_code="K7QF-2M9D",
+    )
+    fields.update(over)
+    return Passkey(**fields)

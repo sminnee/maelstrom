@@ -39,6 +39,8 @@ from mael_domain.worktree_changes import (
     read_file_versions,
 )
 
+from .auth import AUTH, AuthParty, add_auth_routes, auth_middleware, origin_allowed
+from .errors import BadBody, error_response, read_body
 from .hubs import Lagging
 from .lsp_client import LspError
 from .server import Orchestrator
@@ -63,19 +65,6 @@ ORCH = web.AppKey("orch", Orchestrator)
 #: Every transcript socket open right now, so a shutdown can close each one.
 SOCKETS: web.AppKey[set] = web.AppKey("sockets", set)
 
-#: The HTTP status for each error code the server answers with.
-STATUS_FOR_CODE = {
-    "unknown_id": 404,
-    "invalid": 400,
-    "agent_exited": 409,
-    "not_waiting": 409,
-    "stale_request": 409,
-    "wrong_wait_kind": 409,
-    "stale_version": 409,
-    "cannot_update": 409,
-    "not_implemented": 501,
-    "language_server_failed": 502,
-}
 
 #: The error code for an HTTP status aiohttp raises on its own.
 CODE_FOR_STATUS = {404: "unknown_id", 501: "not_implemented"}
@@ -83,16 +72,20 @@ CODE_FOR_STATUS = {404: "unknown_id", 501: "not_implemented"}
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
-def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Application:
+def build_app(
+    orch: Orchestrator, auth: AuthParty, web_root: Path | None = None
+) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
     The orchestrator starts with the app and stops with it, so anything that
     runs the app — the CLI, a test — gets a live world without wiring it.
 
-    ``web_root`` is the built UI, served beside the API on one origin.
+    ``auth`` decides who may reach each ``/api`` route. ``web_root`` is the
+    built UI, served beside the API on one origin.
     """
-    app = web.Application(middlewares=[_json_errors])
+    app = web.Application(middlewares=[_json_errors, auth_middleware])
     app[ORCH] = orch
+    app[AUTH] = auth
 
     app[SOCKETS] = set()
 
@@ -117,6 +110,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     app.on_cleanup.append(on_cleanup)
+    add_auth_routes(app)
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
@@ -241,19 +235,6 @@ _NOT_IMPLEMENTED = (
 
 
 # -- errors --
-
-
-def error_response(code: str, message: str, **extra: Any) -> web.Response:
-    """The one error shape: ``{"error": {"code", "message"}}`` at the code's status.
-
-    ``extra`` adds fields beside those two, for the refusal that has to say
-    more than why: a create whose launch failed names the task it wrote, so a
-    retry does not write it twice.
-    """
-    return web.json_response(
-        {"error": {"code": code, "message": message, **extra}},
-        status=STATUS_FOR_CODE.get(code, 400),
-    )
 
 
 @web.middleware
@@ -711,25 +692,6 @@ async def _gate_jobs(request: web.Request) -> web.Response:
 # -- commands --
 
 
-class _BadBody(Exception):
-    pass
-
-
-async def _body(request: web.Request) -> dict[str, Any]:
-    """The JSON object a command carries; an empty body is an empty object."""
-    if not request.can_read_body:
-        return {}
-    try:
-        body = await request.json()
-    except json.JSONDecodeError as exc:
-        raise _BadBody("Body is not JSON") from exc
-    if body is None:
-        return {}
-    if not isinstance(body, dict):
-        raise _BadBody("Body must be a JSON object")
-    return body
-
-
 async def _command(
     request: web.Request,
     build: Callable[[dict[str, Any]], dict],
@@ -747,8 +709,8 @@ async def _command(
     """
     orch = await _ready(request)
     try:
-        command = build(await _body(request))
-    except _BadBody as exc:
+        command = build(await read_body(request))
+    except BadBody as exc:
         return error_response("invalid", str(exc))
     try:
         reply = await orch.handle_command(command)
@@ -903,7 +865,9 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
         return error_response("invalid", str(exc))
     except KeyError as exc:
         return error_response("unknown_id", str(exc))
-    return web.FileResponse(found)
+    # The server's own origin may use a sign-in, so a shown HTML or SVG file
+    # must not run script there.
+    return web.FileResponse(found, headers=_RAW_HEADERS)
 
 
 async def _serve_file(request: web.Request) -> web.StreamResponse:
@@ -918,7 +882,7 @@ async def _serve_file(request: web.Request) -> web.StreamResponse:
         # A missing entry and a file since deleted read the same to the caller:
         # there is nothing to serve under that id.
         return error_response("unknown_id", "no such file")
-    return web.FileResponse(found)
+    return web.FileResponse(found, headers=_RAW_HEADERS)
 
 
 def _task_id(request: web.Request) -> str:
@@ -1356,12 +1320,12 @@ async def _events(request: web.Request) -> web.StreamResponse:
         "X-Accel-Buffering": "no",
     }
     # The page is served by the dev server on its own port and dials this
-    # stream directly, so the read is cross-origin. The echo is equivalent to
-    # `*` here — the server has no auth, and the stream is read without
-    # credentials — but it keeps the header ready for an allowlist.
+    # stream directly, with its sign-in cookie, so the read is cross-origin.
+    # Only a UI origin is echoed: any other page may not read the stream.
     origin = request.headers.get("Origin")
-    if origin:
+    if origin and origin_allowed(request):
         headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
         headers["Vary"] = "Origin"
     response = web.StreamResponse(headers=headers)
     await response.prepare(request)

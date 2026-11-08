@@ -72,6 +72,7 @@ from mael_domain.worktree_model import (
 from mael_domain.worktree_trash import trash_worktree_fully
 
 from .agent_cli import agent as agent_cli
+from .auth_cli import auth as auth_cli
 from .comms_cli import comms
 from .env_cli import (
     env as env_cli,
@@ -1656,6 +1657,7 @@ cli.add_command(uptimerobot_group)
 cli.add_command(session_cli)
 cli.add_command(task_cli)
 cli.add_command(wiki_cli)
+cli.add_command(auth_cli)
 cli.add_command(project_cli)
 cli.add_command(self_group)
 cli.add_command(agent_cli)

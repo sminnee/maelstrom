@@ -11,6 +11,7 @@ import json
 
 import pytest
 from click.testing import CliRunner
+from domain_fixtures import make_passkey
 from served_orchestrator import (
     NOW,
     OTHER_PROJECT,
@@ -591,3 +592,26 @@ def test_list_all_with_no_server_says_so(home):
 
     assert result.exit_code == 1
     assert "No orchestrator answered at http://127.0.0.1:9" in result.output
+
+
+def test_auth_admits_lists_and_revokes_a_passkey(start_server):
+    """``mael auth`` carries the host key the server wrote into the notebook root."""
+    served = start_server()
+    pending = make_passkey()
+    asyncio.run(served.auth.save_passkey(pending))
+    runner = CliRunner()
+
+    listed = runner.invoke(cli, ["auth", "list"])
+    verified = runner.invoke(cli, ["auth", "verify", "K7QF-2M9D"])
+    again = runner.invoke(cli, ["auth", "verify", "K7QF-2M9D"])
+    state = asyncio.run(served.auth.read_passkey("cred1"))
+    revoked = runner.invoke(cli, ["auth", "revoke", "cred1"])
+
+    assert listed.exit_code == 0, listed.output
+    assert "cred1" in listed.output and "K7QF-2M9D" in listed.output
+    assert verified.output == "Verified Laptop (cred1).\n"
+    assert state is not None and state.state == "verified"
+    assert again.exit_code == 1
+    assert "No pending passkey has code K7QF-2M9D" in again.output
+    assert revoked.output == "Revoked cred1.\n"
+    assert asyncio.run(served.auth.list_passkeys()) == []

@@ -13,7 +13,8 @@ user today is one such developer working alone, fluent in git, worktrees and Cla
 fluent in maelstrom's own vocabulary (`CONTEXT.md` at the repo root is that vocabulary).
 
 Small development teams are the intended audience the design should aim at. This is a
-direction, not a built capability: today there is one desk, no auth and no identity. Design
+direction, not a built capability: today there is one desk and one implicit user. Each
+**Passkey** is a device of that user, not an identity. Design
 work must not assume per-user desks, attribution of who answered a checkpoint, or shared
 presence exist.
 
@@ -89,7 +90,8 @@ Constraints:
 - Against the real server, documents, comments and shaping answer `invalid`. The server serves
   agents, the desk, and the notebook writes: a task's status, its fields, and new tasks.
 - The desk persists on the server. Open tabs, filters and the expanded node do not.
-- No embedded terminal and no auth. One global key: Ctrl-` opens the console.
+- A browser signs in with a **Passkey**. A new one waits for `mael auth verify` on the host.
+- No embedded terminal. One global key: Ctrl-` opens the console.
 
 Terminology is fixed by `CONTEXT.md` at the repo root, including each term's `_Avoid_` list.
 Use desk, canvas, task list, expanded node, decision, panel link, phase, attention item,
