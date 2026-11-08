@@ -8,14 +8,15 @@ import styles from './Markdown.module.css';
 type Attention = 'high' | 'low';
 type Segment = { attention: Attention; source: string };
 
-const ATTENTION_TAG = /^<user-attention(?:\s+([^>]*))?>\s*$/;
+/** A tag at line start. Text after it on the same line opens the new segment. */
+const ATTENTION_TAG = /^ {0,3}<user-attention(?:\s+([^>]*))?>[ \t]*(.*)$/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 
 function closesFence(line: string, fence: { char: string; length: number }): boolean {
   return new RegExp(`^ {0,3}${fence.char}{${fence.length},}[\\t ]*$`).test(line);
 }
 
-/** Split standalone attention tags without interpreting tags inside code fences. */
+/** Split on line-start attention tags without interpreting tags inside code fences. */
 export function attentionSegments(source: string): Segment[] {
   const segments: Segment[] = [];
   let attention: Attention = 'high';
@@ -26,28 +27,33 @@ export function attentionSegments(source: string): Segment[] {
     lines = [];
   };
 
-  for (const line of source.split('\n')) {
+  const read = (line: string): void => {
     const fenceText = line.match(FENCE)?.[1];
     if (fence) {
       lines.push(line);
       if (closesFence(line, fence)) {
         fence = null;
       }
-      continue;
+      return;
     }
     if (fenceText) {
       fence = { char: fenceText.charAt(0), length: fenceText.length };
       lines.push(line);
-      continue;
+      return;
     }
     const tag = line.match(ATTENTION_TAG);
     if (tag) {
       push();
       attention = tag[1] === 'low' ? 'low' : 'high';
-      continue;
+      // The text after the tag is a line of its own: it can open a fence or hold a tag.
+      const rest = tag[2] ?? '';
+      if (rest.trim()) read(rest);
+      return;
     }
     lines.push(line);
-  }
+  };
+
+  for (const line of source.split('\n')) read(line);
   push();
   return segments;
 }
