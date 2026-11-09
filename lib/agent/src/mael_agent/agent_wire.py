@@ -361,6 +361,12 @@ def build_start_payload(
     return payload
 
 
+def is_compact_command(text: str) -> bool:
+    """Whether a turn is ``/compact``, alone or with focus instructions. Pure."""
+    words = text.split(maxsplit=1)
+    return bool(words) and words[0] == "/compact"
+
+
 def build_resume_payload(
     agent_id: str,
     *,
