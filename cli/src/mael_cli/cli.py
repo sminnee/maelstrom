@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 from typing import cast
 
@@ -47,6 +48,7 @@ from mael_domain.worktree import (
     list_worktrees,
     rebase_worktree,
     rebase_worktree_with_autorepair,
+    run_check_host_cmd,
     setup_worktree_for_branch,
     sync_worktree,
     sync_worktree_with_autorepair,
@@ -60,6 +62,7 @@ from mael_domain.worktree_close import (
 from mael_domain.worktree_config import apply_worktree_config
 from mael_domain.worktree_model import (
     MAIN_BRANCH,
+    MAIN_WORKTREE_FOLDER,
     REPAIRED_MESSAGE,
     BaseRef,
     WorktreeError,
@@ -224,6 +227,12 @@ def cmd_add_project(git_url, projects_dir):
         click.echo(f"Alpha worktree at: {project_path / alpha_folder}")
     except Exception as e:
         raise click.ClickException(str(e))
+    # The clone succeeded, so a failed project host check only reports.
+    outcome = run_check_host_cmd(project_path / MAIN_WORKTREE_FOLDER)
+    if outcome is not None and not outcome.passed:
+        click.echo("check_host_cmd failed:")
+        click.echo(textwrap.indent(outcome.output, "  "))
+        click.echo(f"Fix it, then run: mael project check {project_path.name}")
 
 
 @project_cli.command("create")
