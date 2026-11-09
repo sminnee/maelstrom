@@ -824,7 +824,7 @@ class GateJob(TypedDict):
     dirty: bool
     #: When the job was asked for, ISO 8601.
     started: str
-    #: ``None`` when tangier took no sample: no pid yet, or ``ps`` failed.
+    #: ``None`` when tangier's last sample found no live process, or ``ps`` failed.
     usage: GateUsage | None
     gates: list[GateState]
 

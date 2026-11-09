@@ -37,6 +37,8 @@ class GateTable:
                 return self._job(event)
             case "gate":
                 self._gate(event)
+            case "usage":
+                self._usage(event)
         return []
 
     def _status(self, event: dict[str, Any]) -> list[Ended]:
@@ -73,3 +75,10 @@ class GateTable:
         if not any(g.get("name") == gate.get("name") for g in gates):
             gates.append(gate)
         self.jobs[job["id"]] = {**job, "gates": gates}
+
+    def _usage(self, event: dict[str, Any]) -> None:
+        # ``null`` is a real reading: the job has no live process in the sample.
+        job = self.jobs.get(event.get("job_id"))
+        if job is None:
+            return
+        self.jobs[job["id"]] = {**job, "usage": event.get("usage")}

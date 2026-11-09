@@ -6245,6 +6245,32 @@ def test_the_watch_lists_the_gate_jobs_with_no_client_watching(gates):
     ]
 
 
+def test_a_usage_line_moves_the_jobs_usage(gates):
+    """A line that ends nothing still publishes: usage moves between job changes."""
+    watch, harness = gates
+    watch.lines.put_nowait(gate_status(gate_job(898, "running", WORKTREE_PATH)))
+    watch.lines.put_nowait(
+        {
+            "type": "usage",
+            "time": "2026-09-01T00:00:05+00:00",
+            "job_id": 898,
+            "usage": {"cpu_percent": 3.1, "rss_bytes": 1234, "processes": 2},
+        }
+    )
+
+    def usage():
+        job = harness.orch.world["gateJobs"].get("898")
+        return job and job["usage"]
+
+    moved = {"cpuPercent": 3.1, "rssBytes": 1234, "processes": 2}
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: usage() == moved)
+
+    run(scenario())
+
+
 def test_a_failed_job_tells_its_worktree_once(gates):
     watch, harness = gates
     harness.daemon.rows["ag1"] = agent_row()

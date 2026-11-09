@@ -656,7 +656,7 @@ export interface GateJob {
   dirty: boolean;
   /** When the job was asked for. */
   started: string;
-  /** `null` when tangier took no sample: no pid yet, or `ps` failed. */
+  /** `null` when tangier's last sample found no live process, or `ps` failed. */
   usage: GateUsage | null;
   gates: GateState[];
 }

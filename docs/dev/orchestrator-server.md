@@ -255,14 +255,16 @@ away".
 ### The gate watch
 
 The **Gate watch** keeps the world's gate jobs, and tells an agent when a **Gate job** in its
-worktree ends. The watch needs tangier 0.3.1 or later.
+worktree ends. The watch needs tangier 0.3.1 or later. Only tangier 0.3.5 or later prints
+`usage` lines. With an older tangier, usage moves only on a `job` or `gate` line.
 
 `gate_source.watch_gates` runs one `tangier gate status --watch --json --all` process for the
 server's life, whether or not a client watches. It yields one object per line: a `status`
-snapshot first, then a `job` or `gate` line per change. A cancel kills tangier's process group.
+snapshot first, then a `job` or `gate` line per change, and a `usage` line per unfinished
+job every 5 s, tangier's default. A cancel kills tangier's process group.
 The watch reads stderr all the time, because a full pipe would stop tangier with no error.
-A missing tangier, an exit, or a line that is not a JSON object raises `GateSourceError`. An
-older tangier exits at once, and the tail of its stderr is in the error.
+A missing tangier, an exit, or a line that is not a JSON object raises `GateSourceError`. A
+tangier older than 0.3.1 exits at once, and the tail of its stderr is in the error.
 
 `gate_table.GateTable` holds the unfinished jobs by id, in memory only. `apply` takes one line and
 returns the jobs that line ended:
@@ -273,6 +275,7 @@ returns the jobs that line ended:
 | `job`, unfinished | The job is upserted | — |
 | `job`, finished | The job is removed | The job. A finished job never changes state again, but a restarted watch can repeat it |
 | `gate` | The gate is replaced by name in its job | — |
+| `usage` | The job's `usage` is replaced, when the table holds the job | — |
 
 The unfinished states are `queued`, `running`, `stopping` and `orphaned`. A finished job's gate
 lines come before its job line, so the table holds the last gate states when the job ends.
@@ -303,12 +306,11 @@ once. Each `status` line drops the ids that are not in its `recent` list. The te
 watch, so a slow `say` never holds the next line. Two tells are not ordered. A refusal is logged.
 
 **A failed watch** keeps the last jobs, and logs on the first failure only. It starts again after
-5 s, then 10 s, up to 60 s. A `job` or `gate` line resets the wait, but a `status` line does
+5 s, then 10 s, up to 60 s. A `job`, `gate` or `usage` line resets the wait, but a `status` line does
 not: a tangier that prints its snapshot and exits stays one failure. A watch that ends with no
 error counts as a failure. A line the table cannot read fails the watch too.
 
-**Two gaps.** Tangier prints no line for a change in usage alone, so a job's CPU and memory move
-only on a job or gate change. A job that ends while the server is down is not told: the table and
+**One gap.** A job that ends while the server is down is not told: the table and
 the told set start empty at each start.
 
 ## A tagged document
@@ -1479,7 +1481,7 @@ without waiting for the poll.
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
-| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier took no sample of it. Empty on a server with no tangier |
+| `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier's last sample found no live process. Empty on a server with no tangier |
 | `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls" |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |

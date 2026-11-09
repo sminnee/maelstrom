@@ -26,9 +26,9 @@ class GateSourceError(RuntimeError):
 async def watch_gates() -> AsyncGenerator[dict[str, Any]]:
     """Each change to the machine's gate jobs, as tangier prints it.
 
-    ``tangier gate status --watch --json --all`` (tangier 0.3.1) prints a
-    ``status`` snapshot, then one ``job`` or ``gate`` object per change. The
-    watch never ends by itself; a cancel kills tangier's process group.
+    ``tangier gate status --watch --json --all``, one object per line: see "The
+    gate watch" in docs/dev/orchestrator-server.md. The watch never ends by
+    itself; a cancel kills tangier's process group.
 
     Raises:
         GateSourceError: If ``tangier`` is missing, exits, or prints a line
