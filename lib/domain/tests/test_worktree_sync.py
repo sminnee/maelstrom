@@ -822,7 +822,7 @@ class TestSetupWorktreeSyncOnOpen:
             patch("mael_domain.worktree.setup_claude_memory_symlink"),
             patch("mael_domain.worktree.run_install_cmd"),
             patch(
-                "mael_domain.worktree.update_claude_local_md",
+                "mael_domain.worktree.apply_worktree_config",
                 return_value=False,
             ) as local_md,
             patch(

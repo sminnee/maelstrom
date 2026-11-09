@@ -30,7 +30,7 @@ from mael_domain.env import (
 from mael_domain.env_store import JsonEnvStore
 from mael_domain.install_status import install_log_path, read_install_status
 from mael_domain.ports import get_app_url
-from mael_domain.worktree import update_claude_local_md
+from mael_domain.worktree_config import apply_worktree_config
 from mael_domain.worktree_model import CopyBackResult, get_worktree_folder_name
 
 from .table_cli import draw_table
@@ -504,7 +504,7 @@ def env_reset(worktree_opt, target):
     if refresh is not None and not refresh.changed:
         click.echo(f".env for {ctx.project}/{ctx.worktree} is already current.")
 
-    update_claude_local_md(ctx.project_path, worktree_path, ctx.worktree)
+    apply_worktree_config(ctx.project_path, worktree_path, ctx.worktree)
 
 
 @env.command("list")

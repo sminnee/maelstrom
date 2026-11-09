@@ -627,9 +627,7 @@ class TestCmdAddRecycle:
         )
         stack.enter_context(patch("mael_domain.worktree.reclaim_or_allocate_ports"))
         stack.enter_context(patch("mael_domain.worktree.setup_claude_memory_symlink"))
-        stack.enter_context(
-            patch("mael_domain.worktree.update_claude_local_md", return_value=False)
-        )
+        stack.enter_context(patch("mael_domain.worktree.apply_worktree_config"))
         stack.enter_context(patch("mael_domain.worktree.run_install_cmd"))
         # An opened worktree is rebased before finalize; these mocks have no real
         # git. A reused worktree takes the no-push variant, a new one the pushing
@@ -812,8 +810,8 @@ class TestCmdAddExistingBranch:
             "find_closed_worktree": stack.enter_context(
                 patch("mael_domain.worktree.find_closed_worktree", return_value=None)
             ),
-            "update_claude_local_md": stack.enter_context(
-                patch("mael_domain.worktree.update_claude_local_md", return_value=False)
+            "apply_worktree_config": stack.enter_context(
+                patch("mael_domain.worktree.apply_worktree_config")
             ),
             "refresh_env": stack.enter_context(
                 patch(
@@ -1588,7 +1586,7 @@ class TestMvProjectIntegration:
             patch.dict(os.environ, {"MAEL_NOTEBOOK_ROOT": str(mael_dir)}),
             patch("pathlib.Path.home", return_value=home),
             patch("mael_cli.mv_project_cli.all_live_sessions", _async_none),
-            patch("mael_cli.mv_project_cli.update_claude_local_md"),
+            patch("mael_cli.mv_project_cli.apply_worktree_config"),
         ):
             return CliRunner().invoke(cli, ["project", "mv"] + args)
 

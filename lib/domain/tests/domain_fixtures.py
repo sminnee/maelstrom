@@ -277,7 +277,7 @@ def collapsible_project():
 def quiet_finalize():
     """Stub the finalize side effects, so a worktree stays clean for git asserts."""
     with (
-        patch("mael_domain.worktree.update_claude_local_md", return_value=False),
+        patch("mael_domain.worktree.apply_worktree_config"),
         patch("mael_domain.worktree.run_install_cmd"),
         patch("mael_domain.worktree.setup_claude_memory_symlink"),
     ):

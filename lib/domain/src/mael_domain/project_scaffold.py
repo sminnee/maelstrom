@@ -44,9 +44,9 @@ def scaffold_files(name: str) -> dict[str, str]:
     """Return ``{filename: content}`` for a new project's initial commit.
 
     ``CLAUDE.md`` starts with the ``@.claude/CLAUDE.local.md`` import because
-    ``_ensure_claude_md_import`` does nothing when ``CLAUDE.md`` is absent. The
-    import dangles until the first ``mael add`` writes the local file. Claude
-    accepts a missing @-import.
+    the worktree config adds no import to an absent ``CLAUDE.md``. The import
+    dangles until the first ``mael add`` writes the local file. Claude accepts
+    a missing @-import.
     """
     return {
         ".gitignore": GITIGNORE,
