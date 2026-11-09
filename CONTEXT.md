@@ -894,6 +894,12 @@ The orchestrator's one `tangier gate status --watch` process. It keeps the world
 tells each agent in a gate job's worktree when the job ends, with a `gate` **External event**.
 _Avoid_: gate poll
 
+**Machine metrics**:
+The machine's CPU, memory and CPU temperature, with the usage of each running **Gate job**. The
+orchestrator server samples them every 15 s and keeps the last 15 minutes in memory. The
+**Welcome dialog** charts them.
+_Avoid_: system stats, host metrics (the agent host is a separate thing)
+
 **Checkpoint**:
 A point where the user approves, answers or decides something before the work continues: a plan
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a

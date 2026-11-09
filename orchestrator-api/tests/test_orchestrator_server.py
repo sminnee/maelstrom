@@ -93,6 +93,7 @@ from mael_orchestrator.daemon_bridge import DaemonRouter
 from mael_orchestrator.gate_source import GateSourceError
 from mael_orchestrator.language_servers import LanguageServers
 from mael_orchestrator.live_feedback import LiveFeedbackHub
+from mael_orchestrator.machine_metrics import MachineReading
 from mael_orchestrator.remote_hosts import MERGED_KINDS, HostUnreachable, RemoteHost
 from mael_orchestrator.routes import SOCKETS, build_app, serving
 from mael_orchestrator.server import Orchestrator
@@ -13994,3 +13995,146 @@ def test_the_pr_routes_register_and_withdraw_a_tasks_pr(harness):
     assert (task["prNumber"], task["prUrl"]) == (118, PR_URL)
     assert withdrawn.status == 200, withdrawn.body
     assert withdrawn.body["prWithdrawn"] is True
+
+
+# --- machine metrics ---------------------------------------------------------
+
+
+READING = MachineReading(
+    cpu_percent=34.5,
+    cpu_count=8,
+    memory_used_bytes=12_000_000_000,
+    memory_total_bytes=32_000_000_000,
+    cpu_temperature_c=61.0,
+)
+
+
+class ScriptedMachine:
+    """Stands in for ``read_machine``: each call takes the next result, then repeats the last.
+
+    An exception in the list is raised by its call.
+    """
+
+    def __init__(self, *results: MachineReading | Exception) -> None:
+        self.results = list(results)
+        self.calls = 0
+
+    def __call__(self) -> MachineReading:
+        result = self.results[min(self.calls, len(self.results) - 1)]
+        self.calls += 1
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+#: The sample ``READING`` gives with no gate job running.
+SAMPLE = {
+    "at": NOW,
+    "cpuPercent": 34.5,
+    "cpuCount": 8,
+    "memoryUsedBytes": 12_000_000_000,
+    "memoryTotalBytes": 32_000_000_000,
+    "cpuTemperatureC": 61.0,
+    "gates": [],
+}
+
+
+def history_of(harness) -> list:
+    with harness.orch.metrics.subscribe() as (samples, _):
+        return samples
+
+
+def test_a_sample_holds_the_machine_and_each_running_gate_job_with_a_usage(store):
+    watch = ScriptedGateWatch()
+    harness = Harness(
+        store,
+        gate_watch=watch,
+        gate_backoff=0.01,
+        read_machine=ScriptedMachine(READING),
+        metrics_period=0.02,
+    )
+    watch.lines.put_nowait(
+        gate_status(
+            gate_job(898, "running", WORKTREE_PATH),
+            gate_job(899, "queued", "/elsewhere/repo-bravo", queue_position=1),
+            gate_job(900, "running", "/elsewhere/repo-charlie", usage=None),
+        )
+    )
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(harness.orch.world["gateJobs"]) == 3)
+            await wait_until(lambda: any(s["gates"] for s in history_of(harness)))
+            return [s for s in history_of(harness) if s["gates"]][-1]
+
+    # The queued job uses nothing yet, and job 900 has no sample yet.
+    assert run(scenario()) == {
+        **SAMPLE,
+        "gates": [
+            {
+                "jobId": "898",
+                "worktree": "northwind-alpha",
+                "path": WORKTREE_PATH,
+                "usage": {"cpuPercent": 94.4, "rssBytes": 112197632, "processes": 3},
+            }
+        ],
+    }
+
+
+def test_a_failed_machine_read_does_not_stop_the_sampler(harness_factory):
+    harness = harness_factory(
+        read_machine=ScriptedMachine(OSError("no /proc"), READING),
+        metrics_period=0.02,
+    )
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(history_of(harness)) >= 1)
+            return history_of(harness)[0]
+
+    assert run(scenario()) == SAMPLE
+
+
+def test_the_metrics_socket_opens_with_the_history_then_sends_each_new_sample(
+    harness_factory,
+):
+    harness = harness_factory(
+        read_machine=ScriptedMachine(READING), metrics_period=0.05
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: len(history_of(harness)) >= 1)
+            async with api.session.ws_connect("/api/machine/metrics/stream") as ws:
+                opening = await ws_next(ws)
+                live = await ws_next(ws)
+            return opening, live
+
+    opening, live = run(scenario())
+    assert opening["type"] == "metrics.snapshot"
+    assert opening["samples"] and all(s == SAMPLE for s in opening["samples"])
+    assert live == {"type": "metrics.sample", "sample": SAMPLE}
+
+
+def test_a_metrics_socket_that_falls_behind_is_closed_lagging(harness_factory):
+    harness = harness_factory(metrics_queue_limit=2)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.ws_connect("/api/machine/metrics/stream") as ws:
+                await ws_next(ws)
+                # Four samples land before the socket can take one.
+                for n in range(4):
+                    harness.orch.metrics.add({**SAMPLE, "at": str(n)})
+                while (await asyncio.wait_for(ws.receive(), 2.0)).type != (
+                    aiohttp.WSMsgType.CLOSE
+                ):
+                    pass
+                close_code = ws.close_code
+            async with api.session.ws_connect("/api/machine/metrics/stream") as again:
+                reopened = await ws_next(again)
+            return close_code, reopened
+
+    close_code, reopened = run(scenario())
+    assert close_code == 4409
+    assert [s["at"] for s in reopened["samples"]] == ["0", "1", "2", "3"]

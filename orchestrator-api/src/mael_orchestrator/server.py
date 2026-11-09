@@ -116,8 +116,10 @@ from mael_domain.protocol import (
     Comm,
     Document,
     GateJob,
+    GateMetrics,
     Host,
     HostUsage,
+    MetricsSample,
     RemoteHostState,
     ServerEvent,
     Task,
@@ -165,10 +167,18 @@ from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
 from .gate_table import GateTable
-from .hubs import COALESCE_SECS, WS_QUEUE_LIMIT, NoticeHub, TranscriptHub
+from .hubs import (
+    COALESCE_SECS,
+    METRICS_QUEUE_LIMIT,
+    WS_QUEUE_LIMIT,
+    MetricsHub,
+    NoticeHub,
+    TranscriptHub,
+)
 from .language_servers import LanguageServers
 from .live_feedback import LiveFeedbackHub
 from .loop_watch import LoopWatch
+from .machine_metrics import METRICS_PERIOD_SECS, MachineReading
 from .notices import notices_for
 from .operations import (
     Busy,
@@ -632,6 +642,9 @@ class Orchestrator:
         agent_poll: float = AGENT_POLL_SECS,
         gate_watch: Callable[[], AsyncGenerator[dict[str, Any]]] | None = None,
         gate_backoff: float = GATE_BACKOFF_SECS,
+        read_machine: Callable[[], MachineReading] | None = None,
+        metrics_period: float = METRICS_PERIOD_SECS,
+        metrics_queue_limit: int = METRICS_QUEUE_LIMIT,
         notice_coalesce: float = COALESCE_SECS,
         transcript_ring: int = TRANSCRIPT_RING,
         ws_queue_limit: int = WS_QUEUE_LIMIT,
@@ -775,6 +788,13 @@ class Orchestrator:
         #: Starts tangier's gate watch; ``None`` keeps the world's gate jobs empty.
         self._gate_watch = gate_watch
         self._gate_backoff = gate_backoff
+        #: Reads the machine for the metrics sampler; ``None`` runs no sampler.
+        self._read_machine = read_machine
+        self._metrics_period = metrics_period
+        #: Whether the last machine read failed, so a lasting failure logs once.
+        self._metrics_failed = False
+        #: The last samples, served to the metrics sockets. In memory only.
+        self.metrics = MetricsHub(queue_limit=metrics_queue_limit)
         #: The unfinished jobs the watch holds. See ``CONTEXT.md``, "Gate watch".
         self._gate_table = GateTable()
         #: The jobs whose end was told, so a repeated end tells once.
@@ -855,6 +875,8 @@ class Orchestrator:
             )
         if self.remote_hosts:
             self._remote_flipped()
+        if self._read_machine is not None:
+            self._pollers.append(asyncio.create_task(self._sample_metrics()))
 
     async def stop(self) -> None:
         # First: a shielded PR read outlives its cancelled caller, and must not
@@ -3542,6 +3564,46 @@ class Orchestrator:
                         )
         except Exception:  # noqa: BLE001 — nothing awaits this task
             log.exception("the PR watch failed for %s", pr.url)
+
+    # -- machine metrics --
+
+    async def _sample_metrics(self) -> None:
+        """Read the machine every period, with the running gate jobs' usage.
+
+        See orchestrator-server.md, "Machine metrics".
+        """
+        assert self._read_machine is not None
+        while True:
+            try:
+                reading = await asyncio.to_thread(self._read_machine)
+                self.metrics.add(self._metrics_sample(reading))
+                self._metrics_failed = False
+            except Exception:  # noqa: BLE001 — one bad read must not stop the sampler
+                if not self._metrics_failed:
+                    log.exception("machine metrics read failed")
+                self._metrics_failed = True
+            await asyncio.sleep(self._metrics_period)
+
+    def _metrics_sample(self, reading: MachineReading) -> MetricsSample:
+        gates: list[GateMetrics] = [
+            {
+                "jobId": job["id"],
+                "worktree": job["worktree"],
+                "path": job["path"],
+                "usage": job["usage"],
+            }
+            for job in self.world["gateJobs"].values()
+            if job["state"] == "running" and job["usage"] is not None
+        ]
+        return {
+            "at": self.clock(),
+            "cpuPercent": reading.cpu_percent,
+            "cpuCount": reading.cpu_count,
+            "memoryUsedBytes": reading.memory_used_bytes,
+            "memoryTotalBytes": reading.memory_total_bytes,
+            "cpuTemperatureC": reading.cpu_temperature_c,
+            "gates": gates,
+        }
 
     # -- the gate watch --
 

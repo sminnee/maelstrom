@@ -1739,6 +1739,38 @@ A subagent's stream carries no partial message. A Codex agent's partial message 
 `item/agentMessage/delta`, keyed by item id. See
 [codex-app-server-events.md](codex-app-server-events.md#agent-message-deltas).
 
+## Machine metrics
+
+`machine_metrics.py` holds the one psutil caller. `hubs.MetricsHub` holds the ring. When the
+`Orchestrator` gets a `read_machine`, `start` adds the sampler to its pollers. The sampler runs every 15 s:
+
+1. `read_machine` runs on a thread. It reads CPU %, the core count, memory and the CPU
+   temperature.
+2. The sampler adds each running **Gate job** that has a usage, from the world's `gateJobs`.
+3. `MetricsHub.add` keeps the sample in a ring of 60, and puts it on each subscriber's queue.
+
+A read that raises is logged once, and the next tick reads again.
+
+The CPU figure is the mean since the previous read: `psutil.cpu_percent(interval=None)`. The
+first read has no previous one, so it waits 0.5 s. A gate job's `cpuPercent` stays per core, as
+tangier gives it. The temperature is the first group of `CPU_SENSORS` present, its package entry
+over the hottest core. macOS has no sensor API, so there the temperature is `null`.
+
+`GET /api/machine/metrics/stream` is a WebSocket on the ring. Only an open Welcome dialog opens
+it. Machine metrics are not a world entity: a notice every 15 s to every client would serve one
+dialog.
+
+```json
+{"type": "metrics.snapshot", "samples": [{"at": "…", "cpuPercent": 34.5, "cpuCount": 8, ...}]}
+{"type": "metrics.sample", "sample": {"at": "…", "gates": [{"jobId": "898", "usage": {...}}], ...}}
+```
+
+The snapshot lists the samples oldest first. The subscribe and the snapshot are one synchronous
+step, so no sample is lost or sent twice between them. A reader 8 samples behind is closed
+`4409 lagging`, and its next connect gets a fresh snapshot. The transcript socket and this one
+share the pump in `routes._pump`. The ring is in memory only: a server
+restart starts it empty.
+
 ## The live feedback socket
 
 `GET /api/live-feedback` is a WebSocket that makes this server a **Live feedback provider**.

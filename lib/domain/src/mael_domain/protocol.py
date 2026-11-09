@@ -862,6 +862,33 @@ class GateJob(TypedDict):
     gates: list[GateState]
 
 
+class GateMetrics(TypedDict):
+    """One running gate job's usage, as a metrics sample keeps it."""
+
+    jobId: str
+    #: As ``GateJob.worktree``.
+    worktree: str | None
+    path: str
+    usage: GateUsage
+
+
+class MetricsSample(TypedDict):
+    """One reading of the machine. See CONTEXT.md, "Machine metrics"."""
+
+    #: ISO 8601.
+    at: str
+    #: 0-100, the whole machine, the mean over the period.
+    cpuPercent: float
+    cpuCount: int
+    #: Total less available.
+    memoryUsedBytes: int
+    memoryTotalBytes: int
+    #: ``None`` when the host gives no CPU sensor.
+    cpuTemperatureC: float | None
+    #: The running gate jobs with a usage.
+    gates: list[GateMetrics]
+
+
 class World(TypedDict):
     projects: dict[str, Project]
     worktrees: dict[str, Worktree]

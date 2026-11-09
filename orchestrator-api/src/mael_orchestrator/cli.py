@@ -68,6 +68,7 @@ from mael_domain.worktree_ops import run_env, run_sync
 from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import trash_worktree_fully
 
+from . import machine_metrics
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
@@ -389,6 +390,7 @@ def build_orchestrator(
         executor=executor,
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,
+        read_machine=machine_metrics.read_machine,
         language_servers=LanguageServers(LANGUAGE_SERVERS),
         system=SystemPaths.for_home(
             Path.home(),

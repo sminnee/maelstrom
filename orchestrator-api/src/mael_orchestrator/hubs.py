@@ -5,12 +5,17 @@ every open notice stream; each subscriber holds a pending set per kind, so a
 slow reader costs memory bounded by the number of entities, never by a queue.
 :class:`TranscriptHub` carries one agent's transcript frames to every socket
 open on it; a reader that falls a queue behind is told so and closed, and
-resumes from its seq.
+resumes from its seq. :class:`MetricsHub` keeps the last machine metrics
+samples and carries each new one to every metrics socket.
 """
 
 import asyncio
+from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from typing import Any
+
+from mael_domain.protocol import MetricsSample
 
 from .notices import Notices, merge_notices
 from .transcript_log import TranscriptFrame, TranscriptPartial
@@ -187,3 +192,59 @@ class TranscriptHub:
 
     def count(self, agent_id: str) -> int:
         return len(self._subscribers.get(agent_id, ()))
+
+
+#: Machine metrics samples kept: 15 minutes at one per 15 s.
+METRICS_HISTORY = 60
+#: Samples a metrics socket may fall behind before it is closed.
+METRICS_QUEUE_LIMIT = 8
+
+
+class MetricsSubscriber:
+    """One socket's unread ``metrics.sample`` frames."""
+
+    def __init__(self, limit: int) -> None:
+        self.queue: asyncio.Queue[dict[str, Any] | Lagging] = asyncio.Queue(
+            maxsize=limit
+        )
+
+    async def next(self) -> dict[str, Any] | Lagging:
+        return await self.queue.get()
+
+
+class MetricsHub:
+    """The last machine metrics samples, and the sockets that hear each new one."""
+
+    def __init__(
+        self, limit: int = METRICS_HISTORY, queue_limit: int = METRICS_QUEUE_LIMIT
+    ) -> None:
+        self._samples: deque[MetricsSample] = deque(maxlen=limit)
+        self._queue_limit = queue_limit
+        self._subscribers: set[MetricsSubscriber] = set()
+
+    def add(self, sample: MetricsSample) -> None:
+        self._samples.append(sample)
+        frame = {"type": "metrics.sample", "sample": sample}
+        for subscriber in list(self._subscribers):
+            try:
+                subscriber.queue.put_nowait(frame)
+            except asyncio.QueueFull:
+                # Its next connect gets a fresh snapshot, so the backlog is
+                # worth nothing: drop it and say so.
+                self._subscribers.discard(subscriber)
+                while not subscriber.queue.empty():
+                    subscriber.queue.get_nowait()
+                subscriber.queue.put_nowait(LAGGING)
+
+    @contextmanager
+    def subscribe(self) -> Iterator[tuple[list[MetricsSample], MetricsSubscriber]]:
+        """The samples so far, oldest first, and a subscriber to each later one.
+
+        One synchronous step, so no sample lands between the two.
+        """
+        subscriber = MetricsSubscriber(self._queue_limit)
+        self._subscribers.add(subscriber)
+        try:
+            yield list(self._samples), subscriber
+        finally:
+            self._subscribers.discard(subscriber)

@@ -162,6 +162,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/host", _host)
     app.router.add_get("/api/system", _system)
     app.router.add_get("/api/gate-jobs", _gate_jobs)
+    app.router.add_get("/api/machine/metrics/stream", _metrics_stream)
     app.router.add_get("/api/events", _events)
     app.router.add_get("/api/live-feedback", _live_feedback_socket)
     app.router.add_post("/api/agents/{id}/{action}", _agent_command)
@@ -1615,6 +1616,24 @@ async def _stream_frames(
         items = opening.pop(key)
         await ws.send_str(await asyncio.to_thread(_dumps_by_item, opening, key, items))
         await _pump(ws, subscriber.next)
+    return ws
+
+
+async def _metrics_stream(request: web.Request) -> web.WebSocketResponse:
+    """Machine metrics over a WebSocket: the samples so far, then each new one.
+
+    See orchestrator-server.md, "Machine metrics".
+    """
+    orch = await _ready(request)
+    ws = web.WebSocketResponse(heartbeat=HEARTBEAT_SECS)
+    await ws.prepare(request)
+    request.app[SOCKETS].add(ws)
+    try:
+        with orch.metrics.subscribe() as (samples, subscriber):
+            await ws.send_json({"type": "metrics.snapshot", "samples": samples})
+            await _pump(ws, subscriber.next)
+    finally:
+        request.app[SOCKETS].discard(ws)
     return ws
 
 
