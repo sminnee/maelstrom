@@ -59,6 +59,8 @@ try {
     JSON.stringify({
       name: 'smoke',
       private: true,
+      // The package's pinned pnpm, as CI runs it, not whichever pnpm is on PATH.
+      packageManager: manifest.packageManager,
       type: 'module',
       dependencies: {
         vite: process.env.SMOKE_VITE ?? manifest.devDependencies.vite,
