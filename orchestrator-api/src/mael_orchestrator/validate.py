@@ -10,11 +10,12 @@ from typing import Any
 
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
+from mael_agent.host_ids import owner_of
 from mael_domain.attachments import is_bare_name
 from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
-from mael_domain.protocol import HOST_ID, Agent, Worktree, World
+from mael_domain.protocol import HOST_ID, Agent, RemoteHostState, Worktree, World
 from mael_domain.task import PROMOTABLE_FIELDS
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
@@ -585,6 +586,10 @@ def _worktree_error(
     worktree = world["worktrees"].get(worktree_id)
     if worktree is None:
         return _err("unknown_id", f"No worktree {worktree_id}")
+    # A remote host's worktree is changed on that host, so it must answer.
+    remote = _remote_host_state(world, owner_of(worktree_id))
+    if remote is not None and not remote["online"]:
+        return _err("unreachable", f"{remote['name']} is offline")
 
     if kind in TEARDOWN_COMMANDS and not is_worktree_closable(worktree["nato"]):
         return _err(
@@ -1135,12 +1140,17 @@ def validate_command(
     return _err("invalid", f"Unknown command: {kind}")
 
 
-def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
-    """Why a launch on the remote host ``name`` is refused, or ``None``."""
+def _remote_host_state(world: World, name: str) -> RemoteHostState | None:
+    """The ``remoteHosts`` entry of the host ``name``, or ``None`` when none."""
     host = world["host"].get(HOST_ID)
-    remote = next(
+    return next(
         (h for h in (host or {}).get("remoteHosts", []) if h["name"] == name), None
     )
+
+
+def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
+    """Why a launch on the remote host ``name`` is refused, or ``None``."""
+    remote = _remote_host_state(world, name)
     if remote is None:
         return _err("invalid", f"No remote host {name}")
     if not remote["online"]:

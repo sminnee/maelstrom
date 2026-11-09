@@ -953,6 +953,17 @@ def test_closing_a_worktree_the_world_does_not_hold_is_unknown_id():
     assert error == {"code": "unknown_id", "message": "No worktree northwind-zulu"}
 
 
+@pytest.mark.parametrize(("online", "error"), [(False, "unreachable"), (True, None)])
+def test_closing_a_worktree_of_a_remote_host_needs_the_host_online(online, error):
+    world = world_with(worktrees=[make_worktree(id="cobalt:northwind-alpha")])
+    world["host"][HOST_ID] = {
+        "id": HOST_ID,
+        "remoteHosts": [{"name": "cobalt", "online": online, "since": ""}],
+    }
+    refused = validate_command(world, close("cobalt:northwind-alpha"))
+    assert (refused and refused["code"]) == error
+
+
 def test_closing_an_already_closed_worktree_is_refused():
     world = world_with(worktrees=[make_worktree(isClosed=True, branch="")])
     error = validate_command(world, close("northwind-alpha"))
