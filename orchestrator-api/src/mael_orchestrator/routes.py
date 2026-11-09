@@ -14,7 +14,7 @@ import mimetypes
 import socket
 import ssl
 import subprocess
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -1614,37 +1614,47 @@ async def _stream_frames(
         key = "items" if replay is None else "frames"
         items = opening.pop(key)
         await ws.send_str(await asyncio.to_thread(_dumps_by_item, opening, key, items))
-        closed = asyncio.create_task(_until_closed(ws))
-        # One task spans the loop, so a frame the socket does not take is still
-        # waited on by the same task next time round rather than a fresh one.
-        nxt = asyncio.create_task(subscriber.next())
-        try:
-            while not ws.closed:
-                done, _ = await asyncio.wait(
-                    {nxt, closed}, return_when=asyncio.FIRST_COMPLETED
-                )
-                if nxt not in done:
-                    break
-                frame = nxt.result()
-                nxt = asyncio.create_task(subscriber.next())
-                if isinstance(frame, Lagging):
-                    # The reader must be out of ``receive()`` first: a close
-                    # that races a receive drops the transport before the
-                    # client's acknowledgement, and the client sees 1006.
-                    await _stop(closed)
-                    await ws.close(code=CLOSE_LAGGING, message=b"lagging")
-                    break
-                try:
-                    await ws.send_json(frame)
-                except (ConnectionResetError, RuntimeError):
-                    # The socket went between the loop's check and this write.
-                    break
-        finally:
-            # Both are cancelled *and* awaited: a task merely told to stop is
-            # still pending when it is collected, which is what Python reports
-            # as "Task was destroyed but it is pending".
-            await _stop(nxt, closed)
+        await _pump(ws, subscriber.next)
     return ws
+
+
+async def _pump(
+    ws: web.WebSocketResponse, next_frame: Callable[[], Coroutine[Any, Any, Any]]
+) -> None:
+    """Send each frame ``next_frame`` gives until either end stops.
+
+    A :class:`Lagging` frame closes the socket ``4409``.
+    """
+    closed = asyncio.create_task(_until_closed(ws))
+    # One task spans the loop, so a frame the socket does not take is still
+    # waited on by the same task next time round rather than a fresh one.
+    nxt = asyncio.create_task(next_frame())
+    try:
+        while not ws.closed:
+            done, _ = await asyncio.wait(
+                {nxt, closed}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if nxt not in done:
+                break
+            frame = nxt.result()
+            nxt = asyncio.create_task(next_frame())
+            if isinstance(frame, Lagging):
+                # The reader must be out of ``receive()`` first: a close
+                # that races a receive drops the transport before the
+                # client's acknowledgement, and the client sees 1006.
+                await _stop(closed)
+                await ws.close(code=CLOSE_LAGGING, message=b"lagging")
+                break
+            try:
+                await ws.send_json(frame)
+            except (ConnectionResetError, RuntimeError):
+                # The socket went between the loop's check and this write.
+                break
+    finally:
+        # Both are cancelled *and* awaited: a task merely told to stop is
+        # still pending when it is collected, which is what Python reports
+        # as "Task was destroyed but it is pending".
+        await _stop(nxt, closed)
 
 
 async def _stop(*tasks: asyncio.Task) -> None:
