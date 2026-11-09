@@ -61,9 +61,9 @@ from mael_domain.worktree import (
     setup_worktree_for_branch,
 )
 from mael_domain.worktree_close import (
-    add_reopen_task,
     close_worktree_fully,
     remove_worktree_fully,
+    reopen_task_fields,
 )
 from mael_domain.worktree_model import WorktreeError, get_worktree_folder_name
 from mael_domain.worktree_ops import run_env, run_sync
@@ -83,6 +83,7 @@ from .sources import (
     CloseBlocked,
     ListAllWorktreeSource,
     NotebookTaskSource,
+    TaskHome,
     WorktreeOpener,
 )
 
@@ -199,7 +200,7 @@ def build_orchestrator(
             raise CloseBlocked(outcome.close.message)
 
     async def force_close_worktree(
-        project: str, nato: str, path: str, *, hook: StepHook
+        project: str, nato: str, path: str, *, hook: StepHook, home: TaskHome
     ) -> None:
         # A decision, not a retry — see docs/dev/orchestrator-server.md,
         # "Closing a worktree".
@@ -215,8 +216,11 @@ def build_orchestrator(
         )
         if not outcome.close.success:
             raise CloseBlocked(outcome.close.message)
+        fields = reopen_task_fields(outcome.close)
+        if fields is None:
+            return
         try:
-            await add_reopen_task(table, project, outcome.close)
+            await home.create(project, fields)
         except Exception:  # noqa: BLE001 — logged with its traceback
             # The worktree is closed. A failed task write must not report
             # that close as failed, which is what raising here would do.
