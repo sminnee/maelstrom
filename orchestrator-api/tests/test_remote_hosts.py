@@ -3,11 +3,13 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
+import pytest
 from aiohttp import web
 
 from mael_orchestrator import remote_hosts
 from mael_orchestrator.remote_hosts import (
     MERGED_KINDS,
+    HostUnreachable,
     RemoteHost,
     resolve_addresses,
 )
@@ -25,6 +27,8 @@ class StubHost:
         self.up = True
         self.cut = asyncio.Event()
         self.changes: asyncio.Queue[str] = asyncio.Queue()
+        #: What the operations list answers with.
+        self.operations: list[dict] = []
 
     async def events(self, request: web.Request) -> web.StreamResponse:
         if not self.up:
@@ -51,7 +55,7 @@ class StubHost:
 
     async def empty(self, request: web.Request) -> web.Response:
         _route, key = MERGED_ROUTES[request.path]
-        return web.json_response({key: []})
+        return web.json_response({key: self.operations if key == "operations" else []})
 
     def go_down(self) -> None:
         self.up = False
@@ -129,6 +133,34 @@ def test_a_host_goes_offline_on_a_drop_and_online_again_when_it_answers():
         return flips
 
     assert asyncio.run(scenario()) == [True, False, True]
+
+
+@pytest.mark.parametrize(
+    ("operations", "said"),
+    [
+        ([], "cobalt lost operation cobalt:op1"),
+        (
+            [{"id": "cobalt:op1", "state": "running"}],
+            "cobalt: operation cobalt:op1 ran too long",
+        ),
+    ],
+)
+def test_a_wait_for_a_hosts_operation_that_cannot_end_raises(
+    monkeypatch, operations, said
+):
+    monkeypatch.setattr(remote_hosts, "OPERATION_SECS", 0.1)
+    monkeypatch.setattr(remote_hosts, "OPERATION_POLL_SECS", 0.02)
+
+    async def scenario():
+        stub = StubHost()
+        stub.operations = operations
+        async with linked(stub) as (host, flips):
+            await until(lambda: flips == [True])
+            with pytest.raises(HostUnreachable) as raised:
+                await host.await_operation("cobalt:op1")
+            return str(raised.value)
+
+    assert asyncio.run(scenario()) == said
 
 
 def test_a_stream_that_never_resets_leaves_the_host_offline():

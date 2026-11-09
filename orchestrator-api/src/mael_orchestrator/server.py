@@ -314,6 +314,20 @@ def _version_json(version: Version) -> dict[str, Any]:
     }
 
 
+#: The host route that runs each worktree end of a **Dismiss** chain, as a
+#: method and a path after ``/api/worktrees/{id}``.
+_HOST_WORKTREE_ROUTES: dict[str, tuple[str, str]] = {
+    "worktree.close": ("POST", "/close"),
+    "worktree.forceClose": ("POST", "/force-close"),
+    "worktree.trash": ("POST", "/trash"),
+    "worktree.remove": ("DELETE", ""),
+}
+
+
+async def _nothing() -> None:
+    """The refresh of an operation whose change another server makes."""
+
+
 #: Each command that runs as an operation: its kind, the ``WorktreeSource``
 #: callable, the refusal of a server without one, and its words — doing, done,
 #: and the start of a fault. ``worktree.forceClose`` is the UI's **Shelve**.
@@ -1549,6 +1563,12 @@ class Orchestrator:
         """Where ``agent``'s task work goes: its parent's tasks, or this server's."""
         delegated = agent if self._delegated(agent) else None
         return self.homes.for_parent(delegated["parentUrl"] if delegated else "")
+
+    def _remote_owner(self, entity_id: str) -> RemoteHost | None:
+        """The **Remote host** that owns ``entity_id``, or ``None`` for this server's own."""
+        if self.ids.is_own(entity_id):
+            return None
+        return self.remote_hosts.get(owner_of(entity_id))
 
     async def _task_of(self, agent: Agent) -> Task | None:
         """``agent``'s task, from its home. ``None`` for a free agent or a lost one."""
@@ -2861,8 +2881,8 @@ class Orchestrator:
         An agent a remote host owns is asked through that host's own agent
         route, as a browser's request for it would be.
         """
-        remote = self.remote_hosts.get(owner_of(str(payload.get("id") or "")))
-        if remote is not None and not self.ids.is_own(str(payload["id"])):
+        remote = self._remote_owner(str(payload.get("id") or ""))
+        if remote is not None:
             return await self._ask_remote(remote, payload)
         reply = await self.daemon.request(payload)
         if "error" in reply:
@@ -2872,20 +2892,20 @@ class Orchestrator:
     async def _ask_remote(
         self, remote: RemoteHost, payload: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """``payload`` as a remote host's agent route takes it: ``say`` or ``stop``.
+        """``payload`` as a remote host's agent route takes it: ``say`` only.
 
-        Other commands reach a remote agent only through its forwarded route.
-        A ``say`` sends its text alone: an attachment's path is this server's.
+        A stop is :meth:`_stop_remote`'s, because it waits for the host's
+        operation. Other commands reach a remote agent only through its
+        forwarded route. A ``say`` sends its text alone: an attachment's path
+        is this server's.
         """
         command = str(payload["cmd"])
-        if command == "say":
-            body: dict[str, Any] = {"text": payload.get("text", "")}
-        elif command == "stop":
-            body = {}
-        else:
+        if command != "say":
             return _refused("invalid", f"{command} is not sent to a remote host")
         try:
-            await remote.post_json(f"/api/agents/{payload['id']}/{command}", body)
+            await remote.post_json(
+                f"/api/agents/{payload['id']}/say", {"text": payload.get("text", "")}
+            )
         except HostUnreachable as exc:
             return _refused("unreachable", str(exc))
         return None
@@ -4475,18 +4495,35 @@ class Orchestrator:
                 await _run_own_steps([stop, off_desk], hook)
 
         else:
-            worktree_id = command["worktreeId"]
-            inner = self._worktree_plan({"type": ending, "worktreeId": worktree_id})
-            if isinstance(inner, dict):
-                return inner
-            hold |= inner.keys
-            refresh = inner.refresh
-            steps = ["off_desk"]
+            ending_id: str = command["worktreeId"]
+            worktree_id = ending_id
+            remote = self._remote_owner(ending_id)
+            if remote is not None:
+                # The host ends its own worktree. The merge brings the change,
+                # so nothing here is read again.
+                end = Step(
+                    name="end_on_host",
+                    run=functools.partial(self._end_on_host, remote, ending_id, ending),
+                )
+                hold.add(worktree_key(ending_id))
+                refresh = _nothing
+                steps = ["end_on_host", "off_desk"]
 
-            async def work(hook: OperationHook) -> None:
-                chain = ChainHook(hook, ["off_desk"])
-                await inner.work(chain)
-                await _run_own_steps([off_desk], chain)
+                async def work(hook: OperationHook) -> None:
+                    await _run_own_steps([end, off_desk], hook)
+
+            else:
+                inner = self._worktree_plan({"type": ending, "worktreeId": worktree_id})
+                if isinstance(inner, dict):
+                    return inner
+                hold |= inner.keys
+                refresh = inner.refresh
+                steps = ["off_desk"]
+
+                async def work(hook: OperationHook) -> None:
+                    chain = ChainHook(hook, ["off_desk"])
+                    await inner.work(chain)
+                    await _run_own_steps([off_desk], chain)
 
         name = self._unit_name(desk_id)
         return OperationPlan(
@@ -4513,16 +4550,71 @@ class Orchestrator:
 
     async def _stop_agent(self, agent_id: str) -> StepOutcome:
         """End an agent's process. The step of a Terminate, and of its Dismiss."""
+        remote = self._remote_owner(agent_id)
+        if remote is not None:
+            return await self._stop_remote(remote, agent_id)
         refused = await self._ask_host({"cmd": "stop", "id": agent_id})
         if refused:
             return StepOutcome(blocked=refused["error"]["message"])
-        if not self.ids.is_own(agent_id):
-            # Its host exits it, and the merge brings the exit here.
-            return StepOutcome(messages=[f"Stopped {agent_id}."])
         # The host drops a stopped agent, so its stream ends without a marker
         # and the next list no longer names it: this is its clean exit.
         await self._exit(agent_id, 0)
         return StepOutcome(messages=[f"Stopped {agent_id}."])
+
+    async def _stop_remote(self, remote: RemoteHost, agent_id: str) -> StepOutcome:
+        """Stop a remote host's agent, and end when the host's stop has ended.
+
+        The host runs the stop as its own operation. A refusal or a fault of
+        it is this step's refusal, in the host's words. The host exits the
+        agent, and the merge brings the exit here.
+        """
+        try:
+            reply = await remote.post_json(f"/api/agents/{agent_id}/stop", {})
+        except HostUnreachable as exc:
+            return StepOutcome(blocked=str(exc))
+        return await self._await_remote(remote, reply, f"Stopped {agent_id}.")
+
+    async def _end_on_host(
+        self, remote: RemoteHost, worktree_id: str, ending: str
+    ) -> StepOutcome:
+        """End a remote host's worktree through the host's own worktree route.
+
+        The step of a **Dismiss** whose worktree the host owns. It ends when
+        the host's operation ends.
+        """
+        method, suffix = _HOST_WORKTREE_ROUTES[ending]
+        path = f"/api/worktrees/{worktree_id}{suffix}"
+        try:
+            if method == "DELETE":
+                reply = await remote.delete_json(path)
+            else:
+                reply = await remote.post_json(path, {})
+        except HostUnreachable as exc:
+            return StepOutcome(blocked=str(exc))
+        _op_kind, _attr, _cannot, _doing, done, _failing = _OPERATION_COMMANDS[ending]
+        return await self._await_remote(
+            remote, reply, f"{done} {worktree_id} on {remote.name}."
+        )
+
+    async def _await_remote(
+        self, remote: RemoteHost, reply: dict[str, Any], done: str
+    ) -> StepOutcome:
+        """The step outcome of the host's operation that ``reply`` names, once it has ended."""
+        operation_id = reply.get("operationId")
+        if not operation_id:
+            return StepOutcome(blocked=f"{remote.name} started no operation")
+        try:
+            operation = await remote.await_operation(str(operation_id))
+        except HostUnreachable as exc:
+            return StepOutcome(
+                blocked=f"The request reached {remote.name}, but its result is "
+                f"unknown: {exc}"
+            )
+        if operation["state"] != DONE:
+            return StepOutcome(
+                blocked=f"{remote.name}: {operation.get('words') or 'failed'}"
+            )
+        return StepOutcome(messages=[done])
 
     async def _off_desk(self, desk_id: str) -> StepOutcome:
         """Take a unit off the desk. A live node draws with no entry, so there may be none."""
@@ -4543,11 +4635,18 @@ class Orchestrator:
             return _refused(
                 "invalid", "This no longer runs as an operation. Use its control again."
             )
+        worktree_id = command["worktreeId"]
+        if not self.ids.is_own(worktree_id):
+            # A merged row names the host's paths: git must not run on them here.
+            return _refused(
+                "unknown_id",
+                f"{worktree_id} is a worktree of {owner_of(worktree_id)}, not of "
+                "this server",
+            )
         op_kind, attr, cannot, doing, done, failing = _OPERATION_COMMANDS[kind]
         fn = getattr(self.worktrees, attr)
         if fn is None:
             return _refused("invalid", cannot)
-        worktree_id = command["worktreeId"]
         row = self.world["worktrees"][worktree_id]
         project, nato, path = row["project"], row["nato"], row["path"]
         subject = nato

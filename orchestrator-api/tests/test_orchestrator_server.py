@@ -14028,10 +14028,11 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
                 await operated(child_api, "/api/tasks/northwind/NORT-1/launch")
                 seen["direct"] = await merged(api, "cobalt:own1")
 
-                # The child's operations are not merged yet (task dq5o.2), so
-                # the stop is followed on the child.
-                stopping = await api.post("/api/agents/cobalt:new1/stop")
-                seen["stop"] = await ended(child_api, stopping.body["operationId"])
+            # The child's operation is merged, so the stop is followed here.
+            stopping = await api.post("/api/agents/cobalt:new1/stop")
+            seen["stop"] = await ended(api, stopping.body["operationId"])
+            listed = await api.get_json("/api/operations")
+            seen["operations"] = {o["id"]: o for o in listed["operations"]}
             return child
 
     child = run(scenario())
@@ -14075,7 +14076,11 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
     # (4) Approve, say and stop reach the child's daemon with bare ids.
     assert seen["approve"].status == 200, seen["approve"].body
     assert seen["say"].status == 200, seen["say"].body
-    assert seen["stop"]["state"] == "done"
+    assert (seen["stop"]["id"], seen["stop"]["state"]) == ("cobalt:op3", "done")
+    # A merged operation keeps its task only when its agent was delegated here.
+    assert seen["stop"]["taskId"] == "northwind/NORT-7"
+    direct_launch = seen["operations"]["cobalt:op2"]
+    assert (direct_launch["agentId"], direct_launch["taskId"]) == ("cobalt:own1", None)
     sent = [
         c
         for c in child.claude.calls
@@ -14209,6 +14214,28 @@ def test_a_remote_host_that_goes_away_is_offline_and_comes_back(store, tmp_path)
     assert "cobalt:new1" in [a["id"] for a in again["agents"]]
 
 
+async def launched_on_cobalt(child, parent, api) -> dict:
+    """Launch NORT-7 on cobalt's alpha from the parent, and return the merged agent."""
+    row = child.harness.worktrees.worktrees[0]
+    child.harness.worktrees.worktrees[0] = {**row, "path": str(child.path)}
+    await child.harness.orch.refresh_worktrees(force=True)
+    await parent.add_task_async("NORT-7")
+    await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+    await operated(api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"})
+    body = await merged(api, "cobalt:new1", lambda a: a["worktreeId"])
+    return next(a for a in body["agents"] if a["id"] == "cobalt:new1")
+
+
+def refuse_here(ran: list[str]):
+    """A worktree port of the parent that must not run for a remote row."""
+
+    async def port(*args, **_):
+        ran.append("parent")
+        raise CloseBlocked("ran on the parent")
+
+    return port
+
+
 def test_a_forwarded_close_shows_the_hosts_operation_in_the_parents_world(
     store, tmp_path
 ):
@@ -14234,6 +14261,136 @@ def test_a_forwarded_close_shows_the_hosts_operation_in_the_parents_world(
     assert ran == ["stop_agents", "git_close"]
     assert [s["name"] for s in log["steps"]] == ["stop_agents", "git_close"]
     assert "cobalt:op1" in [o["id"] for o in listed["operations"]]
+
+
+@pytest.mark.parametrize(
+    ("chain", "attr", "kind"),
+    [("close", "close", "close"), ("delete", "remove", "delete")],
+)
+def test_a_desk_dismiss_of_a_remote_worktree_ends_it_on_its_host(
+    store, tmp_path, chain, attr, kind
+):
+    ran: list[str] = []
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            setattr(child.harness.worktrees, attr, two_step_close(ran))
+            setattr(parent.worktrees, attr, refuse_here(ran))
+            agent = await launched_on_cobalt(child, parent, api)
+            op = await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": chain, "worktreeId": agent["worktreeId"]},
+            )
+            host_op = await ended(api, "cobalt:op2")
+            return op, host_op, await api.get_json("/api/desk")
+
+    op, host_op, desk = run(scenario())
+    assert op["state"] == "done", op
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("end_on_host", "done"),
+        ("off_desk", "done"),
+    ]
+    assert ran == ["stop_agents", "git_close"]
+    assert (host_op["kind"], host_op["state"]) == (kind, "done")
+    assert desk == {"desk": []}
+
+
+def test_a_dismiss_of_a_worktree_of_an_unknown_host_is_refused(harness):
+    ran: list[str] = []
+    harness.worktrees.close = refuse_here(ran)
+    put_on_desk(harness)
+    foreign = {**harness.worktrees.worktrees[0], "id": "zinc:northwind-alpha"}
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/worktrees", lambda b: b["worktrees"])
+            harness.orch._apply(
+                [{"type": "upsert", "kind": "worktree", "entity": foreign}]
+            )
+            return await api.post(
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "close", "worktreeId": "zinc:northwind-alpha"},
+            )
+
+    reply = run(scenario())
+    assert reply.body["error"] == {
+        "code": "unknown_id",
+        "message": "zinc:northwind-alpha is a worktree of zinc, not of this server",
+    }
+    assert ran == []
+
+
+def test_a_terminate_of_a_remote_agent_ends_when_the_hosts_stop_ends(store, tmp_path):
+    gate = asyncio.Event()
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            await launched_on_cobalt(child, parent, api)
+            answer = child.claude.request
+
+            async def held(payload):
+                if payload.get("cmd") == "stop":
+                    await gate.wait()
+                return await answer(payload)
+
+            child.claude.request = held
+            reply = await api.post(
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss", {"chain": "terminate"}
+            )
+            op_id = reply.body["operationId"]
+            # The host's stop runs, and the parent's step waits for it.
+            await until(
+                api,
+                "/api/operations",
+                lambda b: any(
+                    o["kind"] == "terminate" and o["id"].startswith("cobalt:")
+                    for o in b["operations"]
+                ),
+            )
+            # Time enough for a step that did not wait to end.
+            await asyncio.sleep(0.1)
+            waiting = next(
+                o
+                for o in (await api.get_json("/api/operations"))["operations"]
+                if o["id"] == op_id
+            )
+            gate.set()
+            return waiting, await ended(api, op_id)
+
+    waiting, op = run(scenario())
+    assert (waiting["state"], waiting["steps"][0]["state"]) == ("running", "running")
+    assert op["state"] == "done", op
+
+
+@pytest.mark.parametrize("cause", ["refused", "lost"])
+def test_a_remote_stop_that_does_not_end_done_refuses_the_parents_step(
+    store, tmp_path, cause
+):
+    async def lost(operation_id: str):
+        raise HostUnreachable("cobalt is offline")
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            await launched_on_cobalt(child, parent, api)
+            if cause == "refused":
+                child.claude.replies["stop"] = [{"error": "could not signal new1"}]
+            else:
+                parent.orch.remote_hosts["cobalt"].await_operation = lost
+            return await operated(
+                api,
+                "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
+                {"chain": "terminate"},
+            )
+
+    op = run(scenario())
+    assert op["state"] == "refused", op
+    assert [(s["name"], s["state"]) for s in op["steps"]] == [
+        ("stop_agent", "refused"),
+        ("off_desk", "pending"),
+    ]
+    said = "could not signal new1" if cause == "refused" else "cobalt is offline"
+    assert said in op["words"]
 
 
 def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):

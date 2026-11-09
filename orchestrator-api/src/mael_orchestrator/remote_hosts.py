@@ -267,6 +267,10 @@ class RemoteHost:
         """``POST path`` on the host. Raises :class:`HostUnreachable` as :meth:`get_json`."""
         return await self._call("POST", path, body)
 
+    async def delete_json(self, path: str) -> dict[str, Any]:
+        """``DELETE path`` on the host. Raises :class:`HostUnreachable` as :meth:`get_json`."""
+        return await self._call("DELETE", path)
+
     async def _call(
         self, method: str, path: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
