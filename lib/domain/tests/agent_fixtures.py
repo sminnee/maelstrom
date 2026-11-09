@@ -101,6 +101,8 @@ def make_document(**over) -> dict:
         "version": 1,
         "status": "awaiting-review",
         "source": {"type": "plan_review", "requestId": "req-1", "planFilePath": ""},
+        "archived": False,
+        "links": [],
     }
     doc.update(over)
     return doc

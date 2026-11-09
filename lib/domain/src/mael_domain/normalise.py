@@ -28,15 +28,18 @@ from mael_agent.agent_wire import (
 )
 from mael_agent.codex_wire import REASON_KEY, allowed, approval_of, command_of
 from mael_agent.harness_model import codex_mode_of
+from mael_agent.host_ids import IdSpace, owner_of
 
 from .attachments import markdown_ref
 from .document_tags import (
+    DRAFT_KIND,
     MILESTONES,
     CompactRequest,
     DocumentTag,
     ImageTag,
     MediaRef,
     ParamSet,
+    as_plan,
     not_shown,
     partial_text,
     read_tags,
@@ -56,53 +59,12 @@ from .protocol import (
     group_members,
 )
 from .task import parse_draft
+from .task_attachments import attachment_id
+from .task_documents import PLAN_NAME
 
 Dict = dict[str, Any]
 
-#: The document kind whose files are draft task files, and so carry a recipe.
-DRAFT_KIND = "tasks"
-
 _USER_ATTENTION_TAG = re.compile(r"<user-attention(?:\s+[^>]*)?>")
-
-#: The recipe fields a reader approving a chain needs: they decide how the task
-#: runs. The rest of the frontmatter is identity, and a draft leaves it empty.
-_RECIPE = (
-    "mode",
-    "model",
-    "execute_model",
-    "command",
-    "priority",
-    "pre_action",
-    "post_action",
-)
-
-
-def _as_plan(text: str) -> str:
-    """One draft task file as the plan a reviewer reads.
-
-    A task file opens with ``---``, which markdown reads as a setext heading, so
-    a draft shown whole draws its whole recipe as one giant heading with the
-    plan buried under it. Rendering it instead puts the title where the reader
-    looks for it — ``title:`` lives only in the frontmatter — and keeps the
-    recipe, which is what approving the chain actually decides.
-
-    A draft that will not parse is shown as written: it is the one the user most
-    needs to read, because it is the one they have to fix.
-    """
-    try:
-        draft = parse_draft(text)
-    except ValueError:
-        return text
-    recipe = ", ".join(
-        f"{name.replace('_', '-')}: {value}"
-        for name in _RECIPE
-        if (value := getattr(draft, name))
-    )
-    head = f"## {draft.title}"
-    if recipe:
-        head += f"\n\n_{recipe}_"
-    return f"{head}\n\n{draft.content}".rstrip() + "\n"
-
 
 #: Reads the file a ``<doc-file>`` tag names, given the agent's ``cwd``. The
 #: normaliser's one piece of I/O, injected.
@@ -1491,6 +1453,15 @@ class _Emitter:
         #: Whether the event ended a turn.
         self.turn_end = False
 
+    def _task_document_id(self, task_id: str, name: str) -> str:
+        """The world id of the task's document ``name``: its store id, owned.
+
+        The agent's prefix routes a request for the document to the server
+        that runs the agent. See ``docs/dev/remote-hosts.md``, "Dispatch".
+        """
+        owner = IdSpace(owner_of(self.ctx.agent_id))
+        return owner.own(attachment_id(task_id, name))
+
     def new_id(self) -> str:
         item_id = f"{self.ctx.agent_id}-{self.ctx.next_id}"
         self.ctx = replace(self.ctx, next_id=self.ctx.next_id + 1)
@@ -1607,18 +1578,28 @@ class _Emitter:
 
         The path is the document's identity. A path presented before, in the
         same scope, is that document's next version whatever its status, so a
-        revision replaces its entry rather than adding one.
+        revision replaces its entry rather than adding one. A task agent's
+        document takes the id its Task document is stored under, so the entry
+        the server built from the store at start is the one it finds.
 
         A tagged document opens at ``draft``: nothing waits behind it, so a
         changelog the user was asked to read must not present as a decision.
         ``review="true"`` is how an agent asks for a verdict, and only that
         raises an attention item — one for the group.
         """
+        task_id = self.agent_entity["taskId"]
         earlier: dict[str, Document] = {}
-        for doc in self.documents().values():
-            source = doc["source"]
-            if source.get("type") == "draft_file" and self._in_scope(doc):
-                earlier.setdefault(source["filename"], doc)
+        if task_id:
+            found = self.documents()
+            for name in tag.filenames:
+                stored = found.get(self._task_document_id(task_id, name))
+                if stored is not None:
+                    earlier[name] = stored
+        else:
+            for doc in self.documents().values():
+                source = doc["source"]
+                if source.get("type") == "draft_file" and self._in_scope(doc):
+                    earlier.setdefault(source["filename"], doc)
         matched = [earlier[name] for name in tag.filenames if name in earlier]
         group_id = matched[0]["group"]["id"] if matched else self.new_id()
         # Every group a named path came from is replaced by this tag, not only
@@ -1628,7 +1609,13 @@ class _Emitter:
         members: list[str] = []
         for position, filename in enumerate(tag.filenames):
             previous = earlier.get(filename)
-            document_id = previous["id"] if previous else self.new_id()
+            document_id = (
+                self._task_document_id(task_id, filename)
+                if task_id
+                else previous["id"]
+                if previous
+                else self.new_id()
+            )
             body = replace_media(
                 self._file_body(filename, read_file), self._shown_media
             )
@@ -1638,7 +1625,7 @@ class _Emitter:
                 "taskId": self.agent_entity["taskId"],
                 "kind": tag.kind,
                 "title": self._member_title(tag, filename, body),
-                "markdown": _as_plan(body) if tag.kind == DRAFT_KIND else body,
+                "markdown": as_plan(body) if tag.kind == DRAFT_KIND else body,
                 "version": (previous["version"] if previous else 0) + 1,
                 "status": "awaiting-review" if tag.review else "draft",
                 "source": {
@@ -1651,6 +1638,8 @@ class _Emitter:
                     "filename": filename,
                 },
                 "group": {"id": group_id, "title": tag.title, "position": position},
+                "archived": previous["archived"] if previous else False,
+                "links": previous["links"] if previous else [],
             }
             self.local_documents[document_id] = doc
             self.events.append({"type": "upsert", "kind": "document", "entity": doc})
@@ -1747,8 +1736,14 @@ class _Emitter:
             wait_state = "awaiting-question"
         elif tool == PLAN_TOOL:
             plan = _str(inp.get("plan"))
-            previous = self.previous_version("plan", "Plan")
-            document_id = previous["id"] if previous else self.new_id()
+            task_id = self.agent_entity["taskId"]
+            if task_id:
+                # One plan document per task: see docs/adr/0001-task-documents.md.
+                document_id = self._task_document_id(task_id, PLAN_NAME)
+                previous = self.documents().get(document_id)
+            else:
+                previous = self.previous_version("plan", "Plan")
+                document_id = previous["id"] if previous else self.new_id()
             doc: Document = {
                 "id": document_id,
                 "agentId": self.ctx.agent_id,
@@ -1765,6 +1760,8 @@ class _Emitter:
                 },
                 # A plan is a group of one.
                 "group": {"id": document_id, "title": "Plan", "position": 0},
+                "archived": previous["archived"] if previous else False,
+                "links": previous["links"] if previous else [],
             }
             self.local_documents[document_id] = doc
             self.events.append({"type": "upsert", "kind": "document", "entity": doc})

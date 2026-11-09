@@ -34,25 +34,27 @@
       }
     },
     "documents": {
-      "ag1-4": {
-        "id": "ag1-4",
+      "46700e067544788a": {
+        "id": "46700e067544788a",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "verification",
         "title": "Login flow",
-        "markdown": "# Login flow\n\n![The dashboard](/api/files/ag1-5-shot.png)\n\n![The flow](/api/files/ag1-6-login.webm)\n\n_`../../../etc/passwd` could not be shown._\n",
+        "markdown": "# Login flow\n\n![The dashboard](/api/files/ag1-4-shot.png)\n\n![The flow](/api/files/ag1-5-login.webm)\n\n_`../../../etc/passwd` could not be shown._\n",
         "version": 1,
         "status": "draft",
         "source": {
           "type": "draft_file",
-          "fileId": "ag1-8-verification.md",
+          "fileId": "ag1-7-verification.md",
           "filename": ".drafts/verification.md"
         },
         "group": {
           "id": "ag1-3",
           "title": "Login flow",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
@@ -87,7 +89,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-9",
+          "id": "ag1-8",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],

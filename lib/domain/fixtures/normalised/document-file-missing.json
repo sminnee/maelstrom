@@ -34,11 +34,11 @@
       }
     },
     "documents": {
-      "ag1-4": {
-        "id": "ag1-4",
+      "31f30145b7a3a7e3": {
+        "id": "31f30145b7a3a7e3",
         "agentId": "ag1",
         "taskId": "NORT-7",
-        "kind": "plan",
+        "kind": "other",
         "title": "no-such-draft.md",
         "markdown": "`no-such-draft.md` could not be read.\n\nThe agent named it, and it is not a readable file in `/Users/dev/Projects/northwind/northwind-alpha`.",
         "version": 1,
@@ -52,7 +52,9 @@
           "id": "ag1-3",
           "title": "no-such-draft.md",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
@@ -87,7 +89,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-6",
+          "id": "ag1-5",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],

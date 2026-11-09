@@ -34,8 +34,8 @@
       }
     },
     "documents": {
-      "ag1-5": {
-        "id": "ag1-5",
+      "04f618c727f17e46": {
+        "id": "04f618c727f17e46",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "other",
@@ -52,7 +52,9 @@
           "id": "ag1-4",
           "title": "Demo",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
@@ -108,7 +110,7 @@
           "subtype": "success",
           "costUsd": 0.1356986,
           "durationMs": 7636,
-          "id": "ag1-7",
+          "id": "ag1-6",
           "ts": "2026-09-02T00:00:00Z"
         }
       ],

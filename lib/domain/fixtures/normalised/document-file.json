@@ -34,8 +34,8 @@
       }
     },
     "documents": {
-      "ag1-4": {
-        "id": "ag1-4",
+      "650244cf55b21b2b": {
+        "id": "650244cf55b21b2b",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "tasks",
@@ -45,14 +45,16 @@
         "status": "draft",
         "source": {
           "type": "draft_file",
-          "fileId": "ag1-5-draft-iter1.md",
+          "fileId": "ag1-4-draft-iter1.md",
           "filename": "draft-iter1.md"
         },
         "group": {
           "id": "ag1-3",
           "title": "Iteration 1",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
@@ -87,7 +89,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-6",
+          "id": "ag1-5",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],
