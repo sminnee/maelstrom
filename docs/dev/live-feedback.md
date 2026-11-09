@@ -34,6 +34,11 @@ MAEL_FEEDBACK_URL=wss://desk.tailnet.ts.net:2772/api/live-feedback?path=/Users/m
 - A signed URL whose path names no worktree closes the socket with code `4404`.
 - Each notebook has its own key. An orchestrator refuses a URL signed for another notebook.
 
+A worktree on a **Remote host** gets the host's URL from the host's own `mael env start`. So
+the client and the jig talk to the host. A parent forwards the params switch
+(`POST /api/worktrees/{id}/live-feedback/{service}/params`) to the host, and the merged worktree
+row carries the host's `liveFeedback` state.
+
 A client must stay up when the socket does not. It reconnects with backoff, and treats each param
 as off while the socket is down.
 

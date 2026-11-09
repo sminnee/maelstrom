@@ -73,6 +73,9 @@ that warning, run `tangier gate sync`.
 
 In CI, `gate run` runs inline and does not start a job.
 
+A worktree on a **Remote host** runs its gates on that host. Its gate jobs and local passes are
+the host's. The parent shows the host's gate jobs merged, under `cobalt:` ids.
+
 The project sets no `pre_push_cmd`, so `mael gh create-pr` and `mael sync` push without a check.
 
 Install tangier 0.3.5 or later, and see each gate's status:

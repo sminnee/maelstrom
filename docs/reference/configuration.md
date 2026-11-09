@@ -312,7 +312,7 @@ uptimerobot:
 | `github.orchestrator_token` | string | — | GitHub token the orchestrator uses for UI actions that write to GitHub. Read from this file only. See [API keys](#api-keys). |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
 | `hosts` | map | `{}` | Each remote host this orchestrator server can delegate a launch to: its name and the base URL of its orchestrator server, as `name: <url>` or `name: {url: <url>}`. The name must be the remote host's own `host_name:`. A name is lower-case letters, digits and `-`. An entry with a bad name or a URL that is not `http://` or `https://` is ignored. See [Remote hosts](#remote-hosts). |
-| `host_name` | string | — | This server's name, and so its id prefix: each agent, worktree and gate job id it makes starts with `<host_name>:`. Unset, ids are bare. Lower-case letters, digits and `-`; any other value is ignored. See [Remote hosts](#remote-hosts). |
+| `host_name` | string | — | This server's name, and so its id prefix: each agent, worktree, gate job and operation id it makes starts with `<host_name>:`. Unset, ids are bare. Lower-case letters, digits and `-`; any other value is ignored. See [Remote hosts](#remote-hosts). |
 
 ```yaml
 projects_dir: ~/Projects
@@ -394,6 +394,11 @@ hosts:
 The parent gives the remote host its own `orchestrator_url` with each launch, and refuses a
 remote launch when it has none. The agent gets it as `MAEL_PARENT_URL`. Nothing on the remote
 host names the parent.
+
+Set `dev_host:` on the remote host too. The parent's UI opens the remote host's dev env URLs,
+and without `dev_host` they read `localhost`, which is the user's own machine. When the parent's
+UI is served over HTTPS, set `dev_https:` too, so the Dev env tab can frame the URL.
+`mael self check-host` warns when `host_name:` is set and `dev_host:` is not.
 
 When a server with live agents gets a `host_name:`, it adopts those agents again under prefixed
 ids.

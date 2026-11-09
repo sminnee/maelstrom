@@ -114,6 +114,10 @@ A click on a name in a Python or TypeScript card follows it. The flow is: the cl
 `/definition` route, the file's **Language server**, then a scroll, a **Pin** or a **Reference
 menu**.
 
+Each Changes route and its language server run on the server that owns the worktree. A parent
+forwards the routes of a **Remote host**'s worktree to that host. See
+[remote-hosts.md](remote-hosts.md#what-the-forward-covers).
+
 ### The list
 
 Maelstrom hardcodes its servers in `mael_domain.language_servers.LANGUAGE_SERVERS`. Each entry is

@@ -1534,7 +1534,10 @@ The check runs these steps in order:
 9. **Tailscale**, when installed. It offers `tailscale up`, and on Linux makes you the tailscale
    operator. It offers to set `dev_host:` to the tailnet name, and to issue a certificate. It
    writes `dev_https: true` only when the certificate issues.
-10. **PATH.** It warns when `~/.local/bin` is not on your PATH.
+10. **Remote host**, when `host_name:` is set and Tailscale does not run. It warns when
+    `dev_host:` is unset, and notes `dev_https:` for a parent UI served over HTTPS. See
+    [Remote hosts](configuration.md#remote-hosts). The item is optional.
+11. **PATH.** It warns when `~/.local/bin` is not on your PATH.
 
 Without a terminal, the check asks nothing. It runs only the secret-file fix, which only narrows a
 mode. It looks up tools on the host services' PATH.

@@ -1497,9 +1497,13 @@ branch or an existing `trash/<branch>` — ends the operation before `off_desk`,
 on the desk. `off_desk` says `Not on the desk.` when the unit has no entry: a live node draws
 without one.
 
+A dismiss of a worktree that a **Remote host** owns runs `end_on_host`, then `off_desk`. See
+[remote-hosts.md](remote-hosts.md#dispatch).
+
 **The record.** `OperationRecord` holds the entity, its log lines by step, and the command. The
-`operations` table in the state database keeps the newest 500, by id (`op<n>`). Each change is
-saved in the order it was made. The entity is in the world, so `GET /api/operations` reads
+`operations` table in the state database keeps the newest 500, by id: `op<n>`, or
+`<host_name>:op<n>` on a server with an **Id prefix**. Each change is saved in the order it was
+made. The entity is in the world, so `GET /api/operations` reads
 memory. The log is a separate read, so a long sync does not swell the world.
 
 **A restart.** At start, the server marks every row still `running` as `failed`, with the words
@@ -1513,6 +1517,11 @@ the user resumed meanwhile. A step that holds what it learned in memory runs aga
 done (`OperationPlan.replay`): the launch steps, and a Linear plan's `read_issue` and
 `name_task`. The command is validated against the world as it is now, as a new
 command would be.
+
+**Merged operations.** A parent server merges each remote host's operations into its world, as
+it merges the host's agents. `GET /api/operations` sorts by `startedAt`, newest first, because
+the numbers of two servers do not compare. The number breaks a tie. See
+[remote-hosts.md](remote-hosts.md#merge).
 
 **Seen.** An operation that ended badly has `seen: false` until `POST /api/operations/{id}/seen`.
 A `done` operation is seen when it ends. See `CONTEXT.md`, "Unseen".

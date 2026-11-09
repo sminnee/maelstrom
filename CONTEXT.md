@@ -720,9 +720,15 @@ one agent, not about a server: one remote host can run agents for several parent
 direct agents. Not the task **Parent**, which groups a chain.
 _Avoid_: Master, primary
 
+**Task home**:
+Where the task work of one agent or worktree goes: this server's notebook, or the **Parent
+server**'s notebook for a **Delegated agent**. A worktree's task home is that of its newest
+delegated agent, else this server's notebook. A Shelve writes its reopen task there.
+_Avoid_: Task server, task target
+
 **Id prefix**:
-A server's `host_name:` and `:` at the head of each agent, worktree and gate job id it makes:
-`cobalt:<agent id>`, `cobalt:<project>-<nato>`. A server with no `host_name:` makes bare ids. A
+A server's `host_name:` and `:` at the head of each agent, worktree, gate job and operation id it
+makes: `cobalt:<agent id>`, `cobalt:<project>-<nato>`, `cobalt:op12`. A server with no `host_name:` makes bare ids. A
 parent finds the owner of each merged id from its prefix. A desk id such as `agent:cobalt:x` is
 not read for one.
 _Avoid_: Host id, namespace
