@@ -27,4 +27,6 @@ Keep it terse. Leave out the alternatives you rejected, unless a reviewer would 
 
 When the work is more than one session can do, name the extra tasks in the plan. [task-chains.md](task-chains.md) says how to splice them in after approval.
 
+When the work touches another project, the plan names one task for each other project and keeps only this project's part. After approval, follow the "Cross-project work" section of [task-chains.md](task-chains.md).
+
 When you draft, promote, or launch tasks, read [task-chains.md](task-chains.md).
