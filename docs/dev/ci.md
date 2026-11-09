@@ -122,6 +122,10 @@ Release, with the tag's `CHANGELOG.md` section as its notes. A tag that ends in 
 `rc` and a number makes a pre-release. It runs no gate: `bin/publish` ran them before it
 tagged.
 
+`.github/workflows/release-jig.yml` releases `vite-plugin-mael-jig` on its own. Someone starts it
+by hand on `main`. See "The package is released on its own" in
+[orchestrator-ui.md](orchestrator-ui.md).
+
 A bundle's requirements come from `uv.lock`, and its wheels install with `--no-deps`. So each CI
 job runs `uv sync --locked`, and a `pyproject.toml` change without `uv lock` fails CI.
 

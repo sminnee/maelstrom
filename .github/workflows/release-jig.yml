@@ -1,0 +1,224 @@
+name: Release jig
+
+# Run from Actions -> Release jig -> Run workflow, on main.
+# docs/dev/orchestrator-ui.md has the process, re-runs, and the one-time setup.
+# npm trusts this file by name: rename it and the trusted publisher must change too.
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version moves
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: An exact version, such as 1.2.3, in place of the bump
+        type: string
+        default: ""
+
+# Queued, never cancelled: a second release plans only after the first has tagged.
+concurrency:
+  group: release-jig
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      previous: ${{ steps.plan.outputs.previous }}
+    steps:
+      - if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Release jig runs from main, not $GITHUB_REF"
+          exit 1
+      - uses: actions/checkout@v7.0.0
+        with:
+          # Every tag, to find the highest release.
+          fetch-depth: 0
+          persist-credentials: false
+      - id: plan
+        env:
+          BUMP: ${{ inputs.version || inputs.bump }}
+        run: |
+          set -euo pipefail
+          plan="$(bin/jig-release-version next "$BUMP")"
+          echo "$plan" >> "$GITHUB_OUTPUT"
+          eval "$plan"
+          echo "Releasing vite-plugin-mael-jig@$version ${previous:+after $previous }from $GITHUB_SHA." >> "$GITHUB_STEP_SUMMARY"
+
+  # Every `jig.*` gate in pipeline.toml, in full. test.yml runs them only on a pull request's diff.
+  gates:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.3.2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          package_json_file: vite-plugin-mael-jig/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: vite-plugin-mael-jig/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+
+      - name: Run the jig gates
+        run: uvx tangier gate run jig --full --read-only --no-fail-fast
+
+  # Builds without id-token: a dependency's install or build script cannot publish.
+  build:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4.4.0
+        with:
+          package_json_file: vite-plugin-mael-jig/package.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: vite-plugin-mael-jig/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm --dir vite-plugin-mael-jig install --frozen-lockfile
+
+      - name: Build and pack
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin/jig-release-version stamp "$VERSION"
+          pnpm --dir vite-plugin-mael-jig build
+          mkdir -p "$RUNNER_TEMP/pack"
+          tarball="$(cd vite-plugin-mael-jig && npm pack --pack-destination "$RUNNER_TEMP/pack" | tail -n 1)"
+          test "$tarball" = "vite-plugin-mael-jig-$VERSION.tgz"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/pack/vite-plugin-mael-jig-${{ needs.plan.outputs.version }}.tgz
+          if-no-files-found: error
+
+  # Installs and builds nothing: it publishes the tarball the build job made.
+  release:
+    needs: [plan, gates, build]
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      # No saved credentials: only the step that pushes gets a token, as a
+      # credential helper in its env.
+      - uses: actions/checkout@v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the version is not released elsewhere
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          tagged="$(git rev-parse -q --verify "refs/tags/vite-plugin-mael-jig@$VERSION^{commit}" || true)"
+          if [ -n "$tagged" ] && [ "$tagged" != "$GITHUB_SHA" ]; then
+            echo "::error::vite-plugin-mael-jig@$VERSION is already released at $tagged"
+            exit 1
+          fi
+
+      # Pinned by commit: this job can publish as vite-plugin-mael-jig.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tarball
+          path: ${{ runner.temp }}/pack
+
+      - name: Set up Node
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or later. Node 22 ships npm 10.
+      - name: Install npm 11
+        run: npm install -g npm@11.21.2
+
+      # No token: npm trusts this workflow on the npm environment, and adds provenance.
+      - name: Publish to npm
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Only a 404 means "not published". Any other failure stops the run.
+          if head="$(npm view "vite-plugin-mael-jig@$VERSION" gitHead 2>"$RUNNER_TEMP/view.err")"; then
+            if [ -n "$head" ] && [ "$head" != "$GITHUB_SHA" ]; then
+              echo "::error::npm has vite-plugin-mael-jig@$VERSION from $head, not $GITHUB_SHA"
+              exit 1
+            fi
+            echo "vite-plugin-mael-jig@$VERSION is already on npm"
+          elif grep -q E404 "$RUNNER_TEMP/view.err"; then
+            npm publish "$RUNNER_TEMP/pack/vite-plugin-mael-jig-$VERSION.tgz" --access public
+          else
+            cat "$RUNNER_TEMP/view.err"
+            exit 1
+          fi
+
+      # Tagged after publishing, so a tag never names a version npm lacks.
+      - name: Tag the version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GIT_CONFIG_COUNT: "1"
+          GIT_CONFIG_KEY_0: credential.helper
+          GIT_CONFIG_VALUE_0: '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          tag="vite-plugin-mael-jig@$VERSION"
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git tag -a "$tag" -m "Release $tag" "$GITHUB_SHA"
+          fi
+          git push origin "refs/tags/$tag"
+
+      # Never "Latest": bin/install.sh and mael self update download from releases/latest.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          PREVIOUS: ${{ needs.plan.outputs.previous }}
+        run: |
+          set -euo pipefail
+          tag="vite-plugin-mael-jig@$VERSION"
+          args=()
+          if [ -n "$PREVIOUS" ]; then args+=(--notes-start-tag "vite-plugin-mael-jig@$PREVIOUS"); fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "$tag already has a release"
+          else
+            gh release create "$tag" --verify-tag --generate-notes --latest=false --title "$tag" "${args[@]}"
+          fi

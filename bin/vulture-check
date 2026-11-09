@@ -37,6 +37,6 @@ uv run vulture \
   lib/domain/src lib/domain/tests \
   agent-daemon/src agent-daemon/tests \
   orchestrator-api/src orchestrator-api/tests \
-  tests shared bin/publish bin/publish-jig \
+  tests shared bin/publish bin/jig-release-version \
   conftest.py .vulture_whitelist.py
 echo "No dead code."
