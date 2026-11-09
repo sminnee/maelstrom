@@ -30,13 +30,16 @@ def test_plan_launch_derives_everything_from_the_task():
         branch="feat/orders",
         model="claude-opus-5",
         content="Do it.",
+        sessions=[
+            model.TaskSession("c-1", "claude"),
+            model.TaskSession("thread-1", "codex"),
+        ],
     )
     plan = plan_launch("northwind", task)
-    assert plan.session_id == model.session_id_for("northwind", "NORT-7.2")
+    assert plan.session_id == "c-1"
     assert plan.env == {
         "MAEL_TASK_ID": "NORT-7.2",
         "MAEL_TASK_PARENT": "NORT-7",
-        "MAEL_TASK_SESSION_ID": plan.session_id,
         "MAEL_TASK_PROJECT": "northwind",
     }
     assert plan.permission_mode == "auto"

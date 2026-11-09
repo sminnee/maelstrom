@@ -150,10 +150,6 @@ def _session_handles(id: str | None) -> list[str]:
     Both are tried because the live id usually does *not* match a swept session:
     the command line holds the id the session launched with. So the pid is what
     resolves a session that has run ``/clear``.
-
-    ``MAEL_TASK_SESSION_ID`` is deliberately not consulted. It is a task key, not
-    a live-session reference: it holds the id the task was launched with, which is
-    correct until a ``/clear`` and points at a dead transcript after one.
     """
     if id:
         return [id]

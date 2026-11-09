@@ -48,7 +48,7 @@ from mael_domain.task_launch import (
     LaunchBlocked,
     check_not_live,
     check_synced,
-    plan_launch,
+    prepare_launch,
 )
 from mael_domain.task_table import SqliteTaskTable
 from mael_domain.worktree import (
@@ -268,18 +268,16 @@ async def _run_task(
     refused.
 
     ``fresh=True`` marks a just-created task (load-many head, ``add --run``, a
-    scheduled run): it has no prior conversation, so it must always launch with
-    ``--session-id`` (create) and never ``--resume`` — even when a stale
-    transcript for its deterministic id already sits in a reused worktree. The
-    relaunch callers (``task run`` / ``task next``) leave it ``False`` so they
-    still resume a previously-stopped session.
+    scheduled run): it has no prior conversation, so it always launches with
+    ``--session-id`` and never ``--resume``. The relaunch callers (``task run`` /
+    ``task next``) leave it ``False`` so they still resume a stopped session.
     """
     if harness == TRANSPORT_CLI and not has_terminal():
         raise click.ClickException(NO_TERMINAL_REFUSAL)
     # The plan settles the session id, env, permission mode and branch once,
-    # the same way the orchestrator server does. Harnesses without task-session
-    # support cannot pin, resume, or guard their own session ids.
-    plan = plan_launch(project, task)
+    # the same way the orchestrator server does. Codex makes its own thread id,
+    # so a --cli Codex launch pins, resumes and guards nothing.
+    plan = await prepare_launch(table, project, task)
     ref = resolve_model_reference(plan.model, task.mode)
     if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
         raise click.ClickException(
@@ -308,11 +306,8 @@ async def _run_task(
             raise click.ClickException(str(e))
 
     # Skills running inside the session self-reference via these — e.g. to
-    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`. The
-    # launcher adds MAEL_TASK_SESSION_ID itself once it knows the session id.
-    session_env = {
-        key: value for key, value in plan.env.items() if key != "MAEL_TASK_SESSION_ID"
-    }
+    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+    session_env = plan.env
     perm = plan.permission_mode
 
     ctx = resolve_context(project, require_project=True, arg_is_project=True)
@@ -1502,7 +1497,7 @@ async def _live_sessions_by_task(
     Correlates live ``claude`` processes to the task notebook by *session-id*: a
     running session carries the ``--session-id`` ``mael`` launched it with
     (:attr:`session_discovery.LiveSession.session_id`), so each task matches only
-    the session whose id is ``session_id_for(project, task.id)``. This is
+    a session whose id is in its ``sessions``. This is
     task-precise even when chain siblings share one branch/worktree (one PR per
     parent) — the exact fix the run-guard needed, applied here too, so the two
     stay in lockstep off the same sweep. Tasks with no live session of their own
@@ -1514,7 +1509,14 @@ async def _live_sessions_by_task(
 
     mapping: dict[str, session_discovery.LiveSession] = {}
     for task in await model.list_tasks(table, project=project):
-        session = live.for_session_id(model.session_id_for(project, task.id))
+        session = next(
+            (
+                found
+                for entry in task.sessions
+                if (found := live.for_session_id(entry.id)) is not None
+            ),
+            None,
+        )
         if session is not None:
             mapping[task.id] = session
     return mapping
@@ -1527,7 +1529,7 @@ async def _ran_task_ids(
 
     A stale in-progress task (no live session) is either *finished* or *never
     ran*; the two look identical to the live sweep. A transcript file at the
-    task's worktree for its deterministic session id means it ran at some point
+    task's worktree for any of its Claude session ids means it ran at some point
     (stopped = finished), so reconcile closes it; no transcript means it never
     launched, so reconcile sends it back to todo. We map each in-progress task to
     the worktree hosting its branch (one PR per parent → several tasks may share a
@@ -1546,8 +1548,11 @@ async def _ran_task_ids(
         worktree_path = by_branch.get(branch)
         if worktree_path is None:
             continue
-        session_id = model.session_id_for(project, task.id)
-        if has_claude_transcript(worktree_path, session_id):
+        if any(
+            has_claude_transcript(worktree_path, entry.id)
+            for entry in task.sessions
+            if entry.harness == HARNESS_CLAUDE
+        ):
             ran.add(task.id)
     return ran
 
@@ -1841,9 +1846,8 @@ async def task_update(
     target = id
     renamed = False
     if new_id is not None and new_id != id:
-        # Refuse re-keying a running task — its deterministic session_id and its
-        # worktree/branch are tied to the old id, so renaming would orphan a live
-        # Claude session.
+        # Refuse re-keying a running task. Its sessions move with the row, but
+        # its worktree and branch are tied to the old id.
         try:
             t = await task_model.load(table, proj, id)
         except KeyError:
@@ -1855,8 +1859,14 @@ async def task_update(
         # Re-keying underneath a live session would orphan it. Asked directly,
         # not via `check_not_live`, whose message advises a relaunch. Swept here,
         # not at the top: only this path asks, and the sweep shells out.
-        live = session_discovery.LiveSessionSet().for_session_id(
-            task_model.session_id_for(proj, id)
+        sweep = session_discovery.LiveSessionSet()
+        live = next(
+            (
+                found
+                for entry in t.sessions
+                if (found := sweep.for_session_id(entry.id)) is not None
+            ),
+            None,
         )
         if live is not None:
             raise click.ClickException(

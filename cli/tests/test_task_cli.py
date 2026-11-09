@@ -122,6 +122,13 @@ def launch(monkeypatch, tmp_path):
     )
 
 
+async def _with_session(store, task, session_id):
+    """Store ``session_id`` as ``task``'s Claude session, as a past launch did."""
+    task.sessions = [model.TaskSession(id=session_id, harness="claude")]
+    await store.save(task)
+    return session_id
+
+
 def _patch_live_sessions(monkeypatch, sessions):
     """Make the run-guard's ``LiveSessionSet`` sweep return ``sessions``.
 
@@ -190,15 +197,16 @@ class TestUpdateRename:
         assert (await model.load(store, "p", old_id)).id == old_id
 
     async def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
-        old_id = (await model.create(store, project="p", title="E")).id
-        # A live claude carrying this task's deterministic session id.
+        t = await model.create(store, project="p", title="E")
+        old_id = t.id
+        # A live claude carrying the session id this task stores.
         self._patch_sweep(
             monkeypatch,
             [
                 session_discovery.LiveSession(
                     pid=123,
                     cwd=Path("/tmp/wt"),
-                    session_id=model.session_id_for("p", old_id),
+                    session_id=await _with_session(store, t, "sess-e"),
                 )
             ],
         )
@@ -214,14 +222,16 @@ class TestUpdateRename:
     ):
         # Keyed on this task's own session id, not on worktree occupancy: a
         # sibling task's session shares the worktree and must not block.
-        old_id = (await model.create(store, project="p", title="E")).id
+        t = await model.create(store, project="p", title="E")
+        old_id = t.id
+        await _with_session(store, t, "sess-e")
         self._patch_sweep(
             monkeypatch,
             [
                 session_discovery.LiveSession(
                     pid=123,
                     cwd=Path("/tmp/wt"),
-                    session_id=model.session_id_for("p", "some-other-task"),
+                    session_id="sess-other",
                 )
             ],
         )
@@ -503,7 +513,7 @@ class TestDuplicateLaunchPrecheck:
     ):
         # A live claude carrying *this task's* --session-id blocks the relaunch.
         t = await model.create(store, project="p", title="t")
-        sid = model.session_id_for("p", t.id)
+        sid = await _with_session(store, t, "sess-t")
         _patch_live_sessions(
             monkeypatch,
             [_live_session(pid=4242, cwd=Path("/work/tree-bravo"), session_id=sid)],
@@ -519,7 +529,7 @@ class TestDuplicateLaunchPrecheck:
 
     async def test_run_cli_also_refuses(self, runner, store, launch, monkeypatch):
         t = await model.create(store, project="p", title="t")
-        sid = model.session_id_for("p", t.id)
+        sid = await _with_session(store, t, "sess-t")
         _patch_live_sessions(monkeypatch, [_live_session(pid=9, session_id=sid)])
         result = runner.invoke(task_cli.task, ["run", t.id, "--cli"])
         assert result.exit_code != 0
@@ -548,7 +558,7 @@ class TestDuplicateLaunchPrecheck:
         parent = await model.create(store, project="p", title="parent")
         two = await model.create(store, project="p", title="two", parent=parent.id)
         three = await model.create(store, project="p", title="three", parent=parent.id)
-        two_sid = model.session_id_for("p", two.id)
+        two_sid = await _with_session(store, two, "sess-two")
         # `.2` is live in the shared worktree; `.3` is not.
         _patch_live_sessions(
             monkeypatch,
@@ -672,7 +682,7 @@ class TestLiveSessionsByTask:
         parent = await model.create(store, project="p", title="parent")
         two = await model.create(store, project="p", title="two", parent=parent.id)
         three = await model.create(store, project="p", title="three", parent=parent.id)
-        two_sid = model.session_id_for("p", two.id)
+        two_sid = await _with_session(store, two, "sess-two")
         _patch_live_sessions(
             monkeypatch,
             [_live_session(pid=111, cwd=Path("/work/shared"), session_id=two_sid)],
@@ -830,11 +840,14 @@ class TestRunCli:
         # interactive session inherits it — a front prefix would only reach
         # ``mael task prompt``.
         launch.exec.assert_called_once()
-        sid = model.session_id_for("p", t.id)
+        # The run stored a new Claude session on the task before the exec.
+        stored = (await model.load(store, "p", t.id)).sessions
+        assert [s.harness for s in stored] == ["claude"]
+        sid = stored[0].id
         assert describe(launch.exec.call_args.args[0]) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
-            f"MAEL_TASK_PROJECT=p MAEL_TASK_SESSION_ID={sid} "
+            "MAEL_TASK_PROJECT=p "
             "claude --permission-mode plan --model opus "
             f"--plugin-dir /core --session-id {sid}"
         )
