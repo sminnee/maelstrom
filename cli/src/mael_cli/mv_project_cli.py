@@ -6,9 +6,8 @@ and is the only layer here that touches the filesystem, git, or the terminal.
 
 A plain ``mv`` of a project directory is not safe. Two failures are silent:
 ``mael project check`` prunes port allocations whose worktree folders it can no longer
-find, and every task's Claude session id is derived from the project name, so a
-rename orphans existing sessions. This command handles the first and warns
-loudly about the second.
+find, and Claude keeps each transcript by its worktree path. This command handles
+both.
 """
 
 import json
@@ -18,7 +17,6 @@ from pathlib import Path
 
 import click
 
-from mael_common.claude_paths import has_claude_transcript
 from mael_common.cli_async import AsyncCommand
 from mael_common.util import abbreviate_home, get_maelstrom_dir, locked_file, read_json
 from mael_domain import task as task_model
@@ -212,17 +210,6 @@ async def gather_plan(old: str, new: str, projects_dir: Path, home: Path) -> Mov
     task_ids = [t.id for t in tasks]
     task_statuses = {t.id: t.status for t in tasks}
 
-    # A task has a session worth warning about when its transcript exists in any
-    # of the project's worktrees — that is where `mael task run` would resume.
-    worktree_paths = [project_path / folder for folder in folders]
-    ran: set[str] = set()
-    for task in tasks:
-        session_id = task_model.session_id_for(old, task.id)
-        for wt_path in worktree_paths:
-            if has_claude_transcript(wt_path, session_id, home=home):
-                ran.add(task.id)
-                break
-
     claude_data = _read_claude_json(home)
     claude_projects = list(claude_data.get("projects", {}))
     if isinstance(claude_data.get("githubRepoPaths"), list):
@@ -237,7 +224,6 @@ async def gather_plan(old: str, new: str, projects_dir: Path, home: Path) -> Mov
             projects_dir=projects_dir,
             worktree_folders=folders,
             task_ids=task_ids,
-            ran_task_ids=ran,
             home=home,
             claude_json_projects=claude_projects,
             global_symlinks=_global_symlinks(home),
@@ -399,9 +385,7 @@ async def migrate_tasks(plan: MovePlan) -> int:
     One transaction covers the lot: a failure part-way would otherwise leave
     the project's tasks split across two names.
 
-    ``session_id`` is derived from the project, so re-keying regenerates it —
-    which is why ``mael project mv`` warns that the move orphans existing
-    sessions rather than migrating their transcripts.
+    Each task's ``sessions`` move with its row.
     """
     table = open_task_table()
     tasks = await task_model.list_tasks(table, project=plan.old_name)
@@ -557,10 +541,6 @@ def render_plan(plan: MovePlan, home: Path, *, git_url: str | None) -> None:
         f"Global symlinks:  re-point {len(plan.symlink_repoints)} skills/commands"
     )
 
-    for warning in plan.warnings:
-        click.echo("")
-        click.echo(f"Warning: {warning}")
-
     if git_url is None:
         click.echo("")
         click.echo(
@@ -590,10 +570,6 @@ async def cmd_mv_project(
     port allocations and Claude Code's state all follow from it — so a plain
     ``mv`` breaks the project silently. This command moves the directory and
     updates each of those.
-
-    Claude session ids are derived from the project name and are *not* migrated.
-    Existing sessions are orphaned: ``mael task run`` starts a fresh session
-    rather than resuming. The plan says how many are affected.
     """
     try:
         validate_project_name(new)
@@ -648,10 +624,6 @@ async def cmd_mv_project(
     click.echo(f"  Tasks:           {task_count} re-keyed; index rebuilt")
     click.echo(f"  Claude projects: {claude_dirs} dirs moved")
     click.echo(f"  Global symlinks: {symlinks} re-pointed")
-
-    for warning in plan.warnings:
-        click.echo("")
-        click.echo(f"Warning: {warning}")
 
     if not git_url:
         click.echo("")

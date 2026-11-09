@@ -405,7 +405,6 @@ class TestRewritePathString:
             projects_dir=tmp_path,
             worktree_folders=["old-alpha", "_main"],
             task_ids=[],
-            ran_task_ids=set(),
             home=tmp_path / "home",
         )
 
