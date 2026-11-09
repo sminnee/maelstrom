@@ -135,11 +135,11 @@ export function useStop() {
 
 /** Start an exited agent again, as an operation. */
 export function useResume() {
-  return useStartOperation((api, vars: { agentId: AgentId; text?: string }) =>
-    api.post<OperationStarted>(
-      `/api/agents/${vars.agentId}/resume`,
-      vars.text ? { text: vars.text } : {},
-    ),
+  return useStartOperation((api, vars: { agentId: AgentId; text?: string; compact?: boolean }) =>
+    api.post<OperationStarted>(`/api/agents/${vars.agentId}/resume`, {
+      ...(vars.text ? { text: vars.text } : {}),
+      ...(vars.compact ? { compact: true } : {}),
+    }),
   );
 }
 

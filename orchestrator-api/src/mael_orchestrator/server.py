@@ -4237,7 +4237,9 @@ class Orchestrator:
             text = str(command.get("text", "")).strip()
             step = Step(
                 name="resume_agent",
-                run=functools.partial(self._resume, agent_id, text),
+                run=functools.partial(
+                    self._resume, agent_id, text, compact=command.get("compact") is True
+                ),
             )
 
         async def work(hook: OperationHook) -> None:
@@ -4259,12 +4261,20 @@ class Orchestrator:
             agent_id=agent_id,
         )
 
-    async def _resume(self, agent_id: str, text: str) -> StepOutcome:
+    async def _resume(
+        self, agent_id: str, text: str, *, compact: bool = False
+    ) -> StepOutcome:
         """Ask the host to start an exited agent again, under its own id.
 
         Nothing is synthesised, unlike a stop: the host's own ``list`` is the
         evidence the agent is back, and the operation's refresh reads it.
+
+        With ``compact``, the first turn is ``/compact``, under a Compaction
+        hold opened before the child starts: no event can take the turn first.
         """
+        if compact:
+            text = "/compact"
+            self._open_hold(agent_id, reply=True, sent=True)
         payload = build_resume_payload(
             agent_id,
             text=text,
@@ -4273,6 +4283,8 @@ class Orchestrator:
         )
         refused = await self._ask_host(payload)
         if refused:
+            if compact:
+                self._release_hold(agent_id)
             return StepOutcome(blocked=refused["error"]["message"])
         return StepOutcome(messages=[f"Resumed {agent_id}."])
 

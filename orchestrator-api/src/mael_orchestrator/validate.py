@@ -786,6 +786,12 @@ def validate_command(
             return _err("unknown_id", f"No agent {agent_id}")
         if agent["state"] != "exited":
             return _err("invalid", f"Agent {agent_id} is running")
+        compact = cmd.get("compact", False)
+        if not isinstance(compact, bool):
+            return _err("invalid", "compact must be true or false")
+        if compact and str(cmd.get("text", "")).strip():
+            # The compact is the first turn, and a turn is one command.
+            return _err("invalid", "A resume that compacts takes no text")
         return None
 
     if kind == "agent.launch":

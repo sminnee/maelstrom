@@ -948,6 +948,7 @@ _AGENT_ACTIONS: dict[str, Callable[[str, dict[str, Any]], dict[str, Any]]] = {
         "type": "agent.resume",
         "agentId": agent_id,
         **({"text": body["text"]} if "text" in body else {}),
+        **({"compact": body["compact"]} if "compact" in body else {}),
     },
 }
 

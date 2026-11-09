@@ -196,9 +196,14 @@ function Board({ control, heading }: { control: string; heading: string }) {
           <AppButton variant="quiet" icon={actionIcon('edit')}>
             Edit task
           </AppButton>
-          <AppButton variant="quiet" icon={actionIcon('resume')}>
-            Resume
-          </AppButton>
+          <SplitButton
+            variant="quiet"
+            menuLabel="More resume actions"
+            options={[
+              { label: 'Resume', icon: actionIcon('resume'), run: later },
+              { label: 'Resume and compact', run: later },
+            ]}
+          />
           <SplitButton
             variant="quiet"
             options={[
