@@ -21,6 +21,8 @@ If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the us
 
 When a plan-mode task's plan finds more than one session's work, splice the extra tasks in as `planning`'s task-chains.md says.
 
+When the work touches another project, follow the "Cross-project work" section of `planning`'s task-chains.md.
+
 Use `mode: plan` for tasks and `mode: normal` for a `plan-next-step` tail. For cross-project patterns, run `mael wiki list` before work and update or add the applicable page afterwards.
 
 `$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the notebook holds the plan. Do not write the plan into Linear.

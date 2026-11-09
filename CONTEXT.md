@@ -225,6 +225,12 @@ and approving a task set splices after the planning task. A task can thus expand
 its own chain without forking it.
 _Avoid_: Insert, rewire
 
+**Cross-project task**:
+A plan-mode task that a session in one project creates and launches in another project. It has
+an empty parent, so it roots its own chain there, and it follows no task. Its own plan mode plans
+that project's code.
+_Avoid_: Remote task, foreign task
+
 **Registered PR**:
 The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
 `mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the

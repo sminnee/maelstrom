@@ -268,6 +268,31 @@ after:   A → P → N1 → N2 → C
 
 `C` now waits for `N2`, so the chain keeps its order and no task forks off its end.
 
+## Planning across projects
+
+Work can touch more than one project. A session plans only its own project's part. For each
+other project, it creates one plan-mode **cross-project task** there and launches it. The agent
+in that project reads the code and writes the detailed plan. That agent has the project's
+context, worktree, gates, and test layers. The session that found the work has none of them.
+
+The content of a cross-project task is brief bullets: the goal, the scope, the contract between
+the projects, and pointers to this project's task as a qualified id (`<project>/<id>`), its PR,
+or its ADR. Approving the task set, or approving the plan, also approves the cross-project tasks.
+There is no second approval.
+
+```bash
+mael task add -p <project> "<title>" \
+  --mode plan --content-file - --run <<'EOF'
+- Goal: ...
+EOF
+```
+
+The new task has no parent, so it roots its own chain in the other project. `mael task add`
+takes `$MAEL_TASK_PARENT` as the default parent only when `-p` names the session's own project.
+
+A follow cannot cross projects. When one project needs the other's change first, such as an API,
+a schema, or a release, the content of both tasks says so.
+
 ## Setting up a project
 
 `/setup-project` is a second way into a chain. It does not start from a brief. It reads a

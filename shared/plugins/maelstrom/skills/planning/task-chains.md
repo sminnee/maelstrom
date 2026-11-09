@@ -63,3 +63,26 @@ The head follows the planning task, so close the planner before launching it. A 
 ## Splice from a plan-mode task
 
 When a plan-mode task's plan finds more than one session's work, the plan names the extra tasks. Plan approval approves them. After it, draft them as plan-mode tasks and promote them in one call, in chain order, with no follow flags. Do not present them for a second approval. Then build this session's part. They splice in after this task. Skip "Close, launch, end".
+
+## Cross-project work
+
+When the work touches another project, do not diagnose, plan, or build that project's part. Create one plan-mode task in each other project and launch it. The agent in that project diagnoses and writes the detailed plan. This project's own part stays a normal chain, or stays in this plan.
+
+Approval:
+
+- In a planning session, list the cross-project tasks in chat, after the `<doc-file kind="tasks">` tag. Chat or UI approval of the chain approves them. On rejection, create none. Create them after the promote and before "Close, launch, end".
+- In a plan-mode task, the plan names them. Plan approval approves them. Do not present them for a second approval.
+
+Content is the same brief bullets as a draft's `## Content`, plus the contract between the projects: the interface, the data shape, the order. Write this project's task as a qualified id (`<project>/<id>`).
+
+Create and launch each task with one command. `mael project list` gives the project names.
+
+```bash
+mael task add -p <project> "<title>" --mode plan --content-file - --run <<'EOF'
+- Goal: ...
+EOF
+```
+
+When the other project has its own Linear issue, add `-P linear.<ID> --pre-action linear.in-progress`. Without a Linear parent, the pre-action does nothing.
+
+Do not draft, promote, or follow across projects. When one project needs the other's change first (an API, a schema, a release), say so in the content of both tasks.
