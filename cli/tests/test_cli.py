@@ -1232,6 +1232,28 @@ class TestProjectAdd:
             f"Alpha worktree at: {tmp_path / 'proj' / 'proj-alpha'}\n"
         )
 
+    def test_a_failed_host_check_reports_and_still_exits_0(self, tmp_path):
+        url = "https://github.com/org/proj.git"
+        main = tmp_path / "proj" / "_main"
+        main.mkdir(parents=True)
+        (main / ".maelstrom.yaml").write_text(
+            "check_host_cmd: \"echo 'kubectl missing'; exit 1\"\n"
+        )
+        with (
+            patch("mael_cli.cli.load_global_config") as mock_config,
+            patch("mael_cli.cli.add_project") as mock_add_project,
+        ):
+            mock_config.return_value = MagicMock(projects_dir=tmp_path)
+            mock_add_project.return_value = tmp_path / "proj"
+            result = CliRunner().invoke(cli, ["project", "add", url])
+
+        assert result.exit_code == 0, result.output
+        assert result.output.endswith(
+            "check_host_cmd failed:\n"
+            "  kubectl missing\n"
+            "Fix it, then run: mael project check proj\n"
+        )
+
 
 class TestCreateProject:
     """Tests for `mael project create`."""
