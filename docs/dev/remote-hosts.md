@@ -35,12 +35,14 @@ sequenceDiagram
 
 A delegated launch has two parts:
 
-1. **The parent claims the task.** `TaskSource.claim_launch` plans the launch, checks the execute
-   model and moves the task to in-progress. It returns a `LaunchClaim`: the project, the task id,
+1. **The parent claims the task.** `TaskSource.claim_launch` stores a Claude session id when the
+   task has none, plans the launch, checks the execute model and moves the task to in-progress. It returns a `LaunchClaim`: the project, the task id,
    the previous status, the `LaunchPlan` and the task's `base`.
 2. **The remote host starts the agent.** The parent's `start_on_host` step posts a start spec to
    the remote host's `POST /api/agents`. It waits for the remote host's operation to end, and
-   takes the agent id and the worktree id from it.
+   takes the agent id and the worktree id from it. Then the parent calls `TaskSource.started`
+   with that agent id, so a Codex task stores its thread id. A never-run Codex task sends an
+   empty `session`.
 
 The start spec holds `project`, `branch`, `base`, `prompt`, `mode`, `model`, `executeModel`,
 `session`, `env`, `taskId` and `parentUrl`. A free agent posts the same route with fewer fields.
@@ -72,7 +74,7 @@ it. It keeps them on the Agent record as `parent_url` and `task_id`. A restart k
 
 The remote host adds `MAEL_PARENT_URL` to the agent's env. The spec's `env` comes from the
 parent's `plan_launch`, and already holds `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and
-`MAEL_TASK_SESSION_ID`.
+`MAEL_TASK_PROJECT`.
 
 On the remote host, a delegated agent differs from a direct agent in three ways:
 

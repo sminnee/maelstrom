@@ -23,6 +23,7 @@ from typing import Any, Protocol, cast
 import aiohttp
 
 from mael_agent.harness_model import (
+    HARNESS_CODEX,
     resolve_execute_model,
 )
 from mael_common.claude_paths import has_claude_transcript
@@ -53,7 +54,7 @@ from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.task_launch import (
     LaunchBlocked,
     LaunchPlan,
-    plan_launch,
+    prepare_launch,
 )
 from mael_domain.task_metadata_generator import TaskNames, infer_task_names
 from mael_domain.task_table import TaskTable
@@ -300,6 +301,14 @@ class TaskSource(Protocol):
         Raises:
             KeyError: If no task has ``task_id``.
             LaunchBlocked: If the plan's execute model is not known.
+        """
+        ...
+
+    async def started(self, claim: LaunchClaim, agent_id: str) -> str:
+        """Store the session a started agent runs, and return its id.
+
+        For Codex, the agent id is the thread id, and the task stores it. A
+        Claude task stored its session before the launch.
         """
         ...
 
@@ -585,11 +594,17 @@ class NotebookTaskSource:
         return moved
 
     async def _entity(self, task: model.Task) -> Task:
-        session = model.session_id_for(task.project, task.id)
+        # The earliest first start across the task's sessions. Each stamp is
+        # aware, so the comparison is by instant, not by text.
+        starts = [
+            stamp
+            for entry in task.sessions
+            if (stamp := self._first_starts.get(entry.id))
+        ]
         return task_entity(
             task,
             actionable=await model.is_actionable(task, self.table),
-            started_at=self._first_starts.get(session, ""),
+            started_at=min(starts, key=datetime.fromisoformat, default=""),
             landing=await self.landings.landing_of(task),
             schedule_zone=self.schedule_zone,
         )
@@ -624,7 +639,7 @@ class NotebookTaskSource:
         # start just appeared is read here by its session.
         moved = await self._fold_starts()
         tasks = list(changed.tasks)
-        moved -= {model.session_id_for(t.project, t.id) for t in tasks}
+        moved -= {entry.id for t in tasks for entry in t.sessions}
         for session in sorted(moved):
             if (task := await self.table.find_by_session_id(session)) is not None:
                 tasks.append(task)
@@ -640,7 +655,7 @@ class NotebookTaskSource:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
-        plan = plan_launch(task.project, task, model_name)
+        plan = await prepare_launch(self.table, task.project, task, model_name)
         if plan.execute_model:
             # The board's launch reaches the daemon without passing `validate`,
             # which guards the free-agent path only. Refused here for the same
@@ -651,6 +666,14 @@ class NotebookTaskSource:
                 raise LaunchBlocked(str(exc)) from exc
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
         return LaunchClaim(task.project, task.id, task.status, plan, task.base or "")
+
+    async def started(self, claim: LaunchClaim, agent_id: str) -> str:
+        if claim.plan.harness != HARNESS_CODEX:
+            return claim.plan.session_id
+        await model.add_session(
+            self.table, claim.project, claim.task_id, agent_id, HARNESS_CODEX
+        )
+        return agent_id
 
     async def rollback(self, claim: LaunchClaim) -> None:
         await self._move(claim.project, claim.task_id, claim.previous_status)

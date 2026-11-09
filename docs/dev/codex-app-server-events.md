@@ -17,7 +17,8 @@ The contract was checked against Codex CLI 0.154.0 and its schema
 ## Routing
 
 Every thread event names its thread by `threadId`, or by `thread.id` on a thread object. The
-thread id is the agent id. The router stores it in the Agent record against the task session id.
+thread id is the agent id. The task stores it as a task session id, and the Agent record carries
+it as `task_session_id`.
 Do not key on a turn id: one thread has many turns.
 
 The adapter keeps one ring per thread, of up to 200 events. Each event gets a seq and a time, as
@@ -261,7 +262,7 @@ status says whether a turn still runs.
 An approval leaves the adapter's open requests when it is answered, when `serverRequest/resolved`
 names it, or when its turn completes. The normaliser ends the Session's wait on the same events.
 
-A task relaunch resumes the task session's newest thread, in the launch's worktree. See
+A task relaunch resumes the task's current Codex thread, in the launch's worktree. See
 [orchestrator-server.md](orchestrator-server.md#launch).
 
 ## Not supported

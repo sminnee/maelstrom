@@ -103,12 +103,18 @@ async def agents():
     db.close()
 
 
+async def a_task(table, task_id: str, title: str) -> None:
+    """Create ``task_id`` with one Claude session, ``session-<task_id>``."""
+    await model.create(table, project=PROJECT, title=title, id=task_id)
+    await model.add_session(table, PROJECT, task_id, f"session-{task_id}", "claude")
+
+
 async def an_agent(agents, task_id: str, started_at: str, **over) -> None:
     """Save one Agent record for ``task_id``'s session."""
     record = new_agent_record(
         f"agent-{task_id}-{started_at}",
         harness="claude",
-        task_session_id=model.session_id_for(PROJECT, task_id),
+        task_session_id=f"session-{task_id}",
         task_id="",
         cwd="/worktree",
         model="claude:opus",
@@ -119,11 +125,17 @@ async def an_agent(agents, task_id: str, started_at: str, **over) -> None:
 
 
 async def test_a_task_starts_when_its_first_agent_did(table, agents):
-    """Ended records count, and the earliest wins, so a re-run keeps the
-    task's own PR. A record with no readable start or no session says nothing."""
-    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
-    await model.create(table, project=PROJECT, title="Not yet", id="NORT-8")
+    """Ended records count, and the earliest across the task's sessions wins,
+    so a re-run keeps the task's own PR. A record with no readable start or no
+    session says nothing."""
+    await a_task(table, "NORT-7", "Ship it")
+    await model.add_session(table, PROJECT, "NORT-7", "thread-7", "codex")
+    await a_task(table, "NORT-8", "Not yet")
     await an_agent(agents, "NORT-7", "2026-09-22T10:00:00+00:00")
+    # 07:00Z: the earliest instant, though not the earliest text.
+    await an_agent(
+        agents, "NORT-7", "2026-09-21T12:00:00+05:00", task_session_id="thread-7"
+    )
     await an_agent(agents, "NORT-7", "2026-09-21T10:00:00+00:00", status="ended")
     await an_agent(agents, "NORT-7", "")
     await an_agent(agents, "NORT-7", "2026-09-20T10:00:00")
@@ -133,7 +145,7 @@ async def test_a_task_starts_when_its_first_agent_did(table, agents):
     read = {t["id"]: t["startedAt"] for t in await source.read()}
 
     assert read == {
-        f"{PROJECT}/NORT-7": "2026-09-21T10:00:00+00:00",
+        f"{PROJECT}/NORT-7": "2026-09-21T12:00:00+05:00",
         f"{PROJECT}/NORT-8": "",
     }
 
@@ -141,8 +153,8 @@ async def test_a_task_starts_when_its_first_agent_did(table, agents):
 async def test_a_task_comes_back_when_its_first_agent_starts(table, agents):
     """An Agent record does not move the task row, so the source names the
     task itself. A later agent moves nothing: the first start stands."""
-    await model.create(table, project=PROJECT, title="Ship it", id="NORT-7")
-    await model.create(table, project=PROJECT, title="Leave it", id="NORT-8")
+    await a_task(table, "NORT-7", "Ship it")
+    await a_task(table, "NORT-8", "Leave it")
     source = NotebookTaskSource(table, lambda: [PROJECT], agents=agents)
     await source.read()
     before = await table.revision()
@@ -486,7 +498,11 @@ async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
     assert claimed == "in-progress"
     assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
     assert (claim.project, claim.task_id, claim.base) == (PROJECT, "NORT-7", "main")
-    assert claim.plan.session_id == model.session_id_for(PROJECT, "NORT-7")
+    # A never-run Claude task gets its session id stored by the claim.
+    stored = await model.load(table, PROJECT, "NORT-7")
+    assert [(e.id, e.harness) for e in stored.sessions] == [
+        (claim.plan.session_id, "claude")
+    ]
 
 
 async def test_an_opener_with_no_worktree_opener_refuses_to_open_one():
@@ -630,6 +646,31 @@ async def test_a_remote_source_whose_parent_is_away_raises_remote():
             await source.read_some(["northwind/NORT-7"])
     finally:
         await source.close()
+
+
+@pytest.mark.parametrize(
+    ("model_name", "agent_id", "returned", "stored"),
+    [
+        # Claude stored its session at the claim, so the start adds nothing.
+        ("", "agent-1", "session-NORT-7", [("session-NORT-7", "claude")]),
+        (
+            "codex:sol",
+            "thread-1",
+            "thread-1",
+            [("session-NORT-7", "claude"), ("thread-1", "codex")],
+        ),
+    ],
+)
+async def test_started_stores_a_codex_thread_only(
+    table, model_name, agent_id, returned, stored
+):
+    await a_task(table, "NORT-7", "x")
+    source = a_source(table)
+    claim = await source.claim_launch(f"{PROJECT}/NORT-7", model_name or None)
+
+    assert await source.started(claim, agent_id) == returned
+    task = await model.load(table, PROJECT, "NORT-7")
+    assert [(e.id, e.harness) for e in task.sessions] == stored
 
 
 # --- ListAllWorktreeSource: the terminal's link -----------------------------

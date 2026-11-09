@@ -363,6 +363,14 @@ export interface Task {
   lastRun: string;
   /** The **Schedule zone** the cron is read in, as a label, or `''` with no `schedule`. */
   scheduleZone: string;
+  /** The task's sessions, oldest first. See CONTEXT.md, "Task session id". */
+  sessions: TaskSession[];
+}
+
+/** One of a task's agent sessions: the harness's own id, and the harness. */
+export interface TaskSession {
+  id: string;
+  harness: 'claude' | 'codex';
 }
 
 /** One deploy environment's reading for a done task. `unknown` never counts as reached. */

@@ -139,6 +139,7 @@ def task_entity(
         "trigger": task.trigger,
         "lastRun": task.last_run,
         "scheduleZone": schedule_zone if task.schedule else "",
+        "sessions": [{"id": s.id, "harness": s.harness} for s in task.sessions],
     }
 
 
@@ -381,9 +382,9 @@ def link_agent(
     """Link an agent row to its worktree, project and task.
 
     The worktree is the one whose path is the agent's ``cwd``, and the project
-    follows from it. The task is the one whose task session id the agent
-    reports as its session: a launch pins ``session_id_for(project, task.id)``
-    on the agent, so the reverse lookup is exact. No match leaves the ids empty.
+    follows from it. The task is the one that stores the session the agent
+    reports: a launch pins the task's stored session id on the agent, so the
+    reverse lookup is exact. No match leaves the ids empty.
 
     A **Delegated agent**'s task is on its **Parent server**, so no task here matches
     its session: its row names the task, and the project comes from the task id.
@@ -403,8 +404,7 @@ def link_agent(
         (
             t
             for t in tasks.values()
-            if session
-            and model.session_id_for(t["project"], t["notebookId"]) == session
+            if session and any(entry["id"] == session for entry in t["sessions"])
         ),
         None,
     )

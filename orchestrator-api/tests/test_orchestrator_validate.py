@@ -828,6 +828,8 @@ def test_a_delegated_start_naming_its_task_session_and_env_is_allowed():
     world = world_with(projects=[PROJECT])
     cmd = _start(**DELEGATED, env={"PORT_BASE": "310"})
     assert validate_command(world, cmd) is None
+    # A never-run Codex task has no session yet.
+    assert validate_command(world, {**cmd, "session": ""}) is None
 
 
 @pytest.mark.parametrize(
@@ -843,14 +845,7 @@ def test_a_delegated_start_naming_its_task_session_and_env_is_allowed():
             {**DELEGATED, "parentUrl": "ftp://monolith.example"},
             "parentUrl is an HTTP(S) URL",
         ),
-        (
-            {**DELEGATED, "session": ""},
-            "A delegated start names its task and session",
-        ),
-        (
-            {**DELEGATED, "taskId": ""},
-            "A delegated start names its task and session",
-        ),
+        ({**DELEGATED, "taskId": ""}, "A delegated start names its task"),
         ({"session": "sess-1"}, "Only a delegated start names a session, env or task"),
         (
             {"taskId": "northwind/NORT-7"},
