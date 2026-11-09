@@ -1,8 +1,7 @@
-import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { TaskStatus } from '../protocol/entities';
 import type { DeskId, WorktreeId } from '../protocol/ids';
-import { isLive, nodeWorktree, type GraphNode } from './graph';
-import { canClose, trackedAgents } from './worktrees';
+import { isLive, nodeWorktree, workDeskId, worktreeHolders, type GraphNode } from './graph';
+import { canClose } from './worktrees';
 import type { WorldView } from './world';
 
 /**
@@ -40,19 +39,17 @@ export interface DismissStep {
   worktreeId?: WorktreeId;
 }
 
-/** The desk id a node is filed under: its task's, else its agent's. */
-function deskIdOf(node: GraphNode): DeskId {
-  return node.task ? deskIdForTask(node.task.id) : deskIdForAgent(node.agent!.id);
-}
+/** The desk id a node is filed under. */
+const deskIdOf = (node: GraphNode): DeskId => workDeskId(node.agent, node.task?.id);
 
 /**
  * Each node's Dismiss chain: the one a single Dismiss would run, with one
  * change. A worktree closes once, on the last selected node in it, so no close
- * races a sibling's terminate. A worktree where an unselected agent still runs
- * does not close at all. A node with nothing live and no desk entry is left out.
+ * races a sibling's terminate. A worktree with a **Holder** outside the
+ * selection does not close at all. A node with nothing live and no desk entry is left out.
  */
 export function planDismiss(world: WorldView, nodes: GraphNode[]): DismissStep[] {
-  const selectedAgents = new Set(nodes.flatMap((n) => (n.agent ? [n.agent.id] : [])));
+  const selected = new Set(nodes.map(deskIdOf));
   const lastIn = new Map<WorktreeId, GraphNode>();
   for (const node of nodes) {
     const where = nodeWorktree(world, node);
@@ -65,7 +62,7 @@ export function planDismiss(world: WorldView, nodes: GraphNode[]): DismissStep[]
     const closes =
       where &&
       lastIn.get(where.id) === node &&
-      trackedAgents(world, where.id).every((a) => selectedAgents.has(a.id));
+      [...worktreeHolders(world, where).keys()].every((id) => selected.has(id));
     if (closes) steps.push({ node, deskId, chain: 'close', worktreeId: where.id });
     else if (isLive(node.agent)) steps.push({ node, deskId, chain: 'terminate' });
     else if (deskId in world.desk) steps.push({ node, deskId, chain: 'offDesk' });

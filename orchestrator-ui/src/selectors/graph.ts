@@ -1,16 +1,23 @@
 import type { Attention } from '../protocol/attention';
-import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
+import { deskIdForAgent, deskIdForTask, splitDeskId } from '../protocol/deskId';
 import { isOpen } from '../protocol/attention';
 import type { TaskRow } from '../api/types';
-import type { Agent, Operation, OperationKind, Phase, Worktree } from '../protocol/entities';
+import type {
+  Agent,
+  Operation,
+  OperationKind,
+  Phase,
+  TaskStatus,
+  Worktree,
+} from '../protocol/entities';
 import type { WorldView } from './world';
-import type { TaskId } from '../protocol/ids';
+import type { DeskId, TaskId } from '../protocol/ids';
 import { phaseForTask } from '../protocol/phase';
 import type { Progress, Zone } from '../protocol/progress';
 import { isWorking, progressOf, zoneForState } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey, matchesText, searching } from './filters';
-import { byName } from './worktrees';
+import { byName, trackedAgents } from './worktrees';
 import { hasRegisteredPr } from './cardPr';
 
 /**
@@ -256,9 +263,7 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
     // The agent knows which worktree it is in; the branch index only guesses.
     // The guess is what keeps a finished task naming the worktree — and so
     // the PR — after its agent has stopped.
-    const worktree =
-      (agent ? world.worktrees[agent.worktreeId] : undefined) ??
-      worktreeByBranch.get(branchKey(task.project, task.branch));
+    const worktree = taskWorktree(world, task, agent, worktreeByBranch);
     nodes.push({
       id: task.id,
       kind: 'task',
@@ -418,6 +423,76 @@ function listEmptyWorktrees(
     if (filters.project && worktree.project !== filters.project) continue;
     laneOf(worktree.project).emptyWorktrees.push(worktree);
   }
+}
+
+/**
+ * The worktree a task's work is in: where its agent ran last, else the open
+ * worktree on its branch. A task with no branch matches no worktree, so it
+ * never lands in a detached one.
+ */
+function taskWorktree(
+  world: WorldView,
+  task: TaskRow,
+  agent: Agent | undefined,
+  byBranch: Map<string, Worktree>,
+): Worktree | undefined {
+  return (agent ? world.worktrees[agent.worktreeId] : undefined) ?? branchWorktree(task, byBranch);
+}
+
+function branchWorktree(task: TaskRow, byBranch: Map<string, Worktree>): Worktree | undefined {
+  return task.branch ? byBranch.get(branchKey(task.project, task.branch)) : undefined;
+}
+
+/**
+ * The desk id a node's work is filed under: its task's, else its agent's.
+ * `worktreeHolders` keys by it, so a caller subtracts its own node with it.
+ */
+export function workDeskId(agent: Agent | undefined, taskId: TaskId | undefined): DeskId {
+  const task = taskId || agent?.taskId;
+  return task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
+}
+
+/** The task statuses whose work still needs its branch. */
+const OPEN_STATUSES: ReadonlySet<TaskStatus> = new Set(['todo', 'in-progress', 'blocked']);
+
+/** One **Holder** of a worktree. */
+export interface Holder {
+  kind: 'task' | 'agent';
+  /** Whether a live agent runs it. */
+  running: boolean;
+}
+
+/**
+ * A worktree's **Holders** (see `CONTEXT.md`), by desk id. A task's agent
+ * counts under the task's desk id, so a task counts once.
+ *
+ * A task whose agent ran last in a worktree that is now closed is placed by
+ * its branch: a shelved branch reopened in another worktree still needs it.
+ */
+export function worktreeHolders(world: WorldView, worktree: Worktree): Map<DeskId, Holder> {
+  const holders = new Map<DeskId, Holder>();
+  for (const agent of trackedAgents(world, worktree.id)) {
+    const kind = agent.taskId ? 'task' : 'agent';
+    holders.set(workDeskId(agent, undefined), { kind, running: true });
+  }
+  const agents = agentsByTask(world);
+  const byBranch = openWorktreesByBranch(world);
+  for (const task of Object.values(world.tasks)) {
+    const deskId = deskIdForTask(task.id);
+    if (holders.has(deskId)) continue;
+    if (!OPEN_STATUSES.has(task.status) && !(deskId in world.desk)) continue;
+    const ran = taskWorktree(world, task, agents.get(task.id), byBranch);
+    const where = ran && !ran.isClosed ? ran : branchWorktree(task, byBranch);
+    if (where?.id === worktree.id) holders.set(deskId, { kind: 'task', running: false });
+  }
+  for (const deskId of Object.keys(world.desk)) {
+    const named = splitDeskId(deskId);
+    if (named?.kind !== 'agent' || holders.has(deskId)) continue;
+    if (world.agents[named.id]?.worktreeId === worktree.id) {
+      holders.set(deskId, { kind: 'agent', running: false });
+    }
+  }
+  return holders;
 }
 
 /** The open worktree on each branch, keyed by `branchKey`. */

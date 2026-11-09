@@ -1255,12 +1255,20 @@ _Avoid_: Remove from desk, Hide, archive
 
 **Dismiss**:
 The usual end of work on a node: **stop** its agent, take it **off desk**, and close its
-worktree when it can close and no other top-level agent runs there. It is the button of the
+worktree when it can close and the node is its last **Holder**. It is the button of the
 node card's end-of-work control. The server runs it as one `dismiss` **Operation**. Its chain is
 `terminate` (stop the agent, then off desk) or a worktree end — `close`, `shelve`, `trash` or
 `delete` — then off desk. A close refuses a dirty tree or unmerged commits, so Dismiss is
 **Refused** on a branch whose PR is not merged yet, and the node stays on the desk.
 _Avoid_: Done, Finish, Remove
+
+**Holder**:
+Work that still needs a worktree, so a **Dismiss** of another node keeps the worktree open: a live
+top-level agent in the worktree, an open task on it (`todo`, `in-progress` or `blocked`), or a desk
+node whose work is in it, whatever its status. A task is on the worktree where its agent ran last,
+else, or when that worktree is closed, on the open worktree of its branch. A bulk Dismiss does not
+count the holders in its **Selection**.
+_Avoid_: Owner, user, lock
 
 **Selection**:
 The nodes of the Desk canvas the user has Shift-clicked, for one **Bulk bar** action. Task and
