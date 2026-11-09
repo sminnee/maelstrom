@@ -650,7 +650,20 @@ class DocumentGroup(TypedDict):
     position: int
 
 
+class DocumentLink(TypedDict):
+    """A task that links a document, or one fragment of it (``""``: the whole)."""
+
+    taskId: str
+    fragment: str
+
+
 class Document(TypedDict):
+    """A presented document. A task's document is its stored Task document.
+
+    ``archived`` and ``links`` come from the store; a free agent's document is
+    never archived and never linked.
+    """
+
     id: str
     agentId: str
     taskId: str
@@ -661,6 +674,8 @@ class Document(TypedDict):
     status: str
     source: dict[str, Any]
     group: DocumentGroup
+    archived: bool
+    links: list[DocumentLink]
 
 
 class DocumentRow(TypedDict):
@@ -675,6 +690,8 @@ class DocumentRow(TypedDict):
     status: str
     source: dict[str, Any]
     group: DocumentGroup
+    archived: bool
+    links: list[DocumentLink]
 
 
 #: The ``Document`` fields a ``DocumentRow`` leaves out.

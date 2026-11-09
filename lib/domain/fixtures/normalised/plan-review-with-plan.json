@@ -36,8 +36,8 @@
       }
     },
     "documents": {
-      "ag1-4": {
-        "id": "ag1-4",
+      "c0087ca3d2de8165": {
+        "id": "c0087ca3d2de8165",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "plan",
@@ -51,20 +51,22 @@
           "planFilePath": "/Users/sminnee/.claude/plans/plan-a-hello-txt-containing-abundant-phoenix.md"
         },
         "group": {
-          "id": "ag1-4",
+          "id": "c0087ca3d2de8165",
           "title": "Plan",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
     "attention": {
-      "att-ag1-6": {
-        "id": "att-ag1-6",
+      "att-ag1-5": {
+        "id": "att-ag1-5",
         "kind": "plan_review",
         "agentId": "ag1",
         "taskId": "NORT-7",
-        "documentId": "ag1-4",
+        "documentId": "c0087ca3d2de8165",
         "requestId": "9df2f603-da86-44cf-ac99-4e102c7f7add",
         "summary": "Plan awaiting review",
         "raisedAt": "2026-09-02T00:00:00Z",
@@ -144,8 +146,8 @@
         {
           "type": "plan_review",
           "requestId": "9df2f603-da86-44cf-ac99-4e102c7f7add",
-          "documentId": "ag1-4",
-          "id": "ag1-5",
+          "documentId": "c0087ca3d2de8165",
+          "id": "ag1-4",
           "ts": "2026-09-02T00:00:00Z"
         }
       ],

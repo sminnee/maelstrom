@@ -34,8 +34,8 @@
       }
     },
     "documents": {
-      "ag1-3": {
-        "id": "ag1-3",
+      "c0087ca3d2de8165": {
+        "id": "c0087ca3d2de8165",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "plan",
@@ -49,20 +49,22 @@
           "planFilePath": "/Users/dev/.claude/plans/plan-how-to-create-parsed-alpaca.md"
         },
         "group": {
-          "id": "ag1-3",
+          "id": "c0087ca3d2de8165",
           "title": "Plan",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
     "attention": {
-      "att-ag1-5": {
-        "id": "att-ag1-5",
+      "att-ag1-4": {
+        "id": "att-ag1-4",
         "kind": "plan_review",
         "agentId": "ag1",
         "taskId": "NORT-7",
-        "documentId": "ag1-3",
+        "documentId": "c0087ca3d2de8165",
         "requestId": "af83ef09-6e75-4c2b-b0a4-98ad0ec2cbda",
         "summary": "Plan awaiting review",
         "raisedAt": "2026-09-02T00:00:00Z",
@@ -136,8 +138,8 @@
         {
           "type": "plan_review",
           "requestId": "af83ef09-6e75-4c2b-b0a4-98ad0ec2cbda",
-          "documentId": "ag1-3",
-          "id": "ag1-4",
+          "documentId": "c0087ca3d2de8165",
+          "id": "ag1-3",
           "ts": "2026-09-02T00:00:00Z",
           "decision": "approve"
         },
@@ -145,7 +147,7 @@
           "type": "message",
           "role": "user",
           "markdown": "[Request interrupted by user]",
-          "id": "ag1-6",
+          "id": "ag1-5",
           "ts": "2026-10-12T22:03:34.467Z"
         },
         {
@@ -153,7 +155,7 @@
           "subtype": "error_during_execution",
           "costUsd": 0.1030529,
           "durationMs": 5639,
-          "id": "ag1-7",
+          "id": "ag1-6",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
@@ -161,7 +163,7 @@
           "subtype": "init",
           "sessionId": "7f5d075a-f4f8-47fc-a4ed-cb4907518bbe",
           "model": "claude-haiku-5-5",
-          "id": "ag1-8",
+          "id": "ag1-7",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
@@ -169,7 +171,7 @@
           "subtype": "success",
           "costUsd": 0,
           "durationMs": 31,
-          "id": "ag1-9",
+          "id": "ag1-8",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
@@ -177,14 +179,14 @@
           "subtype": "init",
           "sessionId": "7f5d075a-f4f8-47fc-a4ed-cb4907518bbe",
           "model": "claude-haiku-5-5",
-          "id": "ag1-10",
+          "id": "ag1-9",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "assistant",
           "markdown": "Set model to `Sonnet 5.5` for this session only",
-          "id": "ag1-11",
+          "id": "ag1-10",
           "ts": "2026-10-12T22:03:34.514Z"
         },
         {
@@ -192,7 +194,7 @@
           "subtype": "success",
           "costUsd": 0,
           "durationMs": 12,
-          "id": "ag1-12",
+          "id": "ag1-11",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
@@ -200,14 +202,14 @@
           "subtype": "init",
           "sessionId": "7f5d075a-f4f8-47fc-a4ed-cb4907518bbe",
           "model": "claude-sonnet-5-5",
-          "id": "ag1-13",
+          "id": "ag1-12",
           "ts": "2026-09-02T00:00:00Z"
         },
         {
           "type": "message",
           "role": "user",
           "markdown": "Your plan was reviewed and approved. Read /Users/dev/.claude/plans/plan-how-to-create-parsed-alpaca.md and carry it out.\n\nThis is a fresh conversation: the planning discussion is no longer in your context, so the plan file is the whole brief. Re-read any file it names before you change it.",
-          "id": "ag1-14",
+          "id": "ag1-13",
           "ts": "2026-10-12T22:03:34.809Z"
         },
         {
@@ -251,7 +253,7 @@
           "type": "message",
           "role": "assistant",
           "markdown": "<user-attention high>\nI wrote \"ok\" to `/Users/dev/Projects/northwind/northwind-alpha/ok.txt` and read it back. It contains \"ok\", so both plan steps are done.",
-          "id": "ag1-15",
+          "id": "ag1-14",
           "ts": "2026-10-12T22:03:39.087Z"
         },
         {
@@ -259,7 +261,7 @@
           "subtype": "success",
           "costUsd": 0.14436320000000002,
           "durationMs": 4587,
-          "id": "ag1-16",
+          "id": "ag1-15",
           "ts": "2026-09-02T00:00:00Z"
         }
       ],

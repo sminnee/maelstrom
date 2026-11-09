@@ -34,8 +34,8 @@
       }
     },
     "documents": {
-      "ag1-4": {
-        "id": "ag1-4",
+      "fdf96975d64d14a1": {
+        "id": "fdf96975d64d14a1",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "other",
@@ -45,17 +45,19 @@
         "status": "draft",
         "source": {
           "type": "draft_file",
-          "fileId": "ag1-5-release-note.md",
+          "fileId": "ag1-4-release-note.md",
           "filename": "release-note.md"
         },
         "group": {
           "id": "ag1-3",
           "title": "Release note",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       },
-      "ag1-7": {
-        "id": "ag1-7",
+      "650244cf55b21b2b": {
+        "id": "650244cf55b21b2b",
         "agentId": "ag1",
         "taskId": "NORT-7",
         "kind": "tasks",
@@ -65,24 +67,26 @@
         "status": "awaiting-review",
         "source": {
           "type": "draft_file",
-          "fileId": "ag1-8-draft-iter1.md",
+          "fileId": "ag1-6-draft-iter1.md",
           "filename": "draft-iter1.md"
         },
         "group": {
-          "id": "ag1-6",
+          "id": "ag1-5",
           "title": "Iteration 1",
           "position": 0
-        }
+        },
+        "archived": false,
+        "links": []
       }
     },
     "comments": {},
     "attention": {
-      "att-ag1-9": {
-        "id": "att-ag1-9",
+      "att-ag1-7": {
+        "id": "att-ag1-7",
         "kind": "document_review",
         "agentId": "ag1",
         "taskId": "NORT-7",
-        "documentId": "ag1-7",
+        "documentId": "650244cf55b21b2b",
         "requestId": null,
         "summary": "Iteration 1 awaiting review",
         "raisedAt": "2026-09-05T03:00:04.000Z",
@@ -119,7 +123,7 @@
           "subtype": "success",
           "costUsd": 0.0312,
           "durationMs": 1500,
-          "id": "ag1-10",
+          "id": "ag1-8",
           "ts": "2026-09-05T03:00:05.000Z"
         }
       ],

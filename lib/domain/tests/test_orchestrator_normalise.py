@@ -40,6 +40,7 @@ from mael_domain.normalise import (
     normalise_stream_event,
 )
 from mael_domain.protocol import ClientState, apply_event, empty_world, state_with
+from mael_domain.task_attachments import attachment_id
 
 GOLDEN = Path(__file__).parents[1] / "fixtures" / "normalised"
 NOW = "2026-09-01T00:00:00Z"
@@ -1508,19 +1509,11 @@ def test_a_tool_use_and_its_result_merge_into_one_item():
     assert "EPERM" in errored["output"]
 
 
-def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document():
-    # The title is spelled out rather than left to `make_document`'s default.
-    # `previous_version` matches a stored plan on its title, so this seed is
-    # one half of the match: an independent literal says which title the
-    # production code has to look for.
-    doc = make_document(
-        id="doc-1", agentId="ag1", version=1, status="changes-requested", title="Plan"
-    )
-    state = seed([make_agent(id="ag1", state="processing")], [doc])
-    ctx = context_for_agent("ag1")
+def _plan_submitted(state: ClientState, agent_id: str) -> list[dict]:
+    """The world's documents after ``agent_id`` submits a revised plan."""
     out = normalise_stream_event(
         state,
-        ctx,
+        context_for_agent(agent_id),
         {
             "type": "control_request",
             "request_id": "req-2",
@@ -1535,12 +1528,49 @@ def test_a_plan_sent_back_comes_around_as_the_next_version_of_the_same_document(
     )
     for event in out.events:
         state = apply_event(state, event)
-    docs = list(state["world"]["documents"].values())
+    return list(state["world"]["documents"].values())
+
+
+def test_a_free_agent_s_plan_sent_back_comes_around_as_the_next_version():
+    # The title is spelled out rather than left to `make_document`'s default.
+    # `previous_version` matches a plan on its title, so this seed is one half
+    # of the match: an independent literal says which title the production
+    # code has to look for.
+    doc = make_document(
+        id="doc-1",
+        agentId="ag1",
+        taskId="",
+        version=1,
+        status="changes-requested",
+        title="Plan",
+    )
+    docs = _plan_submitted(
+        seed([make_agent(id="ag1", state="processing", taskId="")], [doc]), "ag1"
+    )
     assert len(docs) == 1
     assert docs[0]["id"] == "doc-1"
     assert docs[0]["version"] == 2
     assert docs[0]["status"] == "awaiting-review"
     assert docs[0]["markdown"] == "# Revised"
+
+
+@pytest.mark.parametrize("status", ["approved", "changes-requested", "stale"])
+def test_a_task_s_plan_is_one_document_whatever_its_last_verdict(status):
+    """Each plan a task agent submits is the next version of the task's plan.
+
+    Its id is the one the plan is stored under, so the entry the server built
+    from the store is the one a later agent on the task finds.
+    """
+    stored = attachment_id("NORT-7", "plan")
+    doc = make_document(
+        id=stored, agentId="ag0", taskId="NORT-7", version=3, status=status
+    )
+    docs = _plan_submitted(
+        seed([make_agent(id="ag1", state="processing")], [doc]), "ag1"
+    )
+    assert [(d["id"], d["version"], d["status"]) for d in docs] == [
+        (stored, 4, "awaiting-review")
+    ]
 
 
 def test_a_fresh_context_seeds_its_ids_past_the_ones_already_handed_out():
@@ -2446,9 +2476,13 @@ def presented_by(agent: dict, others: list[dict]) -> Replayed:
 
 
 def an_earlier_one_md(**over) -> dict:
-    """An earlier `one.md` another agent presented, at v1 and approved."""
+    """An earlier `one.md` another agent presented, at v1 and approved.
+
+    Its id is the one its Task document is stored under, as the server builds
+    it from the store.
+    """
     return {
-        "id": "ag0-1",
+        "id": attachment_id(over.get("taskId", "NORT-7"), "one.md"),
         "agentId": "ag0",
         "taskId": "NORT-7",
         "kind": "tasks",
@@ -2456,16 +2490,19 @@ def an_earlier_one_md(**over) -> dict:
         "markdown": "",
         "version": 1,
         "status": "approved",
-        "source": {"type": "draft_file", "fileId": None, "filename": "one.md"},
+        "source": {"type": "stored", "name": "one.md"},
         "group": {"id": "ag0-0", "title": "Iteration 1", "position": 0},
+        "archived": False,
+        "links": [],
         **over,
     }
 
 
 def test_a_second_agent_on_the_same_task_presents_the_same_document():
     """Scoped to the task, not the agent: a resumed session keeps its entries."""
-    replayed = presented_by(make_agent(id="ag1", state="idle"), [an_earlier_one_md()])
-    one = replayed.state["world"]["documents"]["ag0-1"]
+    earlier = an_earlier_one_md()
+    replayed = presented_by(make_agent(id="ag1", state="idle"), [earlier])
+    one = replayed.state["world"]["documents"][earlier["id"]]
     assert (one["version"], one["status"]) == (2, "awaiting-review")
     assert len(documents_of(replayed)) == 3
 
@@ -2474,15 +2511,19 @@ def test_a_file_presented_by_another_task_is_a_different_document():
     """`.drafts/pr.md` is a new pull request for each task."""
     earlier = an_earlier_one_md(taskId="NORT-8")
     replayed = presented_by(make_agent(id="ag1", state="idle"), [earlier])
-    assert replayed.state["world"]["documents"]["ag0-1"] == earlier
+    assert replayed.state["world"]["documents"][earlier["id"]] == earlier
     assert len(documents_of(replayed)) == 4
 
 
 def test_an_agent_with_no_task_scopes_to_itself():
     """A free agent has no task, so another free agent's path is not its own."""
-    earlier = an_earlier_one_md(taskId="")
+    earlier = an_earlier_one_md(
+        id="ag0-1",
+        taskId="",
+        source={"type": "draft_file", "fileId": None, "filename": "one.md"},
+    )
     replayed = presented_by(make_agent(id="ag1", state="idle", taskId=""), [earlier])
-    assert replayed.state["world"]["documents"]["ag0-1"] == earlier
+    assert replayed.state["world"]["documents"][earlier["id"]] == earlier
     assert len(documents_of(replayed)) == 4
 
 
@@ -2612,7 +2653,8 @@ def test_a_doc_file_tag_naming_a_file_that_cannot_be_read_still_mints_a_document
     """An unreadable file mints a document that says so."""
     state = replay("document-file-missing.jsonl")
     [doc] = documents_of(state)
-    assert doc["kind"] == "plan"
+    # The tag names kind="plan", which a <doc-file> may not: it reads as other.
+    assert doc["kind"] == "other"
     assert doc["title"] == "no-such-draft.md"
     assert "no-such-draft.md" in doc["markdown"]
     assert doc["status"] == "draft"
