@@ -1299,6 +1299,23 @@ function remoteHost(): Seed {
   const { world } = seed;
   world.tasks['NORT-7.1'] = { ...world.tasks['NORT-7.1']!, actionable: true };
   world.agents['d9a4c7f1'] = { ...world.agents['d9a4c7f1']!, host: 'zinc' };
+  // A worktree cobalt owns, closing there: its operation is merged here.
+  const echo = 'cobalt:northwind-echo';
+  world.worktrees[echo] = {
+    ...world.worktrees['northwind-delta']!,
+    id: echo,
+    nato: 'echo',
+    branch: 'feat/echo',
+  };
+  world.operations['cobalt:op3'] = seededOp({
+    id: 'cobalt:op3',
+    kind: 'close',
+    project: 'northwind',
+    worktreeId: echo,
+    words: 'Closing echo',
+    state: 'running',
+    steps: runningSteps([...TEARDOWN, 'git_close'], 1, 6),
+  });
   world.host = {
     ...world.host!,
     remoteHosts: [

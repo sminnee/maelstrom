@@ -42,6 +42,11 @@ async def started(store, kind: str = "close"):
     return op
 
 
+@pytest.mark.parametrize(("op_id", "number"), [("op5", 5), ("cobalt:op12", 12)])
+def test_an_operation_number_reads_a_bare_or_a_prefixed_id(op_id, number):
+    assert operation_number(op_id) == number
+
+
 async def test_operations_list_newest_first_in_number_order(make_store):
     store = await make_store()
     for _ in range(11):

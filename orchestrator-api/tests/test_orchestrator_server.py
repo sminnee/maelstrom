@@ -6211,6 +6211,33 @@ def test_an_operation_failed_by_a_restart_is_retried_from_its_stored_command(sto
     assert op["state"] == "done"
 
 
+def test_a_server_given_a_host_name_mints_prefixed_ids_after_its_bare_ones(store):
+    """The counter goes on past the ids it stored before it had a prefix.
+
+    The list sorts by start: ``op5`` started later, though its number is lower.
+    """
+    later = "2026-09-02T00:00:00Z"
+    operations = InMemoryOperationStore()
+    old = operations_model.new_operation("op5", "close", None, "Closed alpha", later)
+    run(
+        operations.save(
+            OperationRecord(operations_model.finish(old, "done", "", later))
+        )
+    )
+    harness = Harness(store, operations=operations, ids=IdSpace("cobalt"))
+    harness.worktrees.close = two_step_close([])
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post("/api/worktrees/northwind-alpha/close")
+            await ended(api, reply.body["operationId"])
+            return reply.body, await api.get_json("/api/operations")
+
+    reply, listed = run(scenario())
+    assert reply == {"operationId": "cobalt:op6"}
+    assert [o["id"] for o in listed["operations"]] == ["op5", "cobalt:op6"]
+
+
 def test_a_retry_is_judged_against_the_world_as_it_is_now(harness):
     harness.worktrees.close = two_step_close([], refuse=["2 unmerged commits"])
 
@@ -14182,6 +14209,33 @@ def test_a_remote_host_that_goes_away_is_offline_and_comes_back(store, tmp_path)
     assert "cobalt:new1" in [a["id"] for a in again["agents"]]
 
 
+def test_a_forwarded_close_shows_the_hosts_operation_in_the_parents_world(
+    store, tmp_path
+):
+    ran: list[str] = []
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            child.harness.worktrees.close = two_step_close(ran)
+            parent.worktrees.close = refuse_here(ran)
+            await until(
+                api,
+                "/api/worktrees",
+                lambda b: "cobalt:northwind-alpha" in [w["id"] for w in b["worktrees"]],
+            )
+            op = await operated(api, "/api/worktrees/cobalt:northwind-alpha/close")
+            log = await api.get_json(f"/api/operations/{op['id']}/log")
+            listed = await api.get_json("/api/operations")
+            return op, log, listed
+
+    op, log, listed = run(scenario())
+    assert (op["id"], op["kind"], op["state"]) == ("cobalt:op1", "close", "done")
+    assert op["worktreeId"] == "cobalt:northwind-alpha"
+    assert ran == ["stop_agents", "git_close"]
+    assert [s["name"] for s in log["steps"]] == ["stop_agents", "git_close"]
+    assert "cobalt:op1" in [o["id"] for o in listed["operations"]]
+
+
 def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
     """A host serves what it holds: some rows are not its own work, or not ours."""
     row = Harness(store).worktrees.worktrees[0]
@@ -14219,7 +14273,7 @@ def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
     app.router.add_get("/api/events", events)
     for kind, (path, key) in MERGED_KINDS.items():
         rows = {"worktree": worktrees, "document": documents}.get(kind, [])
-        app.router.add_get(path, listing(key, rows))
+        app.router.add_get(path.partition("?")[0], listing(key, rows))
 
     async def scenario():
         async with serving(app, [("127.0.0.1", None)], 0) as port:
