@@ -158,7 +158,7 @@ def _ensure_draft_write_rules(worktree_path: Path) -> None:
 
 
 def _setup_claude_settings_symlink(worktree_path: Path) -> None:
-    """Link .claude/settings.local.json to settings.json.
+    """Link .claude/settings.local.json to settings.json, and gitignore the link.
 
     Tool-use approvals saved to settings.local.json then land in the tracked
     settings.json, so every worktree has them. A real settings.local.json
@@ -176,6 +176,7 @@ def _setup_claude_settings_symlink(worktree_path: Path) -> None:
     if settings_local.is_symlink():
         settings_local.unlink()
     settings_local.symlink_to("settings.json")
+    _ensure_gitignore_entry(worktree_path, ".claude/settings.local.json")
 
 
 def _inline_imports(text: str, worktree_path: Path, depth: int, seen: set[Path]) -> str:

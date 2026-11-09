@@ -133,7 +133,7 @@ The first commit holds the files a maelstrom project needs:
 
 | File | Purpose |
 |---|---|
-| `.gitignore` | Ignores `.env`, `.claude/CLAUDE.local.md` and `AGENTS.md`, which maelstrom generates per worktree. |
+| `.gitignore` | Ignores `.env`, `.claude/CLAUDE.local.md`, `.claude/settings.local.json`, `AGENTS.md` and `.drafts/`, which maelstrom generates per worktree. |
 | `.maelstrom.yaml` | Commented stub. Fill it in at step 4. |
 | `README.md` | Project title. |
 | `CLAUDE.md` | Imports `.claude/CLAUDE.local.md`, which the first `mael add` writes. `AGENTS.md` (gitignored, generated per worktree) carries the same content with `@` imports inlined, for opencode, which reads only `AGENTS.md` and does not resolve `@` imports. |

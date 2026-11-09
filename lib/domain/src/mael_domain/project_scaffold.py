@@ -12,6 +12,7 @@ GITIGNORE = f"""\
 # Maelstrom generates these per worktree. Do not commit them.
 .env
 .claude/CLAUDE.local.md
+.claude/settings.local.json
 AGENTS.md
 {DRAFTS_DIR}
 """
