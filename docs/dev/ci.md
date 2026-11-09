@@ -75,10 +75,10 @@ In CI, `gate run` runs inline and does not start a job.
 
 The project sets no `pre_push_cmd`, so `mael gh create-pr` and `mael sync` push without a check.
 
-Install tangier 0.3.1 or later, and see each gate's status:
+Install tangier 0.3.5 or later, and see each gate's status:
 
 ```bash
-uv tool install "tangier>=0.3.1"
+uv tool install "tangier>=0.3.5"
 tangier gate run --all --dry-run   # each gate's status, and what it would run
 ```
 
