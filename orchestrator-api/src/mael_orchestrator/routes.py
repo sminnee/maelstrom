@@ -320,6 +320,7 @@ HOST_OWNED_ROUTES = (
     "/api/agents/{id}",
     "/api/documents/{id}",
     "/api/files/{id}",
+    "/api/operations/{id}",
     "/api/worktrees/{id}",
 )
 
@@ -1539,12 +1540,16 @@ async def _dismiss(request: web.Request) -> web.StreamResponse:
 
 
 async def _operations(request: web.Request) -> web.Response:
-    """The operations, newest first, up to ``limit``. See ``CONTEXT.md``, "Operation"."""
+    """The operations, newest first, up to ``limit``. See ``CONTEXT.md``, "Operation".
+
+    Sorted by ``startedAt``: a parent's world holds a host's merged operations,
+    and the numbers of two servers do not compare. The number breaks a tie.
+    """
     orch = await _ready(request)
     limit = _int_or_none(request.query.get("limit"))
     ops = sorted(
         orch.world["operations"].values(),
-        key=lambda op: operation_number(op["id"]),
+        key=lambda op: (op["startedAt"], operation_number(op["id"])),
         reverse=True,
     )
     return web.json_response(

@@ -43,6 +43,7 @@ import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
 import { makeWorktree } from './fixtures';
 import {
+  operationNumber,
   retryOperation,
   startOperation,
   type FakeFault,
@@ -606,8 +607,10 @@ function read(path: string, server: FakeServer): Reply {
   if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
   if (pathname === '/api/operations') {
     const limit = Number(params.get('limit') ?? 0);
+    // By start, then number, as the server sorts.
     const ops = Object.values(world.operations).sort(
-      (a, b) => Number(b.id.slice(2)) - Number(a.id.slice(2)),
+      (a, b) =>
+        b.startedAt.localeCompare(a.startedAt) || operationNumber(b.id) - operationNumber(a.id),
     );
     return ok({ operations: limit > 0 ? ops.slice(0, limit) : ops });
   }

@@ -121,6 +121,7 @@ from mael_domain.protocol import (
     Host,
     HostUsage,
     MetricsSample,
+    Operation,
     RemoteHostState,
     ServerEvent,
     Task,
@@ -753,6 +754,7 @@ class Orchestrator:
             operations if operations is not None else InMemoryOperationStore(),
             self._apply,
             clock,
+            self.ids,
         )
         #: Every file an agent named, by the id that stands for it.
         self.files = FileRegistry()
@@ -1704,6 +1706,8 @@ class Orchestrator:
                     continue
                 if kind == "agent":
                     entity = self._merged_agent(cast(Agent, entity))
+                elif kind == "operation":
+                    entity = self._merged_operation(cast(Operation, entity))
                 new[entity["id"]] = entity
             old = host.slices.get(kind, {})
             # A merged kind's list key is its world table's name.
@@ -1723,9 +1727,26 @@ class Orchestrator:
         Any other task id names a task in another notebook, which may share
         the id of one here.
         """
-        if agent.get("parentUrl") and agent.get("parentUrl") == self.own_url:
+        if self._delegated_here(agent):
             return agent
         return {**agent, "taskId": ""}
+
+    def _delegated_here(self, agent: Agent | None) -> bool:
+        """Whether a remote host's ``agent`` runs for this server as its **Parent server**."""
+        return bool(
+            agent and agent.get("parentUrl") and agent.get("parentUrl") == self.own_url
+        )
+
+    def _merged_operation(self, op: Operation) -> Operation:
+        """A remote host's operation as this server shows it.
+
+        Its task id is kept by the rule of :meth:`_merged_agent`: only when its
+        agent is one this server delegated. The agents merge first, because the
+        kinds merge in name order.
+        """
+        if self._delegated_here(self.world["agents"].get(op.get("agentId") or "")):
+            return op
+        return {**op, "taskId": None}
 
     def _set_host(
         self,

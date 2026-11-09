@@ -52,8 +52,10 @@ OPERATION_POLL_SECS = 0.5
 #: is seen without a restart.
 ADDRESS_SECS = 60.0
 
-#: Each merged kind, and the list route and key the host serves it on.
+#: Each merged kind, and the list route and key the host serves it on. The
+#: operations are read in the UI's window: an older host row leaves the merge.
 MERGED_KINDS: dict[str, tuple[str, str]] = {
+    "operation": ("/api/operations?limit=200", "operations"),
     "agent": ("/api/agents", "agents"),
     "document": ("/api/documents", "documents"),
     "attention": ("/api/attention", "attention"),

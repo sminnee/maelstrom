@@ -83,7 +83,7 @@ export function startOperation(
   const { world } = server;
   const running = busyOn(server, spec.keys);
   if (running) return { busy: running };
-  const numbers = Object.keys(world.operations).map((id) => Number(id.slice(2)));
+  const numbers = Object.keys(world.operations).map(operationNumber);
   const id = `op${Math.max(0, ...numbers) + 1}`;
   const op: Operation = {
     id,
@@ -216,3 +216,6 @@ function runFrom(server: FakeServer, id: OperationId, spec: FakeOperationSpec) {
   };
   next(0);
 }
+
+/** The `n` of `op<n>` or `<host>:op<n>`, as the server reads it. */
+export const operationNumber = (id: string): number => Number(id.slice(id.lastIndexOf(':') + 3));

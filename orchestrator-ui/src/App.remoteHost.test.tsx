@@ -58,3 +58,25 @@ describe('the session tab of an agent on a remote host', () => {
     expect(await screen.findByText(/zinc offline/)).toBeInTheDocument();
   });
 });
+
+describe('an operation a remote host runs', () => {
+  it('marks its worktree busy here, and shows in the console strip', async () => {
+    await renderApp({
+      scenario: 'remote-host',
+      url: '/projects?detail=northwind&dtab=worktrees',
+    });
+    const row = await waitFor(() => {
+      const found = document.querySelector<HTMLElement>(
+        '[data-testid="worktree-table"] [data-worktree-id="cobalt:northwind-echo"]',
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(row).toHaveAttribute('data-operation', 'running');
+    expect(within(row).getByText(/^Closing echo/)).toBeInTheDocument();
+    const strip = screen.getByRole('region', { name: 'Operations now' });
+    expect(strip.querySelector('[data-operation-id="cobalt:op3"]')).toHaveTextContent(
+      'Closing echo',
+    );
+  });
+});

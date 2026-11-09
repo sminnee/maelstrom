@@ -21,8 +21,12 @@ OperationLog = dict[str, list[str]]
 
 
 def operation_number(id: str) -> int:
-    """The ``n`` of ``op<n>``, so ``op10`` sorts after ``op2``."""
-    return int(id[2:])
+    """The ``n`` of ``op<n>`` or ``<prefix>:op<n>``, so ``op10`` sorts after ``op2``.
+
+    The part after the last ``:`` is read, so a server that gets a
+    ``host_name`` keeps its counter across its bare and prefixed ids.
+    """
+    return int(id.rpartition(":")[2][2:])
 
 
 @dataclass

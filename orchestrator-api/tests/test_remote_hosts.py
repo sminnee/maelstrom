@@ -80,8 +80,11 @@ async def served(stub: StubHost):
         await runner.cleanup()
 
 
-#: Each merged kind's list route, by path, as the host serves it.
-MERGED_ROUTES = {path: (kind, key) for kind, (path, key) in MERGED_KINDS.items()}
+#: Each merged kind's list route, by path, as the host serves it. A query is
+#: not part of the route.
+MERGED_ROUTES = {
+    path.partition("?")[0]: (kind, key) for kind, (path, key) in MERGED_KINDS.items()
+}
 
 
 async def noop_change(_host, _kinds) -> None:
@@ -167,7 +170,7 @@ def test_a_reset_reports_every_kind_and_a_change_reports_its_own():
         return reports
 
     assert asyncio.run(scenario()) == [
-        {"agent", "document", "attention", "worktree", "gateJob"},
+        {"agent", "document", "attention", "worktree", "gateJob", "operation"},
         {"worktree"},
         {"agent"},
     ]

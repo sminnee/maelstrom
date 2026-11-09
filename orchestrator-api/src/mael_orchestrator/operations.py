@@ -13,6 +13,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from mael_agent.host_ids import IdSpace
 from mael_domain import operations as model
 from mael_domain.operation_store import (
     OperationRecord,
@@ -161,8 +162,11 @@ class OperationRunner:
         store: OperationStore,
         apply: Callable[[list[ServerEvent]], None],
         clock: Callable[[], str],
+        ids: IdSpace,
     ) -> None:
         self.store = store
+        #: Mints each id with the server's **Id prefix**: ``cobalt:op12``.
+        self.ids = ids
         self._apply = apply
         self.clock = clock
         #: The running operations, with their log and command, by id.
@@ -210,7 +214,7 @@ class OperationRunner:
                 raise Busy(running)
         if again is None:
             self._last += 1
-            id = f"op{self._last}"
+            id = self.ids.own(f"op{self._last}")
             op = model.new_operation(
                 id,
                 plan.kind,
