@@ -94,6 +94,7 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     appRunning: false,
     env: { state: 'stopped', services: [] },
     shellUrl: '',
+    sshTarget: '',
     sessionCount: 0,
     gate: null,
   };

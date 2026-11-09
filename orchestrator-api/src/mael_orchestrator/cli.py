@@ -8,6 +8,7 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 
 import asyncio
 import functools
+import getpass
 import ipaddress
 import logging
 import os
@@ -44,6 +45,7 @@ from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.release_bundle.layout import installed_web_root
+from mael_domain.ssh_target import SshTarget
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -325,6 +327,13 @@ def build_orchestrator(
             raise CloseBlocked("cmux could not make the terminal")
         return url
 
+    def make_ssh_terminal(name: str, target: SshTarget) -> str:
+        cmux = MaelCmux.current()
+        url = cmux.ssh_terminal(name, target) if cmux else None
+        if url is None:
+            raise CloseBlocked("cmux could not make the terminal")
+        return url
+
     def terminal_urls(worktrees: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
         cmux = MaelCmux.current()
         return cmux.terminal_urls(worktrees) if cmux else {}
@@ -365,6 +374,9 @@ def build_orchestrator(
         ensure_terminal=ensure_worktree_terminal,
         terminal_urls=terminal_urls,
         add_project=functools.partial(clone_project, projects_dir),
+        ssh_terminal=make_ssh_terminal,
+        # Read at start: a config change needs an orchestrator restart.
+        ssh_login=(getpass.getuser(), config.dev_host) if config.dev_host else None,
     )
     # The one place the id prefix is read: every reader below is given it.
     ids = IdSpace(config.host_name)

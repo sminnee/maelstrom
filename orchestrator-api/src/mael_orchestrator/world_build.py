@@ -218,11 +218,12 @@ def _pr_match(row: dict[str, Any]) -> PrMatch:
 
 
 def worktree_entity(
-    project: str, row: dict[str, Any], *, shell_url: str = ""
+    project: str, row: dict[str, Any], *, shell_url: str = "", ssh_target: str = ""
 ) -> Worktree:
     """The wire worktree for one ``list-all`` row. Nulls become empty strings.
 
-    ``shell_url`` is not in the row: cmux knows it, not ``list-all``.
+    ``shell_url`` is not in the row: cmux knows it, not ``list-all``. Nor is
+    ``ssh_target``: the server's config knows it.
     """
     nato = row["name"]
     return {
@@ -251,6 +252,7 @@ def worktree_entity(
         "env": row.get("env") or {"state": "stopped", "services": []},
         "sessionCount": int(row.get("session_count") or 0),
         "shellUrl": shell_url,
+        "sshTarget": ssh_target,
         # The server overlays the live state; see ``LiveFeedbackHub``.
         "liveFeedback": [],
         # The server overlays the live job; see ``worktree_gates``.
