@@ -65,3 +65,4 @@ Recommend a tool unless the project is trivially small.
 - **Conventions written down.** Passes when `docs/review/coding-standards.md` or `.claude/review-guides/<language>.md` carry real rules.
 - **Permissions allowlist.** Passes when `.claude/settings.json` allows the routine commands the project needs.
 - **Env files handled.** Passes when `.env` is ignored, an example file lists each variable the project reads, and `.claude/CLAUDE.local.md` is ignored.
+- **Host tools checked.** Passes when `check_host_cmd` in `.maelstrom.yaml` checks each host tool that the project's commands, tests and services call and that `mael self check-host` does not check, such as `pdftotext` or `kubectl`. On a failure, its output names each missing tool and its install command. `n/a` when the project calls no such tool. Recommend a `bin/check-host` script, as `check_host_cmd:` in the maelstrom repo's `docs/reference/configuration.md` shows.

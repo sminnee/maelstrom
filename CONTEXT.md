@@ -1891,11 +1891,18 @@ _Avoid_: update operation, background update
 **Host check**:
 The check of the machine outside maelstrom's own install: the host tools, the sign-ins, the git
 author identity, Docker, the browser tool, Tailscale and the secret files under `~/.maelstrom`.
+It also runs each **Project host check**.
 `mael self check-host` runs it, and installs or signs in only after a yes. Each install runs it
 with `--quiet`, which skips an optional item the user said no to. It is not
 `mael self setup`, which applies maelstrom's own install, nor `mael project check`,
 which checks one project.
 _Avoid_: doctor, host doctor
+
+**Project host check**:
+The project's `check_host_cmd`. It checks that the host has what the project needs, such as a
+tool that the **Host check** does not cover. Maelstrom only runs it, in `_main`, and shows its
+output.
+_Avoid_: host check (that is `mael self check-host`)
 
 **Core plugin**:
 The `maelstrom` plugin in `shared/plugins/`: the skills the orchestrator launches by name and the

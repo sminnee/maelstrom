@@ -29,6 +29,7 @@ Put this file in your repository root.
 | `shared_port_names` | list of string | `[]` | Legacy flat port names shared across worktrees in the project. |
 | `main_port_base` | int | — | Port base reserved for the `_main` worktree, making it the project's fixed environment. Must be 1-6552 and outside 300-999. See below. |
 | `install_cmd` | string | `""` | Command that installs dependencies. Runs on worktree creation, in the background, with its output in `~/.maelstrom/logs/<project>/<worktree>/install.log`. Also runs on `mael env start`: see [the CLI reference](cli.md). |
+| `check_host_cmd` | string | `""` | **Project host check**: a command that checks the host has the tools this project needs. See below. |
 | `pre_push_cmd` | string | — | Check that runs after the last rebase and before a push. See below. |
 | `start_cmd` | string | `""` | Fallback start command when there is no `services:` block and no Procfile. |
 | `linear` | map | — | Linear settings. See below. |
@@ -71,6 +72,39 @@ without a word; above 6552 the derived ports pass 65535 and no service can bind.
 
 Omit the key and `_main` keeps no ports and no `.env`. See
 [the fixed environment](../guide/worktrees.md#the-fixed-environment).
+
+### `check_host_cmd:`
+
+A shell command that checks the host has what this project needs, such as a tool that
+`mael self check-host` does not check. Exit 0 means the host is ready. On a non-zero exit, the
+output must say what is missing and how to install it. Maelstrom only runs the command and shows
+its output. It installs nothing.
+
+```yaml
+check_host_cmd: bin/check-host
+```
+
+```sh
+#!/bin/sh
+# bin/check-host — exit non-zero, and say why, when this host lacks a tool.
+rc=0
+command -v pdftotext >/dev/null || { echo "pdftotext missing: sudo apt-get install -y poppler-utils (macOS: brew install poppler)"; rc=1; }
+command -v kubectl   >/dev/null || { echo "kubectl missing: sudo snap install kubectl --classic (macOS: brew install kubectl)"; rc=1; }
+exit $rc
+```
+
+The command runs with `sh -c` in the project's `_main` worktree, so it uses the main branch's
+`.maelstrom.yaml`. It has 60 seconds. A timeout counts as a failure, and stops every process the
+command started. `mael self check-host` runs it on the agents' PATH. The other two commands run it
+on your PATH.
+
+| Command | What a failure does |
+|---|---|
+| `mael self check-host` | Prints `✗` and the output under **Projects**. The exit code does not change. |
+| `mael project check` | A warning, so the command exits 1. |
+| `mael project add` | Prints the output after the clone. The exit code stays 0. |
+
+To stop on a missing tool before work starts, put the same check in `install_cmd`.
 
 ### `pre_push_cmd:`
 
