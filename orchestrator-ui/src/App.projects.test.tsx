@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { faultKey } from './fake/operations';
 import { paneItem } from './test/appHelpers';
@@ -243,10 +243,26 @@ describe('the Welcome dialog', () => {
 
     // The seed's last sample: job 41 uses 212.3% of one core of 8, and 1.2G.
     const now = await dialog.findByTestId('machine-now');
-    expect(now).toHaveTextContent('CPU 47% · mem 12G of 32G · 62 °C');
+    const chart = (name: string) => within(dialog.getByRole('group', { name }));
+    // Each chart's header names the latest figure.
+    expect(chart('CPU').getByText('47%')).toBeInTheDocument();
+    expect(chart('Memory').getByText('12G')).toBeInTheDocument();
+    expect(chart('Temp').getByText('62 °C')).toBeInTheDocument();
+    // The memory scale tops out at the window's largest total.
+    expect(chart('Memory').getByText('32G')).toBeInTheDocument();
     expect(now).toHaveTextContent('maelstrom-alpha cpu 27% · mem 1.2G');
     expect(now).toHaveTextContent('other cpu 20% · mem 11G');
-    expect(dialog.getByRole('img', { name: 'CPU, last 15 minutes' })).toBeInTheDocument();
+
+    // A pointer on one chart moves every header to the oldest sample, and back.
+    const cpuPlot = dialog.getByRole('img', { name: 'CPU, last 15 minutes' });
+    fireEvent.pointerMove(cpuPlot, { clientX: 0 });
+    expect(chart('CPU').getByText('12%')).toBeInTheDocument();
+    expect(chart('Memory').getByText('10G')).toBeInTheDocument();
+    expect(chart('Temp').getByText('48 °C')).toBeInTheDocument();
+    expect(dialog.queryByText('· last 15 min')).toBeNull();
+    fireEvent.pointerLeave(cpuPlot);
+    expect(chart('CPU').getByText('47%')).toBeInTheDocument();
+    expect(dialog.getByText('· last 15 min')).toBeInTheDocument();
   });
 
   it('adds the first project, then opens its Project dialog on its paths', async () => {
