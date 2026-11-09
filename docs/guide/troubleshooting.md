@@ -15,7 +15,7 @@ mael task reconcile    # do tasks and sessions agree?
 
 ## `mael project check`
 
-The check runs fourteen checks in order and fixes what it safely can. Each reports **OK**,
+The check runs fifteen checks in order and fixes what it safely can. Each reports **OK**,
 **FIXED**, **WARNING** or **ERROR**.
 
 | Check | Fixes |
@@ -34,6 +34,7 @@ The check runs fourteen checks in order and fixes what it safely can. Each repor
 | `.env` section markers | Reports |
 | Permissions on worktree `.env` files | Yes |
 | `_main`'s editable install points into `_main` | Reports — the repair reinstalls a machine-wide tool, so the check names it rather than running it. |
+| The project's `check_host_cmd` passes | Reports — prints the command's output. See [`check_host_cmd:`](../reference/configuration.md#check_host_cmd). |
 
 Run it against a specific project:
 

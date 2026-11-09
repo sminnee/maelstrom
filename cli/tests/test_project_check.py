@@ -12,6 +12,7 @@ from git_helpers import create_commit, run_git, setup_git_repo
 
 from mael_cli.project_check import (
     CheckStatus,
+    _check_host_cmd,
     _check_port_allocations,
     _check_secret_file_perms,
     run_project_check,
@@ -678,3 +679,24 @@ class TestCheckChecksReadable:
         )
         assert result.status == CheckStatus.OK
         assert "reach" in result.message
+
+
+class TestCheckHostCmd:
+    """The project host check runs in ``_main`` and warns when it fails."""
+
+    def test_no_command_is_ok(self, tmp_path):
+        (tmp_path / "_main").mkdir()
+        result = _check_host_cmd(tmp_path)
+        assert result.status == CheckStatus.OK
+        assert result.message == "no check_host_cmd"
+
+    def test_a_failure_is_a_project_check_warning(self):
+        tmpdir, project_path = _create_project_repo()
+        with tmpdir:
+            (project_path / "_main" / ".maelstrom.yaml").write_text(
+                "check_host_cmd: \"echo 'kubectl missing'; exit 1\"\n"
+            )
+            result = run_project_check(project_path)
+        [check] = [c for c in result.checks if c.name == "host_cmd"]
+        assert check.status == CheckStatus.WARNING
+        assert check.message == "check_host_cmd failed:\n    kubectl missing"

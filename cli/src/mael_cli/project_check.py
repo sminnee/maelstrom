@@ -1,6 +1,7 @@
 """Project health checks and auto-fixes for maelstrom projects."""
 
 import subprocess
+import textwrap
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -12,7 +13,12 @@ from mael_domain.ports import (
     load_port_allocations,
     remove_port_allocation,
 )
-from mael_domain.worktree import list_worktrees, run_git, update_local_main
+from mael_domain.worktree import (
+    list_worktrees,
+    run_check_host_cmd,
+    run_git,
+    update_local_main,
+)
 from mael_domain.worktree_model import (
     ENV_SECTION_END,
     ENV_SECTION_START,
@@ -563,6 +569,17 @@ def _check_editable_install(project_path: Path) -> CheckResult:
     )
 
 
+def _check_host_cmd(project_path: Path) -> CheckResult:
+    """Run the project's ``check_host_cmd`` in ``_main``: its project host check."""
+    outcome = run_check_host_cmd(project_path / MAIN_WORKTREE_FOLDER)
+    if outcome is None:
+        return CheckResult(CheckStatus.OK, "no check_host_cmd")
+    if outcome.passed:
+        return CheckResult(CheckStatus.OK, "check_host_cmd passes")
+    output = textwrap.indent(outcome.output, "    ")
+    return CheckResult(CheckStatus.WARNING, f"check_host_cmd failed:\n{output}")
+
+
 def run_project_check(project_path: Path) -> ProjectCheckResult:
     """Run all health checks on a project.
 
@@ -590,6 +607,7 @@ def run_project_check(project_path: Path) -> ProjectCheckResult:
         _check_env_markers,
         _check_secret_file_perms,
         _check_editable_install,
+        _check_host_cmd,
     ]
 
     for check in checks:
