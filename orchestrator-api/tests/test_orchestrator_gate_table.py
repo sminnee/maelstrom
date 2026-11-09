@@ -105,3 +105,35 @@ def test_a_gate_line_adds_a_gate_the_job_did_not_list():
     assert _table(table) == {
         1100: ("running", {"ok": "pending", "bad": "pending", "extra": "running"})
     }
+
+
+def _usage(job_id: int, usage: dict | None) -> dict:
+    # tangier 0.3.5's shape: the recorded fixture has no usage line.
+    return {
+        "type": "usage",
+        "time": "2026-11-09T00:00:00Z",
+        "job_id": job_id,
+        "usage": usage,
+    }
+
+
+def test_a_usage_line_replaces_the_held_jobs_usage():
+    table, _ = _replay(LINES[:3])
+    before = table.jobs[1100]
+    usage = {"cpu_percent": 3.1, "rss_bytes": 1234, "processes": 2}
+    assert table.apply(_usage(1100, usage)) == []
+    assert table.jobs[1100] == {**before, "usage": usage}
+
+
+def test_a_null_usage_line_replaces_the_sample():
+    """``null`` is a reading: the job has no live process. A failed ``ps`` prints no line."""
+    table, _ = _replay(LINES[:3])
+    before = table.jobs[1100]
+    assert table.apply(_usage(1100, None)) == []
+    assert table.jobs[1100] == {**before, "usage": None}
+
+
+def test_a_usage_line_for_a_job_the_table_does_not_hold_is_ignored():
+    table = GateTable()
+    assert table.apply(_usage(1100, {"cpu_percent": 1.0})) == []
+    assert table.jobs == {}

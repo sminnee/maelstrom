@@ -54,6 +54,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A gate job's CPU, memory and process count move every 5 s.** Before, they moved only when a
+  gate or the job changed state. This needs tangier 0.3.5 or later:
+  `uv tool install "tangier>=0.3.5"`. With an older tangier, usage moves as before.
 - **The skills ship as two Claude Code plugins.** `maelstrom` holds the skills maelstrom needs,
   and each session maelstrom launches loads it from the code that launched it. `minnstack`
   holds the optional development practices, which you install with
