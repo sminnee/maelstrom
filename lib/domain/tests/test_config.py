@@ -35,12 +35,14 @@ class TestMaelstromConfig:
             "port_names": ["FRONTEND", "SERVER", "DB"],
             "start_cmd": "ult",
             "install_cmd": "npm install",
+            "check_host_cmd": "bin/check-host",
             "pre_push_cmd": "bin/pre-push-gates",
         }
         config = MaelstromConfig.from_dict(data)
         assert config.port_names == ["FRONTEND", "SERVER", "DB"]
         assert config.start_cmd == "ult"
         assert config.install_cmd == "npm install"
+        assert config.check_host_cmd == "bin/check-host"
         assert config.pre_push_cmd == "bin/pre-push-gates"
 
     def test_from_dict_partial(self):
@@ -57,6 +59,7 @@ class TestMaelstromConfig:
         assert config.port_names == []
         assert config.start_cmd == ""
         assert config.install_cmd == ""
+        assert config.check_host_cmd == ""
         assert config.pre_push_cmd is None
 
     def test_from_dict_uptimerobot_monitors(self):

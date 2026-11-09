@@ -6,6 +6,7 @@ import json
 import math
 import os
 import subprocess
+import time
 from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -37,6 +38,7 @@ from mael_domain.worktree import (
     copy_back_new_env_vars,
     create_worktree,
     detach_and_free_ports,
+    find_all_projects,
     find_closed_worktree,
     find_worktree_by_branch,
     get_commits_ahead,
@@ -57,6 +59,7 @@ from mael_domain.worktree import (
     remove_worktree,
     remove_worktree_by_path,
     rename_remote_branch,
+    run_check_host_cmd,
     run_git,
     run_git_async,
     run_install_cmd,
@@ -2626,3 +2629,68 @@ class TestRunInstallCmd:
 
         status = read_install_status("proj", "bravo")
         assert status is not None and status.code == code
+
+
+class TestRunCheckHostCmd:
+    """The project host check runs in the worktree, and a hang is a failure."""
+
+    def _worktree(self, tmp_path, cmd: str | None) -> Path:
+        worktree = tmp_path / "proj" / "_main"
+        worktree.mkdir(parents=True)
+        if cmd is not None:
+            (worktree / ".maelstrom.yaml").write_text(
+                f"check_host_cmd: {json.dumps(cmd)}\n"
+            )
+        return worktree
+
+    def test_no_command_gives_none(self, tmp_path):
+        assert run_check_host_cmd(self._worktree(tmp_path, None)) is None
+
+    def test_exit_0_passes(self, tmp_path):
+        outcome = run_check_host_cmd(self._worktree(tmp_path, "exit 0"))
+        assert outcome is not None and outcome.passed
+
+    def test_a_failure_keeps_stdout_and_stderr(self, tmp_path):
+        worktree = self._worktree(tmp_path, "echo missing; echo hint >&2; exit 1")
+        outcome = run_check_host_cmd(worktree)
+        assert outcome is not None and not outcome.passed
+        assert outcome.output == "missing\nhint"
+
+    def test_it_runs_in_the_worktree(self, tmp_path):
+        worktree = self._worktree(tmp_path, "pwd; exit 1")
+        outcome = run_check_host_cmd(worktree)
+        assert outcome is not None
+        assert Path(outcome.output).resolve() == worktree.resolve()
+
+    def test_a_hang_times_out_as_a_failure(self, tmp_path):
+        start = time.monotonic()
+        outcome = run_check_host_cmd(
+            self._worktree(tmp_path, "sleep 5; true"), timeout=0.2
+        )
+        assert time.monotonic() - start < 2
+        assert outcome is not None and not outcome.passed
+        assert outcome.output == "timed out after 0.2s"
+
+    def test_a_timeout_stops_what_the_command_started(self, tmp_path):
+        # The inner sh is a grandchild: killing only the outer sh misses it.
+        worktree = self._worktree(tmp_path, "sh -c 'sleep 0.5; touch late'; true")
+        run_check_host_cmd(worktree, timeout=0.1)
+        time.sleep(0.8)
+        assert not (worktree / "late").exists()
+
+    def test_an_invalid_config_is_a_failure(self, tmp_path):
+        worktree = tmp_path / "proj" / "_main"
+        worktree.mkdir(parents=True)
+        (worktree / ".maelstrom.yaml").write_text("check_host_cmd: [unclosed\n")
+        outcome = run_check_host_cmd(worktree)
+        assert outcome is not None and not outcome.passed
+        assert outcome.output.startswith(".maelstrom.yaml is invalid:")
+
+
+def test_find_all_projects_needs_the_mael_marker(tmp_path):
+    (tmp_path / "astro" / ".mael").parent.mkdir()
+    (tmp_path / "astro" / ".mael").touch()
+    (tmp_path / "plain").mkdir()
+
+    assert find_all_projects(tmp_path) == [tmp_path / "astro"]
+    assert find_all_projects(tmp_path / "missing") == []

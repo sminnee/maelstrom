@@ -237,6 +237,8 @@ class MaelstromConfig:
     shared_port_names: list[str] = field(default_factory=list)
     start_cmd: str = ""
     install_cmd: str = ""
+    # The project's host check — see "Project host check" in CONTEXT.md.
+    check_host_cmd: str = ""
     # The project's pre-push check — see "Pre-push check" in CONTEXT.md.
     pre_push_cmd: str | None = None
     # Structured service definitions (preferred over Procfile / start_cmd).
@@ -290,6 +292,7 @@ class MaelstromConfig:
             shared_port_names=data.get("shared_port_names", []),
             start_cmd=data.get("start_cmd", ""),
             install_cmd=data.get("install_cmd", ""),
+            check_host_cmd=data.get("check_host_cmd", ""),
             pre_push_cmd=data.get("pre_push_cmd"),
             services=services,
             main_port_base=main_port_base,
