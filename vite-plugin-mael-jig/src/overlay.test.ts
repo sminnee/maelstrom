@@ -164,6 +164,21 @@ describe('a hidden jig', () => {
 describe('the jig overlay', () => {
   beforeEach(() => mount({ visible: true }));
 
+  // jsdom does not inherit across a shadow root, so this checks the style text, not a colour.
+  // An undeclared property is invalid, and the element then inherits its colour.
+  it('keeps its style off inheritance and on its own palette', () => {
+    const css = document
+      .querySelector('#mael-jig')!
+      .shadowRoot!.querySelector('style')!.textContent!;
+    expect(css).toMatch(/\.root\s*\{\s*all:\s*initial\s*;/);
+    expect(css).not.toMatch(/inherit|currentcolor|!important/i);
+    // The dark block only overrides: a property declared there alone is invalid in light mode.
+    const base = css.slice(0, css.indexOf('@media'));
+    const declared = new Set([...base.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]!));
+    const used = [...css.matchAll(/var\((--[\w-]+)/g)].map((m) => m[1]!);
+    expect(used.filter((name) => !name.startsWith('--jig-') || !declared.has(name))).toEqual([]);
+  });
+
   it('applies the file it loads on start', () => {
     expect(jig().textarea.value).toBe('.chip { margin: 3px; }');
     expect(getComputedStyle(target).marginTop).toBe('3px');
