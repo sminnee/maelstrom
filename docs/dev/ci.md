@@ -116,7 +116,7 @@ bucket.
 
 ## The release workflow
 
-`.github/workflows/release.yml` runs on a pushed `v*` tag, which `bin/publish` makes. It runs
+`.github/workflows/release.yml` runs on a pushed `v[0-9]*` tag, which `bin/publish` makes. It runs
 `bin/build-bundle --tag "$GITHUB_REF_NAME"`. It publishes `maelstrom.tar.gz` as a GitHub
 Release, with the tag's `CHANGELOG.md` section as its notes. A tag that ends in `a`, `b` or
 `rc` and a number makes a pre-release. It runs no gate: `bin/publish` ran them before it
