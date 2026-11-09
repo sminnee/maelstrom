@@ -726,6 +726,24 @@ describe('grouping and filters', () => {
     expect(search()).toHaveValue('order');
   });
 
+  it('shows the Search a Back returns to before the cleared Search has rendered', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    const search = () => screen.getByLabelText('Search');
+    await user.type(search(), 'order');
+    await waitFor(() => expect(router.state.location.search).toBe('?q=order'));
+    await user.selectOptions(screen.getByLabelText('Project'), 'northwind');
+    await user.clear(search());
+    // One act: the clear commits, and Back runs, with no render between. A loaded
+    // machine does this; the field must still not take the '' it never rendered.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(router.state.location.search).toBe('?project=northwind');
+      await router.navigate(-1);
+    });
+    expect(search()).toHaveValue('order');
+  });
+
   it('filtering by branch removes the nodes of other branches', async () => {
     const user = userEvent.setup();
     await renderApp();
