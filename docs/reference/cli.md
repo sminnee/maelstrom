@@ -48,11 +48,11 @@ The `mael project` group adds, creates, renames and lists projects.
 
 | Command | Description |
 |---|---|
-| `mael project add GIT_URL` | Clone a repository and set it up for maelstrom. |
+| `mael project add GIT_URL` | Clone a repository and set it up for maelstrom. Then run the project's `check_host_cmd`, and print its output when it fails. |
 | `mael project create NAME` | Create a GitHub repository with the maelstrom stub files, check it out, and open a worktree on `feat/start-project`. |
 | `mael project mv OLD NEW` | Rename a project and everything derived from its name. |
 | `mael project list` | List every project under the projects directory, with its path and worktree count. Reads no git status, no ports and no sessions, so it stays fast where `mael list-all` does not. Supports `mael --json project list`. |
-| `mael project check [PROJECT]` | Check one project's git layout, remotes, worktrees, ports and `.env` files, and fix the safe issues. For the host, run `mael self check-host`. |
+| `mael project check [PROJECT]` | Check one project's git layout, remotes, worktrees, ports and `.env` files, and fix the safe issues. Also run the project's `check_host_cmd`: a failure is a warning. For the host, run `mael self check-host`. |
 
 ```bash
 mael project add https://github.com/org/repo.git  # clone into maelstrom's layout
@@ -1538,6 +1538,9 @@ The check runs these steps in order:
     `dev_host:` is unset, and notes `dev_https:` for a parent UI served over HTTPS. See
     [Remote hosts](configuration.md#remote-hosts). The item is optional.
 11. **PATH.** It warns when `~/.local/bin` is not on your PATH.
+12. **Projects.** For each project that sets `check_host_cmd`, it runs the command in `_main`.
+    A failure prints the command's output. It is not a required item, and there is no fix to
+    offer. See [`check_host_cmd:`](configuration.md#check_host_cmd).
 
 Without a terminal, the check asks nothing. It runs only the secret-file fix, which only narrows a
 mode. It looks up tools on the host services' PATH.

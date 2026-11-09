@@ -23,6 +23,11 @@ release while that section is empty, and retitles it to the version it is releas
 - **The Welcome dialog charts the machine.** Its **Machine** entry shows CPU, memory and CPU
   temperature over the last 15 minutes, one small chart each, with the gate jobs' share. Each
   chart names its latest figure; point at a chart to see an earlier sample.
+- **A project can check the host for its own tools.** Set `check_host_cmd:` in
+  `.maelstrom.yaml` to a command that exits non-zero, and says what to install, when a tool is
+  missing. `mael self check-host`, `mael project check` and `mael project add` run it in `_main`
+  and show its output. Maelstrom installs nothing. See
+  [`check_host_cmd:`](docs/reference/configuration.md#check_host_cmd).
 - **Update maelstrom from the Welcome dialog.** The **Update maelstrom** button asks to confirm,
   with the number of live agents the restart stops, then starts an update job. The dialog
   follows the job through the orchestrator restart, and shows the new version or the failure.

@@ -27,6 +27,7 @@ MAELSTROM_YAML = """\
 # See docs/reference/configuration.md in the maelstrom repository.
 
 # install_cmd: "npm install"
+# check_host_cmd: "bin/check-host"
 
 # services:
 #   web:
