@@ -37,8 +37,8 @@ from mael_domain.worktree import (
     list_worktrees,
     run_git,
     setup_claude_memory_symlink,
-    update_claude_local_md,
 )
+from mael_domain.worktree_config import apply_worktree_config
 from mael_domain.worktree_model import extract_worktree_name_from_folder
 
 from .env_cli import make_store as make_env_store
@@ -492,9 +492,10 @@ def repoint_global_symlinks(plan: MovePlan) -> int:
 
 
 def refresh_worktree_files(plan: MovePlan) -> None:
-    """Regenerate each worktree's ``.claude/CLAUDE.local.md``.
+    """Rewrite each worktree's config.
 
-    It records the worktree path and app URL, both of which the rename changed.
+    ``.claude/CLAUDE.local.md`` records the worktree path and app URL, both of
+    which the rename changed.
     """
     for move in plan.worktree_moves:
         worktree_path = plan.new_project_path / move.dst.name
@@ -502,7 +503,7 @@ def refresh_worktree_files(plan: MovePlan) -> None:
         if name is None:
             continue
         try:
-            update_claude_local_md(plan.new_project_path, worktree_path, name)
+            apply_worktree_config(plan.new_project_path, worktree_path, name)
         except OSError:
             continue
 

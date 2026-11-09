@@ -51,13 +51,13 @@ from mael_domain.worktree import (
     sync_worktree,
     sync_worktree_with_autorepair,
     tidy_branches,
-    update_claude_local_md,
 )
 from mael_domain.worktree_close import (
     add_reopen_task,
     close_worktree_fully,
     remove_worktree_fully,
 )
+from mael_domain.worktree_config import apply_worktree_config
 from mael_domain.worktree_model import (
     MAIN_BRANCH,
     REPAIRED_MESSAGE,
@@ -453,7 +453,8 @@ async def cmd_add(
             raise click.ClickException(
                 f"Could not identify worktree at {worktree_path}"
             )
-        if wt_name and update_claude_local_md(project_path, worktree_path, wt_name):
+        config = apply_worktree_config(project_path, worktree_path, wt_name)
+        if config.local_md_written:
             click.echo(
                 ".claude/CLAUDE.local.md generated with maelstrom workflow instructions"
             )

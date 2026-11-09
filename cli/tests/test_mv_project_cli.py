@@ -105,7 +105,7 @@ class MvProjectHarness:
                 return_value=self.tasks,
             )
             mock("mael_cli.mv_project_cli.setup_claude_memory_symlink")
-            mock("mael_cli.mv_project_cli.update_claude_local_md")
+            mock("mael_cli.mv_project_cli.apply_worktree_config")
             # The trap this command exists to avoid: the project check prunes port
             # allocations keyed by a path that no longer exists.
             mock("mael_cli.project_check.run_project_check")
