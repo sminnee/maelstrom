@@ -84,8 +84,9 @@ from mael_domain.system_info import SystemPaths
 from mael_domain.task_attachments import InMemoryTaskAttachmentTable, attachment_id
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.task_table import InMemoryTaskTable
-from mael_domain.worktree import WorktreeSetup
+from mael_domain.worktree import CloseResult, WorktreeSetup
 from mael_domain.worktree_changes import format_change_comments
+from mael_domain.worktree_close import reopen_task_fields
 from mael_domain.worktree_model import extract_project_name
 from mael_domain.worktree_steps import Step, StepOutcome, run_sequence
 from mael_orchestrator import linear_source, server
@@ -6584,7 +6585,7 @@ def test_a_worktree_dismiss_ends_the_worktree_then_takes_the_node_off_the_desk(
     ran: list[str] = []
     end = two_step_close(ran)
 
-    async def ending(*args, hook):
+    async def ending(*args, hook, **_):
         # Off the desk only after the worktree has ended.
         await end(*args, hook=hook)
         ran.append(f"on desk: {desk_ids(harness)}")
@@ -8911,8 +8912,9 @@ def test_force_closing_a_worktree_asks_the_source_and_refreshes_the_world(harnes
 def test_a_force_close_reads_the_tasks_again(harness):
     """A forced close can write a reopen task, so the client must see one."""
 
-    async def force_close(project: str, nato: str, path: str, **_) -> None:
-        await model.create(harness.store, project=project, title="Reopen feat/orders")
+    async def force_close(project: str, nato: str, path: str, *, home, **_) -> None:
+        # A direct worktree's task home is this server's notebook.
+        await home.create(project, {"title": "Reopen feat/orders"})
 
     harness.worktrees.force_close = force_close
 
@@ -14391,6 +14393,35 @@ def test_a_remote_stop_that_does_not_end_done_refuses_the_parents_step(
     ]
     said = "could not signal new1" if cause == "refused" else "cobalt is offline"
     assert said in op["words"]
+
+
+def test_a_shelve_of_a_delegated_worktree_writes_its_reopen_task_on_the_parent(
+    store, tmp_path
+):
+    async def force_close(project: str, nato: str, path: str, *, home, **_) -> None:
+        closed = CloseResult(
+            success=True, message="", branch="feat/x", had_unmerged_work=True
+        )
+        fields = reopen_task_fields(closed)
+        assert fields is not None
+        await home.create(project, fields)
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            child.harness.worktrees.force_close = force_close
+            agent = await launched_on_cobalt(child, parent, api)
+            op = await operated(
+                api, f"/api/worktrees/{agent['worktreeId']}/force-close"
+            )
+            return op, child
+
+    op, child = run(scenario())
+    assert op["state"] == "done", op
+    on_parent = run(model.list_tasks(store, project=PROJECT))
+    assert ("Reopen feat/x", "reopen-branch", "feat/x") in [
+        (t.title, t.command, t.branch) for t in on_parent
+    ]
+    assert run(model.list_tasks(child.store, project=PROJECT)) == []
 
 
 def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):

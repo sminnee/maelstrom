@@ -33,6 +33,7 @@ from mael_orchestrator.cli import (
 from mael_orchestrator.sources import (
     CloseBlocked,
     ListAllWorktreeSource,
+    NotebookTaskSource,
     PrStateCache,
 )
 
@@ -199,7 +200,6 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     from mael_domain.desk_store import SqliteDeskStore
     from mael_domain.task_attachments import SqliteTaskAttachmentTable
     from mael_domain.worktree import WorktreeSetup
-    from mael_orchestrator.sources import NotebookTaskSource
 
     projects_dir = tmp_path / "Projects"
     (projects_dir / "northwind").mkdir(parents=True)
@@ -327,8 +327,10 @@ def test_the_terminal_ports_outside_cmux(tmp_path, monkeypatch):
     assert worktrees.terminal_urls([("northwind", "alpha")]) == {}
 
 
-def _force_close(worktrees: ListAllWorktreeSource, *, had_unmerged_work: bool) -> None:
-    """Force close alpha, with the teardown itself standing in as a success."""
+def _force_close(
+    worktrees: ListAllWorktreeSource, home, *, had_unmerged_work: bool
+) -> None:
+    """Force close alpha into ``home``, with the teardown standing in as a success."""
     closed = FullCloseResult(
         close=CloseResult(
             success=True,
@@ -341,12 +343,23 @@ def _force_close(worktrees: ListAllWorktreeSource, *, had_unmerged_work: bool) -
     with patch(
         "mael_orchestrator.cli.close_worktree_fully", new=AsyncMock(return_value=closed)
     ):
-        asyncio.run(worktrees.force_close("northwind", "alpha", "/p", hook=StepHook()))
+        asyncio.run(
+            worktrees.force_close(
+                "northwind", "alpha", "/p", hook=StepHook(), home=home
+            )
+        )
 
 
-def test_a_force_close_over_unmerged_work_writes_a_reopen_task(tmp_path, monkeypatch):
+def _notebook(table: InMemoryTaskTable) -> NotebookTaskSource:
+    return NotebookTaskSource(table, lambda: ["northwind"])
+
+
+def test_a_force_close_over_unmerged_work_writes_a_reopen_task_to_its_home(
+    tmp_path, monkeypatch
+):
     table = InMemoryTaskTable()
-    _force_close(_worktree_source(tmp_path, monkeypatch, table), had_unmerged_work=True)
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    _force_close(worktrees, _notebook(table), had_unmerged_work=True)
 
     [task] = asyncio.run(list_tasks(table, project="northwind"))
     assert task.title == "Reopen feat/orders"
@@ -356,11 +369,15 @@ def test_a_force_close_over_unmerged_work_writes_a_reopen_task(tmp_path, monkeyp
 
 def test_a_force_close_with_nothing_unmerged_writes_no_task(tmp_path, monkeypatch):
     table = InMemoryTaskTable()
-    _force_close(
-        _worktree_source(tmp_path, monkeypatch, table), had_unmerged_work=False
-    )
+    worktrees = _worktree_source(tmp_path, monkeypatch)
+    _force_close(worktrees, _notebook(table), had_unmerged_work=False)
 
     assert asyncio.run(list_tasks(table, project="northwind")) == []
+
+
+class _HomeThatFails:
+    async def create(self, project, fields):
+        raise OSError("disk full")
 
 
 def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
@@ -368,11 +385,7 @@ def test_a_force_close_still_succeeds_when_the_reopen_task_cannot_be_written(
 ):
     # The worktree is closed by then. Raising would report that close as failed.
     worktrees = _worktree_source(tmp_path, monkeypatch)
-    with patch(
-        "mael_orchestrator.cli.add_reopen_task",
-        new=AsyncMock(side_effect=OSError("disk full")),
-    ):
-        _force_close(worktrees, had_unmerged_work=True)
+    _force_close(worktrees, _HomeThatFails(), had_unmerged_work=True)
 
 
 async def _read_a_ready_pr(
@@ -427,16 +440,16 @@ async def test_the_auto_merge_port_uses_the_orchestrator_token(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize(
-    ("port", "model", "extra"),
+    ("port", "model", "extra", "keywords"),
     [
-        ("sync", "run_sync", ("plain",)),
-        ("close", "close_worktree_fully", ()),
-        ("force_close", "close_worktree_fully", ()),
-        ("trash", "trash_worktree_fully", ()),
+        ("sync", "run_sync", ("plain",), {}),
+        ("close", "close_worktree_fully", (), {}),
+        ("force_close", "close_worktree_fully", (), {"home": _HomeThatFails()}),
+        ("trash", "trash_worktree_fully", (), {}),
     ],
 )
 async def test_each_port_that_writes_to_github_uses_the_orchestrator_token(
-    tmp_path, monkeypatch, port, model, extra
+    tmp_path, monkeypatch, port, model, extra, keywords
 ):
     """A UI action runs for any project; the inherited token is maelstrom's."""
     monkeypatch.setattr(
@@ -448,7 +461,7 @@ async def test_each_port_that_writes_to_github_uses_the_orchestrator_token(
     )
     with patch(f"mael_orchestrator.cli.{model}", new=AsyncMock(return_value=done)) as m:
         await getattr(worktrees, port)(
-            "northwind", "alpha", "/p/alpha", *extra, hook=StepHook()
+            "northwind", "alpha", "/p/alpha", *extra, hook=StepHook(), **keywords
         )
     assert m.call_args.kwargs["token"] == "ghp_orch"
 

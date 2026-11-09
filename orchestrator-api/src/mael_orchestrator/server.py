@@ -1570,6 +1570,16 @@ class Orchestrator:
             return None
         return self.remote_hosts.get(owner_of(entity_id))
 
+    def _worktree_home(self, worktree_id: str) -> TaskHome:
+        """The **Task home** of a worktree: its newest delegated agent's, or this server's."""
+        delegated = [
+            a
+            for a in self.world["agents"].values()
+            if a["worktreeId"] == worktree_id and self._delegated(a)
+        ]
+        newest = max(delegated, key=lambda a: a["startedAt"], default=None)
+        return self._home(newest)
+
     async def _task_of(self, agent: Agent) -> Task | None:
         """``agent``'s task, from its home. ``None`` for a free agent or a lost one."""
         task_id = agent["taskId"]
@@ -4657,11 +4667,6 @@ class Orchestrator:
             await self.refresh_worktrees()
             await self.refresh_agents()
 
-        async def shelve_refresh() -> None:
-            # A forced close can write a reopen task, so the tasks are read too.
-            await teardown_refresh()
-            await self.refresh_tasks(force=True)
-
         async def sync_refresh() -> None:
             # A sync moves the branch, and starts and stops no agent. Every
             # mode pushes, so the PR is read after the write.
@@ -4684,6 +4689,18 @@ class Orchestrator:
         if kind in ("worktree.close", "worktree.trash", "worktree.remove"):
             refresh = teardown_refresh
         elif kind == "worktree.forceClose":
+            home = self._worktree_home(worktree_id)
+            run = lambda hook: self._run_worktree_op(  # noqa: E731
+                fn, project, nato, path, hook=hook, home=home
+            )
+
+            async def shelve_refresh() -> None:
+                # A forced close can write a reopen task, so the tasks are read
+                # too. A parent's notebook is the parent's to read.
+                await teardown_refresh()
+                if home is self.homes.local:
+                    await self.refresh_tasks(force=True)
+
             refresh = shelve_refresh
         elif kind == "worktree.sync":
             run, refresh = work(command["mode"]), sync_refresh
@@ -4713,10 +4730,12 @@ class Orchestrator:
         )
 
     async def _run_worktree_op(
-        self, fn: Callable[..., Any], *args: Any, hook: StepHook
+        self, fn: Callable[..., Any], *args: Any, hook: StepHook, **kwargs: Any
     ) -> Any:
         """Run one worktree operation's source call, telling ``hook`` its steps."""
-        return await self._run_worktree(functools.partial(fn, hook=hook), *args)
+        return await self._run_worktree(
+            functools.partial(fn, hook=hook, **kwargs), *args
+        )
 
     async def operation_log(self, operation_id: str) -> dict[str, Any] | None:
         """One operation's log lines, grouped by step in the order they ran.

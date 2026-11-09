@@ -103,6 +103,18 @@ class CloseWorktree(Protocol):
     ) -> Awaitable[None] | None: ...
 
 
+class ForceCloseWorktree(Protocol):
+    """Closes one worktree past its refusals: ``(project, nato, path, *, hook, home)``.
+
+    As :class:`CloseWorktree`. When the close went over unmerged work, it
+    writes the reopen task to ``home``: the worktree's **Task home**.
+    """
+
+    def __call__(
+        self, project: str, nato: str, path: str, *, hook: StepHook, home: "TaskHome"
+    ) -> Awaitable[None] | None: ...
+
+
 class SyncWorktree(Protocol):
     """Rebases one worktree: ``(project, nato, path, mode, *, hook) -> None``.
 
@@ -461,7 +473,7 @@ class WorktreeSource(Protocol):
     #: cannot. Separate from ``close`` because forcing writes a wip commit: it
     #: is a different decision, taken behind a confirm. It writes the reopen
     #: task when the close went over unmerged work.
-    force_close: CloseWorktree | None
+    force_close: ForceCloseWorktree | None
 
     #: Trashes a worktree's branch and closes the worktree, or ``None`` on a
     #: source that cannot.
@@ -890,6 +902,8 @@ class TaskHome(Protocol):
 
     async def withdraw_pr(self, task_id: str) -> None: ...
 
+    async def create(self, project: str, fields: dict[str, Any]) -> str: ...
+
 
 #: How long one call to a parent's task API may take.
 PARENT_CALL_SECS = 30.0
@@ -970,6 +984,13 @@ class RemoteTaskSource:
             # deletes them only after a promote that succeeds.
             raise ValueError(f"{self.base_url} has no project {project}")
         return [str(task_id) for task_id in reply.get("taskIds") or []]
+
+    async def create(self, project: str, fields: dict[str, Any]) -> str:
+        """Write a new task on the parent, as ``mael task add`` does there."""
+        reply = await self._call("POST", "/api/tasks", {**fields, "project": project})
+        if reply is None:
+            raise ValueError(f"{self.base_url} has no project {project}")
+        return str(reply["taskId"])
 
     async def register_pr(self, task_id: str, number: int, url: str) -> None:
         body = {"number": number, "url": url}
@@ -1247,7 +1268,7 @@ class InMemoryWorktreeSource:
         projects: list[Project] | None = None,
         worktrees: list[Worktree] | None = None,
         close: CloseWorktree | None = None,
-        force_close: CloseWorktree | None = None,
+        force_close: ForceCloseWorktree | None = None,
         trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
         merge: MergeWorktreePr | None = None,
@@ -1345,7 +1366,7 @@ class ListAllWorktreeSource:
         self,
         projects_dir: Path,
         close: CloseWorktree | None = None,
-        force_close: CloseWorktree | None = None,
+        force_close: ForceCloseWorktree | None = None,
         trash: CloseWorktree | None = None,
         sync: SyncWorktree | None = None,
         merge_pr: MergePr | None = None,

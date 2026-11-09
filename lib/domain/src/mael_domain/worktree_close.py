@@ -169,33 +169,47 @@ def teardown_steps(
     ]
 
 
-async def add_reopen_task(
-    table: TaskTable, project: str, result: CloseResult
-) -> task_model.Task | None:
-    """Write the task that reopens a branch a forced close left behind.
+def reopen_task_fields(result: CloseResult) -> dict[str, str] | None:
+    """The fields of the task that reopens a branch a forced close left behind.
 
     A forced close keeps the branch and its pull request, but nothing points
-    back at them. The task does. It is written only when the close went over
+    back at them. The task does. It is due only when the close went over
     unmerged work, and only for a real branch: a worktree that was already
-    detached reports ``HEAD``. Returns the task, or ``None`` when none is due.
+    detached reports ``HEAD``. ``None`` when none is due.
     """
     if not (result.success and result.had_unmerged_work):
         return None
     if not result.branch or result.branch == "HEAD":
         return None
-    return await task_model.create(
-        table,
-        project=project,
-        title=f"Reopen {result.branch}",
-        command="reopen-branch",
-        branch=result.branch,
-        priority=task_model.DEFAULT_PRIORITY,
-        content=(
+    return {
+        "title": f"Reopen {result.branch}",
+        "command": "reopen-branch",
+        "branch": result.branch,
+        "priority": task_model.DEFAULT_PRIORITY,
+        "content": (
             f"`{result.branch}` was force-closed with unmerged work (any "
             f"uncommitted changes were saved as a `wip: uncommitted changes` "
             f"commit). Reopening restores the worktree; review the PR and env "
             f"to decide what's left, and unwind the wip commit if there was one."
         ),
+    }
+
+
+async def add_reopen_task(
+    table: TaskTable, project: str, result: CloseResult
+) -> task_model.Task | None:
+    """Write the :func:`reopen_task_fields` task to ``table``, or ``None`` when none is due."""
+    fields = reopen_task_fields(result)
+    if fields is None:
+        return None
+    return await task_model.create(
+        table,
+        project=project,
+        title=fields["title"],
+        command=fields["command"],
+        branch=fields["branch"],
+        priority=fields["priority"],
+        content=fields["content"],
     )
 
 
