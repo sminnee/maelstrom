@@ -210,6 +210,15 @@ brings the exit to the parent.
 The remote host's operations are not merged yet. A forwarded stop replies with the remote host's
 operation id.
 
+### Terminals for a remote client
+
+A browser on a remote host is a **Remote client** of the parent. The parent matches the browser's
+peer IP against each online host's resolved addresses (`Orchestrator.client_host`).
+`/api/worktrees/{id}/terminal` is the one route under `HOST_OWNED_ROUTES` the parent answers
+itself (`ANSWERED_HERE`): forwarded, the owner would see the parent as the client. The parent
+calls `POST /api/terminals` on the client's host, or opens the terminal itself. See
+[Remote clients](cmux.md#remote-clients).
+
 ## The CLI's two targets
 
 A delegated agent's `mael` sends task commands to its parent, through `MAEL_PARENT_URL`, and
@@ -258,7 +267,5 @@ The forward removes the browser's `Authorization`, `Cookie`, `Origin` and `Refer
 - A host that the parent's config does not name. There is no registration.
 - Moving a task between hosts. A session started on another host is a new session.
 - Capacity scheduling, such as choosing the less busy host.
-- A terminal on the parent for a remote worktree. `/api/worktrees/{id}/terminal` opens cmux on the
-  machine that serves the route, so through the forward it opens on the remote host.
 - The remote host's own setup: `gh` auth, git identity, Codex and Claude login, and project
   checkouts. `mael self setup` and `check-host` cover these.

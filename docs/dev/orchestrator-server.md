@@ -1573,6 +1573,7 @@ without waiting for the poll.
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier's last sample found no live process. Empty on a server with no tangier |
 | `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls". `host.remoteHosts` holds each **Remote host** in `hosts:` as `{name, online, since}` |
+| `GET /api/client` | `{local, host}`: whether the browser is on this machine, and the host it is on: this server's id prefix, a **Remote host**'s name, or `""` for neither. See [Remote clients](cmux.md#remote-clients) |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
 | `GET /api/operations/{id}/log` | `{operationId, steps: [{name, lines}]}`: the log lines grouped by step, in step order. `unknown_id` for an operation that is no longer kept |
 
@@ -1863,7 +1864,8 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/worktrees/{id}/merge-pr` | | `worktree.mergePr` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/auto-merge` | `on` | `worktree.autoMerge` | `{on}` |
 | `POST /api/worktrees/{id}/env` | `action`, `service` | `worktree.env` | `202 {operationId}` |
-| `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}` |
+| `POST /api/worktrees/{id}/terminal` | | `worktree.createTerminal` | `{shellUrl}`. Not forwarded for a host-owned id. The route adds `clientHost`, from the peer IP, and `worktreeHost`; see [Remote clients](cmux.md#remote-clients) |
+| `POST /api/terminals` | `worktreeId`, or `name` and `sshTarget` | `worktree.createTerminal` for a `worktreeId` | `{shellUrl}`: a terminal in this machine's cmux, in its own worktree or an SSH shell on `sshTarget`. See [Remote clients](cmux.md#remote-clients) |
 | `POST /api/worktrees/{id}/comments` | `comments`, a list of change comments | `worktree.comment` | `{agentIds, refused}` |
 | `POST /api/worktrees/{id}/live-feedback/{service}/params` | `params`, by name | `worktree.setFeedbackParams` | `{agentIds, refused}`, or `{}` for no change |
 | `DELETE /api/worktrees/{id}` | | `worktree.remove` | `202 {operationId}` |
