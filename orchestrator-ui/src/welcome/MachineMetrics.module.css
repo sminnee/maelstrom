@@ -1,0 +1,82 @@
+.machine {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+}
+.legend {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  color: var(--fg-muted);
+}
+.key {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.chart {
+  display: grid;
+  grid-template-columns: 5em 1fr max-content;
+  align-items: end;
+  gap: var(--u);
+}
+.label,
+.scale {
+  color: var(--fg-faint);
+}
+.plot {
+  width: 100%;
+  height: 36px;
+  overflow: visible;
+}
+.baseline {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+/* Gates and other: teal and blue, the same in the legend and the charts. */
+.key[data-series='gates'] {
+  background: var(--hue-build);
+}
+.key[data-series='other'] {
+  background: var(--hue-accent);
+}
+.area[data-series='gates'] {
+  fill: var(--hue-build);
+}
+.area[data-series='other'] {
+  fill: var(--hue-accent);
+}
+.area {
+  fill-opacity: 0.75;
+  stroke: var(--bg-raised);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.line {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.cursor {
+  stroke: var(--fg-faint);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.figures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+}
+.part {
+  padding-left: var(--u-2);
+  color: var(--fg-muted);
+}
+.mono {
+  font-family: var(--mono);
+}
+.faint {
+  color: var(--fg-faint);
+}

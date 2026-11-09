@@ -223,6 +223,7 @@ describe('the Welcome dialog', () => {
     expect(dialog.getByText('~/.maelstrom')).toBeInTheDocument();
     expect(dialog.getByTestId('welcome-version')).toHaveTextContent('v0.9.0 (3f2a9c1e7b4d)');
     expect(dialog.getByTestId('welcome-host')).toHaveTextContent('reachable');
+    expect(dialog.getByTestId('welcome-machine')).toHaveTextContent('No samples yet');
 
     await user.click(dialog.getAllByRole('button', { name: 'Close' }).at(-1)!);
     await waitFor(() => expect(welcome()).toBeNull());
@@ -239,6 +240,13 @@ describe('the Welcome dialog', () => {
     const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
     expect(router.state.location.search).toBe('?welcome=1');
     expect(dialog.getByRole('button', { name: 'Add project' })).toBeInTheDocument();
+
+    // The seed's last sample: job 41 uses 212.3% of one core of 8, and 1.2G.
+    const now = await dialog.findByTestId('machine-now');
+    expect(now).toHaveTextContent('CPU 47% · mem 12G of 32G · 62 °C');
+    expect(now).toHaveTextContent('maelstrom-alpha cpu 27% · mem 1.2G');
+    expect(now).toHaveTextContent('other cpu 20% · mem 11G');
+    expect(dialog.getByRole('img', { name: 'CPU, last 15 minutes' })).toBeInTheDocument();
   });
 
   it('adds the first project, then opens its Project dialog on its paths', async () => {

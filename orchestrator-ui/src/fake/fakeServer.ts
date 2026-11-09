@@ -25,6 +25,7 @@ import type {
   FileGroup,
   GateJob,
   Host,
+  MetricsSample,
   Operation,
   Project,
   Task,
@@ -202,8 +203,10 @@ export interface FakeServer {
   /** Agents whose host refuses a relayed message, each with the host's words. */
   hostRefuses: Record<AgentId, string>;
   sources: FakeEventSource[];
-  /** Every transcript socket opened so far, closed ones included. */
+  /** Every socket opened so far, closed ones included. */
   sockets: FakeSocket[];
+  /** The machine metrics history a metrics socket opens with. */
+  metrics: MetricsSample[];
   api: ApiClient;
   fetch: typeof fetch;
   eventSourceFactory: (url: string) => EventSourceLike;
@@ -243,10 +246,13 @@ export interface FakeServer {
 export interface FakeServerOptions {
   world?: FakeWorld;
   transcripts?: Record<AgentId, Transcript>;
+  metrics?: MetricsSample[];
   autoOpen?: boolean;
   /** How long each operation step takes; a test makes it short. */
   stepMs?: number;
 }
+
+const METRICS_STREAM = '/api/machine/metrics/stream';
 
 export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
   const autoOpen = opts.autoOpen ?? true;
@@ -309,6 +315,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     hostRefuses: {},
     sources,
     sockets,
+    metrics: opts.metrics ?? [],
     api: createApiClient({ fetch: fetchImpl }),
     fetch: fetchImpl,
     read(path) {
@@ -330,6 +337,12 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       sockets.push(socket);
       queueMicrotask(() => {
         if (socket.closed) return;
+        if (path === METRICS_STREAM) {
+          socket.opened = true;
+          socket.open();
+          socket.receive({ type: 'metrics.snapshot', samples: server.metrics });
+          return;
+        }
         const agentId = socket.agentId;
         if (!server.world.agents[agentId]) {
           socket.serverClose(4404);

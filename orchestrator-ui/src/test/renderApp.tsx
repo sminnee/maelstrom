@@ -77,7 +77,7 @@ export async function renderApp(
   resetToPageLoad();
   const seed = SCENARIOS[opts.scenario ?? 'desk'].build();
   const { server, queryClient, deps } = fakeDeps(
-    { world: seed.world, transcripts: opts.transcripts ?? seed.transcripts },
+    { ...seed, transcripts: opts.transcripts ?? seed.transcripts },
     // Short, so an operation ends inside a `waitFor`; long enough that a
     // test can still see one running.
     { stepMs: OPERATION_STEP_MS },
