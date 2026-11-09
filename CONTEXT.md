@@ -1097,6 +1097,13 @@ replies, so an unattended agent continues. See `docs/dev/orchestrator-server.md`
 request".
 _Avoid_: Auto-compact (that is the harness's own), self-compact
 
+**Compaction hold**:
+The orchestrator's queue for the turns it tells one agent while the agent compacts: **External
+events** and jig instructions. It opens on a **Compaction request**, on a `/compact` the user
+sends, and on Resume and compact. It closes when the compact settles, and the queued turns then
+go to the agent in order. See `docs/dev/orchestrator-server.md`, "The compaction hold".
+_Avoid_: Event buffer, mute
+
 **End-session request**:
 An agent's request to end its own session, written as `<end-session>` at the end of an ordinary
 message. When the turn ends, the orchestrator runs a **Terminate** on the agent. The session stays

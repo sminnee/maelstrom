@@ -652,8 +652,9 @@ queues behind the work. A subagent gets neither the line nor either button: it h
 session, no worktree and no pipe of its own.
 
 The button stays busy until the compact ends, which `awaitCompact` decides. The `say` resolves
-when the server accepts the relay, and the relay is all that route does — a compact runs for
-10s–130s after it. So the wait watches the transcript, and settles four ways:
+when the server accepts the relay. The server also opens a **Compaction hold**, with no reply — see
+`docs/dev/orchestrator-server.md`, "The compaction hold". A compact runs for 10s–130s after it.
+So the wait watches the transcript, and settles four ways:
 
 - The boundary arrives. The button clears.
 - The turn ends without one. That is the refusal path, and it reports an error.
