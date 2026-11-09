@@ -42,7 +42,7 @@ For local development:
 git clone https://github.com/sminnee/maelstrom.git
 cd maelstrom
 uv sync --extra dev
-uv tool install "tangier>=0.3.1"   # for the gates, the gate watch and service versions
+uv tool install "tangier>=0.3.5"   # for the gates, the gate watch and service versions
 uv run mael --help
 ```
 
