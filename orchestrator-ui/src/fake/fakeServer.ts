@@ -2,6 +2,7 @@ import type { AgentCost, Stage } from '../api/milestones';
 import { groupMembers } from '../selectors/documents';
 import { trackedAgents } from '../selectors/worktrees';
 import type { ApiClient } from '../api/http';
+import type { ClientBody } from '../api/client';
 import type { SystemBody } from '../api/system';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
@@ -35,6 +36,7 @@ import type {
   WorktreeEnv,
 } from '../protocol/entities';
 import type { AgentId, TaskId } from '../protocol/ids';
+import { ownerOf } from '../protocol/ids';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { FakeEventSource } from './fakeEventSource';
 import { FakeSocket } from './fakeSocket';
@@ -67,6 +69,8 @@ export interface FakeWorld {
   gateJobs: Record<string, GateJob>;
   /** What `GET /api/system` answers: the install, not the world. */
   system: SystemBody;
+  /** What `GET /api/client` answers: where the browser is. */
+  client: ClientBody;
   /**
    * Each project's Linear issues for the current cycle. Not part of the world
    * the server polls -- the real one reads these straight from Linear -- but
@@ -160,6 +164,7 @@ export function emptyFakeWorld(): FakeWorld {
     comms: {},
     gateJobs: {},
     system: fakeSystem(),
+    client: { local: true, host: '' },
     host: {
       id: 'agent-host',
       reachable: true,
@@ -739,6 +744,7 @@ function read(path: string, server: FakeServer): Reply {
   }
   if (pathname === '/api/host') return ok({ host: world.host });
   if (pathname === '/api/system') return ok(world.system);
+  if (pathname === '/api/client') return ok(world.client);
   if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }
@@ -1990,6 +1996,10 @@ function command(
     if (!worktree) return notFound(`worktree ${id}`);
     if (worktree.isClosed) return error(400, 'invalid', `Worktree ${id} is closed`);
     const nato = worktree.nato.toUpperCase();
+    if (ownerOf(id) !== world.client.host) {
+      // An SSH shell in the browser's host's cmux: the real server keeps it out of the world.
+      return ok({ shellUrl: `cmux://workspace/WS-${nato}@${world.client.host}/pane/P` });
+    }
     const shellUrl = worktree.shellUrl || `cmux://workspace/WS-${nato}/pane/PANE-${nato}`;
     // No change notice: the real server's re-read reaches the page after this
     // reply, so a test sees what the reply alone does.

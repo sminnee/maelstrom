@@ -105,6 +105,8 @@ describe('the expanded node', () => {
       await renderApp();
       clickNode('NORT-12');
       const area = within(expanded()).getByRole('region', { name: 'Worktree' });
+      // The control waits for the read of where this browser is.
+      await within(area).findByRole('link', { name: 'cmux' });
 
       expect(within(area).getByTestId('worktree-name')).toHaveTextContent(
         'delta · feat/rotate-auth-tokens-for-every-service',
@@ -198,8 +200,41 @@ describe('the expanded node', () => {
     it("links cmux at the worktree's terminal", async () => {
       await renderApp();
       clickNode('NORT-12');
-      const link = within(expanded()).getByRole('link', { name: 'cmux' });
+      const link = await within(expanded()).findByRole('link', { name: 'cmux' });
       expect(link).toHaveAttribute('href', 'cmux://workspace/WS-DELTA/pane/PANE-DELTA');
+    });
+
+    it("gives a remote client a new terminal in its own host's cmux", async () => {
+      const user = userEvent.setup();
+      const assign = vi.fn();
+      vi.stubGlobal('location', { ...window.location, assign });
+      const { server } = await renderApp();
+      server.world.client = { local: false, host: 'laptop' };
+      clickNode('NORT-12');
+
+      // delta has a terminal on the server, but this browser cannot see it.
+      const button = await within(expanded()).findByRole('button', { name: 'cmux' });
+      expect(button).toHaveAttribute(
+        'title',
+        'SSH to dev@monolith.ts.net:/Users/dev/Projects/northwind/northwind-delta',
+      );
+      await user.click(button);
+
+      await waitFor(() =>
+        expect(assign).toHaveBeenCalledWith('cmux://workspace/WS-DELTA@laptop/pane/P'),
+      );
+      // The link names a pane on the laptop: the next click asks again.
+      expect(within(expanded()).getByRole('button', { name: 'cmux' })).toBeInTheDocument();
+      expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull();
+    });
+
+    it('offers no cmux to a client on neither the server nor a remote host', async () => {
+      const { server, queryClient } = await renderApp();
+      server.world.client = { local: false, host: '' };
+      clickNode('NORT-12');
+      await waitFor(() => expect(queryClient.getQueryState(['client'])?.status).toBe('success'));
+      expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull();
+      expect(within(expanded()).queryByRole('button', { name: 'cmux' })).toBeNull();
     });
 
     it('creates the terminal when there is none, opens it, and then links it', async () => {
@@ -209,9 +244,10 @@ describe('the expanded node', () => {
       vi.stubGlobal('location', { ...window.location, assign });
       const { server } = await renderApp();
       clickNode('NORT-7');
+      const button = await within(expanded()).findByRole('button', { name: 'cmux' });
       expect(within(expanded()).queryByRole('link', { name: 'cmux' })).toBeNull();
 
-      await user.click(within(expanded()).getByRole('button', { name: 'cmux' }));
+      await user.click(button);
 
       const url = 'cmux://workspace/WS-ALPHA/pane/PANE-ALPHA';
       expect(server.requests).toContainEqual(
@@ -236,7 +272,7 @@ describe('the expanded node', () => {
       });
       clickNode('NORT-7');
 
-      await user.click(within(expanded()).getByRole('button', { name: 'cmux' }));
+      await user.click(await within(expanded()).findByRole('button', { name: 'cmux' }));
 
       const failed = await within(expanded()).findByRole('button', { name: 'Failed' });
       expect(failed).toHaveAttribute('title', 'cmux could not make the terminal');
@@ -246,7 +282,7 @@ describe('the expanded node', () => {
     it('a closed worktree has no cmux control', async () => {
       const { server } = await renderApp();
       clickNode('NORT-12');
-      expect(within(expanded()).getByRole('link', { name: 'cmux' })).toBeInTheDocument();
+      expect(await within(expanded()).findByRole('link', { name: 'cmux' })).toBeInTheDocument();
 
       act(() => {
         server.change({ kind: 'worktree', ids: ['northwind-delta'] }, (w) => {

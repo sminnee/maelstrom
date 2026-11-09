@@ -1305,9 +1305,12 @@ from the worktree poll, up to 60 s late, and only when a row field moves: a new 
 new commit. A second edit to a file that is already dirty moves no field, so the tab keeps the
 old diff until Refresh reads it again.
 
-The row ends with `worktrees/CmuxControl.tsx`, the worktree's terminal in cmux. While
-`shellUrl` is set it is an `ExternalLink` with `newTab={false}`. With `shellUrl` empty it is a button that makes the terminal, then
-follows the returned link. See [cmux.md](cmux.md#terminal-links).
+The row ends with `worktrees/CmuxControl.tsx`, the worktree's terminal in cmux. It reads
+`GET /api/client` first. For a browser on the worktree's own host, with `shellUrl` set, it is an
+`ExternalLink` with `newTab={false}`; otherwise it is a button that makes the terminal, then
+follows the returned link. A browser on another host always gets the button: its terminal is an
+SSH shell. A browser on no known host gets no control. See
+[cmux.md](cmux.md#remote-clients).
 
 A pull request draws as one chip wherever it appears — a collapsed node, a deck row, the card's
 footer — so the same PR reads the same everywhere. `shell/PrChip.tsx` is that chip: `#278` in the
