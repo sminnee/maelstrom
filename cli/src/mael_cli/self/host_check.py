@@ -6,6 +6,7 @@ The check works through :data:`HOST_ITEMS`. See ``docs/dev/host-services.md``.
 import getpass
 import json
 import os
+import textwrap
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,8 @@ from mael_domain.dev_cert import DevCertError, ensure_dev_cert
 from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.ports import ALLOCATIONS_FILENAME
 from mael_domain.shared_dir import get_shared_dir
+from mael_domain.worktree import HostCheckOutcome, find_all_projects, run_check_host_cmd
+from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
 
 from .host_service import Run
 from .plugins import Plugins, PluginsError, codex_home_from_env
@@ -729,6 +732,55 @@ class ShimOnPath(HostCheckItem):
             "Add this line to your shell profile:\n"
             '      export PATH="$HOME/.local/bin:$PATH"'
         )
+
+
+@dataclass(frozen=True)
+class ProjectHostCheck(HostCheckItem):
+    """A project's ``check_host_cmd``, run in its ``_main`` worktree.
+
+    Optional, with no fix: see ``docs/dev/host-services.md``.
+    """
+
+    section: ClassVar[str] = "Projects"
+
+    project: str
+    #: The project's ``_main`` worktree.
+    path: Path
+    #: The outcome ``applies`` got, so the command runs once per check.
+    _outcome: dict[str, HostCheckOutcome] = field(
+        default_factory=dict, compare=False, repr=False
+    )
+
+    @property
+    def name(self) -> str:  # type: ignore[override]
+        return f"{self.project} host check"
+
+    def applies(self, host: "HostCheck") -> bool:
+        outcome = run_check_host_cmd(self.path)
+        if outcome is None:
+            return False
+        self._outcome["last"] = outcome
+        return True
+
+    def check(self, host: "HostCheck") -> Finding:
+        if self._outcome["last"].passed:
+            return Finding(True, f"{self.project}: check_host_cmd passes")
+        return Finding(False, f"{self.project}: check_host_cmd failed")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        output = self._outcome["last"].output
+        if not output:
+            return None
+        # The loop indents the first line; the rest line up under it.
+        return Remedy(textwrap.indent(output, "    ").lstrip())
+
+
+def project_items(projects_dir: Path) -> list[ProjectHostCheck]:
+    """One host check item per project under ``projects_dir``."""
+    return [
+        ProjectHostCheck(project=p.name, path=p / MAIN_WORKTREE_FOLDER)
+        for p in find_all_projects(projects_dir)
+    ]
 
 
 #: In install order: a tool comes after the tool its command needs.

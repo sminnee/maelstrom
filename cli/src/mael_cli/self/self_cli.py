@@ -29,7 +29,7 @@ from mael_domain.release_bundle.update_job import read_record, update_lock
 from mael_domain.state_db.types import StateDbError
 
 from . import schedule_launchd
-from .host_check import HostCheck
+from .host_check import HOST_ITEMS, HostCheck, project_items
 from .host_service import (
     AGENT_DAEMON,
     ORCHESTRATOR,
@@ -152,6 +152,8 @@ def cmd_check_host(dev: bool, quiet: bool) -> None:
         dev=dev,
         quiet=quiet,
         caller_path=caller_path,
+        # Last: a project's check can call the tools above.
+        items=(*HOST_ITEMS, *project_items(load_global_config().projects_dir)),
     )()
     if unmet:
         raise SystemExit(1)
