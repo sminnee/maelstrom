@@ -725,6 +725,18 @@ parent finds the owner of each merged id from its prefix. A desk id such as `age
 not read for one.
 _Avoid_: Host id, namespace
 
+**Remote client**:
+A browser on a **Remote host** of the server whose UI it shows. Its `cmux` control opens a terminal
+in the remote host's own cmux: an SSH shell for a worktree another host owns. See
+`docs/dev/cmux.md`.
+_Avoid_: Remote browser, remote user
+
+**SSH target**:
+A worktree's `user@host:/path`: the user the server runs as, the server's `dev_host:`, and the
+worktree path. A **Remote client**'s terminal opens an SSH shell on it. `""` when the server has
+no `dev_host:`.
+_Avoid_: SSH URL, SSH address
+
 **Orchestrator server**:
 The process that builds the world from the notebook, `list-all` and the agent host, and serves
 it to the orchestrator UI over HTTP: resources by REST, change notices on one stream, one socket

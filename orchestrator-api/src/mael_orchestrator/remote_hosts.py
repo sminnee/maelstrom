@@ -12,17 +12,22 @@ delegated launch. See ``docs/dev/remote-hosts.md``.
 import asyncio
 import json
 import logging
+import socket
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import aiohttp
 from aiohttp import web
+from yarl import URL
 
 from mael_agent.host_ids import owner_of
 from mael_common.util import now_iso
 from mael_domain.operations import RUNNING
 from mael_domain.protocol import RemoteHostState
+
+from .clients import normal_ip
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +47,10 @@ REQUEST_SECS = 30.0
 #: How long a delegated launch may run on the host: it fetches and rebases.
 OPERATION_SECS = 300.0
 OPERATION_POLL_SECS = 0.5
+
+#: How long a resolved host address is kept. Short, so a changed tailnet IP
+#: is seen without a restart.
+ADDRESS_SECS = 60.0
 
 #: Each merged kind, and the list route and key the host serves it on.
 MERGED_KINDS: dict[str, tuple[str, str]] = {
@@ -83,6 +92,17 @@ _DROPPED_RESPONSE = frozenset(
 )
 
 
+async def resolve_addresses(host: str) -> set[str]:
+    """Every IP ``host`` resolves to. Empty when it does not resolve."""
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(
+            host, None, type=socket.SOCK_STREAM
+        )
+    except OSError:
+        return set()
+    return {ip for info in infos if (ip := normal_ip(str(info[4][0]))) is not None}
+
+
 class HostUnreachable(Exception):
     """The host is offline, did not answer, or refused a call."""
 
@@ -112,8 +132,12 @@ class RemoteHost:
     backoff: float = BACKOFF_SECS
     #: Per merged kind, what the host's list gave last time, by id.
     slices: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: Resolves a host name to its IPs. A test gives a fake one.
+    resolve: Callable[[str], Awaitable[set[str]]] = resolve_addresses
     _session: aiohttp.ClientSession | None = field(default=None, init=False)
     _misnamed: bool = field(default=False, init=False)
+    #: The last resolved addresses, and the monotonic time they were read.
+    _addresses: tuple[float, set[str]] | None = field(default=None, init=False)
 
     def session(self) -> aiohttp.ClientSession:
         """The one client session, made on first use so it binds the running loop.
@@ -127,6 +151,20 @@ class RemoteHost:
 
     def url(self, path: str) -> str:
         return f"{self.base_url}{path}"
+
+    async def addresses(self) -> set[str]:
+        """The IPs of ``base_url``'s host, read again after ``ADDRESS_SECS``.
+
+        A browser whose peer IP is one of these is on this host: a
+        **Remote client**.
+        """
+        now = time.monotonic()
+        if self._addresses is not None and now - self._addresses[0] < ADDRESS_SECS:
+            return self._addresses[1]
+        host = URL(self.base_url).host or ""
+        found = await self.resolve(host) if host else set()
+        self._addresses = (now, found)
+        return found
 
     def state(self) -> RemoteHostState:
         """The ``remoteHosts`` entry for this host."""
