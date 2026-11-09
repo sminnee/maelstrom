@@ -425,6 +425,41 @@ def test_dev_https_is_written_only_when_the_cert_issues(home, issued):
         assert "no HTTPS on this tailnet" in host.text
 
 
+def test_a_remote_host_without_dev_host_is_warned(home):
+    host = FakeHost(home)
+    host.tools.discard("tailscale")
+    host.config.write_text("host_name: cobalt\n")
+
+    # Optional: the check passes, and says why the URLs will not open.
+    assert host.check() == []
+    assert "✗ host_name is set and dev_host is unset" in host.text
+
+
+@pytest.mark.parametrize(
+    ("https", "line"),
+    [
+        ("", "✓ dev_host: cobalt.tail1.ts.net. Set dev_https too"),
+        ("dev_https: true\n", "✓ dev_host: cobalt.tail1.ts.net\n"),
+    ],
+)
+def test_a_remote_host_with_dev_host_is_met(home, https, line):
+    host = FakeHost(home)
+    host.tools.discard("tailscale")
+    host.config.write_text(f"host_name: cobalt\ndev_host: cobalt.tail1.ts.net\n{https}")
+
+    assert host.check() == []
+    assert line in host.text
+
+
+def test_a_remote_host_on_a_tailnet_is_left_to_the_tailscale_items(home):
+    host = FakeHost(home)
+    host.config.write_text("host_name: cobalt\n")
+
+    host.check()
+
+    assert "Remote host" not in host.text
+
+
 @pytest.mark.parametrize("platform", PLATFORMS)
 def test_a_met_host_asks_nothing(home, platform):
     host = FakeHost(home, platform=platform)
