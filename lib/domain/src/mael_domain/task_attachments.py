@@ -7,7 +7,7 @@ rules that sit on top of the store are in :mod:`mael_domain.task_documents`.
 
 import hashlib
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 from .state_db.db import StateDb
@@ -27,11 +27,18 @@ class TaskAttachment:
     name: str
     archived: bool
     attached_at: str
+    #: The Document role: one of ``task_documents.ROLES``. ``kind`` is the format.
+    role: str = "other"
 
 
 @dataclass(frozen=True)
 class Version:
-    """One version of a Task document. Versions are never changed or removed."""
+    """One version of a Task document.
+
+    The text of a version never changes, and a version is never removed. Its
+    review status does change: each verdict writes it. A same-text present
+    moves its agent and review group.
+    """
 
     id: str
     attachment_id: str
@@ -41,6 +48,12 @@ class Version:
     digest: str
     created_at: str
     review_status: str
+    #: The agent that presented this version, so a verdict can reach it.
+    agent_id: str = ""
+    #: The review group this version was presented in, when it was in one.
+    group_id: str = ""
+    group_title: str = ""
+    group_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -102,7 +115,11 @@ class TaskAttachmentTable(ABC):
 
     @abstractmethod
     async def add_version(self, version: Version) -> None:
-        """Store one new version."""
+        """Store the version, replacing the one with its id."""
+
+    @abstractmethod
+    async def set_review_status(self, version: str, status: str) -> None:
+        """Write the review status of the version with this id."""
 
     @abstractmethod
     async def links(self, attachment: str) -> list[Link]:
@@ -160,6 +177,11 @@ class InMemoryTaskAttachmentTable(TaskAttachmentTable):
     async def add_version(self, version: Version) -> None:
         self._versions[version.id] = version
 
+    async def set_review_status(self, version: str, status: str) -> None:
+        found = self._versions.get(version)
+        if found is not None:
+            self._versions[version] = replace(found, review_status=status)
+
     async def links(self, attachment: str) -> list[Link]:
         return [v for v in self._links.values() if v.attachment_id == attachment]
 
@@ -203,6 +225,7 @@ class SqliteTaskAttachmentTable(TaskAttachmentTable):
             name=attachment.name,
             archived=int(attachment.archived),
             attached_at=attachment.attached_at,
+            role=attachment.role,
         )
 
     async def versions(self, attachment: str) -> list[Version]:
@@ -214,6 +237,11 @@ class SqliteTaskAttachmentTable(TaskAttachmentTable):
     async def add_version(self, version: Version) -> None:
         fields = asdict(version)
         await self._db.upsert(VERSIONS, fields.pop("id"), **fields)
+
+    async def set_review_status(self, version: str, status: str) -> None:
+        row = await self._db.read(VERSIONS, version)
+        if row is not None:
+            await self._db.upsert(VERSIONS, version, review_status=status)
 
     async def links(self, attachment: str) -> list[Link]:
         rows = await self._db.read_where(LINKS, "attachment_id", attachment)
@@ -245,4 +273,5 @@ def _attachment(row: Any) -> TaskAttachment:
         name=row["name"],
         archived=bool(row["archived"]),
         attached_at=row["attached_at"],
+        role=row["role"],
     )

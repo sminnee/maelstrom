@@ -115,4 +115,24 @@ TASK_ATTACHMENTS: tuple[Rung, ...] = (
             for column in ("title", "version", "body", "digest")
         )
     ),
+    Migration(
+        (
+            # The Document role. Until this rung, the card drew every stored
+            # markdown document but the plan as a verification, a hand-added
+            # one too, so each keeps the section it showed in.
+            "ALTER TABLE task_attachments ADD COLUMN role TEXT NOT NULL DEFAULT ''",
+            "UPDATE task_attachments SET role = CASE "
+            "WHEN name = 'plan' THEN 'plan' "
+            "WHEN kind = 'sarif' THEN 'other' "
+            "ELSE 'verification' END",
+            "ALTER TABLE task_attachment_versions "
+            "ADD COLUMN agent_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE task_attachment_versions "
+            "ADD COLUMN group_id TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE task_attachment_versions "
+            "ADD COLUMN group_title TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE task_attachment_versions "
+            "ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0",
+        )
+    ),
 )

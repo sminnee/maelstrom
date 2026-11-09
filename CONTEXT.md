@@ -1027,11 +1027,19 @@ _Avoid_: Proof, evidence document, demo
 A file one task owns, with every version kept. Its kind is `markdown` or `sarif`. Its name is
 unique within that task, and it may hold `/`. A reference names it as
 `<project>:<task-id>:<name>`, with an optional `@v<n>` for one version and `#<fragment>` for one
-part. Without `@v<n>`, a reference reads the latest version. A verification **Document** is
-stored when the agent shows it with a **Document tag**, and a plan when the user approves it.
-Only an agent with a task stores one. The rows are in the **State database**, and the media are
-in the task's **Bucket**. See `docs/adr/0001-task-documents.md` for archiving, plans and storage.
+part. Without `@v<n>`, a reference reads the latest version. Each **Document** a task's agent
+shows with a **Document tag** stores a version, and so does each plan it submits. A free agent
+stores none. A version keeps its review status, its agent and its **Review group**. Each verdict
+writes the status. The rows are in the **State database**, and the media are in the task's
+**Bucket**. See `docs/adr/0001-task-documents.md` for archiving, plans and storage.
 _Avoid_: Attached document, kept document, saved document, persisted document, report
+
+**Document role**:
+The kind of the **Document** that stored a **Task document**: `plan`, `tasks`, `pr`, `review`,
+`verification` or `other`. The card shows `plan` under Plans, `verification` under
+Verifications, and every other role under Other. `mael doc add --as` sets it for a hand-added
+document. The **Task document**'s own `kind` is its format, `markdown` or `sarif`.
+_Avoid_: Type, category, section
 
 **Document link**:
 A task's link to a **Task document** that another task owns, or to one **Fragment** of it. The
