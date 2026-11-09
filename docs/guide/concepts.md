@@ -56,7 +56,9 @@ remote host's other agents too. When the remote host sleeps, its agents show the
 shows "offline". See [Remote hosts](../reference/configuration.md#remote-hosts).
 
 cmux is optional. The orchestrator's `cmux` link opens a worktree's terminal in a cmux workspace
-named `<project>-<worktree>`, and closing the worktree closes it.
+named `<project>-<worktree>`, and closing the worktree closes it. The link shows only in a browser
+that can see that cmux: one on the server's machine, or one on a remote host of the server. See
+[Use cmux from another machine](../reference/configuration.md#use-cmux-from-another-machine).
 
 ### git worktrees — isolating code
 

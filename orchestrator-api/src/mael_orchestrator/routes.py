@@ -43,6 +43,7 @@ from mael_domain.worktree_changes import (
     read_file_versions,
 )
 
+from .clients import client_is_local
 from .hubs import Lagging
 from .lsp_client import LspError
 from .remote_hosts import HostUnreachable
@@ -160,6 +161,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
     app.router.add_get("/api/host", _host)
+    app.router.add_get("/api/client", _client)
     app.router.add_get("/api/system", _system)
     app.router.add_get("/api/gate-jobs", _gate_jobs)
     app.router.add_get("/api/events", _events)
@@ -182,6 +184,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_post("/api/worktrees/{id}/env", _env_worktree)
     app.router.add_post("/api/worktrees/{id}/terminal", _create_worktree_terminal)
     app.router.add_post("/api/worktrees/{id}/comments", _comment_on_changes)
+    app.router.add_post("/api/terminals", _create_ssh_terminal)
     app.router.add_post(
         "/api/worktrees/{id}/live-feedback/{service}/params", _set_feedback_params
     )
@@ -323,6 +326,10 @@ HOST_OWNED_ROUTES = (
 #: CLI that names a worktree or an agent bare still reaches it.
 RESOLVED_ROUTES = ("/api/agents/{id}", "/api/worktrees/{id}")
 
+#: Routes under ``HOST_OWNED_ROUTES`` that this server answers itself. A
+#: terminal opens on the browser's machine, which the owner cannot see.
+ANSWERED_HERE = ("/api/worktrees/{id}/terminal",)
+
 
 def _under(canonical: str, templates: tuple[str, ...]) -> bool:
     return any(canonical == t or canonical.startswith(f"{t}/") for t in templates)
@@ -342,7 +349,8 @@ async def _host_owned(request: web.Request, handler: Handler) -> web.StreamRespo
         return await handler(request)
     orch = request.app[ORCH]
     owner = owner_of(entity_id)
-    remote = orch.remote_hosts.get(owner) if owner != orch.ids.prefix else None
+    forward = owner != orch.ids.prefix and canonical not in ANSWERED_HERE
+    remote = orch.remote_hosts.get(owner) if forward else None
     if remote is not None:
         try:
             return await remote.forward(request)
@@ -825,6 +833,37 @@ async def _host(request: web.Request) -> web.Response:
     )
 
 
+async def _client_host(request: web.Request) -> str | None:
+    """The host the browser is on: this server's id prefix, or a **Remote host**'s name.
+
+    ``None`` for a browser on neither. See "Remote clients" in
+    ``docs/dev/cmux.md``.
+    """
+    orch = request.app[ORCH]
+    peer = request.remote
+    sockname = (
+        request.transport.get_extra_info("sockname") if request.transport else None
+    )
+    own = str(sockname[0]) if sockname else None
+    if client_is_local(peer, own):
+        return orch.ids.prefix
+    host = await orch.client_host(peer)
+    return host.name if host is not None else None
+
+
+async def _client(request: web.Request) -> web.Response:
+    """Where the browser is: ``local``, and the ``host`` it is on.
+
+    ``host`` is this server's id prefix for a local browser, a **Remote
+    host**'s name for a **Remote client**, and ``""`` for neither.
+    """
+    host = await _client_host(request)
+    orch = request.app[ORCH]
+    return web.json_response(
+        {"local": host is not None and host == orch.ids.prefix, "host": host or ""}
+    )
+
+
 async def _system(request: web.Request) -> web.Response:
     """The install's paths, core plugin skills and release, for the Welcome dialog.
 
@@ -1254,12 +1293,50 @@ async def _env_worktree(request: web.Request) -> web.StreamResponse:
 
 
 async def _create_worktree_terminal(request: web.Request) -> web.StreamResponse:
-    """Make a worktree's terminal in cmux. The reply carries its ``shellUrl``."""
+    """Make a worktree's terminal in the browser's cmux. The reply carries its ``shellUrl``."""
     worktree_id = request.match_info["id"]
+    client_host = await _client_host(request)
     return await _command(
         request,
-        lambda _body: {"type": "worktree.createTerminal", "worktreeId": worktree_id},
+        lambda _body: {
+            "type": "worktree.createTerminal",
+            "worktreeId": worktree_id,
+            "clientHost": client_host,
+            "worktreeHost": owner_of(worktree_id),
+        },
     )
+
+
+async def _create_ssh_terminal(request: web.Request) -> web.StreamResponse:
+    """Make a terminal in this machine's cmux, for a browser on this machine.
+
+    A server that names this one in ``hosts:`` calls it. ``{worktreeId}``
+    names one of this server's own worktrees: its local terminal. ``{name,
+    sshTarget}`` names another server's worktree: an SSH shell on it.
+    """
+    orch = await _ready(request)
+    try:
+        body = await _body(request)
+    except _BadBody as exc:
+        return error_response("invalid", str(exc))
+    if "worktreeId" in body:
+        own = orch.ids.prefix
+        worktree_id = orch.ids.resolve(str(body["worktreeId"]))
+        return await _command(
+            request,
+            lambda _body: {
+                "type": "worktree.createTerminal",
+                "worktreeId": worktree_id,
+                "clientHost": own,
+                "worktreeHost": owner_of(worktree_id),
+            },
+        )
+    reply = await orch.create_ssh_terminal(
+        str(body.get("name") or ""), str(body.get("sshTarget") or "")
+    )
+    if not reply["ok"]:
+        return error_response(reply["error"]["code"], reply["error"]["message"])
+    return web.json_response(reply["result"])
 
 
 async def _comment_on_changes(request: web.Request) -> web.StreamResponse:

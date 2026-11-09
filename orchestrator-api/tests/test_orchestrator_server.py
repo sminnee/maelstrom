@@ -7,6 +7,7 @@ replies.
 """
 
 import asyncio
+import functools
 import ipaddress
 import json
 import os
@@ -10776,6 +10777,261 @@ def test_a_server_that_cannot_ensure_terminals_says_so(harness):
     reply = run(scenario())
     assert reply.status == 400
     assert "cannot create terminals" in reply.body["error"]["message"]
+
+
+# --- the cmux terminal of a remote client -----------------------------------
+#
+# A terminal command names the host the browser is on and the host that owns
+# the worktree. One host: that host's local terminal. Two: an SSH shell from
+# the browser's host to the worktree's SSH target.
+
+SSH_TARGET = f"sam@monolith.ts.net:{WORKTREE_PATH}"
+LAPTOP_TARGET = "sam@laptop.ts.net:/Users/sam/northwind-alpha"
+REMOTE_LINK = "cmux://workspace/LAPTOP-W/pane/LAPTOP-P"
+LOCAL_LINK = "cmux://workspace/HERE/pane/P"
+CREATE_TERMINAL = {"type": "worktree.createTerminal", "worktreeId": "northwind-alpha"}
+LAPTOP_WORKTREE = "laptop:northwind-alpha"
+
+
+def with_target(
+    harness: "Harness", ssh_target: str = SSH_TARGET, link: str = LOCAL_LINK
+) -> "Harness":
+    harness.worktrees.worktrees[0]["sshTarget"] = ssh_target
+    harness.worktrees.ensure_terminal = lambda *_: link
+    return harness
+
+
+class Terminals:
+    """What one machine's cmux was asked for: each SSH workspace, by name and target."""
+
+    def __init__(self, link: str, fail: bool = False) -> None:
+        self.made: list[tuple[str, str]] = []
+        self.link = link
+        self.fail = fail
+
+    def __call__(self, name, target) -> str:
+        if self.fail:
+            raise CloseBlocked("cmux could not make the terminal")
+        self.made.append((name, str(target)))
+        return self.link
+
+
+@asynccontextmanager
+async def laptop_and_server(store, laptop_cmux: Terminals, server_cmux=None):
+    """A served ``laptop`` remote host, and a served server that names it in ``hosts:``.
+
+    Yields the server's harness and API client once the laptop's worktree
+    has merged into the server's world.
+    """
+    laptop = with_target(
+        Harness(InMemoryTaskTable(), ids=IdSpace("laptop")),
+        LAPTOP_TARGET,
+        REMOTE_LINK,
+    )
+    laptop.worktrees.ssh_terminal = laptop_cmux
+    async with laptop.serving() as port:
+        link = RemoteHost("laptop", f"http://127.0.0.1:{port}", backoff=0.02)
+        server = with_target(Harness(store, remote_hosts={"laptop": link}))
+        server.worktrees.ssh_terminal = server_cmux
+        async with server.client() as api:
+            await until(
+                api,
+                "/api/worktrees",
+                lambda b: LAPTOP_WORKTREE in [w["id"] for w in b["worktrees"]],
+            )
+            yield server, api
+
+
+def test_a_browser_on_the_laptop_gets_an_ssh_shell_on_the_servers_worktree(store):
+    laptop_cmux = Terminals(REMOTE_LINK)
+
+    async def scenario():
+        async with laptop_and_server(store, laptop_cmux) as (server, _api):
+            reply = await server.orch.handle_command(
+                {**CREATE_TERMINAL, "clientHost": "laptop", "worktreeHost": ""}
+            )
+            return reply, server.orch.world["worktrees"]["northwind-alpha"]
+
+    reply, row = run(scenario())
+    assert reply == {"ok": True, "result": {"shellUrl": REMOTE_LINK}}
+    assert laptop_cmux.made == [("northwind-alpha@monolith", SSH_TARGET)]
+    # The link names a pane on the laptop: it stays out of the shared world.
+    assert row.get("shellUrl", "") == ""
+
+
+def test_a_browser_on_the_laptop_hears_why_its_cmux_failed(store):
+    async def scenario():
+        async with laptop_and_server(store, Terminals("", fail=True)) as (server, _):
+            return await server.orch.handle_command(
+                {**CREATE_TERMINAL, "clientHost": "laptop", "worktreeHost": ""}
+            )
+
+    reply = run(scenario())
+    assert reply["error"]["code"] == "unreachable"
+    assert "cmux could not make the terminal" in reply["error"]["message"]
+
+
+def test_a_browser_on_the_laptop_gets_the_laptops_own_terminal_for_its_worktree(
+    store,
+):
+    """Not forwarded: the laptop would see the server, not the browser, as its client."""
+    laptop_cmux = Terminals(REMOTE_LINK)
+
+    async def scenario():
+        async with laptop_and_server(store, laptop_cmux) as (server, _api):
+            return await server.orch.handle_command(
+                {
+                    "type": "worktree.createTerminal",
+                    "worktreeId": LAPTOP_WORKTREE,
+                    "clientHost": "laptop",
+                    "worktreeHost": "laptop",
+                }
+            )
+
+    reply = run(scenario())
+    assert reply == {"ok": True, "result": {"shellUrl": REMOTE_LINK}}
+    assert laptop_cmux.made == []
+
+
+def test_a_browser_here_gets_an_ssh_shell_on_the_laptops_worktree(store):
+    """Through the route: a local browser, and a worktree the server does not forward."""
+    server_cmux = Terminals(LOCAL_LINK)
+
+    async def scenario():
+        laptop = Terminals(REMOTE_LINK)
+        async with laptop_and_server(store, laptop, server_cmux) as (server, api):
+            reply = await api.post(f"/api/worktrees/{LAPTOP_WORKTREE}/terminal")
+            return reply, laptop.made
+
+    reply, laptop_made = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {"shellUrl": LOCAL_LINK}
+    assert server_cmux.made == [("northwind-alpha@laptop", LAPTOP_TARGET)]
+    assert laptop_made == []
+
+
+def refusal_of(harness: "Harness", **client) -> dict:
+    """The refusal of a terminal command from ``client``, with no laptop online."""
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            return await harness.orch.handle_command({**CREATE_TERMINAL, **client})
+        finally:
+            await harness.orch.stop()
+
+    return run(scenario())["error"]
+
+
+def offline_laptop(harness_factory, ssh_target: str = SSH_TARGET) -> "Harness":
+    # Nothing listens on port 9, so the link never comes up.
+    laptop = RemoteHost("laptop", "http://127.0.0.1:9", backoff=10.0)
+    return with_target(harness_factory(remote_hosts={"laptop": laptop}), ssh_target)
+
+
+def test_a_remote_client_whose_host_is_offline_hears_unreachable(harness_factory):
+    harness = offline_laptop(harness_factory)
+    error = refusal_of(harness, clientHost="laptop", worktreeHost="")
+    assert error["code"] == "unreachable"
+
+
+@pytest.mark.parametrize(
+    ("ssh_target", "words"),
+    [
+        ("", "Set dev_host"),
+        ("DOMAIN\\sam@monolith:/p", "is not user@host:/path"),
+    ],
+)
+def test_a_worktree_with_no_usable_ssh_target_says_why(
+    harness_factory, ssh_target, words
+):
+    harness = offline_laptop(harness_factory, ssh_target)
+    harness.worktrees.ssh_terminal = Terminals(LOCAL_LINK)
+    error = refusal_of(harness, clientHost="laptop", worktreeHost="")
+    assert words in error["message"]
+
+
+@pytest.mark.parametrize("client_host", [None, "cobalt"])
+def test_a_client_on_no_remote_host_is_refused(harness_factory, client_host):
+    harness = offline_laptop(harness_factory)
+    error = refusal_of(harness, clientHost=client_host, worktreeHost="")
+    assert error["message"] == (
+        "Open cmux from this machine, or from a remote host of this server."
+    )
+
+
+def test_a_local_client_still_gets_this_machines_terminal(harness_factory):
+    harness = offline_laptop(harness_factory)
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            reply = await harness.orch.handle_command(
+                {**CREATE_TERMINAL, "clientHost": "", "worktreeHost": ""}
+            )
+            return reply, harness.orch.world["worktrees"]["northwind-alpha"]
+        finally:
+            await harness.orch.stop()
+
+    reply, row = run(scenario())
+    assert reply["result"] == {"shellUrl": LOCAL_LINK}
+    assert row["shellUrl"] == LOCAL_LINK
+
+
+async def _addresses_of(table: dict[str, set[str]], host: str) -> set[str]:
+    return table.get(host, set())
+
+
+@pytest.mark.parametrize(
+    ("peer", "online", "expected"),
+    [
+        ("100.64.0.7", True, "laptop"),
+        ("::ffff:100.64.0.7", True, "laptop"),
+        ("100.64.0.9", True, None),
+        # An offline host gets no terminal request, so it is no match.
+        ("100.64.0.7", False, None),
+        (None, True, None),
+    ],
+)
+def test_a_client_is_on_the_remote_host_whose_address_it_has(
+    harness_factory, peer, online, expected
+):
+    resolve = functools.partial(_addresses_of, {"laptop.ts.net": {"100.64.0.7"}})
+    laptop = RemoteHost(
+        "laptop", "http://laptop.ts.net:3000", online=online, resolve=resolve
+    )
+    harness = harness_factory(remote_hosts={"laptop": laptop})
+    found = run(harness.orch.client_host(peer))
+    assert (found.name if found else None) == expected
+
+
+def test_the_client_route_says_a_loopback_browser_is_local(harness):
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/client")
+
+    assert run(scenario()) == {"local": True, "host": ""}
+
+
+@pytest.mark.parametrize(
+    ("body", "words"),
+    [
+        ({"name": "northwind-alpha", "sshTarget": "sam@h:rel"}, "user@host"),
+        ({"name": "x; rm -rf ~", "sshTarget": SSH_TARGET}, "workspace name"),
+    ],
+)
+def test_a_terminal_request_that_does_not_parse_is_refused(harness, body, words):
+    made: list[str] = []
+    harness.worktrees.ssh_terminal = lambda name, target: made.append(name) or ""
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/terminals", body)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert words in reply.body["error"]["message"]
+    assert made == []
 
 
 # --- the milestone Maelstrom writes when the user approves a plan ------------

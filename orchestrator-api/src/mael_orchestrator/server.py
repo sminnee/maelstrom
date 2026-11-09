@@ -43,6 +43,7 @@ from mael_domain import comms as comms_model
 from mael_domain import sarif, task_documents
 from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
 from mael_domain.attachments import attachment_urls
+from mael_domain.cmux.mael_layout import remote_workspace_name, workspace_name
 from mael_domain.comm_store import Comm as DomainComm
 from mael_domain.comm_store import (
     CommStore,
@@ -122,6 +123,7 @@ from mael_domain.protocol import (
     ServerEvent,
     Task,
     TranscriptItem,
+    Worktree,
     World,
     group_members,
 )
@@ -130,6 +132,7 @@ from mael_domain.shared_dir import (
     core_plugin_dir,
     investigation_prompt_file,
 )
+from mael_domain.ssh_target import SshTarget
 from mael_domain.system_info import SystemPaths, can_update
 from mael_domain.task import (
     CODEX_PLAN_FILE,
@@ -161,6 +164,7 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
 from . import linear_source
+from .clients import normal_ip
 from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
@@ -4628,16 +4632,76 @@ class Orchestrator:
         on = self.world["worktrees"].get(worktree_id, row).get("prAutoMerge")
         return {"ok": True, "result": {"on": on}}
 
+    async def client_host(self, peer: str | None) -> RemoteHost | None:
+        """The online **Remote host** whose addresses hold the IP ``peer``.
+
+        A browser there is a **Remote client**.
+        """
+        address = normal_ip(peer)
+        if address is None:
+            return None
+        for host in self.remote_hosts.values():
+            if host.online and address in await host.addresses():
+                return host
+        return None
+
     async def _create_worktree_terminal(
         self, command: dict[str, Any]
     ) -> dict[str, Any]:
-        """Make a worktree's terminal in cmux, and write its link into this row only."""
-        ensure_terminal = self.worktrees.ensure_terminal
-        if ensure_terminal is None:
-            return _refused("invalid", "This server cannot create terminals")
+        """Make a worktree's terminal in the cmux the browser can see.
+
+        ``clientHost`` is the host the browser is on, ``None`` for neither
+        this server's machine nor a **Remote host**. ``worktreeHost`` owns the
+        worktree. Each is a host name, this server's own being its id prefix.
+        When the two are one host, that host opens a local terminal. When
+        they differ, the client's host opens an SSH shell on the row's
+        **SSH target**, and the link goes only into the reply. See "Remote
+        clients" in ``docs/dev/cmux.md``.
+        """
         worktree_id = command["worktreeId"]
         # Validation proved the worktree is in the world, so the row is here.
         row = self.world["worktrees"][worktree_id]
+        own = self.ids.prefix
+        client_host = command.get("clientHost")
+        worktree_host = str(command.get("worktreeHost", own))
+        if client_host is None or (
+            client_host != own and client_host not in self.remote_hosts
+        ):
+            return _refused(
+                "invalid",
+                "Open cmux from this machine, or from a remote host of this server.",
+            )
+        if client_host == worktree_host:
+            if worktree_host == own:
+                return await self._create_local_terminal(worktree_id, row)
+            return await self._ask_for_terminal(
+                worktree_host, {"worktreeId": worktree_id}
+            )
+        text = row.get("sshTarget", "")
+        if not text:
+            return _refused(
+                "invalid",
+                f"Set dev_host on {worktree_host or 'this server'}, "
+                "so another machine can reach it over SSH.",
+            )
+        if SshTarget.parse(text) is None:
+            return _refused(
+                "invalid", f"The SSH target {text!r} is not user@host:/path"
+            )
+        name = workspace_name(row["project"], row["nato"])
+        if client_host == own:
+            return await self.create_ssh_terminal(name, text)
+        return await self._ask_for_terminal(
+            client_host, {"name": name, "sshTarget": text}
+        )
+
+    async def _create_local_terminal(
+        self, worktree_id: str, row: Worktree
+    ) -> dict[str, Any]:
+        """Make this server's own worktree's terminal here, and write its link into the row."""
+        ensure_terminal = self.worktrees.ensure_terminal
+        if ensure_terminal is None:
+            return _refused("invalid", "This server cannot create terminals")
         try:
             url = await self._run_worktree(
                 ensure_terminal, row["project"], row["nato"], row["path"]
@@ -4654,6 +4718,41 @@ class Orchestrator:
                 worktree_id: {**worktrees[worktree_id], "shellUrl": url},
             }
             self._apply(diff_kind("worktree", worktrees, updated))
+        return {"ok": True, "result": {"shellUrl": url}}
+
+    async def _ask_for_terminal(
+        self, host: str, body: dict[str, str]
+    ) -> dict[str, Any]:
+        """``POST /api/terminals`` on remote host ``host``: its own reply's link."""
+        try:
+            reply = await self.remote_hosts[host].post_json("/api/terminals", body)
+        except HostUnreachable as exc:
+            return _refused("unreachable", str(exc))
+        url = str(reply.get("shellUrl") or "")
+        if not url:
+            return _refused("unreachable", f"{host} gave no terminal link")
+        return {"ok": True, "result": {"shellUrl": url}}
+
+    async def create_ssh_terminal(self, name: str, ssh_target: str) -> dict[str, Any]:
+        """Make a workspace in this machine's cmux, with an SSH shell on ``ssh_target``.
+
+        For a browser here and a worktree on another host: a remote host's
+        worktree, or a worktree of a server that names this host in
+        ``hosts:``. See "Remote clients" in ``docs/dev/cmux.md``.
+        """
+        make = self.worktrees.ssh_terminal
+        if make is None:
+            return _refused("invalid", "This server cannot create terminals")
+        target = SshTarget.parse(ssh_target)
+        if target is None:
+            return _refused("invalid", f"{ssh_target!r} is not user@host:/path")
+        workspace = remote_workspace_name(name, target)
+        if workspace is None:
+            return _refused("invalid", f"{name!r} is not a workspace name")
+        try:
+            url = await self._run_worktree(make, workspace, target)
+        except CloseBlocked as exc:
+            return _refused("invalid", str(exc))
         return {"ok": True, "result": {"shellUrl": url}}
 
     async def _refresh_worktrees_now(self, command: dict[str, Any]) -> dict[str, Any]:
