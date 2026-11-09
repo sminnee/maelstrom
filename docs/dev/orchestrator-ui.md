@@ -457,8 +457,9 @@ a task or free-agent node in the canvas **Selection**. With two or more selected
 | Dismiss | task and free-agent nodes | a node with nothing live and no desk entry |
 
 `selectors/bulkTargets.ts` holds these rules. A bulk Dismiss closes each worktree at most once;
-`planDismiss` says which node closes it and why. When the plan terminates a live agent, the
-button asks first and names the count.
+`planDismiss` says which node closes it and why. A worktree closes only when the selection covers
+every **Holder** of it, and then the last selected node in it closes it. When the plan terminates
+a live agent, the button asks first and names the count.
 
 A node is one of two kinds. A **task** node stands for a notebook task, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
@@ -544,8 +545,8 @@ worktree chain, the worktree id. The server runs the chain as one `dismiss` oper
 reload does not lose it partway. Terminate alone is `agent.stop`, and Off desk alone is the plain
 `DELETE /api/desk/{deskId}`.
 
-Dismiss runs one item of the menu. It closes the worktree only when the worktree can close and no
-other top-level agent runs in it:
+Dismiss runs one item of the menu. It closes the worktree only when the worktree can close and the
+node is its last **Holder** (`worktreeHolders` in `selectors/graph.ts`):
 
 | Node state | Worktree closes | Dismiss runs |
 |---|---|---|
@@ -572,8 +573,13 @@ Every desk act draws a desk icon before its label (`shell/OnDeskIcon.tsx`,
 
 The four worktree items are left out when the worktree is `_main`, is closed, or does not exist.
 With one item left, the control is a plain button. The worktree items are disabled while
-another top-level agent runs in the same worktree, and the second line says how many. A subagent
-is not counted, because it stops with its parent.
+the worktree has another **Holder**, and the second line says how many of each kind: "1 other
+agent still running in alpha" when only live agents hold it, else, for example, "1 other agent and
+1 other task still use alpha". A subagent is not counted, because it stops with its parent.
+
+A queued task holds the worktree because it needs the branch as much as the in-progress task
+before it. The worktree's own close controls count live agents only. The server's close refusal
+stays the backstop.
 
 The shelve, trash and ignore items ask first, beside the control, because each one loses or moves
 work. `worktrees/closeConfirms.ts` holds the questions, and the close control asks the same ones.
