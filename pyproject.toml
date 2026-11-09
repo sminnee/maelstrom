@@ -111,7 +111,7 @@ src = [
 # an undefined name by design, so ruff and pyright must both skip it.
 extend-exclude = [".vulture_whitelist.py"]
 # Python scripts with no `.py` suffix, which ruff would not find otherwise.
-extend-include = ["bin/publish", "bin/publish-jig"]
+extend-include = ["bin/publish", "bin/jig-release-version"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]

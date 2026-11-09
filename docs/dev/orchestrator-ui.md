@@ -1878,13 +1878,45 @@ tag outside the workspace, but it serves a file that a served module imports. So
 `/@id/__x00__virtual:mael-jig/client`, and that module imports `overlay.ts` or `overlay.js` by
 absolute path. Vite still sets its `import.meta.hot`.
 
-**The package is released on its own.** It has its own version and
-`vite-plugin-mael-jig/CHANGELOG.md`. `pnpm build` writes `dist/` with `tsconfig.build.json`, and
+**The package is released on its own.** It has its own version, its own tags and its own GitHub
+Releases. `pnpm build` writes `dist/` with `tsconfig.build.json`, and
 npm ships only `dist/`.
-`bin/publish-jig` runs its gates and the pack smoke, then publishes and tags
-`vite-plugin-mael-jig@X.Y.Z`. The pack smoke, `pnpm smoke`, installs the packed tarball into a new
-Vite app and loads a page. It is the `web.jig-smoke` gate, so a broken build fails CI before a
-release.
+The pack smoke, `pnpm smoke`, installs the packed tarball into a new Vite app and loads a page. It
+is the `jig.smoke` gate, so a broken build fails CI before a release.
+
+**The Release jig workflow releases the package.** Start it on `main` from Actions → Release jig →
+Run workflow. Choose a `bump` (`patch`, `minor` or `major`), or type an exact `version`. The git
+tags hold the version. `package.json` holds the placeholder `0.0.0-dev`, and the workflow commits
+nothing.
+`.github/workflows/release-jig.yml` runs four jobs:
+
+| Job | What it does |
+|---|---|
+| `plan` | Refuses a branch other than `main`. `bin/jig-release-version next` reads the `vite-plugin-mael-jig@X.Y.Z` tags and gives the next version. It refuses when `main`'s head already has a tag. |
+| `gates` | Runs each `jig.*` gate in `pipeline.toml` in full on `main`'s head. |
+| `build` | Stamps the version, builds, and packs the tarball. It cannot get an npm token. |
+| `release` | Waits for the `npm` environment. Publishes the tarball with trusted publishing, tags `vite-plugin-mael-jig@X.Y.Z`, and creates a GitHub Release. It installs and builds nothing, so no dependency script runs while the job can get an npm token. |
+
+The GitHub Release has notes that GitHub generates from the PRs since the previous jig tag. They
+include PRs that do not touch the jig. The release is never marked Latest, because
+`bin/install.sh` and `mael self update` download the `mael` bundle from the Latest release.
+
+**Finish a failed run with "Re-run failed jobs".** "Re-run all jobs" plans again, and refuses a
+commit that already has its tag. In a re-run, a tag already on this commit is reused, and a tag on
+another commit stops the run. The publish is skipped when npm already has the version from this
+commit. The GitHub Release is skipped when it exists.
+
+**The repository holds no npm token.** npm trusts the workflow through OpenID Connect (OIDC), and
+adds provenance by itself. The trust is set once, by hand:
+
+1. On npmjs.com, open `vite-plugin-mael-jig` → Settings → Trusted publishing → GitHub Actions. Set
+   owner `sminnee`, repository `maelstrom`, workflow `release-jig.yml` and environment `npm`.
+2. On GitHub, open Settings → Environments → `npm`. Limit the deployment branches to `main`. npm
+   trusts any run of the workflow in that environment. Add required reviewers to approve each
+   release after its gates pass.
+3. Optional: in the npm package settings, disallow tokens, so only the workflow can publish.
+
+Without step 1, `npm publish` fails with 404 or 403. Run the workflow again after the setup.
 
 **The protocol is live feedback.** The jig is its first client. [live-feedback.md](live-feedback.md)
 documents the URL, the frames, the rules, and how the jig uses them.
