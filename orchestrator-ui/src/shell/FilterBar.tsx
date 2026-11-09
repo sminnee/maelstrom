@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router';
 import type { AgentStatusFilter, Filters } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { filterOptions } from '../selectors/filterOptions';
@@ -157,15 +158,22 @@ const SEARCH_COMMIT_MS = 200;
  */
 function SearchField() {
   const committed = useLoc().filters.text;
+  const { key } = useLocation();
   const go = useGo();
   const [draft, setDraft] = useState(committed);
-  // The text this field last committed, so its own commit coming back from
-  // the URL is not read as a change made elsewhere, such as Back.
+  // The text the URL holds as far as this field knows: its own last commit, or
+  // the last text it took from the URL. A URL text that differs is a change
+  // made elsewhere, such as Back, and the field takes it.
   const [sent, setSent] = useState(committed);
-  const [seen, setSeen] = useState(committed);
-  if (seen !== committed) {
-    setSeen(committed);
-    if (committed !== sent) setDraft(committed);
+  // Each navigation, by its key rather than its text: a Back can land on the
+  // text last rendered when the commit between was never rendered.
+  const [seenKey, setSeenKey] = useState(key);
+  if (seenKey !== key) {
+    setSeenKey(key);
+    if (committed !== sent) {
+      setSent(committed);
+      setDraft(committed);
+    }
   }
   const latest = useRef(draft);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
