@@ -52,7 +52,12 @@ from mael_domain.comm_store import (
     InMemoryCommUpdateStore,
 )
 from mael_domain.desk_store import DeskStore, InMemoryDeskStore
-from mael_domain.document_tags import FINAL_STAGE, CompactRequest, ParamSet
+from mael_domain.document_tags import (
+    DRAFT_KIND,
+    FINAL_STAGE,
+    CompactRequest,
+    ParamSet,
+)
 from mael_domain.external_event import (
     CHANGES_COMMENTED,
     DOCUMENT_APPROVED,
@@ -86,7 +91,6 @@ from mael_domain.landing import Landings
 from mael_domain.landing_store import StepEvent
 from mael_domain.list_all import project_repo_url
 from mael_domain.normalise import (
-    DRAFT_KIND,
     Milestone,
     NormaliseContext,
     Normalised,
@@ -142,7 +146,12 @@ from mael_domain.task_attachments import (
     Version,
     task_key,
 )
-from mael_domain.task_documents import PLAN_NAME, attach
+from mael_domain.task_documents import (
+    PLAN_NAME,
+    ReviewGroup,
+    attach,
+    set_status,
+)
 from mael_domain.task_launch import LaunchBlocked, check_not_live, check_synced
 from mael_domain.task_metadata_generator import lead_with_number
 from mael_domain.worktree import WorktreeSetup
@@ -199,9 +208,9 @@ from .world import WorldState
 from .world_build import (
     AgentLink,
     agent_entity,
-    attached_document_entity,
     comm_entity,
     diff_kind,
+    document_entity,
     gate_job_entity,
     host_usage,
     link_agent,
@@ -609,7 +618,7 @@ class Orchestrator:
         *,
         desk: DeskStore | None = None,
         milestones: MilestoneStore | None = None,
-        task_attachments: TaskAttachmentTable | None = None,
+        document_store: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
         comms: CommStore | None = None,
         comm_updates: CommUpdateStore | None = None,
@@ -662,9 +671,9 @@ class Orchestrator:
         )
         #: The Task documents — see ``CONTEXT.md``, "Task document". The world
         #: reads them once, at start.
-        self.task_attachments = (
-            task_attachments
-            if task_attachments is not None
+        self.document_store = (
+            document_store
+            if document_store is not None
             else InMemoryTaskAttachmentTable()
         )
         #: Each task's landing — see ``CONTEXT.md``, "Landing". Synced in the
@@ -814,7 +823,7 @@ class Orchestrator:
         """Read every source once, then keep them fresh in the background."""
         await self.refresh_tasks()
         await self.refresh_comms()
-        await self._load_attached()
+        await self._load_documents()
         await self._load_desk()
         await self.operations.load()
         if self.worktrees.prs is not None:
@@ -2077,7 +2086,7 @@ class Orchestrator:
             replay=replay,
         )
         await self._emit(watch, out)
-        await self._attach_documents(out.events, replay=replay)
+        await self._store_documents(out.events, replay=replay)
         if out.milestone is not None:
             if raw.get("type") == "control_response":
                 # Recorded at once, not parked: no `result` for the planning
@@ -2336,47 +2345,79 @@ class Orchestrator:
             )
         hold.held.clear()
 
-    async def _load_attached(self) -> None:
+    async def _load_documents(self) -> None:
         """Put every markdown Task document in the world, before any agent is read.
 
-        Before, so an agent whose backlog presents an attached path finds the
-        document there and makes its next version, not a second entry.
+        Before, so an agent whose backlog presents a stored document finds it
+        under its store id and makes its next version, not a second entry.
         """
-        entities = []
-        for row in await self.task_attachments.all_documents():
-            versions = await self.task_attachments.versions(row.id)
-            entity = attached_document_entity(row, versions[-1]) if versions else None
+        events: list[ServerEvent] = []
+        for row in await self.document_store.all_documents():
+            entity = await self._stored_entity(row)
             if entity is not None:
-                entities.append(
-                    {"type": "upsert", "kind": "document", "entity": entity}
-                )
-        self._apply(entities)
+                events.append({"type": "upsert", "kind": "document", "entity": entity})
+        self._apply(events)
 
-    async def _attach_documents(
-        self, events: list[ServerEvent], *, replay: bool
+    async def _stored_entity(
+        self, row: TaskAttachment, version: Version | None = None
+    ) -> Document | None:
+        """``row``'s world document at ``version``, else at its latest version.
+
+        The world id is the store id with this server's prefix, as the
+        normaliser makes it. The live source of the world's entry stays: a task
+        set's promote reads the file id it carries.
+        """
+        if version is None:
+            versions = await self.document_store.versions(row.id)
+            if not versions:
+                return None
+            version = versions[-1]
+        entity = document_entity(row, version, await self.document_store.links(row.id))
+        if entity is None:
+            return None
+        entity["id"] = self.ids.own(row.id)
+        current = self.world["documents"].get(entity["id"])
+        if current is not None:
+            entity["source"] = current["source"]
+        return entity
+
+    async def _show_stored(
+        self, row: TaskAttachment, version: Version | None = None
     ) -> None:
-        """Attach each verification and approved plan that ``events`` upserts.
+        """Make the world's document agree with the store."""
+        entity = await self._stored_entity(row, version)
+        if entity is not None and entity != self.world["documents"].get(entity["id"]):
+            self._apply([{"type": "upsert", "kind": "document", "entity": entity}])
+
+    async def _store_documents(
+        self, events: list[ServerEvent], *, replay: bool, verdict: bool = False
+    ) -> None:
+        """Store each task document that ``events`` upserts.
+
+        ``verdict``: the upserts only settle a review, so they write a status
+        and never add a version.
 
         A failure is logged and goes no further: the document is still in the
-        world, and a stream must not stop because the notebook refused a file.
+        world, and a stream must not stop because the store refused a file.
         """
         for event in events:
             if event.get("type") != "upsert" or event.get("kind") != "document":
                 continue
             document: Document = event["entity"]  # type: ignore[typeddict-item]
             try:
-                await self._attach_document(document, replay=replay)
+                await self._store_document(document, replay=replay, verdict=verdict)
             except Exception:  # noqa: BLE001 — see the docstring
-                log.exception("attaching document %s failed", document["id"])
+                log.exception("storing document %s failed", document["id"])
 
-    async def _attach_document(self, document: Document, *, replay: bool) -> None:
-        """Attach ``document`` when it is a verification or an approved plan.
+    async def _store_document(
+        self, document: Document, *, replay: bool, verdict: bool = False
+    ) -> None:
+        """Store ``document`` as its Task document, then show what the store holds.
 
-        A replayed event only repairs: it attaches a document the task does not
-        have, and adds no version to one it has. A verification is read from the
-        worktree as it stands now, which is not what the agent showed. A plan's
-        backlog holds plans that a migrated store no longer has. See
-        ``docs/dev/orchestrator-server.md``, "A replay only repairs".
+        A free agent's document is not stored. Whether an upsert adds a version
+        or writes a status follows the table in ``docs/dev/orchestrator-server.md``,
+        "Storing a Task document". A settled stored status retires the review
+        item a replayed tag raised again.
         """
         task = self.world["tasks"].get(document["taskId"])
         if task is None or self._delegated(
@@ -2387,76 +2428,89 @@ class Orchestrator:
             return
         source = document["source"]
         body: str | None = None
-        if document["kind"] == "verification" and source.get("type") == "draft_file":
+        if source.get("type") == "draft_file":
             path = name = str(source["filename"])
-            review_status = "draft"
-        elif (
-            document["kind"] == "plan"
-            and source.get("type") == "plan_review"
-            and document["status"] == "approved"
-        ):
+        elif document["kind"] == "plan" and source.get("type") == "plan_review":
             path, name = str(source.get("planFilePath") or PLAN_NAME), PLAN_NAME
             body = document["markdown"]
-            review_status = "approved"
+        elif source.get("type") == "stored":
+            path, name = "", str(source["name"])
         else:
             return
         project, notebook_id = task["project"], task["notebookId"]
-        attached: tuple[TaskAttachment, Version] | None = None
-        row = (
-            await self.task_attachments.read(task_key(project, notebook_id), name)
-            if replay
-            else None
+        row = await self.document_store.read(task_key(project, notebook_id), name)
+        versions = await self.document_store.versions(row.id) if row else []
+        latest = versions[-1] if versions else None
+        if verdict and (latest is None or document["version"] > latest.version):
+            # The user settled text the store does not hold, such as the
+            # placeholder of a file that could not be read.
+            return
+        # A plan's text travels in its event, so a replay can tell a plan the
+        # server missed from one it stored.
+        missed = (
+            replay
+            and row is not None
+            and body is not None
+            and not await task_documents.holds(
+                self.document_store, row, body, self._agent_cwd(document)
+            )
         )
-        versions = await self.task_attachments.versions(row.id) if row else []
-        if row is not None and versions:
-            attached = row, versions[-1]
+        stored: tuple[TaskAttachment, Version] | None
+        if (
+            row is not None
+            and latest is not None
+            and not missed
+            and (replay or document["version"] <= latest.version or not path)
+        ):
+            stored = row, latest
         else:
-            agent = self.world["agents"].get(document["agentId"])
-            attached = await attach(
-                self.task_attachments,
+            if not path:
+                return
+            stored = await attach(
+                self.document_store,
                 project=project,
                 task_id=notebook_id,
-                cwd=agent["cwd"] if agent else "",
+                cwd=self._agent_cwd(document),
                 path=path,
                 name=name,
                 title=document["title"],
                 now=self.clock(),
                 body=body,
-                review_status=review_status,
+                review_status=document["status"],
+                role=document["kind"],
+                agent_id=document["agentId"],
+                group=ReviewGroup(**document["group"]),
             )
         # None: the file could not be read. The document says so, and it stays.
-        if attached is not None:
-            self._show_attached(document["id"], *attached)
+        if stored is None:
+            return
+        row, version = stored
+        if not replay and version.review_status != document["status"]:
+            version = await set_status(self.document_store, row, document["status"])
+        await self._show_stored(row, version)
+        if version is not None and version.review_status != "awaiting-review":
+            self._retire_review(self.ids.own(row.id))
 
-    def _show_attached(
-        self, document_id: str, row: TaskAttachment, version: Version
-    ) -> None:
-        """Make the world's document agree with the version that stores it.
+    def _agent_cwd(self, document: Document) -> str:
+        """The working directory of the agent that presented ``document``."""
+        agent = self.world["agents"].get(document["agentId"])
+        return agent["cwd"] if agent else ""
 
-        A verification takes the stored version's number and reads its media
-        from the bucket. A plan keeps its own text and id, and the entry seeded
-        for it at start is removed. See ``docs/dev/orchestrator-server.md``,
-        "Storing a Task document".
-        """
-        current = self.world["documents"].get(document_id)
-        if current is None:
-            return
-        seeded = attached_document_entity(row, version)
-        if seeded is None:
-            return
-        if row.name == PLAN_NAME:
-            if seeded["id"] != document_id and seeded["id"] in self.world["documents"]:
-                self._apply(
-                    [{"type": "remove", "kind": "document", "id": seeded["id"]}]
-                )
-            return
-        shown: Document = {
-            **current,
-            "version": version.version,
-            "markdown": seeded["markdown"],
-        }
-        if shown != current:
-            self._apply([{"type": "upsert", "kind": "document", "entity": shown}])
+    def _retire_review(self, document_id: str) -> None:
+        """Clear the open review items of a document the store holds as settled."""
+        events: list[ServerEvent] = [
+            {
+                "type": "upsert",
+                "kind": "attention",
+                "entity": {**item, "clearedAt": self.clock()},
+            }
+            for item in self.world["attention"].values()
+            if item["kind"] == "document_review"
+            and item["documentId"] == document_id
+            and item["clearedAt"] is None
+        ]
+        if events:
+            self._apply(events)
 
     async def _register_pr(self, agent_id: str, ref: str, *, replay: bool) -> None:
         """Register the PR an agent's ``<link rel="gh-pr">`` named on its task.
@@ -3064,7 +3118,7 @@ class Orchestrator:
             created, refused = await self._promote_drafts(document, members)
             if refused:
                 return refused
-        self._settle_group(members, "approved")
+        await self._settle_group(members, "approved")
         await self._tell_agent_of_approval(document, created)
         return {"ok": True, "result": {"taskIds": created}}
 
@@ -3150,9 +3204,10 @@ class Orchestrator:
             # was minted when its file was not readable, and there is nothing
             # to promote.
             source = member["source"]
-            found = self.files.resolve(source["fileId"]) if source["fileId"] else None
+            file_id = source.get("fileId")
+            found = self.files.resolve(file_id) if file_id else None
             if found is None:
-                name = source["filename"]
+                name = source.get("filename") or source.get("name")
                 return [], _refused("invalid", f"{name} is not a file in the worktree")
             try:
                 drafts.append((found.name, found.read_text()))
@@ -3218,7 +3273,7 @@ class Orchestrator:
         _, refusals = await self._tell([document["agentId"]], event)
         if refusals:
             return refusals[0][1]
-        self._settle_group(self._group_members(document), "changes-requested")
+        await self._settle_group(self._group_members(document), "changes-requested")
         return {"ok": True, "result": {}}
 
     async def _comment_on_changes(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -3597,11 +3652,12 @@ class Orchestrator:
         except Exception:  # noqa: BLE001 — nothing awaits this task
             log.exception("the gate tell failed for job %s", event.attrs.get("job"))
 
-    def _settle_group(self, members: list[Document], status: str) -> None:
+    async def _settle_group(self, members: list[Document], status: str) -> None:
         """Move every member, and retire the items that asked for the review.
 
         The document is the server's own table, not the host's, so the change
-        is applied here rather than awaited on a stream.
+        is applied here rather than awaited on a stream. A task's member writes
+        the status of its stored version too.
         """
         ids = {d["id"] for d in members}
         events: list[ServerEvent] = [
@@ -3618,6 +3674,7 @@ class Orchestrator:
                     }
                 )
         self._apply(events)
+        await self._store_documents(events, replay=False, verdict=True)
 
     # -- operations --
 
@@ -4693,7 +4750,7 @@ class Orchestrator:
     async def task_documents_of(self, key: str) -> dict[str, Any]:
         """The Task documents task ``key`` owns, then those it links."""
         project, _, task_id = key.partition("/")
-        table = self.task_attachments
+        table = self.document_store
         return {
             "owned": [
                 await self._task_document_json(row) for row in await table.owned(key)
@@ -4711,16 +4768,16 @@ class Orchestrator:
             TaskDocumentError: ``ref`` does not parse or names nothing.
         """
         parsed = task_documents.parse_ref(ref, project=None, task_id=None)
-        row, version = await task_documents.resolve(self.task_attachments, parsed)
+        row, version = await task_documents.resolve(self.document_store, parsed)
         links: dict[str, list[str]] = {}
-        for found in await self.task_attachments.links(row.id):
+        for found in await self.document_store.links(row.id):
             links.setdefault(found.fragment, []).append(
                 task_key(found.project, found.task_id)
             )
         return {
             "document": await self._task_document_json(row),
             "versions": [
-                _version_json(v) for v in await self.task_attachments.versions(row.id)
+                _version_json(v) for v in await self.document_store.versions(row.id)
             ],
             "version": {**_version_json(version), "body": version.body},
             "links": {
@@ -4734,7 +4791,7 @@ class Orchestrator:
         }
 
     async def _task_document_json(self, row: TaskAttachment) -> dict[str, Any]:
-        versions = await self.task_attachments.versions(row.id)
+        versions = await self.document_store.versions(row.id)
         latest = versions[-1] if versions else None
         return {
             "id": row.id,
@@ -4749,15 +4806,16 @@ class Orchestrator:
         }
 
     async def _add_task_document(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Add a version by hand. ``plan`` is refused: only an approval writes it."""
+        """Add a version by hand, with no review. ``plan`` is the agent's own."""
         project, _, task_id = str(command["taskId"]).partition("/")
-        if command["name"] == PLAN_NAME:
+        role = command.get("role") or None
+        if command["name"] == PLAN_NAME or role == "plan":
             return _refused(
-                "invalid", f"{PLAN_NAME} is the name an approved plan is stored under"
+                "invalid", f"{PLAN_NAME} is stored only when an agent submits a plan"
             )
         try:
             row, version = await task_documents.add(
-                self.task_attachments,
+                self.document_store,
                 project=project,
                 task_id=task_id,
                 name=str(command["name"]),
@@ -4765,9 +4823,11 @@ class Orchestrator:
                 title=str(command.get("title") or ""),
                 body=str(command["body"]),
                 now=self.clock(),
+                role=role,
             )
         except task_documents.TaskDocumentError as exc:
             return task_document_refusal(exc)
+        await self._show_stored(row, version)
         uri = str(task_documents.ref_of(row, version.version))
         return {"ok": True, "result": {"uri": uri, "version": version.version}}
 
@@ -4783,9 +4843,12 @@ class Orchestrator:
             ref = task_documents.parse_ref(
                 str(command["ref"]), project=None, task_id=None
             )
-            await change(self.task_attachments, ref, project=project, task_id=task_id)
+            await change(self.document_store, ref, project=project, task_id=task_id)
         except task_documents.TaskDocumentError as exc:
             return task_document_refusal(exc)
+        row = await self.document_store.read(ref.task_key, ref.name)
+        if row is not None:
+            await self._show_stored(row)
         return {"ok": True, "result": {}}
 
     async def _archive_task_document(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -4795,13 +4858,14 @@ class Orchestrator:
                 str(command["ref"]), project=None, task_id=None
             )
             row = await task_documents.archive(
-                self.task_attachments,
+                self.document_store,
                 ref,
                 bool(command["archived"]),
                 by=command.get("by") or None,
             )
         except task_documents.TaskDocumentError as exc:
             return task_document_refusal(exc)
+        await self._show_stored(row)
         return {"ok": True, "result": {"archived": row.archived}}
 
     async def _create_comm(self, command: dict[str, Any]) -> dict[str, Any]:

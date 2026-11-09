@@ -36,6 +36,9 @@ A document is always a file. Write it under `.drafts/`, then show it with `<doc-
 Do not use absolute paths or paths that escape the worktree with `..`. An unreadable file still
 opens a document that says it cannot be read.
 
+In a task session, each `<doc-file>` and each plan is stored on the task, with every version and
+its verdict. A free agent's documents are not stored.
+
 A document body shows an image or a video with a markdown image ref:
 `![The login flow](test-results/login/video.webm)`. The target is a worktree-relative path to a
 PNG, JPEG, GIF, WebP, `.webm`, `.mp4` or `.mov` file of 50 MB or less. The path resolves against

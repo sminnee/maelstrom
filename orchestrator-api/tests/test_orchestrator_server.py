@@ -32,6 +32,7 @@ from mael_agent.agent_transport import ScriptedAsyncDaemonClient
 from mael_agent.agent_wire import (
     PendingRequest,
     reply_for_approval,
+    reply_for_denial,
 )
 from mael_agent.host_ids import IdSpace
 from mael_daemon.agent_model import (
@@ -79,7 +80,7 @@ from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.shared_dir import agent_prompt_file, core_plugin_dir
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.system_info import SystemPaths
-from mael_domain.task_attachments import InMemoryTaskAttachmentTable
+from mael_domain.task_attachments import InMemoryTaskAttachmentTable, attachment_id
 from mael_domain.task_metadata_generator import TaskNames
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import WorktreeSetup
@@ -11095,7 +11096,7 @@ def attach_harness(store, tmp_path, images):
     seeded = []
 
     def build(*, agent: bool = True, linked: bool = True) -> Harness:
-        harness = Harness(store, task_attachments=table)
+        harness = Harness(store, document_store=table)
         if not seeded:
             harness.add_task("NORT-7")
             seeded.append(True)
@@ -11178,9 +11179,9 @@ def test_a_free_agents_verification_is_not_attached(attach_harness):
     assert "/api/files/" in doc["markdown"]
 
 
-def test_a_document_of_another_kind_is_not_attached(attach_harness):
+def test_a_document_of_any_kind_is_stored_under_its_role(attach_harness):
     harness = attach_harness()
-    tag = f'<doc-file kind="other" filename="{VERIFICATION_PATH}" title="Notes">'
+    tag = f'<doc-file kind="review" filename="{VERIFICATION_PATH}" title="Notes">'
 
     async def scenario():
         async with harness.client() as api:
@@ -11193,7 +11194,13 @@ def test_a_document_of_another_kind_is_not_attached(attach_harness):
                 await attach_settled(api, harness)
                 return await stored(attach_harness.table)
 
-    assert run(scenario()) == []
+    [(row, version)] = run(scenario())
+    assert (row.name, row.role, version.title, version.agent_id) == (
+        VERIFICATION_PATH,
+        "review",
+        "Notes",
+        "ag1",
+    )
 
 
 def test_a_keep_that_fails_leaves_the_document_and_the_stream_standing(attach_harness):
@@ -11255,7 +11262,18 @@ def test_a_restarted_server_lists_the_attached_document_and_plays_its_video(
         1,
         "draft",
     )
-    assert (row["taskId"], row["agentId"]) == (f"{PROJECT}/NORT-7", "")
+    stored_id = attachment_id(f"{PROJECT}/NORT-7", VERIFICATION_PATH)
+    assert (row["id"], row["taskId"], row["agentId"]) == (
+        stored_id,
+        f"{PROJECT}/NORT-7",
+        "ag1",
+    )
+    assert row["source"] == {"type": "stored", "name": VERIFICATION_PATH}
+    assert row["group"] == {
+        "id": row["group"]["id"],
+        "title": "Login flow",
+        "position": 0,
+    }
     assert f"/api/attachments/{PROJECT}/NORT-7/{ATTACHED_SHOT}" in doc["markdown"]
     # A browser seeks a video by range request.
     assert (status, body) == (206, WEBM_BYTES[:4])
@@ -11348,11 +11366,147 @@ def test_a_revised_verification_is_the_next_version_of_the_attached_document(
     assert (doc["version"], doc["markdown"]) == (2, "Reworked.\n")
 
 
-def test_an_approved_plan_is_attached_and_a_restarted_server_still_shows_it(
-    store, images
-):
+REVIEW_TAG = VERIFICATION_TAG.replace(">", ' review="true">')
+
+
+async def open_reviews(api: Api) -> list[str]:
+    """The document ids of the open review items."""
+    items = (await api.get_json("/api/attention?open=1"))["attention"]
+    return [i["documentId"] for i in items if i["kind"] == "document_review"]
+
+
+def test_a_verdict_after_a_restart_reaches_the_agent_and_the_store(attach_harness):
+    """The rebuilt document keeps its agent and its group."""
+    first = attach_harness()
+
+    async def present():
+        async with first.client() as api:
+            first.daemon.push("ag1", tag_event(REVIEW_TAG))
+            await attach_settled(api, first)
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            return row
+
+    shown = run(present())
+    second = attach_harness()
+
+    async def scenario():
+        async with second.client() as api:
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            reply = await api.post(
+                f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+            )
+            return row, reply
+
+    row, reply = run(scenario())
+
+    assert reply.status == 200
+    assert (row["source"]["type"], row["group"]) == ("stored", shown["group"])
+    assert [c["id"] for c in said(second)] == ["ag1"]
+    [(_, version)] = run(stored(attach_harness.table))
+    assert version.review_status == "approved"
+
+
+def test_a_settled_review_raises_no_item_after_a_restart(attach_harness):
+    """The replayed tag asks for a review the store already holds as settled."""
+    first = attach_harness()
+
+    async def approve():
+        async with first.client() as api:
+            first.daemon.push("ag1", tag_event(REVIEW_TAG))
+            await attach_settled(api, first)
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            await api.post(
+                f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+            )
+
+    run(approve())
+    second = attach_harness()
+    second.daemon.backlog["ag1"] = [tag_event(REVIEW_TAG)]
+
+    async def scenario():
+        async with second.client() as api:
+            await attach_settled(api, second)
+            documents = (await api.get_json("/api/documents"))["documents"]
+            return documents, await open_reviews(api)
+
+    documents, reviews = run(scenario())
+
+    assert [d["status"] for d in documents] == ["approved"]
+    assert reviews == []
+
+
+def test_approving_a_file_that_could_not_be_read_stores_nothing(attach_harness):
+    """The user saw the placeholder, so the file's text is not stored as approved."""
+    harness = attach_harness()
+    tag = '<doc-file kind="verification" filename="later.md" review="true">'
+
+    async def scenario():
+        async with harness.client() as api:
+            harness.daemon.push("ag1", tag_event(tag))
+            await attach_settled(api, harness, "Shown.")
+            (attach_harness.worktree / "later.md").write_text("# Written later\n")
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            reply = await api.post(
+                f"/api/documents/{row['id']}/approve", {"version": row["version"]}
+            )
+            await attach_settled(api, harness)
+            return reply
+
+    assert run(scenario()).status == 200
+    assert run(stored(attach_harness.table)) == []
+
+
+def test_a_plan_the_server_missed_is_stored_on_replay(store, images):
+    """The agent submitted a new plan while the server was down."""
     table = InMemoryTaskAttachmentTable()
-    first = Harness(store, task_attachments=table)
+    run(
+        task_documents.add(
+            table,
+            project=PROJECT,
+            task_id="NORT-7",
+            name="plan",
+            kind="markdown",
+            title="Old plan",
+            body="Old.",
+            now="2026-10-02T00:00:00Z",
+            review_status="approved",
+            role="plan",
+        )
+    )
+    harness = Harness(store, document_store=table)
+    harness.add_task("NORT-7")
+    waiting_on(
+        harness,
+        "plan-review-with-plan.jsonl",
+        session=model.session_id_for(PROJECT, "NORT-7"),
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(
+                api,
+                "/api/documents",
+                lambda b: any(
+                    d["source"]["type"] == "plan_review" for d in b["documents"]
+                ),
+            )
+            await attach_settled(api, harness)
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            return row, await api.get_json(f"/api/documents/{row['id']}")
+
+    row, doc = run(scenario())
+
+    assert (row["version"], row["status"]) == (2, "awaiting-review")
+    assert doc["markdown"].startswith("# Create hello.txt")
+    assert [v.review_status for v in run(table.versions(row["id"]))] == [
+        "approved",
+        "awaiting-review",
+    ]
+
+
+def test_a_submitted_plan_is_stored_and_its_approval_survives_a_restart(store, images):
+    table = InMemoryTaskAttachmentTable()
+    first = Harness(store, document_store=table)
     first.add_task("NORT-7")
     waiting_on(
         first,
@@ -11365,19 +11519,19 @@ def test_an_approved_plan_is_attached_and_a_restarted_server_still_shows_it(
             body = await until(api, "/api/documents", lambda b: b["documents"])
             [row] = body["documents"]
             await attach_settled(api, first)
-            before = await stored(table)
+            before = [v.review_status for _, v in await stored(table)]
             request_id = row["source"]["requestId"]
             await api.post("/api/agents/ag1/approve", {"requestId": request_id})
             await until(
                 api, f"/api/documents/{row['id']}", lambda d: d["status"] == "approved"
             )
             plan = await api.get_json(f"/api/documents/{row['id']}")
-            while not await stored(table):
+            while [v.review_status for _, v in await stored(table)] != ["approved"]:
                 await asyncio.sleep(0.02)
             return before, plan
 
     before, plan = run(asyncio.wait_for(approve(), 5))
-    second = Harness(store, task_attachments=table)
+    second = Harness(store, document_store=table)
 
     async def scenario():
         async with second.client() as api:
@@ -11386,22 +11540,25 @@ def test_an_approved_plan_is_attached_and_a_restarted_server_still_shows_it(
 
     row, doc = run(scenario())
 
-    # A plan still under review is not attached: the user may send it back.
-    assert before == []
+    # A plan under review is stored at once; its verdict is its status.
+    assert before == ["awaiting-review"]
     assert (row["kind"], row["status"], row["source"]["type"]) == (
         "plan",
         "approved",
-        "attached",
+        "stored",
     )
-    assert row["taskId"] == f"{PROJECT}/NORT-7"
+    assert (row["id"], row["taskId"]) == (
+        attachment_id(f"{PROJECT}/NORT-7", "plan"),
+        f"{PROJECT}/NORT-7",
+    )
     assert doc["markdown"] == plan["markdown"]
 
 
 def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
-    """The replay mints the live plan, so the entry seeded at start goes."""
+    """The replay finds the stored plan under its id, and the store wins."""
     table = InMemoryTaskAttachmentTable()
     session = model.session_id_for(PROJECT, "NORT-7")
-    first = Harness(store, task_attachments=table)
+    first = Harness(store, document_store=table)
     first.add_task("NORT-7")
     backlog, _ = waiting_on(first, "plan-review-with-plan.jsonl", session=session)
 
@@ -11433,7 +11590,7 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
         )
     )
     approval = reply_for_approval(pending_from(backlog))
-    second = Harness(store, task_attachments=table)
+    second = Harness(store, document_store=table)
     second.daemon.rows["ag1"] = agent_row(session=session)
     second.daemon.backlog["ag1"] = [*backlog, approval]
 
@@ -11442,23 +11599,270 @@ def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
             await until(
                 api,
                 "/api/documents",
-                lambda b: any(d["agentId"] == "ag1" for d in b["documents"]),
+                lambda b: any(
+                    d["source"]["type"] == "plan_review" for d in b["documents"]
+                ),
             )
             await attach_settled(api, second)
             return (await api.get_json("/api/documents"))["documents"]
 
     documents = run(scenario())
 
-    assert [(d["kind"], d["agentId"], d["status"]) for d in documents] == [
-        ("plan", "ag1", "approved")
+    assert [(d["kind"], d["title"], d["version"], d["status"]) for d in documents] == [
+        ("plan", "Later plan", 2, "approved")
     ]
     # The replayed plan is the earlier one, so it adds no version.
     [(_, latest)] = run(stored(table))
     assert (latest.version, latest.title) == (2, "Later plan")
 
 
+def task_set_harness(attach_harness, *names: str):
+    """A task agent in a real worktree, with a draft task file for each name."""
+    harness = attach_harness()
+    harness.worktrees.worktrees[0]["path"] = str(attach_harness.worktree)
+    for name in names:
+        (attach_harness.worktree / name).write_text(
+            model.draft_markdown(title=f"Do {name}")
+        )
+    return harness
+
+
+def test_an_approved_task_set_stores_each_member_in_its_group(attach_harness):
+    harness = task_set_harness(attach_harness, "a.md", "b.md")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                _, reply = await approve_tasks(api, stream, harness, "a.md", "b.md")
+                await attach_settled(api, harness)
+                return reply, await stored(attach_harness.table)
+
+    reply, rows = run(scenario())
+
+    assert (reply.status, len(reply.body["taskIds"])) == (200, 2)
+    assert sorted(
+        (
+            row.name,
+            row.role,
+            v.version,
+            v.review_status,
+            v.group_title,
+            v.group_position,
+        )
+        for row, v in rows
+    ) == [
+        ("a.md", "tasks", 1, "approved", "Iteration 1", 0),
+        ("b.md", "tasks", 1, "approved", "Iteration 1", 1),
+    ]
+    assert len({v.group_id for _, v in rows}) == 1
+
+
+def test_a_re_present_stores_a_dropped_member_as_superseded(attach_harness):
+    """The member kept has the same text: no new version, and the new status."""
+    harness = task_set_harness(attach_harness, "a.md", "b.md")
+
+    async def scenario():
+        async with harness.client() as api:
+            harness.daemon.push(
+                "ag1",
+                tag_event('<doc-file kind="tasks" filename="a.md, b.md" title="One">'),
+            )
+            await attach_settled(api, harness, "First.")
+            harness.daemon.push("ag1", tag_event(tasks_tag("a.md", title="Two")))
+            await attach_settled(api, harness, "Second.")
+            documents = (await api.get_json("/api/documents"))["documents"]
+            return documents, await stored(attach_harness.table)
+
+    documents, rows = run(scenario())
+
+    assert sorted((row.name, v.version, v.review_status) for row, v in rows) == [
+        ("a.md", 1, "awaiting-review"),
+        ("b.md", 1, "superseded"),
+    ]
+    assert sorted((d["title"], d["version"], d["status"]) for d in documents) == [
+        ("Do a.md", 1, "awaiting-review"),
+        ("Do b.md", 1, "superseded"),
+    ]
+
+
+def test_a_denied_plan_submitted_again_is_its_next_version(store, images):
+    table = InMemoryTaskAttachmentTable()
+    harness = Harness(store, document_store=table)
+    harness.add_task("NORT-7")
+    backlog, _ = waiting_on(
+        harness,
+        "plan-review-with-plan.jsonl",
+        session=model.session_id_for(PROJECT, "NORT-7"),
+    )
+    [ask] = [e for e in backlog if e["type"] == "control_request"][-1:]
+    again = {
+        **ask,
+        "request_id": "req-again",
+        "request": {
+            **ask["request"],
+            "tool_use_id": "toolu_again",
+            "input": {**ask["request"]["input"], "plan": "# Revised plan\n"},
+        },
+    }
+
+    async def scenario():
+        async with harness.client() as api:
+            [row] = (await until(api, "/api/documents", lambda b: b["documents"]))[
+                "documents"
+            ]
+            await api.post(
+                "/api/agents/ag1/deny",
+                {"requestId": row["source"]["requestId"], "reason": "Smaller."},
+            )
+            await until(
+                api,
+                f"/api/documents/{row['id']}",
+                lambda d: d["status"] == "changes-requested",
+            )
+            harness.daemon.push("ag1", again)
+            doc = await until(
+                api, f"/api/documents/{row['id']}", lambda d: d["version"] == 2
+            )
+            await attach_settled(api, harness)
+            return row, doc, await table.versions(row["id"])
+
+    row, doc, versions = run(scenario())
+
+    assert row["id"] == attachment_id(f"{PROJECT}/NORT-7", "plan")
+    assert [(v.version, v.review_status) for v in versions] == [
+        (1, "changes-requested"),
+        (2, "awaiting-review"),
+    ]
+    assert doc["markdown"] == "# Revised plan\n"
+
+
+def test_a_replayed_old_denial_leaves_a_later_approved_plan_approved(store, images):
+    """The store holds v2 approved; the backlog still ends in v1's denial."""
+    table = InMemoryTaskAttachmentTable()
+    session = model.session_id_for(PROJECT, "NORT-7")
+    first = pending_from(read_fixture("plan-review-with-plan.jsonl")).input["plan"]
+    for title, body, status in (
+        ("First plan", first, "changes-requested"),
+        ("Later", "Later", "approved"),
+    ):
+        run(
+            task_documents.add(
+                table,
+                project=PROJECT,
+                task_id="NORT-7",
+                name="plan",
+                kind="markdown",
+                title=title,
+                body=body,
+                now="2026-10-02T00:00:00Z",
+                review_status=status,
+                role="plan",
+            )
+        )
+    harness = Harness(store, document_store=table)
+    harness.add_task("NORT-7")
+    backlog, _ = waiting_on(harness, "plan-review-with-plan.jsonl", session=session)
+    harness.daemon.backlog["ag1"] = [
+        *backlog,
+        reply_for_denial(pending_from(backlog), "No."),
+    ]
+    harness.daemon.pending.pop("ag1")
+    harness.daemon.rows["ag1"] = agent_row(session=session)
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(
+                api,
+                "/api/documents",
+                lambda b: any(
+                    d["source"]["type"] == "plan_review" for d in b["documents"]
+                ),
+            )
+            await attach_settled(api, harness)
+            return (await api.get_json("/api/documents"))["documents"]
+
+    documents = run(scenario())
+
+    assert [(d["title"], d["version"], d["status"]) for d in documents] == [
+        ("Later", 2, "approved")
+    ]
+    assert [v.review_status for v in run(table.versions(documents[0]["id"]))] == [
+        "changes-requested",
+        "approved",
+    ]
+
+
+def test_a_link_and_an_archive_show_on_the_world_document(attach_harness):
+    harness = attach_harness(agent=False)
+    harness.add_task("NORT-8")
+    uri = f"{PROJECT}:NORT-7:notes.md"
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {
+                    "name": "notes.md",
+                    "body": "# Notes\n\n## Install\n",
+                    "role": "review",
+                },
+            )
+            await api.post(
+                "/api/task-documents/link",
+                {"ref": f"{uri}#install", "taskId": f"{PROJECT}/NORT-8"},
+            )
+            await api.post("/api/task-documents/archive", {"ref": uri})
+            as_plan = await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {"name": "mine.md", "body": "# Mine\n", "role": "plan"},
+            )
+            return as_plan, (await api.get_json("/api/documents"))["documents"]
+
+    as_plan, [doc] = run(scenario())
+
+    assert (doc["id"], doc["kind"], doc["status"], doc["archived"]) == (
+        attachment_id(f"{PROJECT}/NORT-7", "notes.md"),
+        "review",
+        "draft",
+        True,
+    )
+    assert doc["links"] == [{"taskId": f"{PROJECT}/NORT-8", "fragment": "install"}]
+    # Only an agent's submission is the task's plan.
+    assert as_plan.status == 400
+
+
+def test_a_stored_document_takes_the_server_s_id_prefix(store, images):
+    """A parent routes a document request to its host by the id's prefix."""
+    table = InMemoryTaskAttachmentTable()
+    run(
+        task_documents.add(
+            table,
+            project=PROJECT,
+            task_id="NORT-7",
+            name="notes.md",
+            kind="markdown",
+            title="Notes",
+            body="# Notes\n",
+            now="2026-10-02T00:00:00Z",
+        )
+    )
+    harness = Harness(store, document_store=table, ids=IdSpace("cobalt"))
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            return row, await api.get(f"/api/documents/{row['id']}")
+
+    row, detail = run(scenario())
+
+    stored_id = attachment_id(f"{PROJECT}/NORT-7", "notes.md")
+    assert (row["id"], detail.status) == (f"cobalt:{stored_id}", 200)
+
+
 def test_a_sarif_document_is_not_seeded_as_a_world_document(store, images):
-    """The world draws plans and verifications only, until the UI lists Task documents."""
+    """A SARIF document is not a world document yet."""
     table = InMemoryTaskAttachmentTable()
     run(
         task_documents.add(
@@ -11472,7 +11876,7 @@ def test_a_sarif_document_is_not_seeded_as_a_world_document(store, images):
             now="2026-10-02T00:00:00Z",
         )
     )
-    harness = Harness(store, task_attachments=table)
+    harness = Harness(store, document_store=table)
     harness.add_task("NORT-7")
 
     async def scenario():

@@ -237,7 +237,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
     assert isinstance(orchestrator.worktrees, ListAllWorktreeSource)
     assert isinstance(orchestrator.desk, SqliteDeskStore)
     # Not the in-memory default, which would lose every attached document at a restart.
-    assert isinstance(orchestrator.task_attachments, SqliteTaskAttachmentTable)
+    assert isinstance(orchestrator.document_store, SqliteTaskAttachmentTable)
     assert orchestrator.worktrees.projects_dir == projects_dir
     assert orchestrator.daemon.claude.socket_path == (
         f"{tmp_path / 'root'}/agent-daemon.sock"

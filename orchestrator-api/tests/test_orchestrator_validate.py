@@ -251,6 +251,14 @@ def test_invalid_for_approving_a_document_not_awaiting_review():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+@pytest.mark.parametrize("verdict", ["document.approve", "document.requestChanges"])
+def test_invalid_for_a_verdict_on_a_stored_plan(verdict):
+    """A stored plan has no wait to answer: only the agent's own review settles it."""
+    plan = make_document(source={"type": "stored", "name": "plan"})
+    cmd = {"type": verdict, "documentId": "doc-1", "version": 1, "reason": "No."}
+    assert code(validate_command(world_with(documents=[plan]), cmd)) == "invalid"
+
+
 def test_invalid_for_an_unknown_command_type():
     assert code(validate_command(empty_world(), {"type": "nope"})) == "invalid"
 
