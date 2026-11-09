@@ -2,15 +2,19 @@
 
 import dataclasses
 import math
+import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Generator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+
+import yaml
 
 from mael_common.claude_paths import sanitise_path_for_claude
 from mael_common.shell import run_cmd, run_cmd_async
@@ -2709,6 +2713,49 @@ def run_install_cmd(worktree_path: Path, names: tuple[str, str] | None = None) -
     code = 1 if status is None or status.code is None else status.code
     if code != 0:
         raise subprocess.CalledProcessError(code, config.install_cmd)
+
+
+@dataclass(frozen=True)
+class HostCheckOutcome:
+    """The result of a project's ``check_host_cmd``."""
+
+    passed: bool
+    # stdout and stderr, stripped; a timeout note when the command hung.
+    output: str
+
+
+def run_check_host_cmd(
+    worktree_path: Path, *, timeout: float = 60
+) -> HostCheckOutcome | None:
+    """Run the project's ``check_host_cmd`` in worktree_path.
+
+    Returns None when the project has no ``check_host_cmd``. An invalid
+    ``.maelstrom.yaml`` and a timeout are failed checks. A timeout kills the
+    command's whole process group, so a hung tool the script started stops too.
+    """
+    try:
+        config = load_config_or_default(worktree_path)
+    except (yaml.YAMLError, ValueError) as e:
+        return HostCheckOutcome(passed=False, output=f".maelstrom.yaml is invalid: {e}")
+    if not config.check_host_cmd:
+        return None
+    proc = subprocess.Popen(
+        ["sh", "-c", config.check_host_cmd],
+        cwd=worktree_path,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        output, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+        proc.communicate()
+        return HostCheckOutcome(passed=False, output=f"timed out after {timeout:g}s")
+    return HostCheckOutcome(passed=proc.returncode == 0, output=output.strip())
 
 
 def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
