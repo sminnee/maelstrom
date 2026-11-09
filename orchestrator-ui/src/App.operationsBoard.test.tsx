@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { commandsSince } from './test/appHelpers';
+import { commandsSince, putAway } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /**
@@ -240,6 +240,8 @@ describe('a Dismiss that runs a close', () => {
         pendingRequestIds: [],
       };
     });
+    // NORT-7.1, queued on the same branch, would hold the worktree open.
+    await putAway(server, 'NORT-7.1');
     clickNode('NORT-7');
     const card = screen.getByRole('dialog');
     const commands = within(within(card).getByTestId('node-commands'));

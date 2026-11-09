@@ -1,11 +1,11 @@
 import { useStop } from '../api/agents';
 import { useDismiss, useTakeOffDesk, type DismissChain } from '../api/desk';
 import { useWorld } from '../api/useWorld';
-import { deskIdForAgent, deskIdForTask } from '../protocol/deskId';
 import type { Agent, Worktree } from '../protocol/entities';
 import type { DeskId, TaskId } from '../protocol/ids';
-import { isLive } from '../selectors/graph';
-import { canClose, trackedAgents } from '../selectors/worktrees';
+import { isLive, workDeskId, worktreeHolders } from '../selectors/graph';
+import { canClose } from '../selectors/worktrees';
+import type { WorldView } from '../selectors/world';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { actionIcon } from '../ui/actionIcons';
 import type { SplitOption } from '../ui/SplitButton';
@@ -45,8 +45,7 @@ export function useEndOfWorkLater({
     endOfWorkOptions({
       live: isLive(agent),
       where,
-      // The agents the worktree's own close control counts, less this node's.
-      others: where ? trackedAgents(world, where.id).filter((a) => a.id !== agent?.id).length : 0,
+      others: where ? otherHolders(world, where, workDeskId(agent, taskId)) : NO_HOLDERS,
       // Terminate ends the process; the session tab's Stop only abandons the
       // turn — see CONTEXT.md, "Interrupt".
       stop: () => stop.mutateAsync({ agentId: agent!.id }),
@@ -56,10 +55,41 @@ export function useEndOfWorkLater({
     });
 }
 
-/** The desk id a node is filed under: its task's, else its agent's. */
-function nodeDeskId(agent: Agent | undefined, taskId: TaskId | undefined): DeskId {
-  const task = taskId || agent?.taskId;
-  return task ? deskIdForTask(task) : deskIdForAgent(agent!.id);
+/** The **Holders** of a worktree other than the node itself, counted by kind. */
+interface OtherHolders {
+  /** Holders a live agent runs. */
+  running: number;
+  /** Free agents on the desk with no live agent. */
+  agents: number;
+  /** Tasks with no live agent. */
+  tasks: number;
+}
+
+const NO_HOLDERS: OtherHolders = { running: 0, agents: 0, tasks: 0 };
+
+function otherHolders(world: WorldView, where: Worktree, own: DeskId): OtherHolders {
+  const others = { ...NO_HOLDERS };
+  for (const [deskId, { kind, running }] of worktreeHolders(world, where)) {
+    if (deskId === own) continue;
+    if (running) others.running++;
+    else if (kind === 'agent') others.agents++;
+    else others.tasks++;
+  }
+  return others;
+}
+
+/** Why the close is held, or `undefined` when nothing holds it. */
+function heldDetail({ running, agents, tasks }: OtherHolders, nato: string): string | undefined {
+  const plural = (n: number, noun: string) => `${n} other ${noun}${n === 1 ? '' : 's'}`;
+  if (agents + tasks === 0) {
+    return running ? `${plural(running, 'agent')} still running in ${nato}` : undefined;
+  }
+  const parts = [
+    ...(running + agents ? [plural(running + agents, 'agent')] : []),
+    ...(tasks ? [plural(tasks, 'task')] : []),
+  ];
+  const verb = running + agents + tasks === 1 ? 'uses' : 'use';
+  return `${parts.join(' and ')} still ${verb} ${nato}`;
 }
 
 /**
@@ -75,7 +105,7 @@ export function useNodeDismiss({
 }: Omit<EndOfWorkProps, 'where'>): (chain: DismissChain, worktreeId?: string) => Promise<void> {
   const dismiss = useDismiss();
   return async (chain, worktreeId) => {
-    await dismiss.mutateAsync({ deskId: nodeDeskId(agent, taskId), chain, worktreeId });
+    await dismiss.mutateAsync({ deskId: workDeskId(agent, taskId), chain, worktreeId });
     onTakenOffDesk();
   };
 }
@@ -92,7 +122,7 @@ export function useTakeNodeOffDesk({
   const { world } = useWorld();
   const offDesk = useTakeOffDesk();
   return async () => {
-    const id = nodeDeskId(agent, taskId);
+    const id = workDeskId(agent, taskId);
     // A live node draws with no desk entry, so there may be none to take.
     if (id in world.desk) await offDesk.mutateAsync({ id });
     onTakenOffDesk();
@@ -114,8 +144,8 @@ function endOfWorkOptions({
 }: {
   live: boolean;
   where: Worktree | undefined;
-  /** Live agents in `where` other than this node's own. */
-  others: number;
+  /** The **Holders** of `where` other than this node. */
+  others: OtherHolders;
   stop: () => Promise<unknown>;
   takeOffDesk: () => Promise<unknown>;
   dismiss: (chain: DismissChain) => Promise<unknown>;
@@ -146,14 +176,8 @@ function endOfWorkOptions({
   // Dismiss runs the close chain when it can, else the widest chain that keeps the worktree.
   let byDefault = options.at(-1)!;
   if (where && canClose(where)) {
-    const held = {
-      icon: <OffDeskIcon />,
-      disabled: others > 0,
-      detail:
-        others > 0
-          ? `${others} other ${others === 1 ? 'agent' : 'agents'} still running in ${where.nato}`
-          : undefined,
-    };
+    const detail = heldDetail(others, where.nato);
+    const held = { icon: <OffDeskIcon />, disabled: detail !== undefined, detail };
     const closeChain: SplitOption = {
       label: `…and close ${where.nato}`,
       processing: 'Closing…',

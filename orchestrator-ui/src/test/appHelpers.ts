@@ -1,5 +1,5 @@
-import { fireEvent, screen, within } from '@testing-library/react';
-import { vi } from 'vitest';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { expect, vi } from 'vitest';
 import type { UserEvent } from '@testing-library/user-event';
 import type { FakeServer } from '../fake/fakeServer';
 import { clickNode } from './renderApp';
@@ -88,6 +88,21 @@ export function exitAgent(server: FakeServer, agentId: string) {
       pendingRequestIds: [],
     };
   });
+}
+
+/**
+ * Put a task away, as a cancel and an Off desk do: it stays in the world,
+ * cancelled and off the desk, so it holds no worktree. Resolves once its node
+ * has left the board, so the app has read both changes.
+ */
+export async function putAway(server: FakeServer, taskId: string) {
+  server.change({ kind: 'task', ids: [taskId] }, (w) => {
+    w.tasks[taskId] = { ...w.tasks[taskId]!, status: 'cancelled' };
+  });
+  server.change({ kind: 'desk', ids: [`task:${taskId}`] }, (w) => {
+    delete w.desk[`task:${taskId}`];
+  });
+  await waitFor(() => expect(document.querySelector(`[data-task-id="${taskId}"]`)).toBeNull());
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   openSheet,
   screenStrip,
   paneItem,
+  putAway,
   touchDrag,
 } from './test/appHelpers';
 import { renderApp, resizeTo } from './test/renderApp';
@@ -607,6 +608,7 @@ describe('the narrow layout', () => {
           pendingRequestIds: [],
         };
       });
+      await putAway(server, 'NORT-7.1');
       await waitFor(() => expect(nodeState('NORT-7')).toBe('exited'));
       expect(row('NORT-7')).toHaveAttribute('data-swipe', 'dismiss');
       const before = server.requests.length;

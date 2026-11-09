@@ -13,6 +13,7 @@ import {
   isShowing,
   nodeState,
   paneItem,
+  putAway,
 } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
@@ -187,6 +188,8 @@ describe('App', () => {
         pendingRequestIds: [],
       };
     });
+    // NORT-7.1, queued on the same branch, would hold the worktree open.
+    await putAway(server, 'NORT-7.1');
     clickNode('NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
 
@@ -214,6 +217,8 @@ describe('App', () => {
         pendingRequestIds: [],
       };
     });
+    // NORT-7.1, queued on the same branch, would hold the worktree open.
+    await putAway(server, 'NORT-7.1');
     clickNode('NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
     await within(card).findByRole('button', { name: 'Resume' });
@@ -259,6 +264,7 @@ describe('App', () => {
       const user = userEvent.setup();
       const { server } = await renderApp();
       exitAgent(server, 'a1f3c9e2');
+      await putAway(server, 'NORT-7.1');
       clickNode('NORT-7');
       const card = screen.getByRole('dialog', { name: 'Plan the order export' });
       await within(card).findByRole('button', { name: 'Resume' });
@@ -378,6 +384,7 @@ describe('App', () => {
   it('closes the card as a Dismiss starts, and leaves the node with its refusal', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
+    await putAway(server, 'NORT-9.1');
     clickNode('NORT-9');
     const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
 
@@ -469,7 +476,8 @@ describe('App', () => {
 
   it('holds the close while another agent still runs in the worktree', async () => {
     const user = userEvent.setup();
-    await renderApp();
+    const { server } = await renderApp();
+    await putAway(server, 'MAEL-40.2');
     clickNode('f2c6a9d4');
     const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
 
@@ -479,6 +487,45 @@ describe('App', () => {
     });
     expect(close).toHaveAttribute('aria-disabled', 'true');
     expect(close).toHaveAccessibleDescription('1 other agent still running in bravo');
+  });
+
+  it('names each kind of holder when an agent and a task both hold the close', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    clickNode('f2c6a9d4');
+    const card = screen.getByRole('dialog', { name: 'bravo · feat/task-index' });
+
+    await user.click(within(card).getByRole('button', { name: 'More actions' }));
+    const close = within(card).getByRole('menuitem', {
+      name: '…and close bravo',
+    });
+    expect(close).toHaveAttribute('aria-disabled', 'true');
+    expect(close).toHaveAccessibleDescription(
+      // The live agent runs MAEL-40.1; MAEL-40.2 waits on the same branch.
+      '1 other agent and 1 other task still use bravo',
+    );
+  });
+
+  it('holds the close while a queued task still uses the worktree, and Dismiss takes off desk', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    // NORT-7 has no live agent; NORT-7.1 waits on the same branch.
+    exitAgent(server, 'a1f3c9e2');
+    clickNode('NORT-7');
+    const card = screen.getByRole('dialog', { name: 'Plan the order export' });
+    await within(card).findByRole('button', { name: 'Resume' });
+
+    await user.click(commands(card).getByRole('button', { name: 'More actions' }));
+    const close = within(card).getByRole('menuitem', { name: '…and close alpha' });
+    expect(close).toHaveAttribute('aria-disabled', 'true');
+    expect(close).toHaveAccessibleDescription('1 other task still uses alpha');
+    await user.keyboard('{Escape}');
+
+    expect(await dismissRuns(user, card)).toBe('Off desk');
+    const before = server.requests.length;
+    await user.click(commands(card).getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(nodeEl('NORT-7')).not.toBeInTheDocument());
+    expect(commandsSince(server, before)).toEqual(['DELETE /api/desk/task:NORT-7']);
   });
 
   it('reads the PR number and its state in the collapsed node identity', async () => {
