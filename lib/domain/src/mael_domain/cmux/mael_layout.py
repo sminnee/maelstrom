@@ -2,15 +2,19 @@
 
 It knows the ``{project}-{worktree}`` workspace name. The orchestrator makes a
 worktree's workspace with one terminal and links to it; closing the worktree
-closes the workspace.
+closes the workspace. For a **Remote client**, a remote host makes a workspace
+whose terminal opens an SSH shell on the server's worktree.
 
 ``MaelCmux.current()`` returns ``None`` when no cmux app answers. After that,
 every method is non-fatal: it returns ``None``, ``False`` or an empty dict.
 """
 
+import ipaddress
+import re
 import shlex
 from collections.abc import Iterable
 
+from ..ssh_target import SshTarget
 from .api import CliCmuxApi, CmuxApi, Workspace
 from .client import current_client
 
@@ -20,6 +24,29 @@ TERMINAL_TITLE = "Terminal"
 def workspace_name(project: str, worktree: str) -> str:
     """Canonical cmux workspace name: ``{project}-{worktree}``."""
     return f"{project}-{worktree}"
+
+
+#: A worktree workspace name another server may send: ``{project}-{worktree}``.
+_WORKSPACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
+
+
+def remote_workspace_name(name: str, target: SshTarget) -> str | None:
+    """The name a remote host gives a server's workspace ``name`` that SSHes to ``target``.
+
+    ``{name}@{first label of the host}``, such as ``maelstrom-alpha@monolith``,
+    so the remote host can keep its own ``maelstrom-alpha``. An IP host stays
+    whole: every tailnet IP starts ``100.``. The name comes from the target,
+    so a workspace is reused only for the same host. ``None`` when ``name`` is
+    not a workspace name.
+    """
+    if not _WORKSPACE_NAME.fullmatch(name):
+        return None
+    try:
+        ipaddress.ip_address(target.host)
+        label = target.host
+    except ValueError:
+        label = target.host.split(".")[0]
+    return f"{name}@{label}"
 
 
 def _first_terminal(api: CmuxApi, workspace: str):
@@ -55,7 +82,15 @@ class MaelCmux:
         self, project: str, worktree: str, path: str | None = None
     ) -> "WorktreeWorkspace":
         """The workspace of one worktree. ``path`` is where its terminal starts."""
-        return WorktreeWorkspace(self._api, project, worktree, path)
+        cd = f"cd {shlex.quote(path)}" if path is not None else ""
+        return WorktreeWorkspace(self._api, workspace_name(project, worktree), cd)
+
+    def ssh_terminal(self, name: str, target: SshTarget) -> str | None:
+        """The link to workspace ``name``, whose terminal opens an SSH shell on ``target``.
+
+        The workspace is made when it is missing, as :meth:`WorktreeWorkspace.ensure_terminal`.
+        """
+        return WorktreeWorkspace(self._api, name, target.command()).ensure_terminal()
 
     def terminal_urls(
         self, worktrees: Iterable[tuple[str, str]]
@@ -80,21 +115,23 @@ class MaelCmux:
 
 
 class WorktreeWorkspace:
-    """One worktree's cmux workspace: make it with one terminal, or close it."""
+    """One named cmux workspace: make it with one terminal, or close it.
 
-    def __init__(
-        self, api: CmuxApi, project: str, worktree: str, path: str | None
-    ) -> None:
+    ``start`` is the command its new terminal runs: a ``cd`` to the worktree,
+    or an SSH shell for a remote client.
+    """
+
+    def __init__(self, api: CmuxApi, name: str, start: str) -> None:
         self._api = api
-        self._name = workspace_name(project, worktree)
-        self._path = path
+        self._name = name
+        self._start = start
 
     def ensure_terminal(self) -> str | None:
         """The terminal link, after making the workspace if it is missing.
 
-        A new workspace has one terminal tab in the worktree and runs nothing:
-        a worktree the orchestrator shows is already installed. Nothing is
-        focused; the link does that. ``None`` when cmux fails.
+        A new workspace has one terminal tab that runs only the start
+        command: a worktree the orchestrator shows is already installed.
+        Nothing is focused; the link does that. ``None`` when cmux fails.
         """
         workspace = self._workspace() or self._make_workspace()
         return _terminal_url(self._api, workspace) if workspace else None
@@ -113,10 +150,8 @@ class WorktreeWorkspace:
         )
 
     def _make_workspace(self) -> Workspace | None:
-        """Make the named workspace, its one terminal in the worktree."""
-        # The workspace's initial terminal runs only the `cd`.
-        cd = f"cd {shlex.quote(self._path)}" if self._path is not None else ""
-        ref = self._api.new_workspace(cd)
+        """Make the named workspace, its one terminal running the start command."""
+        ref = self._api.new_workspace(self._start)
         if ref is None:
             return None
         self._api.rename_workspace(ref, self._name)
