@@ -27,38 +27,36 @@ interface Options {
 // The host stays fixed, so it does not take a place in the page's layout.
 const STYLE = `
 :host { all: initial; position: fixed; }
+@layer base, components, state;
+@layer base {
 .root { position: fixed; right: 12px; bottom: 12px; z-index: 2147483647;
   font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; color: #e6e6e6; }
-.pill, button { font: inherit; color: inherit; background: #2b2b33; border: 1px solid #4a4a55;
-  border-radius: 6px; padding: 4px 10px; cursor: pointer; }
-.pill { border-radius: 999px; }
-button:disabled { opacity: 0.5; cursor: default; }
+}
+@layer components {
 .panel { display: flex; flex-direction: column; gap: 6px; width: 360px; padding: 8px;
   background: #1c1c22; border: 1px solid #4a4a55; border-radius: 8px;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.4); }
-.panel[hidden] { display: none; }
-textarea, input { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
-  background: #111116; border: 1px solid #4a4a55; border-radius: 4px; padding: 6px; }
-textarea { height: 180px; resize: vertical; }
-input { font-family: inherit; }
-textarea[data-message] { height: 60px; font-family: inherit; }
 .row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
-.status { flex: 1; min-width: 0; color: #a0a0aa; }
 .row > span:last-child { flex: none; }
-button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
-.picked { display: flex; gap: 6px; align-items: center; padding: 4px 6px;
-  background: #111116; border: 1px solid #4a4a55; border-radius: 4px; }
-.picked[hidden], .outline[hidden] { display: none; }
-.picked code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.picked button { padding: 0 6px; }
-.outline { position: fixed; pointer-events: none; box-sizing: border-box;
-  border: 2px solid #3d5afe; background: rgb(61 90 254 / 0.12); }
-[hidden] { display: none !important; }
+.status { flex: 1; min-width: 0; }
+.status, .empty { color: #a0a0aa; }
+.pill, button { font: inherit; color: inherit; background: #2b2b33; border: 1px solid #4a4a55;
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.pill { border-radius: 999px; }
+.picked button, .control button { padding: 0 6px; }
+.picked, textarea, input { background: #111116; border: 1px solid #4a4a55; border-radius: 4px; }
+textarea, input { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
+  padding: 6px; }
+input, textarea[data-message] { font-family: inherit; }
+textarea { height: 180px; resize: vertical; }
+textarea[data-message] { height: 60px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #4a4a55; }
 .tabs button { border: none; border-radius: 6px 6px 0 0; background: none; color: #a0a0aa; }
-.tabs button[aria-selected='true'] { background: #2b2b33; color: inherit; }
 [role='tabpanel'] { display: flex; flex-direction: column; gap: 6px; }
-.empty { color: #a0a0aa; }
+.picked { display: flex; gap: 6px; align-items: center; padding: 4px 6px; }
+.picked code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.outline { position: fixed; pointer-events: none; box-sizing: border-box;
+  border: 2px solid #3d5afe; background: rgb(61 90 254 / 0.12); }
 .scope { display: flex; gap: 10px; border: none; margin: 0; padding: 0; }
 .scope label { display: flex; gap: 4px; align-items: center; }
 .controls { display: flex; flex-direction: column; gap: 4px; }
@@ -69,10 +67,16 @@ button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
 .control input, .control select { min-width: 0; flex: 1; }
 .control input[type='color'] { flex: none; width: 28px; padding: 0; }
 .control output { color: #a0a0aa; overflow: hidden; text-overflow: ellipsis; }
-.control button { padding: 0 6px; }
-.control.muted { opacity: 0.5; }
 .control small { grid-column: 1 / -1; color: #a0a0aa; }
 .control small:empty { display: none; }
+}
+@layer state {
+[hidden] { display: none; }
+button:disabled { opacity: 0.5; cursor: default; }
+button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
+.tabs button[aria-selected='true'] { background: #2b2b33; color: inherit; }
+.control.muted { opacity: 0.5; }
+}
 `;
 
 const PANEL = `
