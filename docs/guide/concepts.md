@@ -72,13 +72,13 @@ it. So `myproject-bravo` is a durable slot, and its ports never change.
 `mael list` is how you see every worktree at once — see [reading `mael list`](listing.md).
 
 The **project name is load-bearing** too: the worktree folders, task directories, port
-allocations and each task's Claude session id all derive from it. `mael project mv` is the
+allocations and Claude Code state all derive from it. `mael project mv` is the
 only safe way to change it — see [troubleshooting](troubleshooting.md#renaming-a-project).
 
 ### Agent harnesses
 
 Maelstrom launches the selected agent harness in the right worktree. The default daemon and the
-`claude` harness use a deterministic Claude session id, a task permission mode, and the task
+`claude` harness use the Claude session id the task stores, a task permission mode, and the task
 model. With `--cli`, Codex and OpenCode start fresh sessions and use their own configured model and
 permissions.
 

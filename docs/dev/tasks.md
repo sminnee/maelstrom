@@ -129,9 +129,17 @@ firing mechanics.
 
 ## Session discovery — one live session per task
 
-Each task maps to a **deterministic Claude session id**: `session_id_for(project,
-task_id)` (a `uuid5` over `project` and `task_id`). `mael task run` passes it as
-`claude --session-id <id>`, so the same task always resolves to the same session.
+Each task **stores its sessions** in its `sessions` column, oldest first. Each
+entry is `{"id", "harness"}`, and the newest entry for a harness is the current
+session. `current_session(task, harness)` holds that rule.
+
+- **Claude.** The first launch makes a `uuid4` and saves it on the task before
+  the agent starts (`ensure_session`). `mael task run` passes it as
+  `claude --session-id <id>`, so later launches resolve to the same session.
+- **Codex.** Codex makes its own thread id. The server reads it from the
+  daemon's `start` reply and appends it (`add_session`). A relaunch resumes that
+  thread. When Codex lost the thread, the router starts a fresh one, and its id
+  is appended.
 
 Claude Code's own uniqueness rule for that id is **file-based**: it stores the
 session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` and
@@ -139,10 +147,9 @@ session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` an
 the cwd. So a task whose session has run before relaunches with
 `claude --resume <id>` instead, which reattaches the existing conversation.
 
-Because the id derives from the **project name**, renaming a project changes every
-id. This orphans the existing sessions by design: `mael project mv` warns about it
-rather than migrating transcripts, and `mael task run` then starts a fresh session
-instead of resuming.
+The ids do not depend on the task id or the project name, so a task rename and
+`mael project mv` keep them. `mael project mv` moves each Claude transcript
+directory to its new path.
 
 `session_discovery.py` answers "is there a **live** session?" from the running
 `claude` processes themselves, not from any file. A live session's **cwd is the
@@ -181,6 +188,6 @@ same source, so all four always agree.
 
 The harness exports a session id of its own, as `CLAUDE_CODE_SESSION_ID`, but
 that id cannot key a task. `CLAUDE_CODE_SESSION_ID` names the conversation running
-now, and a `/clear` starts a new conversation and moves it. The derived id never
-moves, which is why the task table keys on it. `mael session info` is the
+now, and a `/clear` starts a new conversation and moves it. A task session id
+never moves, which is why the task table finds a task by it. `mael session info` is the
 command that wants the live id, and it reads `CLAUDE_CODE_SESSION_ID` for it.

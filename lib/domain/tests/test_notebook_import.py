@@ -8,11 +8,12 @@ Mirrors ``test_desk_store.py::TestTheDeskJsonImportRung``, and diverges on one
 rule: a corrupt task is logged and skipped rather than failing the migration.
 """
 
+from dataclasses import replace
+
 import pytest
 
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.state_db.migrations.notebook_md import _SESSION_NS
-from mael_domain.task import Task, session_id_for
+from mael_domain.task import Task, TaskSession
 from mael_domain.task_table import SqliteTaskTable
 
 A_TASK = Task(
@@ -65,23 +66,15 @@ async def migrated(tmp_path):
 
 
 class TestTheNotebookImportRung:
-    async def test_the_namespace_matches_the_model(self):
-        """The rung derives ``session_id`` itself, so the two must not drift.
-
-        A divergence here would break the reverse session lookup for every
-        imported task, silently — the id would simply never match.
-        """
-        from mael_domain.task import _SESSION_NS as model_ns
-
-        assert _SESSION_NS == model_ns
-
     async def test_a_task_round_trips_every_field(self, tmp_path):
         """The row carries the prose, so the body must survive the import."""
         write_task(tmp_path, A_TASK)
         db = await migrated(tmp_path)
         try:
             loaded = await SqliteTaskTable(db).load("maelstrom", "2026-06-11.1")
-            assert loaded == A_TASK
+            assert loaded is not None
+            # The sessions are not in the file; a later rung fills them in.
+            assert replace(loaded, sessions=[]) == A_TASK
         finally:
             db.close()
 
@@ -156,14 +149,19 @@ class TestTheNotebookImportRung:
         finally:
             db.close()
 
-    async def test_the_session_id_is_derived_and_findable(self, tmp_path):
-        """The reverse lookup must work on an imported row, not only a written one."""
+    async def test_the_session_id_is_kept_and_findable(self, tmp_path):
+        """An imported task keeps the id its sessions were launched with.
+
+        The literal is the uuid5 the model once derived from the project and
+        the task id. A changed one orphans every imported session.
+        """
         write_task(tmp_path, A_TASK)
         db = await migrated(tmp_path)
         try:
-            wanted = session_id_for("maelstrom", "2026-06-11.1")
+            wanted = "5091c0f2-bd79-5665-906b-7f8d91608960"
             found = await SqliteTaskTable(db).find_by_session_id(wanted)
             assert found is not None and found.id == "2026-06-11.1"
+            assert found.sessions == [TaskSession(wanted, "claude")]
         finally:
             db.close()
 

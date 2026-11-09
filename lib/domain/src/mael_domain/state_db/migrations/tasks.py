@@ -6,6 +6,7 @@ The row carries the prose: ``content`` and ``log`` are columns beside the
 frontmatter fields — see ``docs/dev/data-architecture.md``, "Canonical".
 """
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -24,6 +25,59 @@ def _import_notebook(conn: sqlite3.Connection, root: Path | None) -> None:
     """
     if root is not None:
         import_notebook(conn, notebook_path(root))
+
+
+def _store_sessions(conn: sqlite3.Connection, root: Path | None) -> None:
+    """Move each task's derived session id into its new ``sessions`` list.
+
+    Each task with a ``session_id`` gets it as a ``claude`` entry. A Codex
+    Agent record labelled with that id adds its own id, the thread id, as a
+    ``codex`` entry, oldest first, and its ``task_session_id`` becomes the
+    thread id. So resume and the agent link see no change at upgrade.
+
+    The ``agents`` table is read only when it exists: on a fresh database this
+    ladder can run before the agents ladder. A rewritten record keeps its
+    revision, because a rung must not bump the counter. See
+    :class:`~mael_domain.state_db.types.PythonMigration`.
+    """
+    del root
+    conn.execute("ALTER TABLE tasks ADD COLUMN sessions TEXT NOT NULL DEFAULT '[]'")
+    sessions: dict[str, list[dict[str, str]]] = {
+        row[0]: [{"id": row[1], "harness": "claude"}]
+        for row in conn.execute(
+            "SELECT id, session_id FROM tasks WHERE session_id != ''"
+        )
+    }
+    owner = {entries[0]["id"]: key for key, entries in sessions.items()}
+    has_agents = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'agents'"
+    ).fetchone()
+    if has_agents is not None:
+        records = []
+        for agent_id, body in conn.execute("SELECT id, body FROM agents"):
+            try:
+                record = json.loads(body)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(record, dict) or record.get("harness") != "codex":
+                continue
+            if (key := owner.get(record.get("task_session_id") or "")) is not None:
+                records.append(
+                    (str(record.get("started_at") or ""), agent_id, key, record)
+                )
+        for _, agent_id, key, record in sorted(records, key=lambda r: (r[0], r[1])):
+            sessions[key].append({"id": agent_id, "harness": "codex"})
+            record["task_session_id"] = agent_id
+            conn.execute(
+                "UPDATE agents SET body = ? WHERE id = ?",
+                (json.dumps(record, sort_keys=True), agent_id),
+            )
+    for key, entries in sessions.items():
+        conn.execute(
+            "UPDATE tasks SET sessions = ? WHERE id = ?", (json.dumps(entries), key)
+        )
+    conn.execute("DROP INDEX IF EXISTS tasks_session_id")
+    conn.execute("ALTER TABLE tasks DROP COLUMN session_id")
 
 
 #: The columns rung 1's ``CREATE TABLE`` declares, in its order. Frozen: a rung
@@ -58,8 +112,8 @@ _COLUMNS = (
     "priority TEXT NOT NULL DEFAULT ''",
     "model TEXT NOT NULL DEFAULT ''",
     "base TEXT NOT NULL DEFAULT ''",
-    # The deterministic uuid5 link a session is found by; see
-    # :func:`mael_domain.task.session_id_for`.
+    # The uuid5 link a session was found by. The ``sessions`` rung moves it
+    # into the ``sessions`` list and drops it.
     "session_id TEXT NOT NULL DEFAULT ''",
     # The prose. What makes the row whole, and the rollback total.
     "content TEXT NOT NULL DEFAULT ''",
@@ -117,5 +171,10 @@ TASKS: tuple[Rung, ...] = (
     # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
     Migration(
         ("ALTER TABLE tasks ADD COLUMN pr_withdrawn INTEGER NOT NULL DEFAULT 0",)
+    ),
+    # Each task stores its sessions. See CONTEXT.md, "Task session id".
+    PythonMigration(
+        run=_store_sessions,
+        description="store each task's sessions on the task",
     ),
 )

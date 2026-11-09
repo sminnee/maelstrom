@@ -344,17 +344,19 @@ stopped session. `mael agent list --stopped` lists them.
 _Avoid_: Closed session (a closed worktree is a different thing), ended session, dead session
 
 **Task session id**:
-The session id derived from the project name and the task id. The task session id exists before
-the session is launched and never changes, so it is what links a session back to its task. The
-task table keys on it, an agent row reports it, and it rides into the session as
-`MAEL_TASK_SESSION_ID`. Use the task session id to answer "which task is this?".
+The id of one of a task's agent sessions. A task stores a list of them, oldest first, and each
+entry names its harness. For Claude, maelstrom makes the id at the first launch and passes it as
+`--session-id`. For Codex, the id is the thread id that Codex returns. The newest entry for a
+harness is the current one, and a launch on that harness resumes it. The task table finds a task
+by any of its ids, and an agent row reports one. Use the task session id to answer "which task
+is this?".
 _Avoid_: Session id (for this concept)
 
 **Session id**:
 The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
 `/clear` starts a new conversation and moves the session id, so it is not stable and cannot key
-a task. Use the session id to answer "which conversation am I in now?". A session starts with
-its task session id as its session id, so the two agree until the first `/clear`.
+a task. Use the session id to answer "which conversation am I in now?". A Claude session starts
+with its task session id as its session id, so the two agree until the first `/clear`.
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`. The orchestrator makes it when you open a
