@@ -13,9 +13,11 @@ import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from . import sarif
 from .attachments import markdown_ref, save_media
+from .document_tags import KINDS as TAG_KINDS
 from .document_tags import (
     MediaRef,
     media_refs,
@@ -38,7 +40,9 @@ from .task_attachments import (
 log = logging.getLogger(__name__)
 
 KINDS = ("markdown", "sarif")
-#: The name an approved plan is stored under. Only the server writes it.
+#: The Document role: the kind of the Document that stored it. See ``CONTEXT.md``.
+ROLES = ("plan", *TAG_KINDS)
+#: The name a task's plan is stored under. Only the server writes it.
 PLAN_NAME = "plan"
 
 
@@ -68,6 +72,15 @@ class NotOwner(TaskDocumentError):
 
 class KindMismatch(TaskDocumentError):
     """A version of another kind than the document's."""
+
+
+@dataclass(frozen=True)
+class ReviewGroup:
+    """The review group a version was presented in: one verdict covers it."""
+
+    id: str
+    title: str
+    position: int = 0
 
 
 @dataclass(frozen=True)
@@ -177,13 +190,20 @@ async def add(
     now: str,
     digest: str | None = None,
     review_status: str = "draft",
+    role: str | None = None,
+    agent_id: str = "",
+    group: ReviewGroup | None = None,
 ) -> tuple[TaskAttachment, Version]:
     """Add ``body`` as the next version of the task's document ``name``.
 
     The first add makes the document. A body and title the latest version
-    already has adds nothing, and returns that version. ``digest`` stands in
-    for the body's own when the caller hashes more than the text, as
+    already has adds no version, and returns that version: its review status
+    is not written here, but its agent and group are. ``digest`` stands in for
+    the body's own when the caller hashes more than the text, as
     :func:`attach` does with media. An archived document still takes versions.
+
+    ``role`` replaces the document's role when given. A new document without
+    one is ``other``.
 
     Raises:
         InvalidName, InvalidDocument, KindMismatch.
@@ -191,6 +211,8 @@ async def add(
     validate_name(name)
     if kind not in KINDS:
         raise InvalidDocument(f"Unknown kind {kind!r}: one of {', '.join(KINDS)}")
+    if role is not None and role not in ROLES:
+        raise InvalidDocument(f"Unknown role {role!r}: one of {', '.join(ROLES)}")
     if kind == "sarif":
         try:
             sarif.parse(body)
@@ -208,6 +230,9 @@ async def add(
             now=now,
             digest=digest or hashlib.sha256(body.encode()).hexdigest(),
             review_status=review_status,
+            role=role,
+            agent_id=agent_id,
+            group=group,
         )
 
 
@@ -222,6 +247,9 @@ async def _add(
     now: str,
     digest: str,
     review_status: str,
+    role: str | None,
+    agent_id: str,
+    group: ReviewGroup | None,
 ) -> tuple[TaskAttachment, Version]:
     document = await table.read(key, name)
     versions = await table.versions(document.id) if document else []
@@ -233,13 +261,17 @@ async def _add(
             name=name,
             archived=False,
             attached_at=now,
+            role=role or "other",
         )
         await table.put(document)
     elif document.kind != kind:
         raise KindMismatch(f"{name} is {document.kind}, not {kind}")
+    elif role is not None and document.role != role:
+        document = replace(document, role=role)
+        await table.put(document)
     latest = versions[-1] if versions else None
     if latest is not None and (latest.digest, latest.title) == (digest, title):
-        return document, latest
+        return document, await _presented_by(table, latest, agent_id, group)
     number = (latest.version if latest else 0) + 1
     version = Version(
         id=version_id(document.id, number),
@@ -250,9 +282,61 @@ async def _add(
         digest=digest,
         created_at=now,
         review_status=review_status,
+        **_group_fields(agent_id, group),
     )
     await table.add_version(version)
     return document, version
+
+
+def _group_fields(agent_id: str, group: ReviewGroup | None) -> dict[str, Any]:
+    return {
+        "agent_id": agent_id,
+        "group_id": group.id if group else "",
+        "group_title": group.title if group else "",
+        "group_position": group.position if group else 0,
+    }
+
+
+async def _presented_by(
+    table: TaskAttachmentTable,
+    version: Version,
+    agent_id: str,
+    group: ReviewGroup | None,
+) -> Version:
+    """``version``, presented again by ``agent_id`` in ``group``.
+
+    Its text stays. The agent and group move, so a verdict reaches the agent
+    that presented it last, and settles the group it is in now. A caller that
+    names neither, such as a hand add, keeps them.
+    """
+    if not agent_id and group is None:
+        return version
+    moved = replace(version, **_group_fields(agent_id, group))
+    if moved != version:
+        await table.add_version(moved)
+    return moved
+
+
+async def holds(
+    table: TaskAttachmentTable, document: TaskAttachment, body: str, cwd: str
+) -> bool:
+    """Whether a version of ``document`` holds ``body`` as it stands now."""
+    digest = await asyncio.to_thread(_digest, body, cwd)
+    return any(v.digest == digest for v in await table.versions(document.id))
+
+
+async def set_status(
+    table: TaskAttachmentTable, document: TaskAttachment, status: str
+) -> Version | None:
+    """Write ``status`` on the document's latest version. ``None``: no version."""
+    versions = await table.versions(document.id)
+    if not versions:
+        return None
+    latest = versions[-1]
+    if latest.review_status != status:
+        await table.set_review_status(latest.id, status)
+        latest = replace(latest, review_status=status)
+    return latest
 
 
 async def resolve(
@@ -389,13 +473,15 @@ async def attach(
     name: str | None = None,
     body: str | None = None,
     review_status: str = "draft",
+    role: str | None = None,
+    agent_id: str = "",
+    group: ReviewGroup | None = None,
 ) -> tuple[TaskAttachment, Version] | None:
     """Add the markdown at ``path`` as the next version of the task's document.
 
     ``name`` defaults to ``path``. ``None`` means the file cannot be read, and
     nothing is added. A document already stored as it stands returns the
-    version it has, and writes nothing: an attach replays the backlog, so the
-    same document reaches here again.
+    version it has, and adds no version, as :func:`add` says.
 
     "As it stands" covers the media too. The digest takes the bytes of every
     file the body names, so a recording made again under the same name is a
@@ -412,10 +498,10 @@ async def attach(
     # Off the loop: a video is tens of megabytes to hash and to copy.
     digest = await asyncio.to_thread(_digest, source, cwd)
     document = await table.read(task_key(project, task_id), name)
-    if document is not None:
+    if document is not None and (role is None or role == document.role):
         versions = await table.versions(document.id)
         if versions and (versions[-1].digest, versions[-1].title) == (digest, title):
-            return document, versions[-1]
+            return document, await _presented_by(table, versions[-1], agent_id, group)
     attached_body = await asyncio.to_thread(
         _with_attached_media, source, project, task_id, cwd
     )
@@ -430,6 +516,9 @@ async def attach(
         now=now,
         digest=digest,
         review_status=review_status,
+        role=role,
+        agent_id=agent_id,
+        group=group,
     )
 
 

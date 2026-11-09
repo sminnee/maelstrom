@@ -60,15 +60,20 @@ from pathlib import Path
 
 from mael_agent.tags import ATTRIBUTES, NOTE_TAG
 
+from .task import parse_draft
+
 #: Turns one image tag into the markdown that replaces it, or ``None`` when the
 #: file may not be shown. The registry is what decides, so the decision is
 #: injected rather than made here.
 ShowImage = Callable[["ImageTag"], str | None]
 
-#: The document kinds the protocol declares. Anything else reads as ``other``,
-#: so a typo shows a document rather than dropping it.
-KINDS = ("plan", "tasks", "pr", "review", "verification", "other")
+#: The kinds a ``<doc-file>`` may name. Anything else reads as ``other``, so a
+#: typo shows a document rather than dropping it. ``plan`` is not one: a task's
+#: one plan comes only from ``ExitPlanMode``.
+KINDS = ("tasks", "pr", "review", "verification", "other")
 DEFAULT_KIND = "other"
+#: The kind of a task set, whose members render as a recipe.
+DRAFT_KIND = "tasks"
 
 _ATTRIBUTE = re.compile(r'(\w+)\s*=\s*"([^"]*)"')
 _FILE_TAG = re.compile(rf"<doc-file\b{ATTRIBUTES}>")
@@ -618,3 +623,43 @@ def read_worktree_file(cwd: str, filename: str) -> str | None:
         return (Path(cwd) / filename).read_text()
     except OSError:
         return None
+
+
+#: The recipe fields a reader approving a chain needs: they decide how the task
+#: runs. The rest of the frontmatter is identity, and a draft leaves it empty.
+_RECIPE = (
+    "mode",
+    "model",
+    "execute_model",
+    "command",
+    "priority",
+    "pre_action",
+    "post_action",
+)
+
+
+def as_plan(text: str) -> str:
+    """One draft task file as the plan a reviewer reads.
+
+    A task file opens with ``---``, which markdown reads as a setext heading, so
+    a draft shown whole draws its whole recipe as one giant heading with the
+    plan buried under it. Rendering it instead puts the title where the reader
+    looks for it — ``title:`` lives only in the frontmatter — and keeps the
+    recipe, which is what approving the chain actually decides.
+
+    A draft that will not parse is shown as written: it is the one the user most
+    needs to read, because it is the one they have to fix.
+    """
+    try:
+        draft = parse_draft(text)
+    except ValueError:
+        return text
+    recipe = ", ".join(
+        f"{name.replace('_', '-')}: {value}"
+        for name in _RECIPE
+        if (value := getattr(draft, name))
+    )
+    head = f"## {draft.title}"
+    if recipe:
+        head += f"\n\n_{recipe}_"
+    return f"{head}\n\n{draft.content}".rstrip() + "\n"

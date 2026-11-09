@@ -194,7 +194,10 @@ class TestTheShippedLadders:
             db.close()
 
     async def test_attached_rows_become_task_document_versions(self, tmp_path):
-        """Two approved plans on one task fold into ``plan`` v1 and v2."""
+        """Two approved plans on one task fold into ``plan`` v1 and v2.
+
+        The role rung then names each one's card section.
+        """
         db = open_state_db(tmp_path / "state.db")
         try:
             full = db.ladders["task_attachments"]
@@ -233,6 +236,25 @@ class TestTheShippedLadders:
                 ]
             )
 
+            # A hand-added SARIF document, stored the rung before the role.
+            db.ladders["task_attachments"] = full[:-1]
+            await db.migrate()
+            await db.write_all(
+                [
+                    Write(
+                        "task_attachments",
+                        "s",
+                        {
+                            "task_key": "p/t.1",
+                            "kind": "sarif",
+                            "name": "zap.sarif.json",
+                            "archived": 0,
+                            "attached_at": "T4",
+                        },
+                    )
+                ]
+            )
+
             db.ladders["task_attachments"] = full
             await db.migrate()
 
@@ -261,11 +283,12 @@ class TestTheShippedLadders:
         finally:
             db.close()
         assert {
-            n: (d["kind"], d["archived"], d["attached_at"])
+            n: (d["kind"], d["role"], d["archived"], d["attached_at"])
             for n, d in documents.items()
         } == {
-            "plan": ("markdown", 0, "T1"),
-            ".drafts/verification.md": ("markdown", 0, "T3"),
+            "plan": ("markdown", "plan", 0, "T1"),
+            ".drafts/verification.md": ("markdown", "verification", 0, "T3"),
+            "zap.sarif.json": ("sarif", "other", 0, "T4"),
         }
         assert versions == [
             (1, "First", "First body", "First digest", "T1", "approved"),

@@ -121,6 +121,30 @@ class TestTable:
 
         assert [v.version for v in asyncio.run(scenario())] == [1, 2, 3]
 
+    def test_set_review_status_changes_one_version_and_keeps_the_rest(self, table):
+        """A version's text stays; its review status and group survive a read."""
+        grouped = replace(
+            version(doc(), 2),
+            agent_id="agent-1",
+            group_id="g1",
+            group_title="Task set",
+            group_position=1,
+        )
+
+        async def scenario():
+            await table.put(replace(doc(), role="tasks"))
+            await table.add_version(version(doc(), 1))
+            await table.add_version(grouped)
+            await table.set_review_status(grouped.id, "approved")
+            await table.set_review_status("no-such@v1", "approved")
+            return await table.get(doc().id), await table.versions(doc().id)
+
+        row, (first, second) = asyncio.run(scenario())
+
+        assert row is not None and row.role == "tasks"
+        assert first == version(doc(), 1)
+        assert second == replace(grouped, review_status="approved")
+
     def test_links_are_read_by_document_and_by_task(self, table):
         first, second = doc("a.md"), doc("b.md")
 
@@ -274,6 +298,61 @@ class TestAdd:
         _, again = add(table, now=LATER)
 
         assert again == first
+
+    def test_a_version_carries_its_agent_and_group(self):
+        table = InMemoryTaskAttachmentTable()
+        group = docs.ReviewGroup("g1", "Task set", 2)
+
+        document, first = add(table, role="tasks", agent_id="a1", group=group)
+
+        assert document.role == "tasks"
+        fields = (
+            first.agent_id,
+            first.group_id,
+            first.group_title,
+            first.group_position,
+        )
+        assert fields == ("a1", "g1", "Task set", 2)
+
+    def test_the_same_text_presented_again_moves_its_agent_and_group(self):
+        """No new version, and the status stays: only the server writes it."""
+        table = InMemoryTaskAttachmentTable()
+        add(table, agent_id="a1", group=docs.ReviewGroup("g1", "Old", 0))
+
+        _, again = add(
+            table,
+            agent_id="a2",
+            group=docs.ReviewGroup("g2", "New", 1),
+            review_status="awaiting-review",
+        )
+
+        assert (again.version, again.review_status) == (1, "draft")
+        assert (again.agent_id, again.group_id, again.group_position) == ("a2", "g2", 1)
+        assert asyncio.run(table.versions(again.attachment_id)) == [again]
+
+    def test_a_later_role_replaces_the_document_s_role(self):
+        table = InMemoryTaskAttachmentTable()
+        first, _ = add(table)
+
+        second, _ = add(table, role="review")
+        third, _ = add(table, body="v2")
+
+        assert (first.role, second.role, third.role) == ("other", "review", "review")
+
+    def test_an_unknown_role_is_refused(self):
+        with pytest.raises(docs.InvalidDocument):
+            add(InMemoryTaskAttachmentTable(), role="memo")
+
+    def test_set_status_writes_the_latest_version_only(self):
+        table = InMemoryTaskAttachmentTable()
+        add(table)
+        document, _ = add(table, body="v2")
+
+        written = asyncio.run(docs.set_status(table, document, "approved"))
+        versions = asyncio.run(table.versions(document.id))
+
+        assert written is not None and written.review_status == "approved"
+        assert [v.review_status for v in versions] == ["draft", "approved"]
 
     def test_another_kind_under_the_same_name_is_refused(self):
         table = InMemoryTaskAttachmentTable()
