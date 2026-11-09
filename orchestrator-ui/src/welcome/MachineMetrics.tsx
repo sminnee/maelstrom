@@ -7,13 +7,13 @@ import styles from './MachineMetrics.module.css';
 
 /** The span the charts cover: the history the server keeps. */
 const WINDOW_MS = 15 * 60_000;
-const WIDTH = 300;
-const HEIGHT = 36;
+const WIDTH = 120;
+const HEIGHT = 56;
 /** The temperature chart's fixed scale, so a flat line reads as calm. */
 const TEMP_MIN_C = 20;
 const TEMP_MAX_C = 100;
 
-/** The Welcome dialog's Machine entry: 15 minutes of charts, then the figures. */
+/** The Welcome dialog's Machine entry: 15 minutes of charts, then each gate job's share. */
 export function MachineMetrics() {
   const samples = useMetricsStream();
   const [hover, setHover] = useState<number | null>(null);
@@ -27,64 +27,65 @@ export function MachineMetrics() {
   const hasTemp = samples.some((s) => s.cpuTemperatureC !== null);
   return (
     <div className={styles.machine}>
+      <div className={styles.charts}>
+        <Chart
+          label="CPU"
+          current={shown.cpuPercent}
+          format={percent}
+          max={100}
+          layers={[(s) => machineShares(s).cpu.gates, (s) => machineShares(s).cpu.other]}
+          {...chart}
+        />
+        <Chart
+          label="Memory"
+          current={shown.memoryUsedBytes}
+          format={bytes}
+          max={memTotal}
+          layers={[(s) => machineShares(s).memory.gates, (s) => machineShares(s).memory.other]}
+          {...chart}
+        />
+        {hasTemp && (
+          <Chart
+            label="Temp"
+            current={shown.cpuTemperatureC}
+            format={celsius}
+            min={TEMP_MIN_C}
+            max={TEMP_MAX_C}
+            line={(s) => s.cpuTemperatureC}
+            {...chart}
+          />
+        )}
+      </div>
       <div className={styles.legend} aria-hidden>
         <span className={styles.key} data-series="gates" /> gates
         <span className={styles.key} data-series="other" /> other
-        <span className={styles.faint}>· last 15 min</span>
+        {/* The hovered sample's time takes the window's place, so nothing moves. */}
+        <span className={styles.faint}>
+          · {hover === null ? 'last 15 min' : new Date(shown.at).toLocaleTimeString()}
+        </span>
       </div>
-      <Chart
-        label="CPU"
-        scale="100%"
-        max={100}
-        layers={[(s) => machineShares(s).cpu.gates, (s) => machineShares(s).cpu.other]}
-        {...chart}
-      />
-      <Chart
-        label="Memory"
-        scale={bytes(memTotal)}
-        max={memTotal}
-        layers={[(s) => machineShares(s).memory.gates, (s) => machineShares(s).memory.other]}
-        {...chart}
-      />
-      {hasTemp && (
-        <Chart
-          label="Temp"
-          scale={`${TEMP_MAX_C} °C`}
-          min={TEMP_MIN_C}
-          max={TEMP_MAX_C}
-          line={(s) => s.cpuTemperatureC}
-          {...chart}
-        />
-      )}
-      <Figures sample={shown} hovered={hover !== null} />
+      {shown.gates.length > 0 && <Figures sample={shown} />}
     </div>
   );
 }
 
-function Figures({ sample, hovered }: { sample: MetricsSample; hovered: boolean }) {
+const percent = (v: number) => `${Math.round(v)}%`;
+const celsius = (v: number) => `${Math.round(v)} °C`;
+
+/** Each gate job's share of the sample, then "other". */
+function Figures({ sample }: { sample: MetricsSample }) {
   const shares = machineShares(sample);
-  const temp = sample.cpuTemperatureC === null ? '' : ` · ${Math.round(sample.cpuTemperatureC)} °C`;
   return (
     <div className={styles.figures} data-testid="machine-now">
-      <div>
-        {hovered && (
-          <span className={styles.faint}>{new Date(sample.at).toLocaleTimeString()} · </span>
-        )}
-        CPU {Math.round(sample.cpuPercent)}% · mem {bytes(sample.memoryUsedBytes)} of{' '}
-        {bytes(sample.memoryTotalBytes)}
-        {temp}
-      </div>
       {sample.gates.map((gate) => (
         <div key={gate.jobId} className={styles.part}>
           <span className={styles.mono}>{gateName(gate)}</span> cpu{' '}
           {Math.round(gateCpuShare(gate, sample.cpuCount))}% · mem {bytes(gate.usage.rssBytes)}
         </div>
       ))}
-      {sample.gates.length > 0 && (
-        <div className={styles.part}>
-          other cpu {Math.round(shares.cpu.other)}% · mem {bytes(shares.memory.other)}
-        </div>
-      )}
+      <div className={styles.part}>
+        other cpu {Math.round(shares.cpu.other)}% · mem {bytes(shares.memory.other)}
+      </div>
     </div>
   );
 }
@@ -95,8 +96,10 @@ function gateName(gate: GateMetrics): string {
 
 interface ChartProps {
   label: string;
-  /** The top of the scale, as words. */
-  scale: string;
+  /** The figure for the latest sample, or for the hovered one. */
+  current: number | null;
+  /** Words for a figure: the header's value and the axis's top and bottom. */
+  format: (v: number) => string;
   min?: number;
   max: number;
   /** Stacked areas, bottom first. */
@@ -111,7 +114,8 @@ interface ChartProps {
 /** One small chart over the window. A pointer on it picks the nearest sample. */
 function Chart({
   label,
-  scale,
+  current,
+  format,
   min = 0,
   max,
   layers,
@@ -154,33 +158,43 @@ function Chart({
     onHover(nearest);
   };
   return (
-    <div className={styles.chart}>
-      <span className={styles.label}>{label}</span>
-      <svg
-        className={styles.plot}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`${label}, last 15 minutes`}
-        onPointerMove={pick}
-        onPointerLeave={() => onHover(null)}
-      >
-        <line className={styles.baseline} x1={0} x2={WIDTH} y1={HEIGHT} y2={HEIGHT} />
-        {paths.map((d, i) => (
-          <path key={i} d={d} className={styles.area} data-series={i === 0 ? 'gates' : 'other'} />
-        ))}
-        {linePath && <path d={linePath} className={styles.line} />}
-        {hover !== null && (
-          <line
-            className={styles.cursor}
-            x1={xs[hover] ?? 0}
-            x2={xs[hover] ?? 0}
-            y1={0}
-            y2={HEIGHT}
-          />
-        )}
-      </svg>
-      <span className={styles.scale}>{scale}</span>
+    <div className={styles.chart} role="group" aria-label={label}>
+      <div className={styles.head}>
+        <span className={styles.label}>{label}</span>
+        <span className={styles.value}>{current === null ? '–' : format(current)}</span>
+      </div>
+      <div className={styles.body}>
+        <div className={styles.axis} aria-hidden>
+          <span>{format(max)}</span>
+          <span>{format(min)}</span>
+        </div>
+        <svg
+          className={styles.plot}
+          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+          preserveAspectRatio="none"
+          role="img"
+          aria-label={`${label}, last 15 minutes`}
+          onPointerMove={pick}
+          onPointerLeave={() => onHover(null)}
+        >
+          <line className={styles.baseline} x1={0} x2={WIDTH} y1={HEIGHT} y2={HEIGHT} />
+          {/* The top of the scale, level with the axis's top label. */}
+          <line className={styles.ceiling} x1={0} x2={WIDTH} y1={0} y2={0} />
+          {paths.map((d, i) => (
+            <path key={i} d={d} className={styles.area} data-series={i === 0 ? 'gates' : 'other'} />
+          ))}
+          {linePath && <path d={linePath} className={styles.line} />}
+          {hover !== null && (
+            <line
+              className={styles.cursor}
+              x1={xs[hover] ?? 0}
+              x2={xs[hover] ?? 0}
+              y1={0}
+              y2={HEIGHT}
+            />
+          )}
+        </svg>
+      </div>
     </div>
   );
 }

@@ -355,8 +355,11 @@ minutes:
   shows the server's whole history at once.
 - The CPU and memory charts stack the gate jobs' share under the rest. `welcome/machineShares.ts`
   makes the split; a gate job's CPU is per core.
-- Under the charts are the latest figures, one line per gate job, and "other". A pointer on a
-  chart shows that sample's figures instead.
+- The charts sit in one row. Each chart's header names its latest figure. A left axis names
+  the bottom and top of its scale, and a dotted line marks the top. The legend sits under the
+  charts.
+- Under the legend is one line per gate job, and "other". A pointer on a chart shows that
+  sample's figures and its time instead.
 - The socket factory comes from `SocketFactoryContext`, which `LiveProvider` sets, so the fake
   server's socket serves the seeded history.
 
