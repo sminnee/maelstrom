@@ -697,6 +697,7 @@ class TestReopenRoundTrip:
         # The committed feature work is present.
         assert (reopened / "feature.txt").exists()
         assert (reopened / "feature.txt").read_text() == "feature work\n"
-        # The wip commit (carrying the previously-dirty file) is back as the tip.
-        assert subjects(reopened, "-1")[0] == "wip: uncommitted changes"
+        # The wip commit (carrying the previously-dirty file) is back. Setup
+        # can add its own config commit on top.
+        assert "wip: uncommitted changes" in subjects(reopened, "-2")
         assert (reopened / "dirty.txt").read_text() == "dirty work\n"

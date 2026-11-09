@@ -83,6 +83,12 @@ release while that section is empty, and retitles it to the version it is releas
   `--cli`, so they now take over your shell. A process with no terminal refuses `--cli`. `load-many --run`
   and `add-scheduled --run` refuse it too. `mael task add` and `mael linear plan` take `--cli`
   and `--daemon`.
+- **A new worktree starts clean.** `.claude/settings.local.json` is now gitignored. Maelstrom's
+  edits to `.gitignore`, `CLAUDE.md` and `.claude/settings.json` land as a
+  `chore: maelstrom config` commit on a feature branch. `mael add`, `mael task run`,
+  `mael env reset` and `mael project mv` all make it. A file that was already dirty is left out.
+  In a project whose `main` lacks the entries, `mael close` reports that commit as unmerged work
+  until one PR merges it.
 
 ### Removed
 

@@ -5,18 +5,27 @@ and the ``.claude/settings.local.json`` symlink. The rest are edits to tracked
 files: ignore entries in ``.gitignore``, the import in ``CLAUDE.md``, and the
 draft write rules in ``.claude/settings.json``.
 
-:func:`apply_worktree_config` writes all of it.
+:func:`apply_worktree_config` writes all of it, then commits the tracked edits,
+so a worktree does not start dirty. Each writer reports the tracked paths it
+changed, and the commit takes exactly those.
 """
 
 import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from mael_common.shell import run_cmd
+
+from .git_status import read_dirty_files
 from .shared_dir import get_shared_dir
 from .task import DRAFT_WRITE_RULES, DRAFTS_DIR
+from .worktree_model import MAIN_BRANCH
 
 CLAUDE_LOCAL_IMPORT = "@.claude/CLAUDE.local.md"
+CONFIG_COMMIT_MESSAGE = "chore: maelstrom config"
 
 IMPORT_PATTERN = re.compile(r"^@(\S+)\s*$", re.MULTILINE)
 MAX_IMPORT_DEPTH = 3
@@ -31,31 +40,43 @@ class ConfigWrite:
     """What :func:`apply_worktree_config` did."""
 
     local_md_written: bool  # False when the header template is missing
+    committed: bool
 
 
 def apply_worktree_config(
     project_path: Path, worktree_path: Path, worktree_name: str
 ) -> ConfigWrite:
-    """Write the worktree config.
+    """Write the worktree config, and commit the tracked files it changed.
+
+    The commit is ``chore: maelstrom config``. It is made only on a named
+    branch other than ``main``: on ``main`` or a detached HEAD it would be
+    local-only and ahead of origin, so those worktrees keep the edits
+    uncommitted. A file that was already dirty is left out, so a user's own
+    edit is never taken.
 
     Args:
         project_path: Path to the project root (bare repo).
         worktree_path: Path to the worktree directory.
         worktree_name: NATO phonetic name of the worktree (e.g., "alpha").
     """
+    dirty_before = _dirty_paths(worktree_path)
+
+    changed: set[str] = set()
     local_md_written = _write_claude_local_md(
         project_path, worktree_path, worktree_name
     )
     if local_md_written:
-        _ensure_claude_md_import(worktree_path)
-        _ensure_gitignore_entry(worktree_path, ".claude/CLAUDE.local.md")
+        changed |= _ensure_claude_md_import(worktree_path)
+        changed |= _ensure_gitignore_entry(worktree_path, ".claude/CLAUDE.local.md")
     # Drafts are scratch — an abandoned one must not reach a commit.
-    _ensure_gitignore_entry(worktree_path, DRAFTS_DIR)
-    _ensure_draft_write_rules(worktree_path)
-    _setup_claude_settings_symlink(worktree_path)
+    changed |= _ensure_gitignore_entry(worktree_path, DRAFTS_DIR)
+    changed |= _ensure_draft_write_rules(worktree_path)
+    changed |= _setup_claude_settings_symlink(worktree_path)
     # Last, so it picks up the local context just written.
-    _write_agents_md(worktree_path)
-    return ConfigWrite(local_md_written=local_md_written)
+    changed |= _write_agents_md(worktree_path)
+
+    committed = _commit(worktree_path, changed - dirty_before)
+    return ConfigWrite(local_md_written=local_md_written, committed=committed)
 
 
 def _write_claude_local_md(
@@ -96,7 +117,7 @@ def _write_claude_local_md(
     return True
 
 
-def _ensure_claude_md_import(worktree_path: Path) -> None:
+def _ensure_claude_md_import(worktree_path: Path) -> set[str]:
     """Put the ``@.claude/CLAUDE.local.md`` import on CLAUDE.md's first line.
 
     A missing CLAUDE.md stays missing: the import only makes sense in a file
@@ -104,28 +125,30 @@ def _ensure_claude_md_import(worktree_path: Path) -> None:
     """
     claude_md = worktree_path / _CLAUDE_MD
     if not claude_md.exists():
-        return
+        return set()
     content = claude_md.read_text()
     if CLAUDE_LOCAL_IMPORT in content:
-        return
+        return set()
     claude_md.write_text(CLAUDE_LOCAL_IMPORT + "\n\n" + content)
+    return {_CLAUDE_MD}
 
 
-def _ensure_gitignore_entry(worktree_path: Path, entry: str) -> None:
+def _ensure_gitignore_entry(worktree_path: Path, entry: str) -> set[str]:
     """Append ``entry`` to .gitignore when it is absent. Create the file if needed."""
     gitignore = worktree_path / _GITIGNORE
     if gitignore.exists():
         content = gitignore.read_text()
         if entry in content.splitlines():
-            return
+            return set()
         if content and not content.endswith("\n"):
             content += "\n"
         gitignore.write_text(content + entry + "\n")
     else:
         gitignore.write_text(entry + "\n")
+    return {_GITIGNORE}
 
 
-def _ensure_draft_write_rules(worktree_path: Path) -> None:
+def _ensure_draft_write_rules(worktree_path: Path) -> set[str]:
     """Let an agent write `.drafts/` without asking.
 
     A planning session edits a draft many times, and each edit would otherwise
@@ -140,24 +163,25 @@ def _ensure_draft_write_rules(worktree_path: Path) -> None:
         try:
             settings = json.loads(settings_path.read_text())
         except (OSError, json.JSONDecodeError):
-            return
+            return set()
         if not isinstance(settings, dict):
-            return
+            return set()
     else:
         settings = {}
 
     permissions = settings.setdefault("permissions", {})
     allow = permissions.setdefault("allow", [])
     if not isinstance(allow, list):
-        return
+        return set()
     missing = [rule for rule in DRAFT_WRITE_RULES if rule not in allow]
     if not missing:
-        return
+        return set()
     allow.extend(missing)
     settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+    return {_SETTINGS_JSON}
 
 
-def _setup_claude_settings_symlink(worktree_path: Path) -> None:
+def _setup_claude_settings_symlink(worktree_path: Path) -> set[str]:
     """Link .claude/settings.local.json to settings.json, and gitignore the link.
 
     Tool-use approvals saved to settings.local.json then land in the tracked
@@ -167,16 +191,16 @@ def _setup_claude_settings_symlink(worktree_path: Path) -> None:
     claude_dir = worktree_path / ".claude"
     settings_local = claude_dir / "settings.local.json"
     if not (claude_dir / "settings.json").exists():
-        return
+        return set()
     if settings_local.exists() and not settings_local.is_symlink():
         print(
             "Warning: .claude/settings.local.json already exists and is not a symlink, skipping"
         )
-        return
+        return set()
     if settings_local.is_symlink():
         settings_local.unlink()
     settings_local.symlink_to("settings.json")
-    _ensure_gitignore_entry(worktree_path, ".claude/settings.local.json")
+    return _ensure_gitignore_entry(worktree_path, ".claude/settings.local.json")
 
 
 def _inline_imports(text: str, worktree_path: Path, depth: int, seen: set[Path]) -> str:
@@ -205,7 +229,7 @@ def _inline_imports(text: str, worktree_path: Path, depth: int, seen: set[Path])
     return IMPORT_PATTERN.sub(replace, text)
 
 
-def _write_agents_md(worktree_path: Path) -> None:
+def _write_agents_md(worktree_path: Path) -> set[str]:
     """Generate ``AGENTS.md`` from ``CLAUDE.md`` with ``@`` imports inlined.
 
     OpenCode reads only ``AGENTS.md`` and does not resolve Claude Code's
@@ -215,9 +239,57 @@ def _write_agents_md(worktree_path: Path) -> None:
     """
     claude_md = worktree_path / _CLAUDE_MD
     if not claude_md.exists():
-        return
+        return set()
     (worktree_path / "AGENTS.md").write_text(
         _inline_imports(claude_md.read_text(), worktree_path, 0, set()).rstrip("\n")
         + "\n"
     )
-    _ensure_gitignore_entry(worktree_path, "AGENTS.md")
+    return _ensure_gitignore_entry(worktree_path, "AGENTS.md")
+
+
+def _dirty_paths(worktree_path: Path) -> set[str]:
+    return {f.path for f in read_dirty_files(worktree_path)}
+
+
+def _current_branch(worktree_path: Path) -> str | None:
+    """The checked-out branch, or None for a detached HEAD or an unreadable repo."""
+    result = run_cmd(
+        ["git", "symbolic-ref", "-q", "--short", "HEAD"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _commit(worktree_path: Path, changed: set[str]) -> bool:
+    """Commit ``changed`` as the config commit, by path, without hooks.
+
+    Hooks are skipped: the commit is mechanical, and it runs before install,
+    so a hook that needs the project's dependencies would fail. A path git
+    does not report as dirty (a globally ignored file, say) is left out. A
+    failed commit is a warning, not a failed setup.
+    """
+    if not changed:
+        return False
+    branch = _current_branch(worktree_path)
+    if branch is None or branch == MAIN_BRANCH:
+        return False
+    paths = sorted(changed & _dirty_paths(worktree_path))
+    if not paths:
+        return False
+    try:
+        for args in (
+            ["add", "--", *paths],
+            ["commit", "--no-verify", "-m", CONFIG_COMMIT_MESSAGE, "--", *paths],
+        ):
+            run_cmd(["git", *args], cwd=worktree_path, quiet=True)
+    except subprocess.CalledProcessError as e:
+        print(
+            f"Warning: Could not commit maelstrom config: {e.stderr or e}",
+            file=sys.stderr,
+        )
+        return False
+    return True
