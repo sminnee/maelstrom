@@ -123,6 +123,8 @@ export function makeDocument(over: Partial<Document> = {}): Document {
     source: { type: 'plan_review', requestId: 'req-1', planFilePath: '' },
     // A group of one, unless the test is about a group.
     group: { id: over.id ?? 'doc-1', title: over.title ?? 'Plan', position: 0 },
+    archived: false,
+    links: [],
     ...over,
   };
 }

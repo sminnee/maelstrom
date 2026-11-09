@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
-import { addAttachedVerification, addNote, addPlan, addTaskSet } from './fake/moves';
+import {
+  addLinkedAndArchived,
+  addNote,
+  addPlan,
+  addStoredVerification,
+  addTaskSet,
+} from './fake/moves';
 import {
   chipCount,
   expanded,
@@ -266,7 +272,7 @@ describe('a document an agent tagged in its own message', () => {
 
   it('the card lists documents under a heading per kind, and draws no empty heading', async () => {
     const { server } = await renderApp();
-    addAttachedVerification(server);
+    addStoredVerification(server);
     clickNode('NORT-7');
     const verifications = await within(expanded()).findByRole('region', {
       name: 'Verifications',
@@ -292,6 +298,25 @@ describe('a document an agent tagged in its own message', () => {
     expect(within(other).getByRole('link', { name: /Release note v1/ })).toBeInTheDocument();
   });
 
+  it('the card lists a linked document by its fragment, and archived ones collapsed', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addLinkedAndArchived(server);
+    clickNode('NORT-7');
+    const other = await within(expanded()).findByRole('region', { name: 'Other' });
+    expect(
+      within(other)
+        .getAllByRole('link')
+        .map((l) => l.textContent),
+    ).toEqual(['Setup #install v1 · draft · linked']);
+    const toggle = within(other).getByRole('button', { name: 'Archived (1)' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(other).getByRole('link', { name: 'Old notes v1 · draft' })).toBeInTheDocument();
+  });
+
   it('a review group sits under the heading of its kind', async () => {
     const { server } = await renderApp();
     addTaskSet(server);
@@ -300,10 +325,10 @@ describe('a document an agent tagged in its own message', () => {
     expect(within(expanded()).getByRole('region', { name: 'Other' })).toContainElement(group);
   });
 
-  it('an attached document opens in a tab that plays its video and links no session', async () => {
+  it('a stored document opens in a tab that plays its video and links no session', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
-    addAttachedVerification(server);
+    addStoredVerification(server);
     clickNode('NORT-7');
     await user.click(await within(expanded()).findByRole('link', { name: /Login flow v1/ }));
     const tab = await screen.findByTestId('document-tab');

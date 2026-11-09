@@ -86,6 +86,8 @@ function planDocument(status: Document['status']): Document {
     status,
     source: { type: 'plan_review', requestId: 'req-nort9-plan', planFilePath: '' },
     group: { id: 'doc-nort9-plan', title: 'Plan', position: 0 },
+    archived: false,
+    links: [],
   };
 }
 
@@ -148,6 +150,8 @@ function taskGroup(size = GROUP_FILES.length): Document[] {
     status: 'awaiting-review',
     source: { type: 'draft_file', fileId: null, filename },
     group: { id: 'doc-group-0', title: 'Daily maintenance', position },
+    archived: false,
+    links: [],
   }));
 }
 

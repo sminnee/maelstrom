@@ -211,9 +211,13 @@ report, and makes a task for each row you choose. See
 
 When the work has a result you can see, the session also writes a **verification** at
 `.drafts/verification.md`. It says what the session checked, with screenshots and Playwright
-video in the body. Open it from the Verifications heading on the task's expanded node. Maelstrom
-attaches a verification and an approved plan to the task. You can read both after the agent
-stops, after the worktree closes, and after the orchestrator server restarts.
+video in the body. Open it from the Verifications heading on the task's expanded node.
+
+Maelstrom stores each document and each plan a task session shows as a **Task document**, with
+every version and its verdict. You can read them after the agent stops, after the worktree
+closes, and after the orchestrator server restarts. The node also lists the documents the task
+links, each marked `· linked`, and puts archived documents under a closed `Archived (n)` toggle.
+To store a file with no review, run `mael doc add PATH`. See [the CLI reference](../reference/cli.md).
 
 The session writes a `<milestone>` marker as it passes each stage — `built`, `reviewed`
 and `presented`. Maelstrom writes `planned` itself when you approve a plan, and closes the
