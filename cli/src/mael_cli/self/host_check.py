@@ -673,6 +673,44 @@ class DevHttps(HostCheckItem):
         )
 
 
+class RemoteDevHost(HostCheckItem):
+    """A **Remote host** (``host_name:`` set) names itself in ``dev_host:``.
+
+    See ``docs/reference/configuration.md``. On a running tailnet, ``DevHost``
+    and ``DevHttps`` check the same keys and can fix them.
+    """
+
+    section = "Remote host"
+    name = "remote dev_host"
+
+    def applies(self, host: "HostCheck") -> bool:
+        return bool(read_config_key(host.prod.config, "host_name")) and not (
+            DevHost().applies(host)
+        )
+
+    def check(self, host: "HostCheck") -> Finding:
+        value = read_config_key(host.prod.config, "dev_host")
+        if not value:
+            return Finding(
+                False,
+                "host_name is set and dev_host is unset, so a dev env URL "
+                "opens on localhost of the parent's user",
+            )
+        if read_config_key(host.prod.config, "dev_https") is None:
+            return Finding(
+                True,
+                f"dev_host: {value}. Set dev_https too when the parent's UI is "
+                "served over HTTPS: the Dev env tab frames the URL",
+            )
+        return Finding(True, f"dev_host: {value}")
+
+    def remedy(self, host: "HostCheck") -> Remedy | None:
+        return Remedy(
+            "Set dev_host to a name the parent's user reaches this machine on, "
+            "such as its tailnet name (see the Tailscale items)."
+        )
+
+
 class ShimOnPath(HostCheckItem):
     """The shim's directory is on the user's PATH, so ``mael`` is found."""
 
@@ -796,6 +834,7 @@ HOST_ITEMS: tuple[HostCheckItem, ...] = (
     TailscaleOperator(),
     DevHost(),
     DevHttps(),
+    RemoteDevHost(),
     ShimOnPath(),
 )
 
