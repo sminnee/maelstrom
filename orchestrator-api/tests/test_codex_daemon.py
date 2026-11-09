@@ -624,6 +624,23 @@ def test_resume_brings_a_thread_back_in_the_launch_worktree_and_says_its_text():
     assert listed["agents"][0]["session"] == "s1"
 
 
+def test_a_resume_whose_text_is_a_compact_compacts_the_thread():
+    """Resume and compact: a literal "/compact" turn would compact nothing."""
+
+    async def scenario():
+        bridge = ScriptedBridge()
+        bridge.resumed = RESUMED
+        daemon = daemon_for(bridge)
+        thread_id = RESUMED["thread"]["id"]
+        await daemon.request({"cmd": "resume", "id": thread_id, "text": "/compact"})
+        return thread_id, bridge
+
+    thread_id, bridge = asyncio.run(scenario())
+
+    assert calls_of(bridge, "thread/compact/start") == [{"threadId": thread_id}]
+    assert calls_of(bridge, "turn/start") == []
+
+
 def test_a_start_whose_opening_turn_fails_leaves_no_thread():
     async def scenario():
         bridge = ScriptedBridge()

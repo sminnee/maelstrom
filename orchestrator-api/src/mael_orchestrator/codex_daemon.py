@@ -25,6 +25,7 @@ from mael_agent.agent_wire import (
     SEQ_KEY,
     TRUNCATED,
     TS_KEY,
+    is_compact_command,
 )
 from mael_agent.codex_wire import (
     APPROVAL_TOOLS,
@@ -236,7 +237,7 @@ class CodexDaemonClient(AsyncDaemonClient):
                 mode=str(payload.get("mode") or "normal"),
             )
         if text := str(payload.get("text") or ""):
-            await self._turn(thread_id, text, [])
+            await self._say_text(thread_id, text, [])
         return {"ok": True, "id": thread_id}
 
     async def _say(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -244,12 +245,16 @@ class CodexDaemonClient(AsyncDaemonClient):
         if thread_id not in self._threads:
             return _no_agent(thread_id)
         text = str(payload.get("text", ""))
-        if text.split(" ", 1)[0] == "/compact":
-            # Codex compacts on its own method, and takes no instructions.
-            await self.bridge.request("thread/compact/start", {"threadId": thread_id})
-            return {"ok": True}
-        await self._turn(thread_id, text, _images(payload.get("attachments")))
+        await self._say_text(thread_id, text, _images(payload.get("attachments")))
         return {"ok": True}
+
+    async def _say_text(self, thread_id: str, text: str, images: list[str]) -> None:
+        """One user turn, or a compact: Codex compacts on its own method."""
+        if is_compact_command(text):
+            # Codex takes no focus instructions.
+            await self.bridge.request("thread/compact/start", {"threadId": thread_id})
+            return
+        await self._turn(thread_id, text, images)
 
     async def _run(self, payload: dict[str, Any]) -> dict[str, Any]:
         thread_id = str(payload.get("id", ""))
