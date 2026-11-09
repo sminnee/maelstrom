@@ -19,6 +19,7 @@ from mael_domain import task as model
 from mael_domain.attachments import attachment_urls
 from mael_domain.comm_store import Comm as DomainComm
 from mael_domain.comm_store import CommUpdate as DomainCommUpdate
+from mael_domain.document_tags import DRAFT_KIND, as_plan
 from mael_domain.landing_store import StepEvent
 from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
@@ -41,8 +42,7 @@ from mael_domain.protocol import (
     Worktree,
     WorktreeGate,
 )
-from mael_domain.task_attachments import TaskAttachment, Version
-from mael_domain.task_documents import PLAN_NAME
+from mael_domain.task_attachments import Link, TaskAttachment, Version
 from mael_domain.worktree_model import get_worktree_folder_name
 
 _LOG_RE = re.compile(r"^\s*[-*]\s+(\S+)\s+(.*)$")
@@ -554,41 +554,39 @@ def diff_kind(
     return events
 
 
-#: The id prefix of a document seeded from an attached row, where a live document
-#: takes an agent's item id.
-ATTACHED_ID_PREFIX = "attached-"
+def document_entity(
+    row: TaskAttachment, version: Version, links: Iterable[Link]
+) -> Document | None:
+    """A task's world document, as the store holds it at ``version``.
 
+    The id is the store id, the one the normaliser gives the task agent's
+    document, so a later present is this document's next version. A SARIF
+    document is not a world document yet: ``None``.
 
-def attached_document_entity(row: TaskAttachment, version: Version) -> Document | None:
-    """A Task document as the world holds it before any agent presents it.
-
-    The document named ``plan`` is the plan; any other markdown document is a
-    verification. A SARIF document is not a world document: ``None``.
-
-    A verification takes the ``draft_file`` source, so the normaliser's path
-    match reads a later present as the next version of this document and not as
-    a second entry. A plan takes the ``attached`` source: its review is over, and
-    nothing may offer one.
+    The source is ``stored``: it names the document, not a file.
     """
     if row.kind != "markdown":
         return None
     project, _ = split_task_key(row.task_key)
-    document_id = f"{ATTACHED_ID_PREFIX}{row.id}"
-    is_plan = row.name == PLAN_NAME
-    source: dict[str, Any] = (
-        {"type": "attached", "path": row.name}
-        if is_plan
-        else {"type": "draft_file", "fileId": None, "filename": row.name}
-    )
+    body = attachment_urls(version.body, project)
     return {
-        "id": document_id,
-        "agentId": "",
+        "id": row.id,
+        "agentId": version.agent_id,
         "taskId": row.task_key,
-        "kind": "plan" if is_plan else "verification",
+        "kind": row.role,
         "title": version.title,
-        "markdown": attachment_urls(version.body, project),
+        "markdown": as_plan(body) if row.role == DRAFT_KIND else body,
         "version": version.version,
         "status": version.review_status,
-        "source": source,
-        "group": {"id": document_id, "title": version.title, "position": 0},
+        "source": {"type": "stored", "name": row.name},
+        "group": {
+            "id": version.group_id or row.id,
+            "title": version.group_title or version.title,
+            "position": version.group_position,
+        },
+        "archived": row.archived,
+        "links": [
+            {"taskId": task_key(link.project, link.task_id), "fragment": link.fragment}
+            for link in sorted(links, key=lambda x: (x.project, x.task_id, x.fragment))
+        ],
     }

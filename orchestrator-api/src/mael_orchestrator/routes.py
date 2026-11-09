@@ -689,7 +689,7 @@ async def _task_document(request: web.Request) -> web.Response:
 
 
 async def _add_task_document(request: web.Request) -> web.StreamResponse:
-    """Add a version to one of the task's documents: ``{name, kind, title, body}``."""
+    """Add a version to one of the task's documents: ``{name, kind, role, title, body}``."""
     task_id = _task_id(request)
     return await _command(
         request, lambda body: {**body, "type": "taskDocument.add", "taskId": task_id}

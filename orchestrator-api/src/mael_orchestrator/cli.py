@@ -380,7 +380,7 @@ def build_orchestrator(
         daemon,
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
-        task_attachments=SqliteTaskAttachmentTable(state_db),
+        document_store=SqliteTaskAttachmentTable(state_db),
         landings=landings,
         comms=SqliteCommStore(state_db),
         comm_updates=SqliteCommUpdateStore(state_db),

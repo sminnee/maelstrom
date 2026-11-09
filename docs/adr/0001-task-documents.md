@@ -15,7 +15,8 @@ attached document and the unmerged Report store of PR #558. The terms are in `CO
 | Fragment | A markdown heading slug, as GitHub makes it, or a SARIF **Finding key** | A link can name one section or one finding. |
 | Links | Any task links a document, or one fragment of it, never one version. The fragment must be in the latest version. A link is deleted, not archived. | A task that fixes one finding links that finding. |
 | Archive | A task archives only the documents it owns. A request from no task, such as the user's, archives any. An archived document stays readable, takes versions, and keeps its links. | The owner says when its document is done. A linking task must not hide it from the others. |
-| Plans | A task has one `plan` document. Each approved plan is its next version, and a hand add may not use the name. | A re-planned task keeps its earlier plans as history. |
+| Plans | A task has one `plan` document. Each submitted plan is its next version, approved or not. A hand add may not use the name or the role. | A re-planned task keeps its earlier plans, and their verdicts, as history. |
+| Role | A document stores its **Document role**: the kind of the **Document** that stored it. `kind` stays the format. | `kind` already meant `markdown` or `sarif`. One column cannot hold both the format and the role. |
 
 ## Storage
 

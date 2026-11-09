@@ -333,8 +333,9 @@ of one tag form a **review group** — `group: {id, title, position}` on each me
 is kept: a task set is one chain, and approving it promotes in that order. The tag's `title` names
 the group, and defaults to the first filename. A member's own title is its draft's `title:` for a
 `tasks` file, the tag title when the tag names one file, and the path otherwise. `kind` is one of
-`plan`, `tasks`, `pr`, `review`, `verification` and `other`; an unrecognised kind reads as `other`, so a typo
-shows a document rather than dropping it. One message may carry several tags.
+`tasks`, `pr`, `review`, `verification` and `other`; an unrecognised kind reads as `other`, so a typo
+shows a document rather than dropping it. A tag may not name `plan`: a task's one plan comes only
+from `ExitPlanMode`. One message may carry several tags.
 
 There is no inline form. A `<doc-content>` is left in the text as written: a document with no path
 cannot be presented again, so it cannot be versioned.
@@ -457,12 +458,18 @@ The path is the identity. A path presented again, in the same scope, becomes the
 of the same document** whatever its status, so a revision replaces its card entry rather than
 adding one. The scope is the agent's task, or the agent when it has none: `.drafts/pr.md` is a
 new pull request for each task. The re-present joins the group of the first path that matched,
-and a member of that group the new tag leaves out becomes `superseded`. The plan document keeps
-its own rule, `_Emitter.previous_version`: a plan re-sent after `changes-requested` is its next
-version, and a plan is a group of one.
+and a member of that group the new tag leaves out becomes `superseded`. A plan is a group of one.
 
-A document is **not persisted**. It lives in the world and dies with a server restart, exactly as
-a plan document does. A document store is out of scope.
+A task agent's document takes the id its **Task document** is stored under,
+`attachment_id(taskId, path)`. The world task id is the task key, so the normaliser needs no I/O
+for it. On a server with an **Id prefix**, the id takes the prefix of the agent, as every id the
+server makes does, so a parent routes a request for the document to that server. The server
+builds the same id from the store at start, so a later present finds that entry. A task has one
+plan document, `attachment_id(taskId, "plan")`: each plan is its next
+version, whatever the last verdict was.
+
+A free agent's document has a minted id and is not stored. Its plan keeps the rule in
+`_Emitter.previous_version`: a plan re-sent after `changes-requested` is its next version.
 
 ### A compaction request
 
@@ -697,37 +704,49 @@ the UI draws it.
 ## Storing a Task document
 
 A document lives in the server's memory, and the media it names live in a worktree. A
-**Task document** outlives both: `task_documents.attach` adds it to the store as a new version.
+**Task document** outlives both. The server stores every document a task agent shows, and
+builds the world's document from the store.
 
 ```
-agent                 normaliser              server                  notebook
-  | <doc-file kind="verification">               |                        |
+agent                 normaliser              server                  store
+  | <doc-file> or plan   |                       |                        |
   |--------------------->| upsert document ----->| attach() ------------->| media into the bucket
-  |                      |                       |                        | version into the store
+  |                      |                       |   or set_status()      | version, or its status
   |                      |                       |<-- stored version -----|
-  |                      |                       | upsert: its number,    |
-  |                      |                       | media from the bucket  |
+  |                      |                       | upsert the document    |
+  |                      |                       | built from the store   |
   |          (server restart, or the agent ends) |                        |
   |                      |                       |<-- every row, at start-|
 ```
 
-Two events attach a document, and both arrive as a document upsert from the normaliser:
+`_store_document` reads each document upsert of a task:
 
-| Document | Attached when | Body | Name |
-| --- | --- | --- | --- |
-| Verification | The agent's document tag shows it | Read from the worktree file | The file's worktree-relative path |
-| Plan | The user approves it | The document's markdown | `plan` |
+| Upsert | Live event | Replayed event |
+| --- | --- | --- |
+| The task has no such document | Add version 1 | Add version 1 |
+| `version` is past the stored latest | Add the next version | Write nothing |
+| Any other upsert | Write the latest version's status | Write nothing |
 
-Each approved plan of a task is the next version of its one `plan` document.
+The second row is a new presentation. The third is a verdict: an approve, a request for changes,
+a denied plan, `superseded` or `stale`. `_settle_group` sends its upserts through the same step
+as verdicts only, so a verdict from the UI writes the store's status and never adds a version. A
+member whose `version` is past the stored latest is skipped: the user settled a placeholder for a
+file that could not be read, not the file's text.
 
-Only a document with a task is attached. The task's notebook id is the **Bucket** its media go
-to, and a free agent has no bucket that outlives it.
+| Document | Body | Name |
+| --- | --- | --- |
+| A `<doc-file>` file | Read from the worktree file | The file's worktree-relative path |
+| A plan | The document's markdown | `plan` |
+
+The document row stores the **Document role**, the document's kind. Each version stores its
+review status, its agent and its **Review group**. A restart then rebuilds the whole document:
+the approve can tell the agent, and the group still settles as one.
 
 `attach` does three things:
 
 1. It takes a digest of the source body and of the bytes of each media file the body names. When
-   the latest version has the same digest and title, `attach` returns that version and writes
-   nothing.
+   the latest version has the same digest and title, `attach` adds no version. It moves that
+   version's agent and group, and the server then writes its status.
    A recording made again under the same name changes the digest, so it is a new version.
 2. It copies each media file into the bucket with `attachments.save_media`, which accepts an image
    or a video up to 50 MB. The bucket filename carries a digest of the bytes, so an unchanged file
@@ -745,35 +764,47 @@ document. See `docs/adr/0001-task-documents.md`.
 
 After a restart the server attaches to each agent again and the backlog replays, so the same tag
 reaches the server a second time.
-A verification is read from the worktree as it stands at that moment, which is not what the agent
-showed when the event first ran. So a replayed verification attaches only when the task has no
-document of that name. Only a live event adds a version to one that exists.
+A file is read from the worktree as it stands at that moment, which is not what the agent showed
+when the event first ran. So a replayed document is stored only when the task has no document of
+that name.
 
-A replayed plan follows the same rule, though its body comes from the event. The backlog replays a
-task's plans oldest first. Before the migration, a re-plan to the same plan file replaced its row,
-so the store can lack an earlier plan that the backlog still holds. Adding it would make an old
-plan the current one.
+A replay writes no status either. The backlog can end in an old denial of a plan whose later
+version the user approved. Writing it would overwrite that approval.
+
+A plan is the exception to "stored only when missing". Its text travels in the event, so the server
+can tell a plan it missed from one it stored. A replayed plan whose text matches no stored version
+is stored as the next version. This covers a plan the agent submitted while the server was down.
+
+A replayed `review="true"` tag raises its review item again. When the store holds the document as
+settled, the server clears that item, because no verdict can reach a settled document.
+
+A plan approved in a terminal while the server is down reaches the store only on replay. Its
+stored status then stays `awaiting-review`.
 
 ### The store is the authority
 
-After it attaches a verification, the server upserts the world's verification again with two
-fields from the stored version:
+After each store step, the server upserts the world's document again, built by
+`world_build.document_entity` from the stored row, its latest version and its links:
 
-- **`version`.** At start the server seeds each markdown document's latest version into the world.
-  The document named `plan` becomes a plan, and any other a verification. A SARIF document is not
-  seeded. A replayed tag then finds the seeded document by path and counts one more version. The
-  server writes the stored version back.
+- **`version` and `status`.** The normaliser counts a new presentation as one past the world's
+  version. A same-text present adds no version, so the server writes the stored number back. A
+  replay takes the store's version and status.
 - **`markdown`.** The body reads its media from `/api/attachments/…`, not from `/api/files/…`. The
   document then stays readable when the worktree closes while the server runs.
+- **`archived` and `links`.** The task card reads them from the world. The add, link, unlink and
+  archive routes upsert the document after they write.
+
+The live `source` stays, because a task set's promote reads the file id it carries. A document
+built at start has the `stored` source, which names it and no file.
 
 This second upsert follows the normaliser's by one `await`, which can copy tens of megabytes. In
 that interval a client holds the normaliser's version.
 
-A seeded verification has the `draft_file` source, which is what lets `tagged_document` match it
-by path. A seeded plan has the `attached` source, so nothing offers a review for it. When a
-replayed plan review mints the live plan again, the server removes the seeded entry.
+A SARIF document is not a world document. A document that fails to store is logged, and the
+stream continues. The document is still in the world.
 
-A document that fails to attach is logged, and the stream continues. The document is still in the world.
+The UI refuses a verdict on any `plan` document. A plan with a wait is answered on the agent. A
+stored plan has no wait, and its review is over.
 
 `GET /api/attachments/{project}/{bucket}/{name}` returns a `web.FileResponse`, which answers a
 range request with `206`, so a browser can seek a video.

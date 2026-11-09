@@ -687,7 +687,7 @@ def _check_task_document(world: World, cmd: dict[str, Any]) -> dict[str, str] | 
         for field in ("name", "body"):
             if not isinstance(cmd.get(field), str):
                 return _err("invalid", f"{field} is a string")
-        for field in ("title", "kind"):
+        for field in ("title", "kind", "role"):
             if not isinstance(cmd.get(field, ""), str):
                 return _err("invalid", f"{field} is a string")
         return None
@@ -839,10 +839,11 @@ def validate_command(
             return _err("invalid", "Comment is empty")
         if kind != "comment.add" and doc["status"] != "awaiting-review":
             return _err("invalid", f"Document is {doc['status']}, not awaiting review")
-        if kind != "comment.add" and doc["source"].get("type") == "plan_review":
+        if kind != "comment.add" and doc["kind"] == "plan":
             # A plan review is the agent's own wait. Settling the document
             # would retire the item pointing the user at it and leave the
-            # child blocked on a control request nobody can now answer.
+            # child blocked on a control request nobody can now answer. A
+            # stored plan has no wait, and its review is over.
             return _err(
                 "invalid",
                 "A plan review is answered on the agent, not the document",
