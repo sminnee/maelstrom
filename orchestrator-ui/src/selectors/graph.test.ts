@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveGraph, nodeZone } from './graph';
+import { deriveGraph, nodeZone, worktreeHolders } from './graph';
 import type { Operation } from '../protocol/entities';
 import { cardPr } from './cardPr';
 import { noFilters } from './filters';
@@ -574,5 +574,94 @@ describe('operations on the board', () => {
     });
     expect(Object.keys(zones(dismissing))).toEqual(['ag1']);
     expect(Object.keys(zones(worldWith({ agents: [agent] })))).toEqual([]);
+  });
+});
+
+describe('worktreeHolders', () => {
+  const alpha = makeWorktree({ id: 'northwind-alpha', nato: 'alpha' });
+  const free = makeAgent({ id: 'free-1', taskId: '', worktreeId: 'northwind-alpha' });
+  const task = (running = false) => ({ kind: 'task', running });
+  const holders = (parts: Parameters<typeof worldWith>[0]) =>
+    Object.fromEntries(worktreeHolders(worldWith({ worktrees: [alpha], ...parts }), alpha));
+
+  it('counts an open task on the worktree, on the desk or off it', () => {
+    expect(
+      holders({
+        tasks: [
+          makeTask({ id: 'T1', status: 'todo' }),
+          makeTask({ id: 'T2', status: 'in-progress' }),
+          makeTask({ id: 'T3', status: 'blocked' }),
+        ],
+        desk: [makeDeskEntry({ id: 'task:T1' })],
+      }),
+    ).toEqual({ 'task:T1': task(), 'task:T2': task(), 'task:T3': task() });
+  });
+
+  it('counts a done or cancelled task only while it is on the desk, and a template never off it', () => {
+    expect(
+      holders({
+        tasks: [
+          makeTask({ id: 'T1', status: 'done' }),
+          makeTask({ id: 'T2', status: 'cancelled' }),
+          makeTask({ id: 'T3', status: 'done' }),
+          makeTask({ id: 'T4', status: 'template' }),
+        ],
+        desk: [makeDeskEntry({ id: 'task:T1' }), makeDeskEntry({ id: 'task:T2' })],
+      }),
+    ).toEqual({ 'task:T1': task(), 'task:T2': task() });
+  });
+
+  it('counts a task with a live agent and a desk entry once, as running', () => {
+    expect(
+      holders({
+        tasks: [makeTask({ id: 'T1', status: 'in-progress' })],
+        agents: [makeAgent({ id: 'a1', taskId: 'T1' })],
+        desk: [makeDeskEntry({ id: 'task:T1' })],
+      }),
+    ).toEqual({ 'task:T1': task(true) });
+  });
+
+  it('counts a free agent on the desk though it has exited', () => {
+    expect(
+      holders({
+        agents: [{ ...free, state: 'exited', exitCode: 0 }],
+        desk: [makeDeskEntry({ id: 'agent:free-1' })],
+      }),
+    ).toEqual({ 'agent:free-1': { kind: 'agent', running: false } });
+  });
+
+  it('ignores a task on another branch, and a task with no branch on a detached worktree', () => {
+    const detached = makeWorktree({ branch: '' });
+    const world = worldWith({
+      worktrees: [detached],
+      tasks: [makeTask({ id: 'T1', branch: '' }), makeTask({ id: 'T2', branch: 'feat/other' })],
+    });
+    expect(worktreeHolders(world, detached).size).toBe(0);
+    expect(holders({ tasks: [makeTask({ id: 'T2', branch: 'feat/other' })] })).toEqual({});
+  });
+
+  it('places a task where its agent runs, over its branch', () => {
+    const bravo = makeWorktree({ id: 'northwind-bravo', nato: 'bravo', branch: 'feat/b' });
+    const world = worldWith({
+      worktrees: [alpha, bravo],
+      tasks: [makeTask({ id: 'T1' })],
+      agents: [
+        makeAgent({ id: 'a1', taskId: 'T1', worktreeId: 'northwind-bravo', state: 'exited' }),
+      ],
+    });
+    expect(worktreeHolders(world, alpha).size).toBe(0);
+    expect([...worktreeHolders(world, bravo).keys()]).toEqual(['task:T1']);
+  });
+
+  it('places a task by its branch when its agent ran last in a worktree now closed', () => {
+    const shelved = makeWorktree({ id: 'northwind-bravo', nato: 'bravo', isClosed: true });
+    const world = worldWith({
+      worktrees: [alpha, shelved],
+      tasks: [makeTask({ id: 'T1', status: 'in-progress' })],
+      agents: [
+        makeAgent({ id: 'a1', taskId: 'T1', worktreeId: 'northwind-bravo', state: 'exited' }),
+      ],
+    });
+    expect([...worktreeHolders(world, alpha).keys()]).toEqual(['task:T1']);
   });
 });

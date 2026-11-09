@@ -95,4 +95,37 @@ describe('planDismiss', () => {
       'free-1 close northwind-alpha',
     ]);
   });
+
+  /** T1 in progress with its agent exited, T2 and T3 queued on the same branch. */
+  const chain = () =>
+    board({
+      tasks: [
+        makeTask({ id: 'T1', status: 'in-progress' }),
+        makeTask({ id: 'T2', status: 'todo' }),
+        makeTask({ id: 'T3', status: 'todo' }),
+      ],
+      agents: [makeAgent({ id: 'a1', taskId: 'T1', state: 'exited', exitCode: 0 })],
+    });
+
+  it('closes nothing while an unselected open task uses the worktree', () => {
+    const { world, nodes } = chain();
+    expect(plan(world, [nodes.T2!, nodes.T3!])).toEqual(['T2 offDesk', 'T3 offDesk']);
+  });
+
+  it('closes once, on the last, when the selection covers every task on the worktree', () => {
+    const { world, nodes } = chain();
+    expect(plan(world, [nodes.T1!, nodes.T2!, nodes.T3!])).toEqual([
+      'T1 offDesk',
+      'T2 offDesk',
+      'T3 close northwind-alpha',
+    ]);
+  });
+
+  it('holds the worktree for a done task still on the desk, until it is selected', () => {
+    const { world, nodes } = board({
+      tasks: [makeTask({ id: 'T1', status: 'done' }), makeTask({ id: 'T2', status: 'todo' })],
+    });
+    expect(plan(world, [nodes.T2!])).toEqual(['T2 offDesk']);
+    expect(plan(world, [nodes.T1!, nodes.T2!])).toEqual(['T1 offDesk', 'T2 close northwind-alpha']);
+  });
 });
