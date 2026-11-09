@@ -1616,6 +1616,7 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
         "MAEL_TASK_ID": "NORT-7",
         "MAEL_TASK_PARENT": "NORT-7",
         "MAEL_TASK_SESSION_ID": session,
+        "MAEL_TASK_PROJECT": PROJECT,
     }
     assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "in-progress"
     assert task["status"] == "in-progress"

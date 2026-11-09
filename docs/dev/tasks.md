@@ -112,6 +112,10 @@ none). New tasks default their `parent` to `$MAEL_TASK_PARENT`, so a skill runni
 inside a session can emit follow-ups that continue the same chain without spelling
 out the parent. An explicit `--parent` always wins.
 
+The launch also exports `MAEL_TASK_PROJECT`. The two ids are bare, so a
+command that names another project with `-p` does not take them as defaults:
+there they would name an unrelated task.
+
 ## Scheduled runs
 
 A scheduled *run* is a dot-id child *name* of its template

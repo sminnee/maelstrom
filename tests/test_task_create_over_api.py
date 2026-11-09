@@ -75,6 +75,7 @@ def test_add_in_a_session_chains_under_its_parent_after_the_last_sibling(
     seed(table, title="Plan", id="NORT-1", branch="feat/orders")
     seed(table, title="First", id="NORT-1.1", parent="NORT-1", branch="feat/orders")
     served = serve(start_server)
+    monkeypatch.setenv("MAEL_TASK_PROJECT", PROJECT)
     monkeypatch.setenv("MAEL_TASK_PARENT", "NORT-1")
 
     result = mael_task(
@@ -97,6 +98,22 @@ def test_add_in_a_session_chains_under_its_parent_after_the_last_sibling(
         ["NORT-1.1"],
         "linear.in-progress",
     )
+
+
+def test_add_for_another_project_takes_no_parent_from_the_session(
+    table, start_server, monkeypatch
+):
+    # The session's ids are bare. In this project, NORT-1 is an unrelated chain.
+    seed(table, title="Plan", id="NORT-1", branch="feat/orders")
+    served = serve(start_server)
+    monkeypatch.setenv("MAEL_TASK_PROJECT", "other")
+    monkeypatch.setenv("MAEL_TASK_PARENT", "NORT-1")
+
+    result = mael_task("add", "Cross", "-p", PROJECT)
+
+    assert result.exit_code == 0, result.output
+    new = stored(served.table, result.output.strip())
+    assert (new.parent, new.follows) == ("", [])
 
 
 def test_add_from_copies_the_recipe_and_the_flags_override_it(table, start_server):
@@ -254,6 +271,25 @@ def test_promote_splices_the_drafts_in_after_the_session_task(
     assert desk_ids(served.url) == on_desk("NORT-1.1", "NORT-1.2")
     # A promoted draft left on disk would be promoted twice.
     assert not any(path.exists() for path in paths)
+
+
+def test_promote_for_another_project_neither_parents_nor_splices(
+    table, start_server, monkeypatch, tmp_path
+):
+    seed(table, title="Plan", id="NORT-1", branch="feat/orders")
+    seed(table, title="Ship", id="NORT-2", branch="feat/orders", follows=["NORT-1"])
+    served = serve(start_server)
+    monkeypatch.setenv("MAEL_TASK_PROJECT", "other")
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-1")
+    monkeypatch.setenv("MAEL_TASK_PARENT", "NORT-1")
+    (path,) = write_drafts(tmp_path, "Cross")
+
+    result = mael_task("promote", str(path), "-p", PROJECT)
+
+    assert result.exit_code == 0, result.output
+    new = stored(served.table, result.output.strip())
+    assert (new.parent, new.follows) == ("", [])
+    assert stored(served.table, "NORT-2").follows == ["NORT-1"]
 
 
 def test_promote_with_a_follow_end_wires_the_first_draft_and_moves_nothing(

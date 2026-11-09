@@ -469,7 +469,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `-c`, `--command TEXT` | Skill the launched session runs. May carry arguments, e.g. `"impeccable shape"`. |
 | `-m`, `--mode TEXT` | Session mode. Default `plan`. Use `auto` for an unattended execute session, `normal` for a non-planning session that prompts. |
 | `-b`, `--branch TEXT` | Branch for the task. Default `task/<id>`. |
-| `-P`, `--parent TEXT` | Parent task id. Creates a child id. Defaults to `$MAEL_TASK_PARENT`. |
+| `-P`, `--parent TEXT` | Parent task id. Creates a child id. Defaults to `$MAEL_TASK_PARENT`, also when the value is `''`. No default when `-p` names a project other than `$MAEL_TASK_PROJECT`. |
 | `--pre-action TEXT` | Lifecycle action fired when the task starts, e.g. `linear.in-progress`. |
 | `--post-action TEXT` | Lifecycle action fired when the task finishes, e.g. `linear.done`. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |

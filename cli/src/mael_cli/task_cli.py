@@ -499,7 +499,21 @@ async def withdraw_pr(task_id: str | None, project: str | None = None) -> model.
         raise click.ClickException(str(exc)) from exc
 
 
-def _default_parent(parent: str) -> str:
+def _session_var(name: str, project: str) -> str:
+    """The launching session's ``name`` variable, when it belongs to ``project``.
+
+    ``MAEL_TASK_ID`` and ``MAEL_TASK_PARENT`` are bare ids. ``MAEL_TASK_PROJECT``
+    names their project, so a command aimed at another project with ``-p``
+    gets ``''``: the id would name an unrelated task there. A session launched
+    before ``MAEL_TASK_PROJECT`` existed has no project, and keeps the value.
+    """
+    session_project = os.environ.get("MAEL_TASK_PROJECT")
+    if session_project and session_project != project:
+        return ""
+    return os.environ.get(name, "")
+
+
+def _default_parent(parent: str, project: str) -> str:
     """Default an unset ``--parent`` to the launching session's parent.
 
     A session launched by ``mael task run`` exports ``MAEL_TASK_PARENT`` — the
@@ -508,9 +522,9 @@ def _default_parent(parent: str) -> str:
     parent/branch (one PR per chain) instead of each becoming a fresh orphan.
     For a Linear-rooted task this is the ``linear.<ID>`` parent. Chain tasks a
     skill emits nest under it without spelling it out; an explicit ``parent``
-    always wins.
+    always wins. A task for another project gets no default.
     """
-    return parent or os.environ.get("MAEL_TASK_PARENT", "")
+    return parent or _session_var("MAEL_TASK_PARENT", project)
 
 
 @dataclass(frozen=True)
@@ -887,7 +901,7 @@ async def add_task(
         "executeModel": execute_model,
         "priority": priority,
         "branch": branch,
-        "parent": _default_parent(parent),
+        "parent": _default_parent(parent, proj),
         "preAction": pre_action,
         "postAction": post_action,
         "schedule": schedule,
@@ -1084,7 +1098,7 @@ async def task_promote(
     body: dict = {
         "project": proj,
         "drafts": drafts,
-        "parent": _default_parent(""),
+        "parent": _default_parent("", proj),
         # `None` is a flag not given; `''` clears the file's value.
         "overrides": {k: v for k, v in overrides.items() if v is not None},
     }
@@ -1092,7 +1106,7 @@ async def task_promote(
         body["follows"] = [f"{proj}/{f}" for f in follows]
     if follow_ends:
         body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
-    if after := os.environ.get("MAEL_TASK_ID"):
+    if after := _session_var("MAEL_TASK_ID", proj):
         body["after"] = f"{proj}/{after}"
     reply = OrchestratorClient.for_tasks().post("/api/tasks/promote", body)
     # Committed: a promoted draft left on disk would be promoted twice.
@@ -1126,7 +1140,7 @@ async def task_load_many(
         {
             "project": proj,
             "text": text,
-            "defaultParent": _default_parent(""),
+            "defaultParent": _default_parent("", proj),
             "launch": run,
         },
     )

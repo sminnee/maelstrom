@@ -86,6 +86,7 @@ def _outside_a_task_session(monkeypatch):
     """
     monkeypatch.delenv("MAEL_TASK_ID", raising=False)
     monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
+    monkeypatch.delenv("MAEL_TASK_PROJECT", raising=False)
 
 
 @pytest.fixture(autouse=True)

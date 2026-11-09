@@ -108,11 +108,12 @@ A **task-backed** launch — `mael task run` or `mael task next --run` — expor
 |---|---|
 | `MAEL_TASK_ID` | The launched task's id. `mael task status done` and `mael task get-status` fall back to it, so a session can close its own task without naming it. `mael task promote` with no follow flag splices its set in after it. `mael gh create-pr` registers its PR on it, and `mael gh link-pr` and `mael gh withdraw-pr` default to it. `mael task current` reports it as `ID:STATUS`. `mael doc` defaults its task to it, and `mael doc archive` and `unarchive` send it as the asking task, so only the owner may. |
 | `MAEL_TASK_PARENT` | The launching task's `parent`, or its own id when it has none. New tasks default their `--parent` to it, so a session's follow-ups continue the same chain and land in the same PR. |
+| `MAEL_TASK_PROJECT` | The launched task's project. `MAEL_TASK_ID` and `MAEL_TASK_PARENT` are bare ids, so `mael task add`, `promote`, and `load-many` read them only when `-p` names this project. A task for another project gets no parent and no splice. |
 | `MAEL_TASK_SESSION_ID` | The task's derived Claude session id — a **task key, not a reference to the session running now**. Exported so a session can name the key it was launched under; nothing in maelstrom reads it back. |
 | `MAEL_PARENT_URL` | Set only for a delegated agent: a task that a parent server launched on a remote host. The parent's orchestrator URL, where the task is. Task commands (`mael task add`, `show`, `read`, `list`, `status`, `promote`, `load-many`) call it in place of `orchestrator_url:`, and `mael gh create-pr` registers its PR there. Commands that still write the local state database refuse. See [`cli.md`](cli.md#tasks) and [Remote hosts](configuration.md#remote-hosts). |
 
 `MAEL_TASK_SESSION_ID` rides on the `claude` command line rather than in the environment dict
-beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any of the three.
+beside `MAEL_TASK_ID`, but a task-backed launch is the only path that sets any of the four.
 
 **Two session ids answer two different questions.** Use the one that matches your question:
 
