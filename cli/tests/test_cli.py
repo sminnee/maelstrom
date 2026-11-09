@@ -1432,6 +1432,14 @@ class TestCreateProjectIntegration:
         # Generated per worktree, and ignored by the seeded .gitignore.
         assert (alpha / ".env").exists()
         assert (alpha / ".claude" / "CLAUDE.local.md").exists()
+        # Every generated file is ignored, so the new worktree starts clean.
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=alpha,
+            capture_output=True,
+            text=True,
+        ).stdout
+        assert status == ""
 
     def test_main_is_checked_out_beside_the_worktrees_not_into_one(self, tmp_path):
         """`_main` holds main, so no NATO worktree is burned on it."""

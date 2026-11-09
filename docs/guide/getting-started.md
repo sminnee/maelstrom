@@ -186,8 +186,10 @@ Main stays in `_main` so every NATO (North Atlantic Treaty Organization) phoneti
 worktree is free for feature work. See
 [worktrees.md](worktrees.md).
 
-Add `.env`, `.claude/CLAUDE.local.md` and `AGENTS.md` to the repository's `.gitignore`. Maelstrom
-generates all three per worktree. `mael project create` does this for you.
+Add `.env` to the repository's `.gitignore`. Maelstrom generates it per worktree. The first
+`mael add` on a branch adds the other per-worktree files (`.claude/CLAUDE.local.md`,
+`.claude/settings.local.json`, `AGENTS.md`, `.drafts/`) and commits the edit as
+`chore: maelstrom config`. `mael project create` does all of this for you.
 
 ## 4. Describe the project's services
 

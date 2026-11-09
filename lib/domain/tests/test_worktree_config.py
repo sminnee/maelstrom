@@ -1,6 +1,10 @@
-"""The worktree config: the files maelstrom writes."""
+"""The worktree config: the files maelstrom writes, and the config commit."""
 
 import json
+
+import pytest
+from git_helpers import create_commit, setup_git_repo, subjects
+from git_helpers import run_git as git
 
 from mael_domain.worktree_config import (
     _setup_claude_settings_symlink,
@@ -288,8 +292,89 @@ class TestSettingsSymlink:
         (tmp_path / ".claude" / "settings.json").write_text("{}")
         (tmp_path / ".gitignore").write_text(".env\n")
 
-        _setup_claude_settings_symlink(tmp_path)
+        assert _setup_claude_settings_symlink(tmp_path) == {".gitignore"}
 
         assert (tmp_path / ".claude" / "settings.local.json").is_symlink()
         lines = (tmp_path / ".gitignore").read_text().splitlines()
         assert lines == [".env", ".claude/settings.local.json"]
+
+
+class TestConfigCommit:
+    """The tracked edits land as one commit, on a feature branch only."""
+
+    @pytest.fixture
+    def repo(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("mael_domain.ports.get_app_url", lambda *a: None)
+        repo = tmp_path / "proj" / "proj-alpha"
+        repo.mkdir(parents=True)
+        setup_git_repo(repo)
+        git(repo, "checkout", "-b", "main")
+        (repo / "CLAUDE.md").write_text("# Project\n")
+        git(repo, "add", "CLAUDE.md")
+        create_commit(repo, ".gitignore", ".env\n", "init")
+        git(repo, "checkout", "-b", "feature/x")
+        return repo
+
+    def _apply(self, repo):
+        return apply_worktree_config(repo.parent, repo, "alpha")
+
+    def _committed(self, repo):
+        return git(repo, "show", "--name-only", "--format=", "HEAD").stdout.split()
+
+    def test_commits_every_tracked_edit_and_leaves_the_worktree_clean(self, repo):
+        assert self._apply(repo).committed
+
+        assert subjects(repo, "-1") == ["chore: maelstrom config"]
+        assert self._committed(repo) == [
+            ".claude/settings.json",
+            ".gitignore",
+            "CLAUDE.md",
+        ]
+        assert git(repo, "status", "--porcelain").stdout == ""
+
+    def test_a_second_apply_commits_nothing(self, repo):
+        self._apply(repo)
+
+        assert not self._apply(repo).committed
+
+        assert subjects(repo, "-2") == ["chore: maelstrom config", "init"]
+
+    def test_a_file_the_user_already_changed_is_not_taken(self, repo):
+        (repo / ".gitignore").write_text(".env\nmine/\n")
+
+        assert self._apply(repo).committed
+
+        assert ".gitignore" not in self._committed(repo)
+        assert "mine/" in (repo / ".gitignore").read_text()
+
+    def test_an_unrelated_dirty_file_stays_out(self, repo):
+        (repo / "staged.txt").write_text("s")
+        git(repo, "add", "staged.txt")
+        (repo / "loose.txt").write_text("l")
+
+        self._apply(repo)
+
+        assert "staged.txt" not in self._committed(repo)
+        status = git(repo, "status", "--porcelain").stdout.splitlines()
+        assert sorted(status) == ["?? loose.txt", "A  staged.txt"]
+
+    def test_a_refusing_commit_hook_does_not_block_it(self, repo):
+        hook = repo / ".git" / "hooks" / "pre-commit"
+        hook.write_text("#!/bin/sh\nexit 1\n")
+        hook.chmod(0o755)
+
+        assert self._apply(repo).committed
+
+    def test_no_commit_on_main(self, repo):
+        git(repo, "checkout", "main")
+
+        assert not self._apply(repo).committed
+
+        assert subjects(repo, "-1") == ["init"]
+
+    def test_no_commit_on_a_detached_head(self, repo):
+        git(repo, "checkout", "--detach")
+
+        assert not self._apply(repo).committed
+
+        assert subjects(repo, "-1") == ["init"]

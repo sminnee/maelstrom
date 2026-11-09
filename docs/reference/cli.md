@@ -141,6 +141,12 @@ On checkout, `mael add` (re)generates the worktree's `.claude/CLAUDE.local.md` a
 (same content, with `@` imports inlined so opencode can read it — opencode reads only `AGENTS.md`
 and does not resolve `@` imports). Both are gitignored per worktree.
 
+Setup can also create or edit `.gitignore`, `CLAUDE.md` and `.claude/settings.json`. On a named
+branch other than `main`, it commits the files it changed as `chore: maelstrom config`, so the
+worktree starts clean. It leaves out a file that was already dirty, and it skips commit hooks. The
+same rule applies wherever maelstrom writes the worktree config: `mael add`, `mael task run`, the
+orchestrator UI's open, `mael env reset` and `mael project mv`.
+
 | Option | Description |
 |---|---|
 | `-p`, `--project TEXT` | Project name. Default: detect from the current directory. |
@@ -854,7 +860,7 @@ See [dev-environments.md](../guide/dev-environments.md).
 | `mael env list [PROJECT]` | List running environments for a project. |
 | `mael env list-all` | List running environments across every project. |
 | `mael env stop-all` | Stop every running environment. |
-| `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. Always restarts running services. |
+| `mael env reset` | Regenerate the `.env` file, e.g. after changing ports in `.maelstrom.yaml`. Always restarts running services. Also rewrites the worktree config (see `mael add`). |
 
 ```bash
 mael env start                     # install, then start every non-optional service

@@ -25,6 +25,14 @@ a durable slot that outlives the branch it currently holds, which is why it is n
 after a branch.
 _Avoid_: Checkout, workdir, workspace
 
+**Worktree config**:
+The files maelstrom writes into a worktree. Some are generated and gitignored:
+`.claude/CLAUDE.local.md`, `AGENTS.md` and the `.claude/settings.local.json` symlink. The rest
+are edits to tracked files: ignore entries in `.gitignore`, the import in `CLAUDE.md`, and the
+draft write rules in `.claude/settings.json`. On a feature branch, the tracked edits are committed
+as `chore: maelstrom config`.
+_Avoid_: Maelstrom files, setup files
+
 **`_main`**:
 The one worktree that holds the main branch, so that every NATO worktree stays free for work.
 `_main` is the unclosable worktree, and it takes no project prefix in its folder name.

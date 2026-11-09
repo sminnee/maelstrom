@@ -3408,6 +3408,7 @@ def setup_worktree_for_branch(
     # the worktree — which never writes the config, so skipping it here would
     # leave CLAUDE.local.md missing until the next `mael add`. Install is
     # skipped instead: it must not run against a tree that was never rebased.
+    # After the sync, so the config commit sits on the rebased tip.
     apply_worktree_config(project_path, worktree_path, name)
     if run_install and sync.success:
         run_install_cmd(worktree_path)

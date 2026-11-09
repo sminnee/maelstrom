@@ -13,7 +13,13 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from git_helpers import advance_origin_main, create_commit, remote_tip
+from git_helpers import (
+    advance_origin_main,
+    create_commit,
+    remote_tip,
+    setup_git_repo,
+    subjects,
+)
 from git_helpers import run_git as git
 
 from mael_common.claude_paths import sanitise_path_for_claude
@@ -1096,6 +1102,22 @@ class TestSetupWorktreeForBranch:
         assert result.name in WORKTREE_NAMES
         assert result.path.name == f"test-repo-{result.name}"
 
+    def test_a_new_worktree_commits_the_config_setup_changed(
+        self, git_repo_with_remote
+    ):
+        """The project lacks the ignore entries, so setup writes .gitignore.
+
+        The edit lands as one commit on the branch, and the worktree is clean.
+        """
+        result = setup_worktree_for_branch(
+            git_repo_with_remote, "test-repo", "feature/config", run_install=False
+        )
+        assert subjects(result.path, "-1") == ["chore: maelstrom config"]
+        assert ".drafts/" in (result.path / ".gitignore").read_text().splitlines()
+        # .env stays untracked: setup adds no entry for it, the scaffold does.
+        status = git(result.path, "status", "--porcelain", "--", ".", ":!.env")
+        assert status.stdout == ""
+
     def test_run_install_false_skips_install_on_create(self, git_repo_with_remote):
         """run_install=False creates the worktree but defers the install command."""
         with patch("mael_domain.worktree.run_install_cmd") as install:
@@ -1773,7 +1795,6 @@ class TestSyncWorktreeSquash:
         from git_helpers import (
             create_commit,
             run_git,
-            setup_git_repo,
             setup_origin_main,
         )
 
