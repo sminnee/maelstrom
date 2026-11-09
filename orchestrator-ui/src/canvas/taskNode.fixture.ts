@@ -115,6 +115,7 @@ function worktree(over: Partial<Worktree> = {}): Worktree {
     env: { state: 'stopped', services: [] },
     sessionCount: 1,
     shellUrl: '',
+    sshTarget: '',
     gate: null,
     ...over,
   };

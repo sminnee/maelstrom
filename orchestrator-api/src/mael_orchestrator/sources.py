@@ -51,6 +51,7 @@ from mael_domain.protocol import (
     Worktree,
 )
 from mael_domain.session_discovery import LiveSessionSet
+from mael_domain.ssh_target import SshTarget
 from mael_domain.task_launch import (
     LaunchBlocked,
     LaunchPlan,
@@ -164,6 +165,11 @@ class EnvWorktree(Protocol):
 #: link to its pane: ``(project, nato, path) -> url``. Raises
 #: :class:`CloseBlocked` when cmux cannot. Blocking: it shells out to cmux.
 EnsureTerminal = Callable[[str, str, str], str]
+
+#: Makes a named cmux workspace whose terminal opens an SSH shell on a
+#: target, and returns its link: ``(name, target) -> url``. Raises
+#: :class:`CloseBlocked` when cmux cannot. Blocking: it shells out to cmux.
+SshTerminal = Callable[[str, SshTarget], str]
 
 #: Clones a git URL as a new **Project**, as ``mael project add`` does. Raises
 #: :class:`CloseBlocked` with git's words when the clone fails. Blocking: it
@@ -478,6 +484,9 @@ class WorktreeSource(Protocol):
 
     #: Makes a worktree's terminal and returns its link, or ``None``.
     ensure_terminal: EnsureTerminal | None
+
+    #: Makes an SSH terminal for a parent server's worktree, or ``None``.
+    ssh_terminal: SshTerminal | None
 
     #: Clones a new project, or ``None`` on a source that cannot.
     add_project: AddProject | None
@@ -1248,6 +1257,7 @@ class InMemoryWorktreeSource:
         prs: PrStateCache | None = None,
         auto_merge: AutoMergeWorktreePr | None = None,
         add_project: AddProject | None = None,
+        ssh_terminal: SshTerminal | None = None,
     ) -> None:
         self.projects = list(projects or [])
         self.add_project = add_project
@@ -1264,6 +1274,7 @@ class InMemoryWorktreeSource:
         self.remove = remove
         self.env = env
         self.ensure_terminal = ensure_terminal
+        self.ssh_terminal = ssh_terminal
         #: How many times the source has been read, so a test can check that a
         #: poll did *not* run. The real source's reads cost GitHub quota, and
         #: an unwanted one is invisible in the world it produces.
@@ -1345,8 +1356,14 @@ class ListAllWorktreeSource:
         terminal_urls: TerminalUrls = _no_terminal_urls,
         prs: PrStateCache | None = None,
         add_project: AddProject | None = None,
+        ssh_terminal: SshTerminal | None = None,
+        ssh_login: tuple[str, str] | None = None,
     ) -> None:
+        """``ssh_login`` is ``(user, host)``, how another machine reaches this
+        one over SSH. ``None`` when none can: each row's ``sshTarget`` is ``""``."""
         self.projects_dir = projects_dir
+        self.ssh_terminal = ssh_terminal
+        self._ssh_login = ssh_login
         self.add_project = add_project
         self.terminal_urls = terminal_urls
         self.prs = prs or PrStateCache()
@@ -1372,6 +1389,12 @@ class ListAllWorktreeSource:
     @property
     def rate_limited(self) -> bool:
         return self.prs.standing_off()
+
+    def _ssh_target(self, path: str) -> str:
+        if self._ssh_login is None:
+            return ""
+        user, host = self._ssh_login
+        return str(SshTarget(user, host, path))
 
     def stand_off(self) -> None:
         self.prs.stand_off()
@@ -1488,6 +1511,7 @@ class ListAllWorktreeSource:
                 p["name"],
                 row,
                 shell_url=terminal_urls.get((p["name"], row["name"]), ""),
+                ssh_target=self._ssh_target(row["path"]),
             )
             for p in data["projects"]
             for row in p["worktrees"]

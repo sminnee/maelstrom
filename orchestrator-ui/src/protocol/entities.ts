@@ -106,6 +106,8 @@ export interface Worktree {
   sessionCount: number;
   /** The `cmux://` link to the pane of the worktree's first terminal, or `''` with none. */
   shellUrl: string;
+  /** The SSH target `user@host:/path` of the worktree, or `''` when the server has no `dev_host`. */
+  sshTarget: string;
   /** Absent from a server older than the UI; read it as no service connected. */
   liveFeedback?: LiveFeedbackService[];
   /** The worktree's live **Gate job**, or `null` with none. The server picks it. */

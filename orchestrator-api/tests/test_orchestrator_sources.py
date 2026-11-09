@@ -707,6 +707,28 @@ async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
     assert asked == [[(PROJECT, "alpha"), (PROJECT, "bravo")]]
 
 
+@pytest.mark.parametrize(
+    ("login", "expected"),
+    [
+        (("sam", "monolith.ts.net"), "sam@monolith.ts.net:/p/alpha"),
+        # No dev_host: no other machine reaches this one.
+        (None, ""),
+    ],
+)
+async def test_a_worktree_row_carries_its_ssh_target(monkeypatch, login, expected):
+    from mael_orchestrator import sources
+
+    async def list_all(*_args, **_kwargs):
+        rows = [{"name": "alpha", "path": "/p/alpha"}]
+        return {"projects": [{"name": PROJECT, "worktrees": rows}]}
+
+    monkeypatch.setattr(sources, "build_list_all_data", list_all)
+    source = sources.ListAllWorktreeSource(Path("/p"), ssh_login=login)
+    _, worktrees = await source.read()
+
+    assert [w["sshTarget"] for w in worktrees] == [expected]
+
+
 # --- ListAllWorktreeSource: merging a pull request --------------------------
 
 

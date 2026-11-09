@@ -402,6 +402,27 @@ A dev environment takes `host_name:` and `hosts:` from its own notebook root's `
 alone, as it takes `orchestrator_url:`. So a dev server never takes production's name or remote
 hosts.
 
+#### Use cmux from another machine
+
+The `cmux` control opens a terminal in the cmux of the machine the browser runs on. A browser on
+another machine gets it only when that machine is a remote host of the server:
+
+1. Run an orchestrator on the laptop, with `host_name:` set.
+2. Name the laptop under `hosts:` on the server, and restart the server.
+3. Set `dev_host:` on the server. The SSH host is that name, and the SSH user is the user the
+   server runs as.
+4. Let the laptop's user SSH to that user on the server. SSH keys and host-key trust are yours to
+   set up.
+
+Then open the server's UI on the laptop, and click **cmux** on a worktree. A workspace such as
+`maelstrom-alpha@monolith` opens in the laptop's cmux, with an SSH shell in the worktree. A
+worktree the laptop owns opens in a plain local terminal. A browser on any other machine shows no
+`cmux` control.
+
+The same works the other way. A browser on the server, on a worktree a remote host owns, gets an
+SSH shell in the server's cmux. That needs `dev_host:` on the remote host, and SSH from the
+server's user to the remote host's user.
+
 ### API keys
 
 Each API key resolves in this order:

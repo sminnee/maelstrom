@@ -140,6 +140,9 @@ class Worktree(TypedDict):
     sessionCount: int
     #: The ``cmux://`` link to the pane of the worktree's first terminal, or ``""`` with none.
     shellUrl: str
+    #: The **SSH target** ``user@host:/path`` of the worktree, or ``""`` when
+    #: the server has no ``dev_host``.
+    sshTarget: str
     liveFeedback: list[LiveFeedbackService]
     #: The worktree's live **Gate job**, or ``None`` with none. The server
     #: overlays it from ``gateJobs``; see ``worktree_gates``.
