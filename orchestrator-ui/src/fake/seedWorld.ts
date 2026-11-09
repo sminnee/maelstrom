@@ -93,6 +93,7 @@ function worktree(
     env: { state: 'stopped', services: [] },
     sessionCount: 0,
     shellUrl: '',
+    sshTarget: `dev@monolith.ts.net:/Users/dev/Projects/${project}/${folder}`,
     gate: null,
     ...over,
   };
@@ -716,6 +717,7 @@ body rather than the query builder.
 
   const world: FakeWorld = {
     system: fakeSystem(),
+    client: { local: true, host: '' },
     host: {
       id: 'agent-host',
       reachable: true,

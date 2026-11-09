@@ -13,3 +13,13 @@ export type RequestId = string;
 export type TranscriptItemId = string;
 /** `op<n>`, minted by the server in start order. */
 export type OperationId = string;
+
+/**
+ * The host that owns an agent, worktree or gate job id: its **Id prefix**, or
+ * `''` for a bare id. Mirrors `mael_agent.host_ids.owner_of`.
+ */
+export function ownerOf(id: string): string {
+  const sep = id.indexOf(':');
+  const host = sep < 0 ? '' : id.slice(0, sep);
+  return /^[a-z0-9][a-z0-9-]*$/.test(host) ? host : '';
+}

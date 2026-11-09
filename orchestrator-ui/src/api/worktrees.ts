@@ -124,19 +124,22 @@ export function useRefreshWorktrees() {
 }
 
 /**
- * Make a worktree's terminal in cmux, and return the link to its pane. The reply
- * is written into the cached worktree, so the control turns into a link
- * without waiting for the pushed world.
+ * Make a worktree's terminal in cmux, and return the link to its pane. For a
+ * browser on the worktree's own host the reply is written into the cached
+ * worktree, so the control turns into a link without waiting for the pushed
+ * world. An `ssh` terminal's link names a pane on the browser's host, not the
+ * worktree's, so the server keeps it out of the row, and so does the cache.
  */
 export function useCreateWorktreeTerminal() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { worktreeId: WorktreeId }) =>
+    mutationFn: (vars: { worktreeId: WorktreeId; ssh?: boolean }) =>
       api.post<{ shellUrl: string }>(worktreeUrl(vars.worktreeId, 'terminal'), undefined, {
         timeoutMs: SLOW_CALL_TIMEOUT_MS,
       }),
-    onSuccess: ({ shellUrl }, { worktreeId }) => {
+    onSuccess: ({ shellUrl }, { worktreeId, ssh }) => {
+      if (ssh) return;
       queryClient.setQueryData<WorktreesBody>(keys.worktrees(), (body) =>
         body
           ? {
