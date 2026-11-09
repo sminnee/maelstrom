@@ -477,12 +477,12 @@ point `contextTokens` holds the turn's last reading, and the agent is idle and c
 | --- | --- |
 | `min-tokens` does not read as a count | `session.not_compacted`, `reason="invalid-threshold"` |
 | `contextTokens` below `min-tokens` | `session.not_compacted`, `reason="below-threshold"`: `Session only 123k tokens (minimum 200k), …` |
-| Otherwise | `/compact`, with the body after it, and the watch is marked `compacting` |
+| Otherwise | `/compact`, with the body after it, and the hold is marked sent |
 
 `/compact` is a plain turn, not an External event: the harness runs a slash command only when it
 is the whole turn. The replies are External events from the `orchestrator` source.
 
-While the watch is `compacting`, the next of two events settles it:
+While the agent's hold is marked sent, the next of two events settles it:
 
 - A `compact_boundary`, which `Normalised.compacted` reports as (pre, post). The reply is
   `session.compacted`, `pre="312k" post="41k"`. A boundary with no counts gets no figures.
@@ -494,13 +494,55 @@ A `result` does not settle it. The harness queues turns, so the turn that ends n
 queued ahead of `/compact`, such as a PR watch event.
 
 Every outcome sends a reply, because an unattended agent ends its turn after the marker and
-waits. A boundary that comes while the watch is not `compacting`, such as an autocompact, gets
-no reply: the agent did not ask.
+waits. A boundary that comes while no hold is marked sent, such as an autocompact, gets no
+reply: the agent did not ask.
 
 A request is parked even in replay, as a milestone is. The turn may end live after a restart,
 and the agent then waits for a reply. A turn end in replay clears the request, because the run
-that read it live acted on it. The `compacting` flag is not kept across a restart, so a restart
-between `/compact` and its outcome leaves the agent with no reply.
+that read it live acted on it.
+
+#### The compaction hold
+
+An External event told to an agent between its marker and the compact's outcome would break the
+compact. Told before the turn ends, the event is queued in the harness ahead of `/compact`.
+Told in the same turn, it joins `/compact`, and the harness then does not run the command. So
+each compacting agent has one **Compaction hold**: `Orchestrator._compact_holds`, by agent id.
+The hold is on the orchestrator, not on `AgentWatch`, because a resume replaces the watch.
+
+`_tell` puts each turn for an agent with a hold into the hold, and reports the agent as
+delivered. Its callers (the gate watch, the PR watch, document verdicts) treat a refusal as an
+error, and the release will deliver the turn. `_tell_now` skips the hold. The compaction's own
+replies use it, so the agent hears the outcome before the held turns.
+
+Three paths open a hold:
+
+| Opener | When | Reply on the outcome |
+| --- | --- | --- |
+| A compaction request | When a live marker is parked, or at a live turn end for one parked in replay | Yes |
+| `agent.say` with `/compact` or `/compact <instructions>` | Before the relay | No: the user asked, not the agent |
+| `agent.resume` with `compact: true` | Before the host starts the child, which gets `/compact` as its first turn | Yes |
+
+`_release_hold` starts one drain as a task. The drain tells the reply first, when the agent
+asked, and then the held turns in order. It runs off the watch, so a long hold never stops the
+agent's stream. A turn told during the drain queues behind the held ones. A new opener during
+the drain gets a hold of its own. These events release a hold:
+
+- The boundary or the refusal, with the reply.
+- A request that ends invalid or below threshold, with its `session.not_compacted` reply.
+- A request that loses to an end-session request. The stop can fail, so the turns are not lost.
+- A host that refuses the `/compact`, the say or the resume.
+- The backstop: `COMPACT_BACKSTOP_SECS`, five minutes after the hold opens.
+
+An agent exit drops the hold and its turns, with a log line: the host refuses a turn to an
+exited agent.
+
+The boundary of a resume and compact normally arrives on the new watch after `caught_up`. The old
+life's boundaries replay before `caught_up`, and `_follow_compact` ignores them. Two cases fall
+to the backstop. An outcome that reaches the host's backlog before the new watch attaches is
+replayed and ignored. A child that dies before a poll sees it alive never reaches `_exit`.
+
+Holds are kept in memory only. A restart between the hold opening and the outcome loses the
+held turns, and the agent gets no reply.
 
 ### An end-session request
 

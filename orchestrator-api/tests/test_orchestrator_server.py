@@ -8216,6 +8216,14 @@ def said_texts(harness) -> list[str | ExternalEvent]:
     ]
 
 
+COMPACTED = ExternalEvent(
+    ORCHESTRATOR,
+    SESSION_COMPACTED,
+    {"pre": "312k", "post": "41k"},
+    "Session compacted from 312k to 41k tokens. Continue.",
+)
+
+
 def not_compacted(reason: str, body: str) -> ExternalEvent:
     return ExternalEvent(ORCHESTRATOR, SESSION_NOT_COMPACTED, {"reason": reason}, body)
 
@@ -8310,12 +8318,7 @@ def test_an_unreadable_threshold_says_so_and_does_not_compact(harness):
     [
         (
             [compact_boundary(312_400, 41_000), end_turn()],
-            ExternalEvent(
-                ORCHESTRATOR,
-                SESSION_COMPACTED,
-                {"pre": "312k", "post": "41k"},
-                "Session compacted from 312k to 41k tokens. Continue.",
-            ),
+            COMPACTED,
         ),
         # Too short a conversation: the harness says so, and no boundary comes.
         (
@@ -8343,12 +8346,7 @@ def test_a_turn_queued_ahead_of_the_compact_does_not_settle_it(harness):
         harness, COMPACT_TAG, end_turn(), compact_boundary(312_000, 41_000)
     ) == [
         "/compact",
-        ExternalEvent(
-            ORCHESTRATOR,
-            SESSION_COMPACTED,
-            {"pre": "312k", "post": "41k"},
-            "Session compacted from 312k to 41k tokens. Continue.",
-        ),
+        COMPACTED,
     ]
 
 
@@ -8429,6 +8427,127 @@ def test_a_replayed_compaction_request_does_nothing(harness):
                 return said_texts(harness)
 
     assert run(scenario()) == []
+
+
+# --- the compaction hold ------------------------------------------------------
+
+
+async def comment(api) -> dict:
+    """Tell the worktree an External event; the reply's ``agentIds`` and ``refused``."""
+    reply = await api.post(
+        "/api/worktrees/northwind-alpha/comments", {"comments": [CHANGE_COMMENT]}
+    )
+    assert reply.status == 200, reply.body
+    return reply.body
+
+
+def commented() -> ExternalEvent:
+    event = parse_external_event(COMMENT_TEXT)
+    assert event is not None
+    return event
+
+
+def test_an_event_told_while_a_request_waits_follows_the_compact(harness):
+    """Told between the marker and the turn end, it would take the turn first."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(COMPACT_TAG))
+                await after_message(harness, "Still in the turn.")
+                told = await comment(api)
+                held = said_texts(harness)
+                harness.daemon.push("ag1", end_turn())
+                harness.daemon.push("ag1", compact_boundary(312_000, 41_000))
+                await wait_until(lambda: len(said_texts(harness)) == 3)
+                return told, held, said_texts(harness)
+
+    told, held, after = run(scenario())
+    # Held counts as delivered: the release delivers it.
+    assert told == {"agentIds": ["ag1"], "refused": []}
+    assert held == []
+    assert after == ["/compact", COMPACTED, commented()]
+
+
+def test_a_request_below_the_threshold_releases_what_it_held(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=123_400)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event(COMPACT_TAG))
+                await after_message(harness, "Still in the turn.")
+                await comment(api)
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: len(said_texts(harness)) == 2)
+                return said_texts(harness)
+
+    [reply, event] = run(scenario())
+    assert reply.attrs == {"reason": "below-threshold"}
+    assert event == commented()
+
+
+def test_a_compact_the_user_asked_for_holds_events_and_gets_no_reply(harness):
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            await transcript_of(api)
+            await api.post("/api/agents/ag1/say", {"text": "/compact Keep the PR"})
+            await comment(api)
+            held = said_texts(harness)
+            harness.daemon.push("ag1", compact_boundary(312_000, 41_000))
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: len(said_texts(harness)) == 2)
+            return held, said_texts(harness)
+
+    held, after = run(scenario())
+    assert held == ["/compact Keep the PR"]
+    assert after == ["/compact Keep the PR", commented()]
+
+
+def test_a_hold_with_no_outcome_releases_at_the_backstop(harness_factory):
+    harness = harness_factory(compact_backstop=0.1)
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            await transcript_of(api)
+            await api.post("/api/agents/ag1/say", {"text": "/compact"})
+            await comment(api)
+            held = said_texts(harness)
+            await wait_until(lambda: len(said_texts(harness)) == 2)
+            return held, said_texts(harness)
+
+    held, after = run(scenario())
+    assert held == ["/compact"]
+    assert after == ["/compact", commented()]
+
+
+def test_an_exit_drops_the_hold_and_what_it_held(harness):
+    """A held event for an exited agent would be refused; the next life hears
+    events at once."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            await transcript_of(api)
+            await api.post("/api/agents/ag1/say", {"text": "/compact"})
+            await comment(api)
+            harness.daemon.rows["ag1"]["state"] = "exited(1)"
+            await harness.orch.refresh_agents()
+            after_exit = said_texts(harness)
+            harness.daemon.rows["ag1"]["state"] = "idle"
+            await harness.orch.refresh_agents()
+            await comment(api)
+            return after_exit, said_texts(harness)
+
+    after_exit, after_revive = run(scenario())
+    assert after_exit == ["/compact"]
+    assert after_revive == ["/compact", commented()]
 
 
 # --- the end-session request --------------------------------------------------
