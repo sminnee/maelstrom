@@ -11,7 +11,7 @@ SQLite backend's own tests for cuts, notices and the revision counter.
 import pytest
 
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.task import Task
+from mael_domain.task import Task, TaskSession
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable, TaskTable, row_id
 
 
@@ -167,21 +167,37 @@ class TestTaskTableContract:
             "2026-06-11.1"
         ]
 
-    async def test_find_by_session_id_answers_the_reverse_lookup(self, table):
-        await table.save(a_task(id="1"))
-        await table.save(a_task(id="2"))
-        from mael_domain.task import session_id_for
+    async def test_sessions_survive_the_round_trip_with_their_harness(self, table):
+        sessions = [
+            TaskSession(id="c-1", harness="claude"),
+            TaskSession(id="thread-1", harness="codex"),
+        ]
+        await table.save(a_task(sessions=sessions))
+        loaded = await table.load("maelstrom", "2026-06-11.1")
+        assert loaded is not None and loaded.sessions == sessions
 
-        wanted = session_id_for("maelstrom", "2")
-        found = await table.find_by_session_id(wanted)
-        assert found is not None and found.id == "2"
+    async def test_find_by_session_id_matches_any_id_in_the_list(self, table):
+        await table.save(a_task(id="1", sessions=[TaskSession("c-1", "claude")]))
+        await table.save(
+            a_task(
+                id="2",
+                sessions=[
+                    TaskSession("c-2", "claude"),
+                    TaskSession("thread-2", "codex"),
+                ],
+            )
+        )
+        for wanted in ("c-2", "thread-2"):
+            found = await table.find_by_session_id(wanted)
+            assert found is not None and found.id == "2"
 
     async def test_a_blank_session_id_never_resolves(self, table):
-        """``""`` is the default for a never-launched row, so it must not match one."""
+        """A never-launched row has no sessions, so a blank must not match it."""
         await table.save(a_task())
         assert await table.find_by_session_id("") is None
 
     async def test_find_by_session_id_of_nothing_is_none(self, table):
+        await table.save(a_task(sessions=[TaskSession("c-1", "claude")]))
         assert await table.find_by_session_id("no-such-session") is None
 
     async def test_follows_survives_the_round_trip_as_a_list(self, table):

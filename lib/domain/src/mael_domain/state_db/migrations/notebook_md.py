@@ -29,9 +29,9 @@ log = logging.getLogger(__name__)
 #: Duplicated from :mod:`mael_domain.task` to keep this layer below the model.
 _STATUSES = ("todo", "in-progress", "blocked", "done", "cancelled", "template")
 
-#: Fixed namespace for deriving a task's session id. Duplicated from
-#: :func:`mael_domain.task.session_id_for` for the same reason, and pinned by a
-#: test that asserts the two agree — changing it would orphan every session.
+#: Fixed namespace the task session id was once derived from. A later rung
+#: moves the derived id into the task's ``sessions`` list, so changing it would
+#: orphan every imported session.
 _SESSION_NS = uuid.UUID("5b970d0a-51ab-49ae-ba93-0f7b0f615908")
 
 #: Frontmatter key to column, for the keys whose names differ.

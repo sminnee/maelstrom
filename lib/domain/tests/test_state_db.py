@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from mael_domain.agent_store import SqliteAgentStore
 from mael_domain.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE
 from mael_domain.state_db import migrate as state_db_migrate
 from mael_domain.state_db.db import StateDb
@@ -27,6 +28,7 @@ from mael_domain.state_db.types import (
     Write,
     WrongThreadError,
 )
+from mael_domain.task import TaskSession
 from mael_domain.task_attachments import SqliteTaskAttachmentTable
 from mael_domain.task_table import SqliteTaskTable
 
@@ -190,6 +192,77 @@ class TestTheShippedLadders:
             assert with_steps is not None and without is not None
             assert with_steps.content == "c\n\n## Steps\n\n1. a"
             assert (without.content, without.log) == ("c", "- l")
+        finally:
+            db.close()
+
+    async def test_an_older_database_moves_each_session_id_into_sessions(
+        self, tmp_path
+    ):
+        """Every link a derived id held survives, a Codex thread's included."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:8]  # up to the sessions rung
+            await db.migrate()
+
+            def agent(id: str, label: str, at: str, harness: str = "codex") -> Write:
+                body = {"id": id, "harness": harness, "task_session_id": label}
+                return Write(
+                    "agents", id, {"body": json.dumps(body | {"started_at": at})}
+                )
+
+            await db.write_all(
+                [
+                    Write("tasks", "p/ran", {"title": "R", "session_id": "uuid5-r"}),
+                    Write("tasks", "p/never", {"title": "N"}),
+                    # Written newest first: the rung orders by start.
+                    agent("thread-new", "uuid5-r", "2026-09-02T00:00:00+00:00"),
+                    agent("thread-old", "uuid5-r", "2026-09-01T00:00:00+00:00"),
+                    agent("thread-other", "uuid5-gone", "2026-09-01T00:00:00+00:00"),
+                    # A Claude record already links by the task's own id.
+                    agent("claude-1", "uuid5-r", "2026-09-03T00:00:00+00:00", "claude"),
+                ]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            row = await db.read("tasks", "p/ran")
+            assert row is not None and "session_id" not in row.keys()
+            table = SqliteTaskTable(db)
+            ran = await table.load("p", "ran")
+            never = await table.load("p", "never")
+            assert ran is not None and never is not None
+            assert ran.sessions == [
+                TaskSession("uuid5-r", "claude"),
+                TaskSession("thread-old", "codex"),
+                TaskSession("thread-new", "codex"),
+            ]
+            assert never.sessions == []
+            agents = {a["id"]: a for a in await SqliteAgentStore(db).list()}
+            assert agents["thread-old"]["task_session_id"] == "thread-old"
+            assert agents["thread-new"]["task_session_id"] == "thread-new"
+            # A label no task holds is left as it was.
+            assert agents["thread-other"]["task_session_id"] == "uuid5-gone"
+            assert agents["claude-1"]["task_session_id"] == "uuid5-r"
+        finally:
+            db.close()
+
+    async def test_the_sessions_rung_runs_without_an_agents_table(self, tmp_path):
+        """On a fresh database the tasks ladder can run before the agents ladder."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["tasks"]
+            db.ladders = {"tasks": full[:8]}
+            await db.migrate()
+            await db.write_all(
+                [Write("tasks", "p/ran", {"title": "R", "session_id": "uuid5-r"})]
+            )
+            db.ladders["tasks"] = full
+            await db.migrate()
+            ran = await SqliteTaskTable(db).load("p", "ran")
+            assert ran is not None
+            assert ran.sessions == [TaskSession("uuid5-r", "claude")]
         finally:
             db.close()
 

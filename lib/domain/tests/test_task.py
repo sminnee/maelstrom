@@ -2163,8 +2163,11 @@ class TestEditInEditor:
     so these need no on-disk store — only a table and a fake editor.
     """
 
-    async def test_changed_save_bumps_updated(self, store, tmp_path):
+    async def test_changed_save_bumps_updated_and_keeps_the_sessions(
+        self, store, tmp_path
+    ):
         t = await model.create(store, project="p", title="orig", now=NOW)
+        await model.add_session(store, "p", t.id, "c-1", "claude")
         before_updated = (await model.load(store, "p", t.id)).updated
         # Insert text under the ## Content heading so the edit lands in a
         # section the model parses back, mimicking a real editor change.
@@ -2178,7 +2181,10 @@ class TestEditInEditor:
         assert changed is True
         assert task.updated != before_updated
         # The row stays canonical and the edit reached the Content section.
-        assert "edited" in (await model.load(store, "p", t.id)).content
+        reloaded = await model.load(store, "p", t.id)
+        assert "edited" in reloaded.content
+        # The sessions are not in the markdown, so the save must not wipe them.
+        assert reloaded.sessions == [model.TaskSession("c-1", "claude")]
 
     async def test_noop_save_writes_nothing(self, store, tmp_path):
         t = await model.create(store, project="p", title="orig", now=NOW)
@@ -2284,6 +2290,13 @@ class TestDuplicate:
         await model.create(store, project="p", title="T", id="tmpl", base="feat/a")
         dup = await model.duplicate(store, "p", "tmpl", base=override)
         assert dup.base == base
+
+    async def test_does_not_copy_the_sessions(self, store):
+        await model.create(store, project="p", title="T", id="tmpl")
+        await model.add_session(store, "p", "tmpl", "c-1", "claude")
+        dup = await model.duplicate(store, "p", "tmpl")
+        assert dup.sessions == []
+        assert (await model.load(store, "p", dup.id)).sessions == []
 
     async def test_does_not_copy_schedule(self, store):
         await model.create(
@@ -2395,37 +2408,69 @@ class TestTemplateStatus:
         assert reloaded.last_run == "2026-06-18T09:00:00+00:00"
 
 
-class TestSessionIdFor:
-    def test_deterministic(self):
-        a = model.session_id_for("proj", "2026-06-30.1")
-        b = model.session_id_for("proj", "2026-06-30.1")
-        assert a == b
-
-    def test_valid_uuid(self):
-        import uuid
-
-        # Round-trips through UUID() → it is a well-formed UUID string.
-        uid = model.session_id_for("proj", "2026-06-30.1")
-        assert str(uuid.UUID(uid)) == uid
-
-    def test_differs_across_tasks(self):
-        a = model.session_id_for("proj", "2026-06-30.1")
-        b = model.session_id_for("proj", "2026-06-30.2")
-        assert a != b
-
-    def test_differs_across_projects(self):
-        a = model.session_id_for("proj-a", "x")
-        b = model.session_id_for("proj-b", "x")
-        assert a != b
-
-    async def test_a_saved_row_carries_the_session_id(self, store):
-        # The row derives session_id on the way in, so the reverse lookup
-        # resolves a task nobody stamped by hand.
-        t = await model.create(store, project="proj", title="t", id="2026-06-30.1")
-        found = await store.find_by_session_id(
-            model.session_id_for("proj", "2026-06-30.1")
+class TestSessions:
+    async def test_a_claude_launch_makes_its_id_once(self, store):
+        t = await model.create(store, project="p", title="t", id="t1")
+        first = await model.ensure_session(store, t, "claude")
+        again = await model.ensure_session(
+            store, await model.load(store, "p", "t1"), "claude"
         )
-        assert found is not None and found.id == t.id
+        assert first and again == first
+        stored = await model.load(store, "p", "t1")
+        assert stored.sessions == [model.TaskSession(first, "claude")]
+
+    async def test_a_codex_launch_makes_no_id(self, store):
+        t = await model.create(store, project="p", title="t", id="t1")
+        assert await model.ensure_session(store, t, "codex") == ""
+        assert (await model.load(store, "p", "t1")).sessions == []
+
+    async def test_a_claude_id_is_appended_after_a_codex_thread(self, store):
+        t = await model.create(store, project="p", title="t", id="t1")
+        await model.add_session(store, "p", "t1", "thread-1", "codex")
+        t = await model.load(store, "p", "t1")
+        made = await model.ensure_session(store, t, "claude")
+        assert (await model.load(store, "p", "t1")).sessions == [
+            model.TaskSession("thread-1", "codex"),
+            model.TaskSession(made, "claude"),
+        ]
+
+    def test_current_session_is_the_newest_entry_for_the_harness(self):
+        t = Task(
+            id="t1",
+            title="t",
+            project="p",
+            sessions=[
+                model.TaskSession("c-1", "claude"),
+                model.TaskSession("thread-1", "codex"),
+                model.TaskSession("c-2", "claude"),
+                model.TaskSession("thread-2", "codex"),
+            ],
+        )
+        assert model.current_session(t, "claude") == "c-2"
+        assert model.current_session(t, "codex") == "thread-2"
+        assert (
+            model.current_session(Task(id="x", title="x", project="p"), "claude") == ""
+        )
+
+    async def test_add_session_adds_no_duplicate(self, store):
+        await model.create(store, project="p", title="t", id="t1")
+        await model.add_session(store, "p", "t1", "thread-1", "codex")
+        await model.add_session(store, "p", "t1", "thread-1", "codex")
+        await model.add_session(store, "p", "t1", "thread-2", "codex")
+        assert (await model.load(store, "p", "t1")).sessions == [
+            model.TaskSession("thread-1", "codex"),
+            model.TaskSession("thread-2", "codex"),
+        ]
+
+    async def test_a_rename_keeps_the_sessions(self, store):
+        await model.create(store, project="p", title="t", id="t1")
+        await model.add_session(store, "p", "t1", "c-1", "claude")
+        await model.rename(store, "p", "t1", "t2")
+        assert (await model.load(store, "p", "t2")).sessions == [
+            model.TaskSession("c-1", "claude")
+        ]
+        found = await store.find_by_session_id("c-1")
+        assert found is not None and found.id == "t2"
 
 
 class TestReconcile:

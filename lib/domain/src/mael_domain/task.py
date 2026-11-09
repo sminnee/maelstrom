@@ -231,6 +231,14 @@ def is_safe_id(id: str) -> bool:
 # --- Task dataclass ---
 
 
+@dataclass(frozen=True)
+class TaskSession:
+    """One agent session of a task: the harness's own id, and the harness."""
+
+    id: str
+    harness: str
+
+
 @dataclass
 class Task:
     """A single task. ``status`` is derived from the key, never serialized."""
@@ -278,6 +286,9 @@ class Task:
     content: str = ""
     log: str = ""
     status: str = DEFAULT_STATUS
+    # The task's agent sessions, oldest first. Machine-owned: not in the
+    # frontmatter. See CONTEXT.md, "Task session id".
+    sessions: list["TaskSession"] = field(default_factory=list)
 
     # --- serialization ---
 
@@ -1458,12 +1469,14 @@ async def edit_in_editor(
             raise RuntimeError(f"Editor exited with status {e.returncode}: {ed}")
         after = path.read_text()
     if after == before:
-        return Task.from_markdown(after, status=task.status), False
+        return task, False
     edited = Task.from_markdown(after, status=task.status)
     # Identity is the table's, not the file's: an edit that rewrote `id` or
     # `project` would otherwise re-key the row and orphan the original.
     edited.id = task.id
     edited.project = task.project
+    # The sessions are not in the markdown, so the edit cannot hold them.
+    edited.sessions = task.sessions
     edited.updated = now_iso()
     await table.save(edited)
     return edited, True
@@ -1756,22 +1769,41 @@ def permission_mode_for(mode: str) -> str | None:
     return mode if mode in {"plan", "auto"} else None
 
 
-# Fixed namespace UUID for deriving per-task session ids. Generated once and
-# frozen here so the mapping (project, task-id) → session-id is stable across
-# machines and over time; changing it would orphan every existing session.
-_SESSION_NS = uuid.UUID("5b970d0a-51ab-49ae-ba93-0f7b0f615908")
+def current_session(task: Task, harness: str) -> str:
+    """The id of ``task``'s current session for ``harness``, else ``""``.
 
-
-def session_id_for(project: str, task_id: str) -> str:
-    """Stable Claude ``--session-id`` for a task (same task → same id).
-
-    Deterministic uuid5 over ``project`` and ``task_id`` (NUL-separated so no
-    pair of distinct ids can collide by concatenation). This is the
-    first-class link between a task and its session: ``mael task run`` passes
-    it to ``claude --session-id``, the session channel records it, and
-    ``reconcile`` matches a live session back to its task by recomputing it.
+    The current session is the newest entry for the harness. This is the one
+    place that holds the rule.
     """
-    return str(uuid.uuid5(_SESSION_NS, f"{project}\x00{task_id}"))
+    return next((s.id for s in reversed(task.sessions) if s.harness == harness), "")
+
+
+async def ensure_session(table: "TaskTable", task: Task, harness: str) -> str:
+    """Return the session id a launch of ``task`` on ``harness`` uses.
+
+    For Claude, a task with no Claude session gets a new uuid4. It is saved
+    before the agent starts, so the launch can pass it as ``--session-id``.
+    Codex makes its own thread id, so for Codex this returns the current id,
+    which is ``""`` before the first launch. :func:`add_session` stores it.
+    """
+    session_id = current_session(task, harness)
+    if session_id or harness != HARNESS_CLAUDE:
+        return session_id
+    session_id = str(uuid.uuid4())
+    task.sessions = [*task.sessions, TaskSession(id=session_id, harness=harness)]
+    await table.save(task)
+    return session_id
+
+
+async def add_session(
+    table: "TaskTable", project: str, id: str, session_id: str, harness: str
+) -> Task:
+    """Append the session ``session_id`` to the task, unless it holds it already."""
+    task = await load(table, project, id)
+    if all(s.id != session_id for s in task.sessions):
+        task.sessions = [*task.sessions, TaskSession(id=session_id, harness=harness)]
+        await table.save(task)
+    return task
 
 
 # Reconcile classifications. Each in-progress task / live session is sorted into

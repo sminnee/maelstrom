@@ -29,8 +29,8 @@ authority either way; only the search for it is incomplete.
 Callers work through :class:`LiveSessionSet`, which sweeps once on first use,
 then answers per-worktree questions (``count_for`` / ``active_for`` / ``all_for``)
 off that shared list — each session attributing itself to a worktree via
-:attr:`LiveSession.worktree`. It sits above
-:func:`mael_domain.task.session_id_for`.
+:attr:`LiveSession.worktree`. A task's stored ``sessions`` are matched
+against the sweep by id.
 """
 
 import asyncio
@@ -236,7 +236,7 @@ class LiveSessionSet:
     def for_session_id(self, session_id: str) -> LiveSession | None:
         """The live session whose ``session_id`` matches, or ``None``.
 
-        Task-precise: keys on *this task's own* deterministic session-id rather
+        Task-precise: keys on *this task's own* stored session id rather
         than on worktree occupancy, so the ``mael task run`` guard blocks only a
         genuine relaunch of the same task — a sibling sharing the worktree (one
         PR per parent) no longer trips it. The worktree-granular
