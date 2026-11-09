@@ -617,6 +617,8 @@ body rather than the query builder.
       status: 'draft',
       source: { type: 'draft_file', fileId: 'f2c6a9d4-9-notes.md', filename: '.drafts/notes.md' },
       group: { id: 'grp-free-notes', title: 'Index reader notes', position: 0 },
+      archived: false,
+      links: [],
     },
     {
       id: 'doc-nort12-notes',
@@ -630,6 +632,8 @@ body rather than the query builder.
       status: 'draft',
       source: { type: 'draft_file', fileId: 'e5b1d8c3-9-red.md', filename: '.drafts/red.md' },
       group: { id: 'grp-nort12-notes', title: 'What is red on PR #118', position: 0 },
+      archived: false,
+      links: [],
     },
     {
       id: 'doc-nort12-tasks',
@@ -647,6 +651,8 @@ body rather than the query builder.
         filename: '.drafts/draft-iter2.md',
       },
       group: { id: 'grp-nort12-tasks', title: 'Iteration 2', position: 0 },
+      archived: false,
+      links: [],
     },
     {
       id: 'doc-nort7-plan',
@@ -663,6 +669,8 @@ body rather than the query builder.
         planFilePath: '/Users/dev/.claude/plans/order-export.md',
       },
       group: { id: 'doc-nort7-plan', title: 'Plan', position: 0 },
+      archived: false,
+      links: [],
     },
   ];
 

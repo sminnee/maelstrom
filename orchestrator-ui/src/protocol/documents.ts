@@ -23,8 +23,8 @@ export type DocumentSource =
    * null when the file could not be read.
    */
   | { type: 'draft_file'; fileId: string | null; filename: string }
-  /** A plan read back from the notebook. Its review is over — see `CONTEXT.md`, "Task document". */
-  | { type: 'attached'; path: string };
+  /** A task's document read back from the store, with no live presentation — see `CONTEXT.md`, "Task document". */
+  | { type: 'stored'; name: string };
 
 /** The review group a document is a member of — see `CONTEXT.md`, "Review group". */
 export interface DocumentGroup {
@@ -32,6 +32,12 @@ export interface DocumentGroup {
   title: string;
   /** The member's place in the tag, which for a task set is the chain's order. */
   position: number;
+}
+
+/** A task that links a document, or one fragment of it. `fragment` is `''` for the whole. */
+export interface DocumentLink {
+  taskId: TaskId;
+  fragment: string;
 }
 
 export interface Document {
@@ -45,6 +51,10 @@ export interface Document {
   status: DocumentStatus;
   source: DocumentSource;
   group: DocumentGroup;
+  /** Archived documents show collapsed on the card. A free agent's is never archived. */
+  archived: boolean;
+  /** The tasks that link this document. */
+  links: DocumentLink[];
 }
 
 /**

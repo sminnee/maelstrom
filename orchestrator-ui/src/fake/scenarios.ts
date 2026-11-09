@@ -319,6 +319,28 @@ function detail(): Seed {
     doc('review', 'Code review', 'changes-requested', '# Review\n\nTwo findings.\n'),
     doc('verification', 'Narrow layout', 'draft', '# Narrow layout\n\nChecked at 390px.\n'),
     doc('other', 'Spacing inventory', 'stale', '# Inventory\n\n370 values.\n'),
+    makeDocument({
+      id: 'doc-detail-archived',
+      agentId: '',
+      status: 'draft',
+      taskId: DETAIL_TASK,
+      kind: 'other',
+      title: 'First spacing audit',
+      markdown: '# First audit\n\nReplaced by the inventory.\n',
+      source: { type: 'stored', name: 'audit.md' },
+      archived: true,
+    }),
+    makeDocument({
+      id: 'doc-detail-linked',
+      agentId: '',
+      status: 'draft',
+      taskId: 'maelstrom/2026-09-20.4',
+      kind: 'other',
+      title: 'Design tokens',
+      markdown: '# Design tokens\n\n## Spacing\n\nOne unit.\n',
+      source: { type: 'stored', name: 'tokens.md' },
+      links: [{ taskId: DETAIL_TASK, fragment: 'spacing' }],
+    }),
   ];
   for (const d of docs) world.documents[d.id] = d;
   return seed;

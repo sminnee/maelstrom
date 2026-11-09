@@ -808,11 +808,16 @@ The panel holds four tab kinds: session, document, changes and dev env. It is th
 it shows in a slot as a main view does; see "The three layouts". A panel off screen is hidden with
 the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and
 shows the panel too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
-its task id, so two agents' tabs are told apart. A node card lists every document its node has,
-whatever raised it — a plan review, or a tag the agent wrote in its own message. It lists them under a heading per
+its task id, so two agents' tabs are told apart. A node card lists every document its task owns,
+whatever raised it — a plan review, a tag the agent wrote in its own message, or `mael doc add`. A
+free agent's card lists the documents of that agent. The card lists them under a heading per
 kind — Plans, Verifications, then Other — and by review group under each heading
 (`selectors/documents.ts`): a group of one is one row, and a larger group is its title and status
-over a link per member. A `superseded` member is left out. A member's tab shows
+over a link per member. After the owned documents come the documents the task links:
+`linkedEntries` reads each document's `links`, so the list stays live. A linked row reads
+`{title} #{fragment}` when the link names a fragment, and ends `· linked`. An archived entry goes
+in a collapsed `Archived (n)` toggle at the end of its heading. A `superseded` member is left
+out. A member's tab shows
 its place in the group, `2 of 3`, with links to its siblings, so each file reads on its own. In a
 narrow panel the list clamps to the counter and two members, and a tap expands it.
 

@@ -393,6 +393,15 @@
 .documentGroupHead {
   color: var(--fg-muted);
 }
+.archivedToggle {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
 
 /*
  * The narrow layout draws the body as a screen, not a card. A link is a row

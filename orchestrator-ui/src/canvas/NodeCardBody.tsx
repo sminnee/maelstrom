@@ -16,7 +16,7 @@ import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
 import { nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
-import { documentsByKind } from '../selectors/documents';
+import { type CardGroup, documentsByKind, linkedEntries } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
@@ -142,12 +142,12 @@ function WorkCardBody({
     bodyProps: briefProps,
   } = useExpandableClamp([brief]);
 
-  // A plan document is found by its task; a free agent has no task, so a
-  // document it tagged is found by its agent alone.
+  // A task's documents are the ones it owns, then the ones it links. A free
+  // agent has no task, so a document it tagged is found by its agent alone.
+  const allDocuments = Object.values(world.documents);
   const documents = documentsByKind(
-    Object.values(world.documents).filter(
-      (d) => (task && d.taskId === task.id) || (agent && d.agentId === agent.id),
-    ),
+    allDocuments.filter((d) => (task ? d.taskId === task.id : !!agent && d.agentId === agent.id)),
+    task ? linkedEntries(allDocuments, task.id) : [],
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = nodeWorktree(world, node);
@@ -381,30 +381,10 @@ function WorkCardBody({
                 className={styles.documentKind}
               >
                 <span className={styles.documentKindHead}>{section.heading}</span>
-                {section.groups.map((g) =>
-                  g.members.length === 1 ? (
-                    <PanelLink key={g.id} tab={documentTab(g.members[0]!.id)}>
-                      {g.members[0]!.title} v{g.members[0]!.version} ·{' '}
-                      {describeDocumentStatus(g.status)}
-                    </PanelLink>
-                  ) : (
-                    <div
-                      key={g.id}
-                      role="group"
-                      aria-label={g.title}
-                      className={styles.documentGroup}
-                    >
-                      <span className={styles.documentGroupHead}>
-                        {g.title} · {describeDocumentStatus(g.status)}
-                      </span>
-                      {g.members.map((d) => (
-                        <PanelLink key={d.id} tab={documentTab(d.id)}>
-                          {d.title} v{d.version}
-                        </PanelLink>
-                      ))}
-                    </div>
-                  ),
-                )}
+                {section.groups.map((g) => (
+                  <DocumentEntry key={g.id} group={g} />
+                ))}
+                {section.archived.length > 0 && <ArchivedEntries groups={section.archived} />}
               </section>
             ))}
           </div>
@@ -565,5 +545,48 @@ function LaunchButton({ task }: { task: TaskRow }) {
       menuLabel="Launch on another host"
       options={useLaunchOptions(task)}
     />
+  );
+}
+
+/** One entry of a card section: a document, a linked document, or a review group. */
+function DocumentEntry({ group: g }: { group: CardGroup }) {
+  if (g.members.length === 1) {
+    const d = g.members[0]!;
+    return (
+      <PanelLink tab={documentTab(d.id)}>
+        {g.linked ? g.title : d.title} v{d.version} · {describeDocumentStatus(g.status)}
+        {g.linked && ' · linked'}
+      </PanelLink>
+    );
+  }
+  return (
+    <div role="group" aria-label={g.title} className={styles.documentGroup}>
+      <span className={styles.documentGroupHead}>
+        {g.title} · {describeDocumentStatus(g.status)}
+      </span>
+      {g.members.map((d) => (
+        <PanelLink key={d.id} tab={documentTab(d.id)}>
+          {d.title} v{d.version}
+        </PanelLink>
+      ))}
+    </div>
+  );
+}
+
+/** A section's archived entries, collapsed under one toggle until it is opened. */
+function ArchivedEntries({ groups }: { groups: CardGroup[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className={styles.documentGroup}>
+      <button
+        type="button"
+        className={styles.archivedToggle}
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        Archived ({groups.length})
+      </button>
+      {open && groups.map((g) => <DocumentEntry key={g.id} group={g} />)}
+    </div>
   );
 }

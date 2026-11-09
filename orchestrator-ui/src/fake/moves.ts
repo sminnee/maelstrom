@@ -82,6 +82,8 @@ export function addPlan(server: FakeServer, status: Document['status'] = 'approv
     status,
     source: { type: 'plan_review', requestId: 'req-nort9-plan', planFilePath: '' },
     group: { id: 'doc-nort9-plan', title: 'Plan', position: 0 },
+    archived: false,
+    links: [],
   };
   server.change({ kind: 'document', ids: [doc.id] }, (w) => {
     w.documents[doc.id] = doc;
@@ -101,6 +103,8 @@ export function addNote(server: FakeServer) {
     status: 'draft',
     source: { type: 'draft_file', fileId: 'new-note', filename: '.drafts/note.md' },
     group: { id: 'doc-new-note', title: 'Release note', position: 0 },
+    archived: false,
+    links: [],
   };
   server.change({ kind: 'document', ids: [doc.id] }, (w) => {
     w.documents[doc.id] = doc;
@@ -108,14 +112,14 @@ export function addNote(server: FakeServer) {
 }
 
 /**
- * An attached verification on NORT-7, as a restarted server seeds one: no agent, and
- * media served from the notebook. The id carries `new`, so a test finds this
- * document and not one the seed holds.
+ * A stored verification on NORT-7, as a restarted server builds one from the
+ * store: its agent is gone, and its media is served from the store. The id
+ * carries `new`, so a test finds this document and not one the seed holds.
  */
-export function addAttachedVerification(server: FakeServer) {
+export function addStoredVerification(server: FakeServer) {
   const doc: Document = {
-    id: 'attached-new-verification',
-    agentId: '',
+    id: 'stored-new-verification',
+    agentId: 'gone-agent',
     taskId: 'NORT-7',
     kind: 'verification',
     title: 'Login flow',
@@ -123,11 +127,45 @@ export function addAttachedVerification(server: FakeServer) {
       '# Login flow\n\n![The flow](/api/attachments/northwind/NORT-7/flow.webm)\n\nIt works.\n',
     version: 1,
     status: 'draft',
-    source: { type: 'draft_file', fileId: null, filename: '.drafts/verification.md' },
-    group: { id: 'attached-new-verification', title: 'Login flow', position: 0 },
+    source: { type: 'stored', name: '.drafts/verification.md' },
+    group: { id: 'stored-new-verification', title: 'Login flow', position: 0 },
+    archived: false,
+    links: [],
   };
   server.change({ kind: 'document', ids: [doc.id] }, (w) => {
     w.documents[doc.id] = doc;
+  });
+}
+
+/**
+ * Two stored documents for NORT-7's card: an archived note it owns, and a
+ * NORT-12 review that NORT-7 links at its `install` heading.
+ */
+export function addLinkedAndArchived(server: FakeServer) {
+  const stored = (over: Partial<Document> & Pick<Document, 'id' | 'title'>): Document => ({
+    agentId: '',
+    taskId: 'NORT-7',
+    kind: 'other',
+    markdown: `# ${over.title}\n`,
+    version: 1,
+    status: 'draft',
+    source: { type: 'stored', name: `${over.id}.md` },
+    group: { id: over.id, title: over.title, position: 0 },
+    archived: false,
+    links: [],
+    ...over,
+  });
+  const docs = [
+    stored({ id: 'stored-old-notes', title: 'Old notes', archived: true }),
+    stored({
+      id: 'stored-setup',
+      title: 'Setup',
+      taskId: 'NORT-12',
+      links: [{ taskId: 'NORT-7', fragment: 'install' }],
+    }),
+  ];
+  server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {
+    for (const d of docs) w.documents[d.id] = d;
   });
 }
 
@@ -148,6 +186,8 @@ export function addTaskSet(
     status: 'awaiting-review',
     source: { type: 'draft_file', fileId: `set-${i}`, filename: `.drafts/set-${i}.md` },
     group: { id: 'grp-set', title: 'Iteration 3', position: i },
+    archived: false,
+    links: [],
     ...over[i],
   }));
   server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {

@@ -32,10 +32,18 @@ export function reviewGroups(documents: readonly DocumentRow[]): ReviewGroup[] {
   });
 }
 
-/** The review groups of one heading on the node card. */
+/** One entry on the node card: a review group the task owns, or a document it links. */
+export interface CardGroup extends ReviewGroup {
+  /** The task links the document; another task owns it. */
+  linked: boolean;
+}
+
+/** The entries of one heading on the node card. */
 export interface KindSection {
   heading: string;
-  groups: ReviewGroup[];
+  groups: CardGroup[];
+  /** Archived entries, which the card shows collapsed at the end of the section. */
+  archived: CardGroup[];
 }
 
 /** The card's headings, in the order it draws them. Every kind not named here is `Other`. */
@@ -45,18 +53,47 @@ const KIND_HEADINGS: [DocumentKind, string][] = [
 ];
 const OTHER_HEADING = 'Other';
 
+/** The documents that link task `taskId`, one entry per link. */
+export function linkedEntries(documents: readonly DocumentRow[], taskId: string): CardGroup[] {
+  return documents.flatMap((d) =>
+    d.links
+      .filter((link) => link.taskId === taskId)
+      .map((link) => ({
+        id: `${d.id}#${link.fragment}`,
+        title: link.fragment ? `${d.title} #${link.fragment}` : d.title,
+        status: d.status,
+        members: [d],
+        linked: true,
+      })),
+  );
+}
+
 /**
- * `documents` as review groups under a heading per kind: Plans, Verifications,
- * then Other. A group takes its head member's kind. A heading with no group is
- * left out.
+ * The card's entries under a heading per kind: Plans, Verifications, then
+ * Other. `owned` become review groups, and a group takes its head member's
+ * kind. `linked` follow them. An archived entry goes to its section's
+ * `archived`. A heading with no entry is left out.
  */
-export function documentsByKind(documents: readonly DocumentRow[]): KindSection[] {
-  const groups = reviewGroups(documents);
-  const headingOf = (group: ReviewGroup) =>
+export function documentsByKind(
+  owned: readonly DocumentRow[],
+  linked: readonly CardGroup[] = [],
+): KindSection[] {
+  const entries: CardGroup[] = [
+    ...reviewGroups(owned).map((g) => ({ ...g, linked: false })),
+    ...linked,
+  ];
+  const headingOf = (group: CardGroup) =>
     KIND_HEADINGS.find(([kind]) => kind === group.members[0]!.kind)?.[1] ?? OTHER_HEADING;
   return [...KIND_HEADINGS.map(([, heading]) => heading), OTHER_HEADING]
-    .map((heading) => ({ heading, groups: groups.filter((g) => headingOf(g) === heading) }))
-    .filter((section) => section.groups.length > 0);
+    .map((heading) => {
+      const here = entries.filter((g) => headingOf(g) === heading);
+      return {
+        heading,
+        groups: here.filter((g) => !g.members[0]!.archived),
+        archived: here.filter((g) => g.members[0]!.archived),
+      };
+    })
+    .filter((section) => section.groups.length + section.archived.length > 0);
 }
 
 /** The current members of `doc`'s review group, in tag order. */
