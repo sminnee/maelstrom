@@ -1194,7 +1194,7 @@ the orchestrator server.
 
 | Command | Description |
 |---|---|
-| `mael doc add PATH` | Add the file as the next version of a document of the task, and print its reference with `@v<n>`. The same text and title again add no version. A document keeps its kind, and the name `plan` is refused: only an approved plan writes it. |
+| `mael doc add PATH` | Add the file as the next version of a document of the task, and print its reference with `@v<n>`. The same text and title again add no version. A document keeps its kind. The name `plan` is refused: only an agent's submitted plan writes it. |
 | `mael doc list [TASK]` | Print the documents the task owns, then those it links. |
 | `mael doc show REF` | Print a document: its versions, a SARIF document's findings with their keys, and the tasks that link it, by fragment. |
 | `mael doc link REF [TASK]` | Link the task to the document, or to the fragment `REF` names. The fragment must be in the latest version. A link names no version, so `@v<n>` is refused. A task cannot link a document it owns. |
@@ -1219,13 +1219,14 @@ mael doc show maelstrom:bivs.1:zap.sarif.json@v1 --body
 | `--name TEXT` | The document name. Default: the path relative to its worktree root, or the file name outside a worktree. A name may hold `/`, but not `:`, `@` or `#`. |
 | `--kind [markdown\|sarif]` | Default: `sarif` for a `.sarif` or `.sarif.json` file, else `markdown`. A SARIF file that does not parse is refused. |
 | `--title TEXT` | Default: a markdown file's first heading, else the name. |
+| `--as [tasks\|pr\|review\|verification\|other]` | The **Document role**. `verification` shows under Verifications on the card, and every other role under Other. A new document defaults to `other`. An add without `--as` keeps the role. |
 | `--task TEXT` | The owning task. Default: `$MAEL_TASK_ID`. |
 
 The media a markdown file names are not copied. Only a document an agent shows with a
 **Document tag** stores its media.
 
-Until the UI lists Task documents, a markdown document added here shows on the task card as a
-verification after a server restart.
+The document is a draft: it asks for no review. A markdown document shows on the task card at
+once. A SARIF document does not show on the card.
 
 **`mael doc list`**
 

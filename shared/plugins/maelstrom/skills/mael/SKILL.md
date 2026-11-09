@@ -23,6 +23,11 @@ When a plan-mode task's plan finds more than one session's work, splice the extr
 
 Use `mode: plan` for tasks and `mode: normal` for a `plan-next-step` tail. For cross-project patterns, run `mael wiki list` before work and update or add the applicable page afterwards.
 
+Task documents:
+
+- To store a file that needs no review, such as a scan or a note for a later task, run `mael doc add <path> --as <role>`.
+- To use a document, or one heading or finding of it, that another task owns, run `mael doc link <project>:<task-id>:<name>[#<fragment>]`.
+
 `$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the notebook holds the plan. Do not write the plan into Linear.
 
 ## Build and commit
