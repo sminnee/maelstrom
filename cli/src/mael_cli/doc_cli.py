@@ -15,7 +15,7 @@ from urllib.parse import quote
 import click
 
 from mael_domain.context import resolve_project
-from mael_domain.task_documents import TaskDocumentError, parse_ref
+from mael_domain.task_documents import PLAN_NAME, ROLES, TaskDocumentError, parse_ref
 
 from .orchestrator_client import OrchestratorClient, OrchestratorRefused
 
@@ -113,6 +113,13 @@ def doc() -> None:
     help="Defaults from the suffix: .sarif and .sarif.json are sarif.",
 )
 @click.option("--title", help="Defaults to the first heading, else the name.")
+@click.option(
+    "--as",
+    "role",
+    type=click.Choice([r for r in ROLES if r != PLAN_NAME]),
+    help="The Document role. A new document defaults to other; an add without "
+    "--as keeps the role. A plan is stored only when an agent submits one.",
+)
 @click.option("--task", "task_id", help="The owning task. Defaults to $MAEL_TASK_ID.")
 @_project_option
 def add(
@@ -120,10 +127,11 @@ def add(
     name: str | None,
     kind: str | None,
     title: str | None,
+    role: str | None,
     task_id: str | None,
     project: str | None,
 ) -> None:
-    """Add PATH as the next version of a document of the task."""
+    """Add PATH as the next version of a document of the task, with no review."""
     path = path.resolve()
     body = path.read_text()
     kind = kind or ("sarif" if path.name.endswith(_SARIF_SUFFIXES) else "markdown")
@@ -136,7 +144,8 @@ def add(
             "kind": kind,
             "title": title or _default_title(kind, body, name),
             "body": body,
-        },
+        }
+        | ({"role": role} if role else {}),
     )
     click.echo(reply["uri"])
 
