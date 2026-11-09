@@ -14,11 +14,13 @@ from pathlib import Path
 import pytest
 
 from mael_cli.self.host_check import (
+    HOST_ITEMS,
     HOST_TOOLS,
     HostCheck,
     chrome_glob,
     chrome_profile_text,
     declined_items,
+    project_items,
 )
 from mael_cli.self.production import Production
 from mael_domain.dev_cert import DevCertError
@@ -174,7 +176,9 @@ class FakeHost:
     def config(self) -> Path:
         return self.home / ".maelstrom" / "config.yaml"
 
-    def check(self, dev: bool = False, quiet: bool = False) -> list[str]:
+    def check(
+        self, dev: bool = False, quiet: bool = False, projects: Path | None = None
+    ) -> list[str]:
         if self.practices:
             self.install_practices("claude")
             self.install_practices("codex")
@@ -198,6 +202,7 @@ class FakeHost:
             issue_cert=self.issue_cert,
             codex_home=None,
             etc=self.home / "etc",
+            items=(*HOST_ITEMS, *(project_items(projects) if projects else ())),
         )()
 
     @property
@@ -748,3 +753,51 @@ def test_a_profile_for_another_home_is_unmet(home):
 )
 def test_chrome_glob_covers_every_home_under_home(home_dir, glob):
     assert chrome_glob(Path(home_dir)) == glob
+
+
+def make_project(projects: Path, name: str, check_host_cmd: str | None) -> None:
+    main = projects / name / "_main"
+    main.mkdir(parents=True)
+    (projects / name / ".mael").touch()
+    if check_host_cmd is not None:
+        (main / ".maelstrom.yaml").write_text(
+            f"check_host_cmd: {json.dumps(check_host_cmd)}\n"
+        )
+
+
+def test_a_failing_project_check_shows_its_output_and_does_not_fail(home):
+    projects = home / "Projects"
+    make_project(projects, "astro", "echo 'pdftotext missing'; exit 1")
+    host = FakeHost(home)
+
+    assert host.check(projects=projects) == []
+    assert host.output[-4:-1] == [
+        "Projects:",
+        "  ✗ astro: check_host_cmd failed",
+        "    pdftotext missing",
+    ]
+    assert host.asked == []
+    assert host.text.endswith("every required item is met.")
+
+
+def test_a_passing_project_check_is_hidden_under_quiet(home):
+    projects = home / "Projects"
+    make_project(projects, "astro", "exit 0")
+    host = FakeHost(home)
+
+    host.check(projects=projects)
+    assert "  ✓ astro: check_host_cmd passes" in host.output
+
+    quiet = FakeHost(home)
+    quiet.check(quiet=True, projects=projects)
+    assert "astro" not in quiet.text
+
+
+def test_a_project_without_a_check_does_not_show(home):
+    projects = home / "Projects"
+    make_project(projects, "plain", None)
+    host = FakeHost(home)
+
+    host.check(projects=projects)
+
+    assert "Projects:" not in host.text and "plain" not in host.text

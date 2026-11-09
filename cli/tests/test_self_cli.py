@@ -72,11 +72,24 @@ def test_check_host_without_a_tty_probes_the_agents_path(host, monkeypatch):
     caller_path = os.environ["PATH"]
     monkeypatch.setenv("PATH", caller_path)
 
+    # A project's check runs last, on the same PATH.
+    project = home / "Projects" / "astro"
+    (project / "_main").mkdir(parents=True)
+    (project / ".mael").touch()
+    (project / "_main" / ".maelstrom.yaml").write_text(
+        "check_host_cmd: 'echo \"$PATH\"; exit 1'\n"
+    )
+
     result = mael("check-host")
 
     assert result.exit_code == 1
     assert "gh (required) is missing" in result.output
     assert probed == {agent_path(Production(home), caller_path)}
+    projects = result.output.split("Projects:\n", 1)[1]
+    assert projects.startswith(
+        "  ✗ astro: check_host_cmd failed\n"
+        f"    {agent_path(Production(home), caller_path)}\n"
+    )
 
 
 def test_update(host):
