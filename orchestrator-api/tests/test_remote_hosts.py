@@ -5,7 +5,12 @@ from contextlib import asynccontextmanager, suppress
 
 from aiohttp import web
 
-from mael_orchestrator.remote_hosts import MERGED_KINDS, RemoteHost
+from mael_orchestrator import remote_hosts
+from mael_orchestrator.remote_hosts import (
+    MERGED_KINDS,
+    RemoteHost,
+    resolve_addresses,
+)
 
 
 class StubHost:
@@ -186,3 +191,37 @@ def test_an_on_change_error_is_logged_and_the_link_keeps_running(caplog):
 
     assert asyncio.run(scenario()) == ({"agent"}, True, [True])
     assert "a bad row" in caplog.text
+
+
+def test_a_hosts_addresses_are_kept_for_a_minute_then_read_again(monkeypatch):
+    asked: list[str] = []
+
+    async def resolve(host: str) -> set[str]:
+        asked.append(host)
+        return {f"100.64.0.{len(asked)}"}
+
+    now = [1000.0]
+    monkeypatch.setattr(remote_hosts.time, "monotonic", lambda: now[0])
+    host = RemoteHost("laptop", "https://laptop.ts.net:2772", resolve=resolve)
+
+    async def scenario():
+        first = await host.addresses()
+        now[0] += 59
+        kept = await host.addresses()
+        now[0] += 2
+        return first, kept, await host.addresses()
+
+    first, kept, again = asyncio.run(scenario())
+    assert (first, kept, again) == ({"100.64.0.1"}, {"100.64.0.1"}, {"100.64.0.2"})
+    assert asked == ["laptop.ts.net", "laptop.ts.net"]
+
+
+def test_resolving_finds_a_name_and_gives_nothing_for_an_unknown_one():
+    async def scenario():
+        return await resolve_addresses("localhost"), await resolve_addresses(
+            "nohost.invalid"
+        )
+
+    local, unknown = asyncio.run(scenario())
+    assert "127.0.0.1" in local
+    assert unknown == set()
