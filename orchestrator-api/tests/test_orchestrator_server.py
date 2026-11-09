@@ -8490,6 +8490,31 @@ def test_a_request_below_the_threshold_releases_what_it_held(harness):
     assert event == commented()
 
 
+def test_resume_and_compact_holds_events_until_the_agent_is_told(harness):
+    harness.daemon.rows["ag1"] = agent_row(state="exited(1)", context_tokens=312_000)
+
+    async def scenario():
+        async with harness.client() as api:
+            assert (await api.get_json("/api/agents/ag1"))["state"] == "exited"
+            # Replayed by the new life's attach: once read, the watch is live.
+            harness.daemon.backlog["ag1"] = [tag_event("Before the exit.")]
+            op = await operated(api, "/api/agents/ag1/resume", {"compact": True})
+            await replayed(api, "Before the exit.")
+            await comment(api)
+            held = said_texts(harness)
+            harness.daemon.push("ag1", compact_boundary(312_000, 41_000))
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: len(said_texts(harness)) == 2)
+            return op, held, said_texts(harness)
+
+    op, held, after = run(scenario())
+    assert op["state"] == "done"
+    (sent,) = [c for c in harness.daemon.calls if c["cmd"] == "resume"]
+    assert sent["text"] == "/compact"
+    assert held == []
+    assert after == [COMPACTED, commented()]
+
+
 def test_a_compact_the_user_asked_for_holds_events_and_gets_no_reply(harness):
     harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
 
@@ -8548,6 +8573,35 @@ def test_an_exit_drops_the_hold_and_what_it_held(harness):
     after_exit, after_revive = run(scenario())
     assert after_exit == ["/compact"]
     assert after_revive == ["/compact", commented()]
+
+
+@pytest.mark.parametrize(
+    "refuse",
+    ["resume", "say"],
+    ids=["resume-and-compact", "user-compact"],
+)
+def test_a_host_that_refuses_the_compact_releases_the_hold(harness, refuse):
+    """Else every event waits for the backstop, reported as delivered."""
+    state = "exited(1)" if refuse == "resume" else "idle"
+    harness.daemon.rows["ag1"] = agent_row(state=state)
+    harness.daemon.replies[refuse] = [{"error": "agent ag1 is gone"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            if refuse == "resume":
+                await api.get_json("/api/agents/ag1")
+                op = await operated(api, "/api/agents/ag1/resume", {"compact": True})
+                assert op["state"] == "refused"
+                # The world still says exited, so make it live to hear a tell.
+                harness.daemon.rows["ag1"]["state"] = "idle"
+                await harness.orch.refresh_agents()
+            else:
+                await transcript_of(api)
+                await api.post("/api/agents/ag1/say", {"text": "/compact"})
+            await comment(api)
+            return said_texts(harness)
+
+    assert run(scenario())[-1] == commented()
 
 
 # --- the end-session request --------------------------------------------------

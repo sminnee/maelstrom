@@ -336,6 +336,32 @@ describe('App', () => {
     ]);
   });
 
+  it('resumes and compacts from the Resume menu, and the main segment resumes alone', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    exitAgent(server, 'd9a4c7f1');
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+    const resumeBodies = (from: number) =>
+      server.requests
+        .slice(from)
+        .filter((r) => r.method === 'POST' && r.path.endsWith('/resume'))
+        .map((r) => r.body);
+
+    let before = server.requests.length;
+    await user.click(await within(card).findByRole('button', { name: 'More resume actions' }));
+    await user.click(within(card).getByRole('menuitem', { name: 'Resume and compact' }));
+    await waitFor(() => expect(resumeBodies(before)).toEqual([{ compact: true }]));
+    await waitFor(() =>
+      expect(within(card).queryByRole('button', { name: 'Resume' })).not.toBeInTheDocument(),
+    );
+
+    exitAgent(server, 'd9a4c7f1');
+    before = server.requests.length;
+    await user.click(await within(card).findByRole('button', { name: 'Resume' }));
+    await waitFor(() => expect(resumeBodies(before)).toEqual([{}]));
+  });
+
   it('shows on the card why the host refused a Resume', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

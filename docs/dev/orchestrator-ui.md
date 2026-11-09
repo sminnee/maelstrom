@@ -631,7 +631,9 @@ operation.
 Once the agent has exited, the node card offers Resume beside its Dismiss. Resume sends
 `agent.resume`, as `mael agent resume <id>` does, and it covers a terminated agent and a crashed
 one. It runs as a `resume` operation. Neither button waits for its operation. A refusal shows on
-the card and in the console.
+the card and in the console. Resume is a split button. Its menu's **Resume and compact** sends
+`agent.resume` with `compact: true`, and the server makes `/compact` the first turn — see
+`docs/dev/orchestrator-server.md`, "The compaction hold".
 
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The

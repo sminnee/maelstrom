@@ -225,6 +225,11 @@ closed, and the latest stage on the agent's expanded card.
 At the break points — a build phase closed, gates passed, review finished, PR pushed — the session writes a
 `<compact-session min-tokens="200k">` marker. When the session holds 200k tokens or more,
 Maelstrom compacts it, so the build's context does not ride into review and the CI watch.
+Maelstrom holds what it tells the agent (gate, PR, jig and document results) until the compact
+ends, and then delivers them in order.
+
+To compact a stopped agent as it comes back, open the menu on its Resume button and choose
+**Resume and compact**. The agent compacts first, and then gets "Continue."
 
 ### Why the task closes at step 6, not step 7
 

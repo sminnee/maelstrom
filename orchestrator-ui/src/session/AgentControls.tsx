@@ -1,7 +1,6 @@
 import { useResume } from '../api/agents';
 import { isLive } from '../selectors/graph';
 import { actionIcon } from '../ui/actionIcons';
-import { AppButton } from '../ui/AppButton';
 import { SplitButton } from '../ui/SplitButton';
 import { type EndOfWorkProps, useEndOfWork } from './useEndOfWork';
 
@@ -22,14 +21,23 @@ export function AgentControls({ agent, taskId, where, onTakenOffDesk }: EndOfWor
   return (
     <>
       {agent && !isLive(agent) && (
-        <AppButton
+        <SplitButton
           variant="quiet"
-          icon={actionIcon('resume')}
-          processingChildren="Resuming"
-          onClick={() => resume.mutateAsync({ agentId: agent.id })}
-        >
-          Resume
-        </AppButton>
+          menuLabel="More resume actions"
+          options={[
+            {
+              label: 'Resume',
+              icon: actionIcon('resume'),
+              processing: 'Resuming',
+              run: () => resume.mutateAsync({ agentId: agent.id }),
+            },
+            {
+              label: 'Resume and compact',
+              processing: 'Resuming',
+              run: () => resume.mutateAsync({ agentId: agent.id, compact: true }),
+            },
+          ]}
+        />
       )}
       <SplitButton variant="quiet" options={endOfWork} />
     </>

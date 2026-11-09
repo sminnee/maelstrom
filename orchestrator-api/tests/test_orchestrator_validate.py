@@ -114,6 +114,20 @@ def test_a_resume_of_a_running_agent_is_refused():
     assert code(validate_command(world_with(agents=[agent]), cmd)) == "invalid"
 
 
+def test_a_resume_that_compacts_takes_no_text():
+    # The compact must be the whole first turn, or the harness does not run it.
+    agent = make_agent(state="exited", exitCode=1)
+    cmd = {"type": "agent.resume", "agentId": "agent-1", "compact": True, "text": "Go"}
+    assert code(validate_command(world_with(agents=[agent]), cmd)) == "invalid"
+
+
+def test_a_resume_compact_flag_is_a_bool():
+    # "false" is truthy: read loosely, it would compact.
+    agent = make_agent(state="exited", exitCode=1)
+    cmd = {"type": "agent.resume", "agentId": "agent-1", "compact": "false"}
+    assert code(validate_command(world_with(agents=[agent]), cmd)) == "invalid"
+
+
 def test_a_resume_of_an_unknown_agent_is_unknown_id():
     cmd = {"type": "agent.resume", "agentId": "ghost"}
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"
