@@ -121,6 +121,11 @@ WORKTREE_PATH = "/Users/dev/Projects/northwind/northwind-alpha"
 read_fixture = read_stamped_fixture
 
 
+def session_of(task_id: str) -> str:
+    """The Claude session a test stores on ``task_id``."""
+    return f"session-{task_id}"
+
+
 class Harness:
     """An orchestrator over in-memory sources and a scripted agent host."""
 
@@ -200,6 +205,8 @@ class Harness:
     def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
         """Seed one task, from outside a running loop.
 
+        ``session`` stores a Claude session on the task, as a launch would.
+
         The model is async now, so the write is driven on its own loop — the
         same way the tests drive the server itself through :func:`run`. A
         scenario already inside a loop must use :meth:`add_task_async`, because
@@ -212,9 +219,12 @@ class Harness:
     ) -> None:
         """Seed one task from inside a running loop."""
         title = fields.pop("title", task_id)
+        session = fields.pop("session", "")
         await model.create(
             self.store, project=project, title=title, id=task_id, **fields
         )
+        if session:
+            await model.add_session(self.store, project, task_id, session, "claude")
         self.version += 1
 
     def serving(self, web_root: Path | None = None):
@@ -526,8 +536,8 @@ def test_the_world_carries_the_wait_and_the_transcript_holds_the_backlog(harness
     A client that connects after the backlog was relayed gets the wait from
     the world and the scrollback from the transcript route.
     """
-    harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    session = session_of("NORT-7")
     backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
     harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
     harness.daemon.backlog["ag1"] = backlog
@@ -883,7 +893,7 @@ def test_a_revived_agent_loses_the_attention_its_exit_raised(harness):
 
 def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harness):
     """An agent away during a task's arrival must still find it on the way back."""
-    session = model.session_id_for(PROJECT, "NORT-7")
+    session = session_of("NORT-7")
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
@@ -900,7 +910,7 @@ def test_a_revived_agent_links_to_the_task_that_arrived_while_it_was_gone(harnes
                 )
                 # The task appears only while the agent is gone, so the link it
                 # held at exit is stale by the time it comes back.
-                await harness.add_task_async("NORT-7")
+                await harness.add_task_async("NORT-7", session=session_of("NORT-7"))
                 await stream.change("task", "northwind/NORT-7")
                 harness.daemon.rows["ag1"]["state"] = "idle"
                 # Every agent frame from the moment it comes back. The revive
@@ -1579,7 +1589,6 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
         model="claude-opus-5",
         content="Do it.",
     )
-    session = model.session_id_for(PROJECT, "NORT-7")
 
     async def scenario():
         async with harness.client() as api:
@@ -1612,14 +1621,19 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert start["prompt"] == "/plan-task NORT-7\n\nDo it."
     assert start["mode"] == "auto"
     assert start["model"] == "claude-opus-5"
-    assert start["session"] == session
+    # The first launch stores a new Claude session on the task, and pins it.
+    stored = run(model.load(harness.store, PROJECT, "NORT-7"))
+    [entry] = stored.sessions
+    assert entry.harness == "claude"
+    assert start["session"] == entry.id
+    assert start["resume"] is False
+    assert task["sessions"] == [{"id": entry.id, "harness": "claude"}]
     assert start["env"] == {
         "MAEL_TASK_ID": "NORT-7",
         "MAEL_TASK_PARENT": "NORT-7",
-        "MAEL_TASK_SESSION_ID": session,
         "MAEL_TASK_PROJECT": PROJECT,
     }
-    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "in-progress"
+    assert stored.status == "in-progress"
     assert task["status"] == "in-progress"
     assert agent["taskId"] == "northwind/NORT-7"
     assert agent["worktreeId"] == "northwind-alpha"
@@ -1627,13 +1641,37 @@ def test_launch_starts_an_agent_for_the_task_and_moves_it_in_progress(harness):
     assert [e["id"] for e in desk] == ["task:northwind/NORT-7"]
 
 
+def test_a_codex_launch_stores_its_thread_and_a_relaunch_resumes_it(harness):
+    """Codex makes its own thread id, so the task stores the start's reply."""
+    harness.add_task("NORT-7", model="codex:luna")
+    harness.daemon.next_start_id = "thread-1"
+
+    async def scenario():
+        async with harness.client() as api:
+            first = await operated(api, "/api/tasks/northwind/NORT-7/launch")
+            harness.daemon.rows["thread-1"]["state"] = "exited(0)"
+            await harness.orch.refresh_agents()
+            await model.move(harness.store, PROJECT, "NORT-7", "todo")
+            second = await operated(api, "/api/tasks/northwind/NORT-7/launch")
+            return first, second
+
+    first, second = run(scenario())
+    assert (first["state"], second["state"]) == ("done", "done")
+    first_start, second_start = [c for c in harness.daemon.calls if c["cmd"] == "start"]
+    # A never-run Codex task names no thread.
+    assert "session" not in first_start
+    assert first_start["resume"] is False
+    stored = run(model.load(harness.store, PROJECT, "NORT-7"))
+    assert [(s.id, s.harness) for s in stored.sessions] == [("thread-1", "codex")]
+    assert (second_start["session"], second_start["resume"]) == ("thread-1", True)
+
+
 def test_a_launch_of_a_task_whose_session_an_agent_holds_is_refused(harness):
     """A Codex thread runs in no process the live-session sweep can see, so
     the agent the host lists for the session is the evidence."""
     harness.add_task("NORT-7")
-    harness.daemon.rows["thread-1"] = agent_row(
-        "thread-1", session=model.session_id_for(PROJECT, "NORT-7")
-    )
+    run(model.add_session(harness.store, PROJECT, "NORT-7", "thread-1", "codex"))
+    harness.daemon.rows["thread-1"] = agent_row("thread-1", session="thread-1")
 
     async def scenario():
         async with harness.client() as api:
@@ -1649,8 +1687,8 @@ def test_a_launch_of_a_task_whose_session_an_agent_holds_is_refused(harness):
 def test_an_exited_agent_or_a_subagent_on_the_session_does_not_block_a_launch(
     harness,
 ):
-    harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    session = session_of("NORT-7")
     harness.daemon.rows["thread-1"] = agent_row(
         "thread-1", session=session, state="exited(0)"
     )
@@ -1664,20 +1702,19 @@ def test_an_exited_agent_or_a_subagent_on_the_session_does_not_block_a_launch(
 
 
 @pytest.mark.parametrize(
-    ("launch_model", "transcript", "resume"),
+    ("transcript", "resume"),
     [
         # A task that ran before has a transcript of its session: it resumes.
-        ("", True, True),
+        (True, True),
         # A task that never ran claims its session id fresh.
-        ("", False, False),
-        # A Codex thread is found by session id, with no transcript file.
-        ("codex:sol", False, True),
+        (False, False),
     ],
 )
 def test_a_launch_resumes_its_session_only_when_it_ran_before(
-    harness, launch_model, transcript, resume
+    harness, transcript, resume
 ):
-    harness.add_task("NORT-7")
+    """A Codex relaunch is in the stored-thread test above."""
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
     asked: list[tuple[Path, str]] = []
 
     def has_transcript(path: Path, session: str) -> bool:
@@ -1685,19 +1722,16 @@ def test_a_launch_resumes_its_session_only_when_it_ran_before(
         return transcript
 
     harness.opener.has_transcript = has_transcript
-    body = {"model": launch_model} if launch_model else {}
 
     async def scenario():
         async with harness.client() as api:
-            return await operated(api, "/api/tasks/northwind/NORT-7/launch", body)
+            return await operated(api, "/api/tasks/northwind/NORT-7/launch")
 
     assert run(scenario())["state"] == "done"
     start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
-    session = model.session_id_for(PROJECT, "NORT-7")
-    assert start["session"] == session
+    assert start["session"] == session_of("NORT-7")
     assert start["resume"] is resume
-    if not launch_model:
-        assert asked == [(Path(WORKTREE_PATH), session)]
+    assert asked == [(Path(WORKTREE_PATH), session_of("NORT-7"))]
 
 
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
@@ -1826,11 +1860,13 @@ def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
     assert held_to_timeout == [False]
 
 
-def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store):
+@pytest.mark.parametrize("model_name", ["", "codex:sol"])
+def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store, model_name):
+    """A never-run Codex task has no session yet, and is still checked."""
     from mael_domain.worktree import SyncResult
 
     harness = Harness(store)
-    harness.add_task("NORT-7")
+    harness.add_task("NORT-7", model=model_name)
     harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
         path=Path(WORKTREE_PATH),
         name="alpha",
@@ -2205,8 +2241,8 @@ def test_a_live_agent_joins_the_desk(harness):
 
 
 def test_an_agent_with_a_task_joins_the_desk_under_its_task(harness):
-    harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    session = session_of("NORT-7")
     harness.daemon.rows["ag1"] = agent_row(session=session)
 
     async def scenario():
@@ -3109,8 +3145,8 @@ def test_projects_worktrees_and_the_desk_each_have_a_get(harness):
 
 
 def test_an_agent_detail_carries_the_request_it_waits_on(harness):
-    harness.add_task("NORT-7")
-    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    session = session_of("NORT-7")
     backlog, _ = split_at_control_response(read_fixture("question-unanswered.jsonl"))
     harness.daemon.rows["ag1"] = agent_row(session=session, state="awaiting-question")
     harness.daemon.backlog["ag1"] = backlog
@@ -5710,10 +5746,15 @@ def test_a_re_presented_task_set_promotes_its_current_members_in_their_new_order
 def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
     """One chain, one branch, one PR — as ``$MAEL_TASK_PARENT`` decides it."""
     harness = notebook_harness
-    harness.add_task("linear.NORT-9.1", parent="linear.NORT-9", title="Plan the work")
+    harness.add_task(
+        "linear.NORT-9.1",
+        session=session_of("linear.NORT-9.1"),
+        parent="linear.NORT-9",
+        title="Plan the work",
+    )
     harness.daemon.rows["ag1"] = agent_row(
         cwd=str(harness.worktree),
-        session=model.session_id_for(PROJECT, "linear.NORT-9.1"),
+        session=session_of("linear.NORT-9.1"),
     )
     write_draft(harness, "draft-one.md", "First step")
 
@@ -5737,10 +5778,12 @@ def test_a_mid_chain_planner_s_set_splices_in_after_it(notebook_harness):
     """A -> P -> C, approved from P, becomes A -> P -> N1 -> N2 -> C."""
     harness = notebook_harness
     harness.add_task("NORT-1", title="A")
-    harness.add_task("NORT-2", title="P", follows=["NORT-1"])
+    harness.add_task(
+        "NORT-2", session=session_of("NORT-2"), title="P", follows=["NORT-1"]
+    )
     harness.add_task("NORT-3", title="C", follows=["NORT-2"])
     harness.daemon.rows["ag1"] = agent_row(
-        cwd=str(harness.worktree), session=model.session_id_for(PROJECT, "NORT-2")
+        cwd=str(harness.worktree), session=session_of("NORT-2")
     )
     write_draft(harness, "draft-one.md", "N1")
     write_draft(harness, "draft-two.md", "N2")
@@ -7697,8 +7740,8 @@ def pr_of(harness, task_id: str = "NORT-7") -> tuple[int, str]:
 
 
 def an_agent_on_a_task(harness, *, backlog=(), **task_fields) -> None:
-    harness.add_task("NORT-7", **task_fields)
-    session = model.session_id_for(PROJECT, "NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"), **task_fields)
+    session = session_of("NORT-7")
     harness.daemon.rows["ag1"] = agent_row(session=session)
     harness.daemon.backlog["ag1"] = list(backlog)
 
@@ -8127,12 +8170,10 @@ def test_a_moving_pr_tells_the_agent_on_its_task(harness):
 
 def test_a_free_agent_and_another_tasks_agent_hear_nothing(harness):
     prs = a_watched_pr(harness)
-    harness.add_task("NORT-8")
-    harness.daemon.rows["ag2"] = agent_row(
-        "ag2", session=model.session_id_for(PROJECT, "NORT-8")
-    )
+    harness.add_task("NORT-8", session=session_of("NORT-8"))
+    harness.daemon.rows["ag2"] = agent_row("ag2", session=session_of("NORT-8"))
     harness.daemon.rows["ag3"] = agent_row("ag3")
-    nort7 = model.session_id_for(PROJECT, "NORT-7")
+    nort7 = session_of("NORT-7")
     harness.daemon.rows["ag1.1"] = agent_row("ag1.1", parent="ag1", session=nort7)
     harness.daemon.rows["ag4"] = agent_row("ag4", state="exited", session=nort7)
 
@@ -11098,10 +11139,10 @@ def attach_harness(store, tmp_path, images):
     def build(*, agent: bool = True, linked: bool = True) -> Harness:
         harness = Harness(store, document_store=table)
         if not seeded:
-            harness.add_task("NORT-7")
+            harness.add_task("NORT-7", session=session_of("NORT-7"))
             seeded.append(True)
         if agent:
-            session = model.session_id_for(PROJECT, "NORT-7") if linked else ""
+            session = session_of("NORT-7") if linked else ""
             harness.daemon.rows["ag1"] = agent_row(cwd=str(worktree), session=session)
         return harness
 
@@ -11474,11 +11515,11 @@ def test_a_plan_the_server_missed_is_stored_on_replay(store, images):
         )
     )
     harness = Harness(store, document_store=table)
-    harness.add_task("NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
     waiting_on(
         harness,
         "plan-review-with-plan.jsonl",
-        session=model.session_id_for(PROJECT, "NORT-7"),
+        session=session_of("NORT-7"),
     )
 
     async def scenario():
@@ -11507,11 +11548,11 @@ def test_a_plan_the_server_missed_is_stored_on_replay(store, images):
 def test_a_submitted_plan_is_stored_and_its_approval_survives_a_restart(store, images):
     table = InMemoryTaskAttachmentTable()
     first = Harness(store, document_store=table)
-    first.add_task("NORT-7")
+    first.add_task("NORT-7", session=session_of("NORT-7"))
     waiting_on(
         first,
         "plan-review-with-plan.jsonl",
-        session=model.session_id_for(PROJECT, "NORT-7"),
+        session=session_of("NORT-7"),
     )
 
     async def approve():
@@ -11557,9 +11598,9 @@ def test_a_submitted_plan_is_stored_and_its_approval_survives_a_restart(store, i
 def test_a_replayed_plan_review_leaves_one_plan_after_a_restart(store, images):
     """The replay finds the stored plan under its id, and the store wins."""
     table = InMemoryTaskAttachmentTable()
-    session = model.session_id_for(PROJECT, "NORT-7")
+    session = session_of("NORT-7")
     first = Harness(store, document_store=table)
-    first.add_task("NORT-7")
+    first.add_task("NORT-7", session=session)
     backlog, _ = waiting_on(first, "plan-review-with-plan.jsonl", session=session)
 
     async def approve():
@@ -11689,11 +11730,11 @@ def test_a_re_present_stores_a_dropped_member_as_superseded(attach_harness):
 def test_a_denied_plan_submitted_again_is_its_next_version(store, images):
     table = InMemoryTaskAttachmentTable()
     harness = Harness(store, document_store=table)
-    harness.add_task("NORT-7")
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
     backlog, _ = waiting_on(
         harness,
         "plan-review-with-plan.jsonl",
-        session=model.session_id_for(PROJECT, "NORT-7"),
+        session=session_of("NORT-7"),
     )
     [ask] = [e for e in backlog if e["type"] == "control_request"][-1:]
     again = {
@@ -11740,7 +11781,7 @@ def test_a_denied_plan_submitted_again_is_its_next_version(store, images):
 def test_a_replayed_old_denial_leaves_a_later_approved_plan_approved(store, images):
     """The store holds v2 approved; the backlog still ends in v1's denial."""
     table = InMemoryTaskAttachmentTable()
-    session = model.session_id_for(PROJECT, "NORT-7")
+    session = session_of("NORT-7")
     first = pending_from(read_fixture("plan-review-with-plan.jsonl")).input["plan"]
     for title, body, status in (
         ("First plan", first, "changes-requested"),
@@ -11761,7 +11802,7 @@ def test_a_replayed_old_denial_leaves_a_later_approved_plan_approved(store, imag
             )
         )
     harness = Harness(store, document_store=table)
-    harness.add_task("NORT-7")
+    harness.add_task("NORT-7", session=session)
     backlog, _ = waiting_on(harness, "plan-review-with-plan.jsonl", session=session)
     harness.daemon.backlog["ag1"] = [
         *backlog,
@@ -13559,9 +13600,10 @@ class Cobalt:
 
     def __init__(self, path: Path, agents: SqliteAgentStore) -> None:
         self.claude = ScriptedAsyncDaemonClient()
+        self.codex = ScriptedAsyncDaemonClient(next_start_id="thread-1")
         self.store = InMemoryTaskTable()
         self.router = DaemonRouter(
-            self.claude, ScriptedAsyncDaemonClient(), agents, ids=IdSpace("cobalt")
+            self.claude, self.codex, agents, ids=IdSpace("cobalt")
         )
         self.path = path
         self.harness = self.build()
@@ -13635,7 +13677,9 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
 
     async def scenario():
         async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
-            await parent.add_task_async("NORT-7", content="Do it.")
+            await parent.add_task_async(
+                "NORT-7", content="Do it.", session=session_of("NORT-7")
+            )
             await child.harness.add_task_async("NORT-1", title="Cobalt's own")
             await until(api, "/api/tasks", has_task("northwind/NORT-7"))
             op = await operated(
@@ -13712,7 +13756,7 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
 
     # (1) The child's daemon starts the task's session, told of its parent.
     start = next(c for c in child.claude.calls if c["cmd"] == "start")
-    assert start["session"] == model.session_id_for(PROJECT, "NORT-7")
+    assert start["session"] == session_of("NORT-7")
     assert start["env"]["MAEL_TASK_ID"] == "NORT-7"
     assert start["env"]["MAEL_PARENT_URL"].startswith("http://127.0.0.1:")
     assert start["resume"] is True
@@ -13764,6 +13808,34 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
     direct = next(a for a in seen["direct"]["agents"] if a["id"] == "cobalt:own1")
     assert direct["taskId"] == ""
     assert run(model.load(child.store, PROJECT, "NORT-1")).status == "in-progress"
+
+
+def test_a_delegated_codex_launch_stores_its_thread_and_a_relaunch_resumes_it(
+    store, tmp_path
+):
+    """The parent stores the thread id the remote host's router resumes."""
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            await parent.add_task_async("NORT-7", model="codex:sol")
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            path = "/api/tasks/northwind/NORT-7/launch"
+            first = await operated(api, path, {"host": "cobalt"})
+            stored = await model.load(store, PROJECT, "NORT-7")
+            child.codex.rows["thread-1"]["state"] = "exited(0)"
+            await child.harness.orch.refresh_agents()
+            await parent.orch.refresh_agents()
+            await model.move(store, PROJECT, "NORT-7", "todo")
+            second = await operated(api, path, {"host": "cobalt"})
+            return first, second, stored, child
+
+    first, second, stored, child = run(scenario())
+    assert (first["state"], second["state"]) == ("done", "done"), second["words"]
+    assert [(s.id, s.harness) for s in stored.sessions] == [("thread-1", "codex")]
+    sent = [c for c in child.codex.calls if c["cmd"] in ("start", "resume")]
+    assert [c["cmd"] for c in sent] == ["start", "resume"]
+    assert "session" not in sent[0]
+    assert sent[1]["id"] == "thread-1"
 
 
 def test_a_delegated_launch_the_host_refuses_rolls_the_task_back(store, tmp_path):

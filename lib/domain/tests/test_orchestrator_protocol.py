@@ -43,6 +43,7 @@ def make_task(**over):
         "trigger": "",
         "lastRun": "",
         "scheduleZone": "",
+        "sessions": [],
     }
     task.update(over)
     return task

@@ -176,7 +176,6 @@ class CodexDaemonClient(AsyncDaemonClient):
             self._adopt(
                 thread_id,
                 thread,
-                session=str(agent.get("task_session_id") or ""),
                 cwd=str(agent.get("cwd") or ""),
                 model=str(agent.get("model") or ""),
                 mode=str(agent.get("mode") or "normal"),
@@ -198,7 +197,6 @@ class CodexDaemonClient(AsyncDaemonClient):
         self._threads[thread_id] = _Thread(
             _row(
                 thread_id,
-                session=str(payload.get("session") or ""),
                 cwd=str(thread.get("cwd") or payload["cwd"]),
                 model=str(payload.get("model") or ""),
                 mode=mode,
@@ -231,7 +229,6 @@ class CodexDaemonClient(AsyncDaemonClient):
             self._adopt(
                 thread_id,
                 thread,
-                session=str(payload.get("session") or ""),
                 cwd=str(thread.get("cwd") or ""),
                 model=str(thread.get("model") or ""),
                 mode=str(payload.get("mode") or "normal"),
@@ -563,7 +560,6 @@ class CodexDaemonClient(AsyncDaemonClient):
         thread_id: str,
         thread: dict[str, Any],
         *,
-        session: str,
         cwd: str,
         model: str,
         mode: str,
@@ -572,7 +568,6 @@ class CodexDaemonClient(AsyncDaemonClient):
         held = _Thread(
             _row(
                 thread_id,
-                session=session,
                 cwd=str(thread.get("cwd") or cwd),
                 model=model,
                 mode=mode,
@@ -741,16 +736,17 @@ def _no_agent(thread_id: str) -> dict[str, Any]:
     return _error(f"no such agent: {thread_id}")
 
 
-def _row(
-    thread_id: str, *, session: str, cwd: str, model: str, mode: str
-) -> dict[str, Any]:
-    """A ``list`` row, with every key an ``AgentRow`` has."""
+def _row(thread_id: str, *, cwd: str, model: str, mode: str) -> dict[str, Any]:
+    """A ``list`` row, with every key an ``AgentRow`` has.
+
+    A thread's session is the thread itself: the task stores the thread id.
+    """
     return {
         "id": thread_id,
         "parent": "",
         "description": "",
         "state": "idle",
-        "session": session,
+        "session": thread_id,
         "cwd": cwd,
         "pid": None,
         "model": model,

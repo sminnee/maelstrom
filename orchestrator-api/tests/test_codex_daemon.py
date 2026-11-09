@@ -314,7 +314,7 @@ def test_restore_rebuilds_the_ring_from_the_turns_codex_kept():
                     "id": thread_id,
                     "harness": "codex",
                     "status": "running",
-                    "task_session_id": "task-session-1",
+                    "task_session_id": thread_id,
                     "cwd": "/worktree",
                     "model": "codex:luna",
                     "mode": "normal",
@@ -349,7 +349,8 @@ def test_restore_rebuilds_the_ring_from_the_turns_codex_kept():
         ("turn/completed", None),
     ]
     [row] = listed["agents"]
-    assert (row["session"], row["state"]) == ("task-session-1", "idle")
+    # A thread's session is the thread itself.
+    assert (row["session"], row["state"]) == (row["id"], "idle")
 
 
 def test_an_approval_and_its_answer_are_recorded_and_approve_needs_no_name():
@@ -603,7 +604,7 @@ def test_resume_brings_a_thread_back_in_the_launch_worktree_and_says_its_text():
                 "cmd": "resume",
                 "id": thread_id,
                 "text": "Carry on.",
-                "session": "s1",
+                "session": thread_id,
                 "cwd": "/worktree-2",
             }
         )
@@ -621,7 +622,7 @@ def test_resume_brings_a_thread_back_in_the_launch_worktree_and_says_its_text():
     ]
     [turn] = calls_of(bridge, "turn/start")
     assert turn["input"] == [{"type": "text", "text": "Carry on."}]
-    assert listed["agents"][0]["session"] == "s1"
+    assert listed["agents"][0]["session"] == thread_id
 
 
 def test_a_resume_whose_text_is_a_compact_compacts_the_thread():

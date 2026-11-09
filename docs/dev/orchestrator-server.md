@@ -1188,10 +1188,11 @@ really is happening then.
 | Field | From |
 |---|---|
 | `worktreeId` | The worktree whose path is the agent's `cwd`. The project follows from it |
-| `taskId` | The task whose task session id the agent reports as its session. A **Delegated agent**'s comes from its record, because its task is on its **Parent server** |
+| `taskId` | The task that stores the session the agent reports. A **Delegated agent**'s comes from its record, because its task is on its **Parent server** |
 
-A launch pins `session_id_for(project, task.id)` on the agent, so the task lookup is exact. An
-agent started outside the server links to a task only if it was started with that session id.
+A launch pins one of the task's stored session ids on the agent, so the task lookup is exact. A
+Codex agent reports its thread id, which the task stores after the start. An agent started
+outside the server links to a task only if it was started with one of those ids.
 Links are re-resolved on every reconciliation, so a task or worktree that arrives after the agent
 still finds it.
 
@@ -1200,14 +1201,14 @@ still finds it.
 `agent.launch` runs as a `launch` **Operation** of three steps. It reuses the model steps `mael
 task run` takes, from `task_launch.py`: the same session id, environment, permission mode, branch
 and prompt, and the same two refusals — a live session already holds the task, or the worktree's
-rebase failed. The server adds a third: a live top-level agent in the world holds the task session
-id. The process table holds no Codex thread, so the live-session sweep alone cannot see one.
+rebase failed. The server adds a third: a live top-level agent in the world holds one of the task's
+session ids. The process table holds no Codex thread, so the live-session sweep alone cannot see one.
 
 | Step | What it does |
 |---|---|
-| `open_worktree` | `TaskSource.claim_launch`: load, plan and check the task, and move it in-progress. It returns a `LaunchClaim`, which becomes the start spec. Then `WorktreeOpener.open` opens the worktree. The operation learns its `worktreeId` here. |
+| `open_worktree` | `TaskSource.claim_launch`: load the task, store a Claude session id when it has none, plan and check the task, and move it in-progress. It returns a `LaunchClaim`, which becomes the start spec. Then `WorktreeOpener.open` opens the worktree. The operation learns its `worktreeId` here. |
 | `write_env` | `WorktreeOpener.write_env`: rebuild the worktree's `.env`, as `mael task run` does. A created worktree's `.env` is fresh, so the step says `.env unchanged.` |
-| `start_agent` | `_start_payload` builds the `start` from the spec; the host starts the agent. The task joins the desk, the agent is adopted, and the operation learns its `agentId`. |
+| `start_agent` | `_start_payload` builds the `start` from the spec; the host starts the agent. The task joins the desk, the agent is adopted, and the operation learns its `agentId`. `TaskSource.started` stores a Codex agent's thread id on the task. |
 
 The three steps are `_agent_start_steps`, the one agent start: a free agent and a delegated agent
 run them too, from their own start spec. The claim comes before the open, so a failed open rolls
@@ -1227,9 +1228,10 @@ A task that has already run owns its session id, and claiming that id again is r
 launch asks `has_claude_transcript` whether the worktree holds a transcript for it, and sets
 `resume` on the `start` when it does. That is the same switch `mael task run` makes.
 
-A Codex launch always sets `resume`. The router resumes the newest Codex thread on the task
-session id, keeping its record's start time. It starts a fresh thread when none ran, or when Codex
-cannot resume the thread.
+A Codex launch sends the task's current Codex thread id as `session`, and sets `resume` when
+there is one. The router resumes that thread, and the thread keeps its record's start time. A
+never-run task has no thread, so the router starts a fresh one. When Codex cannot resume the
+thread, the router starts a fresh thread, and `started` appends its id to the task.
 
 ### A launch on a remote host
 

@@ -227,7 +227,10 @@ class DaemonRouter:
             agent = new_agent_record(
                 agent_id,
                 harness=harness,
-                task_session_id=str(payload.get("session") or ""),
+                # A Codex thread is its own session: the task stores its id.
+                task_session_id=agent_id
+                if harness == HARNESS_CODEX
+                else str(payload.get("session") or ""),
                 # Not read yet: link_agent still resolves the task by
                 # session-id reverse-lookup. Persisted now so it is there
                 # when a reader needs it.
@@ -277,41 +280,31 @@ class DaemonRouter:
     async def _start_or_resume(
         self, client: DaemonClient, harness: str, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """Send ``payload``, or resume the Codex thread a relaunch belongs to.
+        """Send ``payload``, or resume the Codex thread a relaunch names.
 
-        A Codex thread is its task's session, so a launch that asks to resume
-        goes back to the newest thread the session ran on. Claude resumes by
-        session id on its own.
+        For Codex, a launch's ``session`` is the thread id the task stores. A
+        thread Codex lost falls back to a fresh start, so it cannot block every
+        relaunch of the task. Claude resumes by session id on its own.
         """
         session = str(payload.get("session") or "")
         if payload.get("cmd") != "start" or harness != HARNESS_CODEX:
             return await client.request(payload)
         if not (payload.get("resume") and session):
             return await client.request(payload)
-        threads = sorted(
-            (
-                agent
-                for agent in await self.agents.list()
-                if agent.get("harness") == HARNESS_CODEX
-                and agent.get("task_session_id") == session
-            ),
-            key=lambda agent: str(agent.get("started_at") or ""),
-        )
-        if not threads:
-            return await client.request(payload)
-        thread_id = str(threads[-1]["id"])
         reply = await client.request(
             {
                 **payload,
                 "cmd": "resume",
-                "id": thread_id,
+                "id": session,
                 "text": str(payload.get("prompt") or ""),
             }
         )
         if not reply.get("ok"):
-            # A thread Codex lost would block every relaunch of the task.
-            return await client.request(payload)
-        return {"ok": True, "id": thread_id}
+            return await client.request(
+                {key: value for key, value in payload.items() if key != "session"}
+                | {"resume": False}
+            )
+        return {"ok": True, "id": session}
 
     async def _live_row(
         self, client: DaemonClient, agent_id: str

@@ -1151,8 +1151,8 @@ def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
 def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
     """Why a start spec's task fields are refused, or ``None``.
 
-    A parent's delegated launch names its task's session and env, the task's
-    wire id, and its own URL. See "Delegation" in ``docs/dev/remote-hosts.md``.
+    A parent's delegated launch names its task's wire id, its env, its own URL,
+    and the task's session when the task has one. See "Delegation" in ``docs/dev/remote-hosts.md``.
     """
     for key in ("base", "session", "taskId", "parentUrl"):
         if not isinstance(cmd.get(key, ""), str):
@@ -1165,8 +1165,9 @@ def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
     parent_url = str(cmd.get("parentUrl") or "")
     if parent_url and not parent_url.startswith(("http://", "https://")):
         return _err("invalid", "parentUrl is an HTTP(S) URL")
-    if parent_url and not (cmd.get("session") and cmd.get("taskId")):
-        return _err("invalid", "A delegated start names its task and session")
+    # A never-run Codex task has no session yet, so only the task is required.
+    if parent_url and not cmd.get("taskId"):
+        return _err("invalid", "A delegated start names its task")
     # Without a parent, a session would resume a task's agent past the claim,
     # so only a delegated start may name one, or the task's env and id.
     if not parent_url and (cmd.get("session") or cmd.get("taskId") or env):

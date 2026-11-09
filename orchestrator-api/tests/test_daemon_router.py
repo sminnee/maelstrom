@@ -114,10 +114,11 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
     ) = asyncio.run(scenario())
 
     assert codex_reply == {"ok": True, "id": "thread-1"}
+    # A Codex thread is its own session, whatever the launch named.
     assert codex_row == {
         "id": "thread-1",
         "harness": "codex",
-        "task_session_id": "task-session-1",
+        "task_session_id": "thread-1",
         "task_id": "2026-09-16.4.3",
         "cwd": "/worktree",
         "model": "codex:sol",
@@ -148,7 +149,7 @@ def test_router_stores_every_started_agent_with_its_harness_and_mode() -> None:
         "thread-1": {
             "id": "thread-1",
             "harness": "codex",
-            "task_session_id": "task-session-1",
+            "task_session_id": "thread-1",
             "task_id": "2026-09-16.4.3",
             "cwd": "/worktree",
             "model": "codex:sol",
@@ -677,75 +678,79 @@ def test_a_stopped_codex_agents_resume_goes_to_the_codex_daemon() -> None:
     assert [c["id"] for c in codex_calls if c["cmd"] == "resume"] == ["thread-1"]
 
 
-def test_a_codex_task_relaunch_resumes_the_thread_its_session_ran_on() -> None:
-    """A Codex thread is the task's session: a relaunch goes back to it."""
+def test_a_codex_task_relaunch_resumes_the_thread_the_task_stores() -> None:
+    """A Codex launch's session is the thread id: a relaunch goes back to it."""
 
     async def scenario():
         claude = ScriptedAsyncDaemonClient()
-        codex = ScriptedAsyncDaemonClient(next_start_id="thread-2")
+        codex = ScriptedAsyncDaemonClient()
         # What the adapter answers once `thread/resume` has the thread back.
         codex.replies["resume"] = [{"ok": True, "id": "thread-1"}]
         agents = Agents()
-        for thread_id, started in (("thread-1", LONG_AGO), ("thread-0", "2026-09-01")):
-            await agents.save(
-                stored_agent(
-                    started,
-                    id=thread_id,
-                    harness="codex",
-                    task_session_id="s1",
-                    status="ended",
-                    swept=False,
-                )
-            )
-        router = DaemonRouter(claude, codex, agents, clock=lambda: STAMP)
-        launch = {
-            "cmd": "start",
-            "cwd": "/worktree",
-            "model": "codex:sol",
-            "session": "s1",
-            "resume": True,
-            "prompt": "Carry on.",
-        }
-        resumed = await router.request(launch)
-        fresh = await router.request({**launch, "session": "s2"})
-        return resumed, fresh, codex.calls, agents.rows
-
-    resumed, fresh, calls, rows = asyncio.run(scenario())
-
-    assert resumed == {"ok": True, "id": "thread-1"}
-    assert {k: calls[0][k] for k in ("cmd", "id", "text", "session")} == {
-        "cmd": "resume",
-        "id": "thread-1",
-        "text": "Carry on.",
-        "session": "s1",
-    }
-    assert rows["thread-1"]["status"] == "running"
-    # The record keeps the thread's first start.
-    assert rows["thread-1"]["started_at"] == LONG_AGO
-    assert fresh["id"] == "thread-2"
-
-
-def test_a_codex_relaunch_whose_thread_is_gone_starts_a_fresh_one() -> None:
-    async def scenario():
-        claude = ScriptedAsyncDaemonClient()
-        codex = ScriptedAsyncDaemonClient(next_start_id="thread-2")
-        codex.replies["resume"] = [{"ok": False, "error": "thread not found"}]
-        agents = Agents()
         await agents.save(
-            stored_agent(id="thread-1", harness="codex", status="ended", swept=False)
+            stored_agent(
+                LONG_AGO,
+                id="thread-1",
+                harness="codex",
+                task_session_id="thread-1",
+                status="ended",
+                swept=False,
+            )
         )
         router = DaemonRouter(claude, codex, agents, clock=lambda: STAMP)
-        return await router.request(
+        resumed = await router.request(
             {
                 "cmd": "start",
                 "cwd": "/worktree",
                 "model": "codex:sol",
-                "session": "s1",
+                "session": "thread-1",
+                "resume": True,
+                "prompt": "Carry on.",
+            }
+        )
+        return resumed, codex.calls, agents.rows
+
+    resumed, calls, rows = asyncio.run(scenario())
+
+    assert resumed == {"ok": True, "id": "thread-1"}
+    assert [(c["cmd"], c["id"], c["text"]) for c in calls] == [
+        ("resume", "thread-1", "Carry on.")
+    ]
+    assert rows["thread-1"]["status"] == "running"
+    assert rows["thread-1"]["task_session_id"] == "thread-1"
+    # The record keeps the thread's first start.
+    assert rows["thread-1"]["started_at"] == LONG_AGO
+
+
+def test_a_codex_relaunch_whose_thread_is_gone_starts_a_fresh_one() -> None:
+    """A lost thread must not block every relaunch: a fresh thread starts, and
+    names no session, so it is its own."""
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        codex = ScriptedAsyncDaemonClient(next_start_id="thread-2")
+        codex.replies["resume"] = [{"ok": False, "error": "thread not found"}]
+        router = DaemonRouter(claude, codex, Agents(), clock=lambda: STAMP)
+        reply = await router.request(
+            {
+                "cmd": "start",
+                "cwd": "/worktree",
+                "model": "codex:sol",
+                "session": "thread-1",
                 "resume": True,
             }
         )
+        return reply, codex.calls
 
-    assert asyncio.run(scenario())["id"] == "thread-2"
+    reply, calls = asyncio.run(scenario())
+
+    assert reply["id"] == "thread-2"
+    fresh = calls[-1]
+    assert (fresh["cmd"], fresh["resume"], "session" in fresh) == (
+        "start",
+        False,
+        False,
+    )
 
 
 def test_a_started_record_opens_at_running_with_a_start_time() -> None:

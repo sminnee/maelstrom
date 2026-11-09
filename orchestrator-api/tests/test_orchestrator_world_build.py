@@ -460,14 +460,23 @@ def test_parse_agent_state(raw, expected):
 
 
 def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
+    """Any of the task's sessions links it: here, its later Codex thread."""
     worktrees = {"northwind-alpha": worktree_entity("northwind", LIST_ALL_ROW)}
     task = task_entity(
-        model.Task(id="NORT-7", title="x", project="northwind", command="plan-task"),
+        model.Task(
+            id="NORT-7",
+            title="x",
+            project="northwind",
+            command="plan-task",
+            sessions=[
+                model.TaskSession(id="session-1", harness="claude"),
+                model.TaskSession(id="thread-1", harness="codex"),
+            ],
+        ),
         actionable=True,
     )
-    session = model.session_id_for("northwind", "NORT-7")
     link = link_agent(
-        {"cwd": LIST_ALL_ROW["path"], "session": session},
+        {"cwd": LIST_ALL_ROW["path"], "session": "thread-1"},
         worktrees=worktrees,
         tasks={"northwind/NORT-7": task},
     )
@@ -482,7 +491,7 @@ def test_a_delegated_agent_links_the_task_its_record_names():
         {
             "id": "cobalt:r1",
             "cwd": "/elsewhere",
-            "session": model.session_id_for("northwind", "NORT-7"),
+            "session": "session-NORT-7",
             "task_id": "northwind/NORT-7",
             "parentUrl": "https://monolith:2772",
         },

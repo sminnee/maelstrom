@@ -2230,6 +2230,7 @@ function makeNewTask(
     trigger: '',
     lastRun: '',
     scheduleZone: '',
+    sessions: [],
     log: [],
     created: new Date().toISOString(),
     updated: new Date().toISOString(),

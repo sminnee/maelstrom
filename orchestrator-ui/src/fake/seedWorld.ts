@@ -153,6 +153,7 @@ export function task(spec: TaskSpec): Task {
     trigger: '',
     lastRun: '',
     scheduleZone: '',
+    sessions: [],
   };
 }
 

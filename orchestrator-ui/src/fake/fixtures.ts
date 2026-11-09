@@ -72,6 +72,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
     trigger: '',
     lastRun: '',
     scheduleZone: '',
+    sessions: [],
     ...over,
   };
 }

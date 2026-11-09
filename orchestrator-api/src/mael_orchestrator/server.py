@@ -136,7 +136,6 @@ from mael_domain.task import (
     STATUS_DONE,
     default_branch,
     mode_for_command,
-    session_id_for,
 )
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
@@ -3845,6 +3844,10 @@ class Orchestrator:
             return StepOutcome(blocked=f"{host}: {operation.get('words') or 'failed'}")
         launching.agent_id = agent_id
         hook.target(agent_id=agent_id, worktree_id=operation.get("worktreeId"))
+        # The remote host's router resumes a Codex thread by its bare id.
+        await self._run(
+            self.tasks.started, launching.claim, IdSpace(host).strip(agent_id)
+        )
         await self._add_to_desk(desk_id_for_task(launching.task_id))
         return StepOutcome(messages=[f"Started {agent_id} on {host}."])
 
@@ -3879,7 +3882,9 @@ class Orchestrator:
                     launching.branch or str(spec.get("branch") or ""),
                     str(spec.get("base") or ""),
                 )
-                if session:
+                # A never-run Codex task has no session yet, so the task id,
+                # not the session, marks a task launch.
+                if task_id:
                     check_synced(task_id, str(spec.get("branch") or ""), setup)
             except LaunchBlocked as exc:
                 return StepOutcome(blocked=str(exc))
@@ -3908,14 +3913,16 @@ class Orchestrator:
                 )
             launching.agent_id = agent_id
             hook.target(agent_id=agent_id)
+            session = ""
             if launching.claim is not None:
+                session = await self._run(self.tasks.started, launching.claim, agent_id)
                 await self.refresh_tasks(force=True)
                 await self._add_to_desk(desk_id_for_task(launching.task_id))
             else:
                 # A worktree provisioned a moment ago is not in the world yet,
                 # and the adoption links the agent to it by cwd.
                 await self.refresh_worktrees()
-            await self._adopt(_started_row(agent_id, payload))
+            await self._adopt(_started_row(agent_id, payload, session))
             if launching.claim is None:
                 # The desk join is explicit: ``_adopt`` alone does not file an
                 # agent, only the reconcile that follows one does.
@@ -3930,7 +3937,7 @@ class Orchestrator:
         """The daemon's ``start`` for ``spec`` in its opened worktree.
 
         A task that has run before already owns its session id, so it resumes.
-        A Codex session is a thread the router finds by session id, if one ran.
+        For Codex, the session is the thread id the task stores.
         A **Delegated agent** gets ``MAEL_PARENT_URL``, and the router keeps
         its parent and task on its record.
         """
@@ -3965,12 +3972,13 @@ class Orchestrator:
         The live-session sweep reads the process table, which holds no Codex
         thread. The host's own rows hold both harnesses.
         """
-        session = session_id_for(*split_task_key(task_id))
+        task = self.world["tasks"].get(task_id)
+        sessions = {entry["id"] for entry in task["sessions"]} if task else set()
         return next(
             (
                 agent["id"]
                 for agent in self.world["agents"].values()
-                if agent["session"] == session
+                if agent["session"] in sessions
                 and not agent["parent"]
                 and agent["state"] != "exited"
             ),
@@ -4987,8 +4995,14 @@ def _attachment_paths(attachments: Any) -> list[dict[str, str]]:
 _NEVER = object()
 
 
-def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """The list row a just-started agent would have, before the host lists it."""
+def _started_row(
+    agent_id: str, payload: dict[str, Any], session: str = ""
+) -> dict[str, Any]:
+    """The list row a just-started agent would have, before the host lists it.
+
+    ``session`` is the session the task stores for the agent: for Codex, the
+    thread id the start replied with. Empty takes the payload's.
+    """
     return {
         "id": agent_id,
         "parent": "",
@@ -4997,7 +5011,7 @@ def _started_row(agent_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         # ``start`` drops the fields the caller did not name, so a free agent
         # pins no session and a launch that named no model carries none. The
         # host fills both in, and the next ``list`` carries them.
-        "session": payload.get("session", ""),
+        "session": session or payload.get("session", ""),
         "cwd": payload["cwd"],
         "model": payload.get("model", ""),
         # The child announces its mode in `system`/`init`, so a launched agent

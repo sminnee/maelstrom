@@ -350,6 +350,13 @@ class TaskLanding(TypedDict):
     envs: dict[str, EnvLandingState]
 
 
+class TaskSession(TypedDict):
+    """One of a task's agent sessions: the harness's own id, and the harness."""
+
+    id: str
+    harness: str
+
+
 class Task(TypedDict):
     """A task file's frontmatter plus the fields the server derives.
 
@@ -396,6 +403,8 @@ class Task(TypedDict):
     #: The schedule zone the cron is read in, as a label, such as
     #: ``Pacific/Auckland``. ``""`` for a task with no ``schedule``.
     scheduleZone: str
+    #: The task's sessions, oldest first. See CONTEXT.md, "Task session id".
+    sessions: list[TaskSession]
 
 
 class TaskRow(TypedDict):
@@ -432,6 +441,7 @@ class TaskRow(TypedDict):
     trigger: str
     lastRun: str
     scheduleZone: str
+    sessions: list[TaskSession]
 
 
 class TaskFollower(TypedDict):
