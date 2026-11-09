@@ -10,8 +10,7 @@ from click.testing import CliRunner
 
 from mael_cli import session_cli
 from mael_cli.cli import cli
-from mael_domain import task as model
-from mael_domain.task import Task
+from mael_domain.task import Task, TaskSession
 from mael_domain.task_table import InMemoryTaskTable
 
 
@@ -89,7 +88,7 @@ class TestSessionList:
 
     def test_task_column_from_session_id_index_lookup(self, tmp_path, monkeypatch):
         # A live session whose --session-id resolves via the task table shows TASK.
-        sid = model.session_id_for("askastro", "daily.maintenance.2026-07-03.2")
+        sid = "sess-maintenance"
         sess = _live(4242, "/w/delta")
         sess.session_id = sid
         table = _table_holding(
@@ -98,6 +97,7 @@ class TestSessionList:
                 title="",
                 project="askastro",
                 status="in-progress",
+                sessions=[TaskSession(id=sid, harness="claude")],
             )
         )
         monkeypatch.setattr(session_cli, "_task_table", lambda: table)
@@ -286,13 +286,14 @@ class TestSessionInfo:
         assert data["cwd"] == "/w/alpha"
 
     def test_shows_the_task_when_the_index_resolves_it(self, tmp_path, monkeypatch):
-        sid = model.session_id_for("askastro", "2026-07-03.7")
+        sid = "sess-7"
         table = _table_holding(
             Task(
                 id="2026-07-03.7",
                 title="",
                 project="askastro",
                 status="in-progress",
+                sessions=[TaskSession(id=sid, harness="claude")],
             )
         )
         monkeypatch.setattr(session_cli, "_task_table", lambda: table)

@@ -98,8 +98,6 @@ async def start_agent_in_worktree(
             f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
         )
     agent_env = dict(env or {})
-    if session_id:
-        agent_env["MAEL_TASK_SESSION_ID"] = session_id
     payload = build_start_payload(
         worktree_path,
         permission_mode=permission_mode,
@@ -205,7 +203,7 @@ def build_claude_command(
 
     The initial prompt is no longer an argv argument — it is piped into ``claude``
     on stdin via :func:`build_task_launch_line`. When ``session_id`` is given it
-    becomes ``--session-id``, pinning the task to a deterministic Claude session.
+    becomes ``--session-id``, pinning the task to the Claude session it stores.
     ``--session-id`` sets the id the session *starts* with; it does not hold it
     for the life of the process, because a ``/clear`` starts a new conversation
     with a new id. The session reports that live id as ``CLAUDE_CODE_SESSION_ID``.
@@ -284,8 +282,6 @@ def build_task_launch_line(
 ) -> ShellExpr:
     """Build a task prompt command for the CLI selected by its model."""
     command_env = dict(env or {})
-    if session_id:
-        command_env["MAEL_TASK_SESSION_ID"] = session_id
     prompt_argv = ["mael", "task", "prompt", task_id, "--project", project]
     harness_argv = build_harness_command(
         permission_mode,
@@ -318,9 +314,7 @@ async def launch_agent_in_worktree(
 ) -> bool:
     """Start a daemon-driven agent and print the command that attaches to it.
 
-    ``session_id`` also rides in the agent's env as ``MAEL_TASK_SESSION_ID``,
-    exactly as :func:`build_task_launch_line` does for the pipeline. The
-    installer runs in the background once the agent has started.
+    The installer runs in the background once the agent has started.
 
     Returns False when the daemon cannot be reached or answers without an id,
     after printing the daemon's own reason.
