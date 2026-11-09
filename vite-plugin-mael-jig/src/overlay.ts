@@ -22,41 +22,53 @@ interface Options {
   capture?: () => Promise<string | null>;
 }
 
-// The base styles sit on `.root`, not on `:host`: a page rule can match the host, and a page
-// declaration beats a `:host` one. `.root` is in the shadow tree, where no page rule reaches.
-// The host stays fixed, so it does not take a place in the page's layout.
+// No `inherit` or `currentColor`: each element takes its colour and font from `--jig-*`.
+// See "The jig" in docs/dev/orchestrator-ui.md.
 const STYLE = `
 :host { all: initial; position: fixed; }
 @layer base, components, state;
 @layer base {
-.root { position: fixed; right: 12px; bottom: 12px; z-index: 2147483647;
-  font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; color: #e6e6e6; }
+.root { all: initial; --jig-text: #1c1c22; --jig-text-muted: #5c5c66; --jig-panel: #ffffff;
+  --jig-field: #f4f4f6; --jig-control: #e8e8ee; --jig-border: #c4c4cc; --jig-accent: #3d5afe;
+  --jig-accent-wash: rgb(61 90 254 / 0.12); --jig-on-accent: #ffffff;
+  --jig-shadow: rgb(0 0 0 / 0.15);
+  color-scheme: light dark; position: fixed; right: 12px; bottom: 12px; z-index: 2147483647; }
+@media (prefers-color-scheme: dark) {
+  .root { --jig-text: #e6e6e6; --jig-text-muted: #a0a0aa; --jig-panel: #1c1c22;
+    --jig-field: #111116; --jig-control: #2b2b33; --jig-border: #4a4a55;
+    --jig-shadow: rgb(0 0 0 / 0.4); }
+}
+.root, .root * { font: 12px/1.4 ui-sans-serif, system-ui, sans-serif; color: var(--jig-text); }
+.root ::placeholder { color: var(--jig-text-muted); }
 }
 @layer components {
 .panel { display: flex; flex-direction: column; gap: 6px; width: 360px; padding: 8px;
-  background: #1c1c22; border: 1px solid #4a4a55; border-radius: 8px;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 0.4); }
+  background: var(--jig-panel); border: 1px solid var(--jig-border); border-radius: 8px;
+  box-shadow: 0 6px 24px var(--jig-shadow); }
+strong[data-title] { font-weight: bold; }
 .row { display: flex; gap: 6px; align-items: center; justify-content: space-between; }
 .row > span:last-child { flex: none; }
 .status { flex: 1; min-width: 0; }
-.status, .empty { color: #a0a0aa; }
-.pill, button { font: inherit; color: inherit; background: #2b2b33; border: 1px solid #4a4a55;
+.status, .empty { color: var(--jig-text-muted); }
+.pill, button { background: var(--jig-control); border: 1px solid var(--jig-border);
   border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 .pill { border-radius: 999px; }
 .picked button, .control button { padding: 0 6px; }
-.picked, textarea, input { background: #111116; border: 1px solid #4a4a55; border-radius: 4px; }
-textarea, input { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: inherit;
-  padding: 6px; }
-input, textarea[data-message] { font-family: inherit; }
-textarea { height: 180px; resize: vertical; }
-textarea[data-message] { height: 60px; }
-.tabs { display: flex; gap: 4px; border-bottom: 1px solid #4a4a55; }
-.tabs button { border: none; border-radius: 6px 6px 0 0; background: none; color: #a0a0aa; }
+.picked, textarea, input, select { background: var(--jig-field);
+  border: 1px solid var(--jig-border); border-radius: 4px; }
+textarea, input { line-height: 1.5; padding: 6px; }
+textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; height: 180px;
+  resize: vertical; }
+textarea[data-message] { font-family: ui-sans-serif, system-ui, sans-serif; height: 60px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--jig-border); }
+.tabs button { border: none; border-radius: 6px 6px 0 0; background: none;
+  color: var(--jig-text-muted); }
 [role='tabpanel'] { display: flex; flex-direction: column; gap: 6px; }
 .picked { display: flex; gap: 6px; align-items: center; padding: 4px 6px; }
-.picked code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picked code { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .outline { position: fixed; pointer-events: none; box-sizing: border-box;
-  border: 2px solid #3d5afe; background: rgb(61 90 254 / 0.12); }
+  border: 2px solid var(--jig-accent); background: var(--jig-accent-wash); }
 .scope { display: flex; gap: 10px; border: none; margin: 0; padding: 0; }
 .scope label { display: flex; gap: 4px; align-items: center; }
 .controls { display: flex; flex-direction: column; gap: 4px; }
@@ -66,15 +78,16 @@ textarea[data-message] { height: 60px; }
 .control > span { display: flex; gap: 4px; min-width: 0; }
 .control input, .control select { min-width: 0; flex: 1; }
 .control input[type='color'] { flex: none; width: 28px; padding: 0; }
-.control output { color: #a0a0aa; overflow: hidden; text-overflow: ellipsis; }
-.control small { grid-column: 1 / -1; color: #a0a0aa; }
+.control output { color: var(--jig-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.control small { grid-column: 1 / -1; font-size: 10px; color: var(--jig-text-muted); }
 .control small:empty { display: none; }
 }
 @layer state {
 [hidden] { display: none; }
 button:disabled { opacity: 0.5; cursor: default; }
-button[aria-pressed='true'] { background: #3d5afe; border-color: #3d5afe; }
-.tabs button[aria-selected='true'] { background: #2b2b33; color: inherit; }
+button[aria-pressed='true'] { background: var(--jig-accent); border-color: var(--jig-accent);
+  color: var(--jig-on-accent); }
+.tabs button[aria-selected='true'] { background: var(--jig-control); color: var(--jig-text); }
 .control.muted { opacity: 0.5; }
 }
 `;
