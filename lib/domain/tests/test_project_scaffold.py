@@ -12,6 +12,7 @@ class TestScaffoldFiles:
         lines = scaffold_files("proj")[".gitignore"].splitlines()
         assert ".env" in lines
         assert ".claude/CLAUDE.local.md" in lines
+        assert ".claude/settings.local.json" in lines
         assert ".drafts/" in lines
 
     def test_settings_allow_writes_to_the_drafts_directory(self):

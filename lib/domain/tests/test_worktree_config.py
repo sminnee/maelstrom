@@ -3,6 +3,7 @@
 import json
 
 from mael_domain.worktree_config import (
+    _setup_claude_settings_symlink,
     _write_agents_md,
     apply_worktree_config,
 )
@@ -279,3 +280,16 @@ class TestWriteConfig:
         lines = gitignore.read_text().splitlines()
         assert ".claude/CLAUDE.local.md" in lines
         assert ".drafts/" in lines
+
+
+class TestSettingsSymlink:
+    def test_the_symlink_is_gitignored(self, tmp_path):
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "settings.json").write_text("{}")
+        (tmp_path / ".gitignore").write_text(".env\n")
+
+        _setup_claude_settings_symlink(tmp_path)
+
+        assert (tmp_path / ".claude" / "settings.local.json").is_symlink()
+        lines = (tmp_path / ".gitignore").read_text().splitlines()
+        assert lines == [".env", ".claude/settings.local.json"]

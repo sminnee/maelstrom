@@ -69,8 +69,8 @@ mael project check myproject        # check project health, and fix what it can
 **`mael project create`**
 
 `NAME` is the repository name. Use `owner/name` to create the repository in an
-organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env` and
-`.claude/CLAUDE.local.md` and `AGENTS.md`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
+organization. The seed commit holds `.gitignore` (which ignores the per-worktree `.env`,
+`.claude/CLAUDE.local.md`, `.claude/settings.local.json`, `AGENTS.md` and `.drafts/`), a commented `.maelstrom.yaml`, `README.md` and `CLAUDE.md`.
 
 The project is cloned over HTTPS, whatever `gh config get git_protocol` reports. Agents push
 with a token over HTTPS, so an SSH remote breaks an unattended session. `mael project add`
