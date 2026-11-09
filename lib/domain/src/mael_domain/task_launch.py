@@ -69,6 +69,9 @@ def plan_launch(
             # and share its branch (one PR per chain). See docs/dev/tasks.md.
             "MAEL_TASK_PARENT": task.parent or task.id,
             "MAEL_TASK_SESSION_ID": session_id,
+            # The two ids above are bare. This names their project, so a
+            # command aimed at another project does not inherit them.
+            "MAEL_TASK_PROJECT": project,
         },
         permission_mode=model.permission_mode_for(task.mode),
         branch=task.branch or model.default_branch(task.id, task.parent),

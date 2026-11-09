@@ -834,7 +834,7 @@ class TestRunCli:
         assert describe(launch.exec.call_args.args[0]) == (
             f"mael task prompt {t.id} --project p "
             f"| MAEL_TASK_ID={t.id} MAEL_TASK_PARENT={t.id} "
-            f"MAEL_TASK_SESSION_ID={sid} "
+            f"MAEL_TASK_PROJECT=p MAEL_TASK_SESSION_ID={sid} "
             "claude --permission-mode plan --model opus "
             f"--plugin-dir /core --session-id {sid}"
         )
