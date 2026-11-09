@@ -218,9 +218,8 @@ all follow from it. A plain `mv` breaks two of these silently:
 `mael project mv` repairs the git pointers and moves the allocations across. Run
 it with `--dry-run` first to see the full plan, and `mael project check NEW` afterwards.
 
-It does not migrate Claude sessions. Session ids derive from the project name, so
-a rename orphans them: `mael task run` starts a fresh session rather than
-resuming. The plan reports how many tasks this affects.
+Each task keeps its session ids, and the command moves Claude's transcripts to the
+new paths. `mael task run` resumes a session after the move.
 
 ---
 

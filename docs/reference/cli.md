@@ -102,9 +102,6 @@ Claude session. Dirty worktrees are allowed.
 
 Out of scope — these are not changed:
 
-- **Claude session ids.** They derive from the project name, so a rename orphans
-  every existing session. `mael task run` starts a fresh session instead of
-  resuming. The plan reports how many tasks this affects.
 - **`remote.origin.url`**, unless you pass `--git-url`.
 - **Committed files.** A project name in `README.md` or `CLAUDE.md` stays as it is.
 
