@@ -52,7 +52,9 @@ config. Your `~/.maelstrom/config.yaml` names it under `hosts:`. A task card's L
 offers "Launch on <host>" for each remote host that is online. The remote host runs the agent and
 its worktree. The task stays on your orchestrator, and the agent's `mael task` commands reach it
 there. You follow and answer an agent on a remote host as a local one, and your desk shows the
-remote host's other agents too. When the remote host sleeps, its agents show their last state and the host
+remote host's other agents too. Its closes, syncs and stops show in your console as local ones
+do. A Shelve of a worktree you launched there writes its "Reopen" task to your notebook, and that
+task goes on your desk. When the remote host sleeps, its agents show their last state and the host
 shows "offline". See [Remote hosts](../reference/configuration.md#remote-hosts).
 
 cmux is optional. The orchestrator's `cmux` link opens a worktree's terminal in a cmux workspace

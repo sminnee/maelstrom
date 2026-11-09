@@ -97,11 +97,16 @@ The calls the server makes for one agent go through a narrow `TaskHome` protocol
 | `promote` | the task-set approve | `POST /api/tasks/promote` |
 | `register_pr` | the `gh-pr` link | `PUT /api/tasks/{project}/{id}/pr` |
 | `withdraw_pr` | the `gh-pr` link | `DELETE /api/tasks/{project}/{id}/pr` |
+| `create` | the reopen task of a Shelve | `POST /api/tasks` |
 
 `NotebookTaskSource` and `RemoteTaskSource` both satisfy `TaskHome`.
 `TaskHomes.for_parent(parent_url)` chooses one. An empty URL gives the local notebook. Any other
 URL gives the one `RemoteTaskSource` for that URL, with a lazy aiohttp session.
 `Orchestrator._home(agent)` calls it with the agent's `parentUrl` when the agent is delegated.
+
+A worktree has a **Task home** too. `Orchestrator._worktree_home(worktree_id)` gives the home of
+the newest delegated agent in the worktree, or the local notebook when there is none. A Shelve
+writes its reopen task there: the server passes the home to the `force_close` port.
 
 When the parent does not answer, `RemoteTaskSource` raises `TaskSourceRemote` ("Tasks for this
 agent are on <url>"). The server replies with the code `unreachable` (HTTP 502).
@@ -109,7 +114,7 @@ agent are on <url>"). The server replies with the code `unreachable` (HTTP 502).
 ## The id prefix
 
 `host_name: cobalt` names a server. Its name is its **Id prefix**: the server makes each agent,
-worktree and gate job id as `cobalt:<bare id>`. With no `host_name`, ids are bare. A name matches
+worktree, gate job and operation id as `cobalt:<bare id>`. With no `host_name`, ids are bare. A name matches
 `[a-z0-9][a-z0-9-]*`. It holds no `.`, because the UI splits subagent ids on `.`.
 
 `IdSpace(prefix)` (`lib/agent/src/mael_agent/host_ids.py`) owns the rule:
@@ -135,6 +140,7 @@ Where the prefix goes on:
   with no extra step.
 - **Worktrees: in the server's worktree refresh.** `worktree_entity` stays bare.
 - **Gate jobs: in `gate_job_entity`**, which takes the `IdSpace`.
+- **Operations: in `OperationRunner.begin`**, which mints `cobalt:op<n>`.
 
 `agent_entity.host` is the owner of the agent id.
 
@@ -158,6 +164,7 @@ for each merged kind:
 | `attention` | `GET /api/attention` | prefix of `agentId` |
 | `worktree` | `GET /api/worktrees` | id prefix |
 | `gateJob` | `GET /api/gate-jobs` | id prefix |
+| `operation` | `GET /api/operations?limit=200` | id prefix |
 
 A document or an attention item belongs to its agent. Its own id need not start with the prefix:
 an attention id is `att-<item id>`.
@@ -178,6 +185,9 @@ Other rules of the merge:
 - `_merged_agent` clears `taskId` on an agent whose `parentUrl` is not the parent's own URL.
   That task id names a task in another notebook, and the parent can hold a task with the same
   id.
+- `_merged_operation` applies the same rule to an operation, through the operation's agent.
+- The operations are read in the UI's window of 200. An older host operation leaves the
+  parent's world, as it leaves the UI's view.
 
 The link reconnects with backoff from 1 s to 30 s. A stream silent for 40 s counts as dropped,
 because each server pings every 15 s.
@@ -196,19 +206,42 @@ that host. Its table, `HOST_OWNED_ROUTES`, covers each route at or under:
 - `/api/agents/{id}`, with the `/stream` WebSocket;
 - `/api/documents/{id}`;
 - `/api/files/{id}`;
+- `/api/operations/{id}`, so the log, Seen and Retry of a host operation go to the host;
 - `/api/worktrees/{id}`.
 
 When `match_info["id"]` has an owner in `hosts:`, `RemoteHost.forward` sends the method, path,
 query and body unchanged, and streams the reply back. A WebSocket is joined frame for frame. An
 offline host answers `unreachable` at once. Desk ids (`agent:cobalt:x`) are never read for a host.
 
-The parent's own agent commands use the same routes. `_ask_host`, behind `_relay`, `_tell` and
-`_stop_agent`, sends a remote agent's command to `POST /api/agents/{id}/{cmd}` on its host.
-This covers the PR watch and the desk dismiss. The remote host exits the agent, and the merge
-brings the exit to the parent.
+A forwarded command answers with the host's operation id. The merge brings that operation to
+the parent, so the parent's console and cards show it like a local one.
 
-The remote host's operations are not merged yet. A forwarded stop replies with the remote host's
-operation id.
+The parent's own steps also use the host's routes:
+
+| Step | Host route | Ends when |
+|---|---|---|
+| `_ask_host`, behind `_relay` and `_tell` | `POST /api/agents/{id}/say` | the host answers |
+| `_stop_remote`, the stop of a Terminate, a PR watch or a desk dismiss | `POST /api/agents/{id}/stop` | the host's operation ends |
+| `_end_on_host`, the worktree end of a desk dismiss | `POST /api/worktrees/{id}/close`, `/force-close` or `/trash`, or `DELETE /api/worktrees/{id}` | the host's operation ends |
+
+A step that waits uses `RemoteHost.await_operation`. A host operation that ends refused or
+failed refuses the parent's step with the host's words. A wait that loses the host refuses the
+step too, so the parent's operation does not hang. The remote host exits the agent or closes the
+worktree, and the merge brings the change to the parent.
+
+`_worktree_plan` refuses a worktree id with another owner. A merged row holds the host's paths,
+so git must never run on them on the parent. Validation refuses a worktree command on an offline
+host with `unreachable`.
+
+### What the forward covers
+
+Each worktree feature runs on the worktree's host, against its own disk, git, `gh` and language
+server: the Changes tab (`changes`, `diff`, `file`, `tree`, `excerpt`, `raw`, `definition`,
+`comments`), Close, Shelve, Trash, Delete, Sync, Merge, Auto-merge, Env, and the Live feedback
+params route. See [live-feedback.md](live-feedback.md) for the jig's socket.
+
+A dev env URL is built from the host's `dev_host`. See
+[Remote hosts](../reference/configuration.md#remote-hosts).
 
 ### Terminals for a remote client
 
