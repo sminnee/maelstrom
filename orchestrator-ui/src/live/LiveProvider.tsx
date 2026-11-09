@@ -3,7 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '../store/store';
 import { createAgentStreams } from './agentStreams';
 import { startChangeStream, type EventSourceLike } from './changeStream';
-import type { SocketLike } from './socketLike';
+import { SocketFactoryContext } from './socketFactory';
+import { browserSocket, type SocketLike } from './socketLike';
 import { AgentStreamsContext } from './useAgentStream';
 import { watchAgentList } from './watchAgentList';
 
@@ -70,5 +71,11 @@ export function LiveProvider({
       cancelDispose.current = () => clearTimeout(timer);
     };
   }, [streams]);
-  return <AgentStreamsContext.Provider value={streams}>{children}</AgentStreamsContext.Provider>;
+  return (
+    <AgentStreamsContext.Provider value={streams}>
+      <SocketFactoryContext.Provider value={socketFactory ?? browserSocket}>
+        {children}
+      </SocketFactoryContext.Provider>
+    </AgentStreamsContext.Provider>
+  );
 }

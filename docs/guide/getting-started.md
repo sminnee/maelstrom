@@ -150,7 +150,8 @@ the protocol.
 
 The orchestrator UI does the same. On a fresh install with no project, the UI opens the
 **Welcome dialog**. It shows where projects go, which skills `mael self setup` linked, where the
-config is, the version and whether the agent host answers. Press **Add your first project**.
+config is, the version and whether the agent host answers. Its **Machine** entry charts the
+machine's CPU, memory and temperature over the last 15 minutes, with the gate jobs' share. Press **Add your first project**.
 Later, press **Add project** in the **Projects** tab, or click the logo to see the Welcome dialog
 again.
 

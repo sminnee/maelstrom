@@ -651,6 +651,30 @@ export interface GateUsage {
   processes: number;
 }
 
+/** One running gate job's usage, as a metrics sample keeps it. */
+export interface GateMetrics {
+  jobId: string;
+  /** As `GateJob.worktree`. */
+  worktree: WorktreeId | null;
+  path: string;
+  usage: GateUsage;
+}
+
+/** One reading of the machine. See CONTEXT.md, "Machine metrics". */
+export interface MetricsSample {
+  at: string;
+  /** 0-100, the whole machine, the mean over the period. */
+  cpuPercent: number;
+  cpuCount: number;
+  /** Total less available. */
+  memoryUsedBytes: number;
+  memoryTotalBytes: number;
+  /** `null` when the host gives no CPU sensor. */
+  cpuTemperatureC: number | null;
+  /** The running gate jobs with a usage. */
+  gates: GateMetrics[];
+}
+
 /**
  * One gate job on the machine, queued or running. See CONTEXT.md, "Gate job".
  * Tangier's own list, so it covers every project, not only this server's.

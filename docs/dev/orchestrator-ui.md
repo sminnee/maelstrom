@@ -348,6 +348,18 @@ the store, which a reload clears, so it does not open again in that page load. T
 wide top bar sets `?welcome=1`, which opens it whatever the project count. The narrow layout has
 no logo, so there it opens only by itself.
 
+The **Machine** entry, `welcome/MachineMetrics.tsx`, charts the **Machine metrics** over 15
+minutes:
+
+- `live/useMetricsStream.ts` opens the metrics socket while the dialog is mounted, so the dialog
+  shows the server's whole history at once.
+- The CPU and memory charts stack the gate jobs' share under the rest. `welcome/machineShares.ts`
+  makes the split; a gate job's CPU is per core.
+- Under the charts are the latest figures, one line per gate job, and "other". A pointer on a
+  chart shows that sample's figures instead.
+- The socket factory comes from `SocketFactoryContext`, which `LiveProvider` sets, so the fake
+  server's socket serves the seeded history.
+
 ### The Comms view
 
 `comms/CommList.tsx` draws one row per open **Comm**: its title, its recipients, its linked task

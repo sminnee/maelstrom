@@ -15,6 +15,7 @@ import { useAddProjectDialog, useWelcome } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { MachineMetrics } from './MachineMetrics';
 import { UpdateRow } from './UpdateRow';
 import styles from './WelcomeDialog.module.css';
 
@@ -84,6 +85,10 @@ export function WelcomeDialog() {
             <dt>Agent host</dt>
             <dd data-testid="welcome-host">
               {reachable === undefined ? '…' : reachable ? 'reachable' : 'not reachable'}
+            </dd>
+            <dt>Machine</dt>
+            <dd data-testid="welcome-machine">
+              <MachineMetrics />
             </dd>
           </dl>
         )}

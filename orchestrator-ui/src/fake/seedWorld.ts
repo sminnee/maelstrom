@@ -7,6 +7,7 @@ import type {
   CommUpdate,
   GateJob,
   GateState,
+  MetricsSample,
   Project,
   Task,
   TaskLanding,
@@ -23,6 +24,8 @@ export const SEED_TIME = '2026-09-02T09:00:00.000Z';
 export interface Seed {
   world: FakeWorld;
   transcripts: Record<AgentId, Transcript>;
+  /** The machine metrics history the fake's metrics socket opens with; none when absent. */
+  metrics?: MetricsSample[];
 }
 
 /** A moment `minutesAgo` before {@link SEED_TIME}. Exported so a test can
@@ -887,7 +890,7 @@ body rather than the query builder.
     ]),
   };
 
-  return { world, transcripts };
+  return { world, transcripts, metrics: seedMetrics() };
 }
 
 function keyed<T extends { id: string }>(items: T[]): Record<string, T> {
@@ -939,4 +942,36 @@ function tool(
     status: 'done',
     output,
   };
+}
+
+/**
+ * 15 minutes of machine metrics to {@link SEED_TIME}, one sample per 15 s. Gate
+ * job 41 runs in the last five minutes. The last sample is the one a test names.
+ */
+export function seedMetrics(): MetricsSample[] {
+  const GIB = 1024 ** 3;
+  return Array.from({ length: 60 }, (_, i) => {
+    const gating = i >= 40;
+    const last = i === 59;
+    return {
+      at: T((59 - i) / 4),
+      cpuPercent: last ? 47 : Math.round(12 + 6 * Math.sin(i / 5) + (gating ? 28 : 0)),
+      cpuCount: 8,
+      memoryUsedBytes: Math.round(
+        (last ? 12.5 : 10 + (gating ? 2.2 : 0) + Math.sin(i / 9) * 0.3) * GIB,
+      ),
+      memoryTotalBytes: 32 * GIB,
+      cpuTemperatureC: last ? 62 : Math.round(48 + (gating ? 12 : 0) + 2 * Math.sin(i / 4)),
+      gates: gating
+        ? [
+            {
+              jobId: '41',
+              worktree: 'maelstrom-alpha',
+              path: '/Users/dev/Projects/maelstrom/maelstrom-alpha',
+              usage: { cpuPercent: 212.3, rssBytes: 1_288_490_189, processes: 9 },
+            },
+          ]
+        : [],
+    };
+  });
 }
