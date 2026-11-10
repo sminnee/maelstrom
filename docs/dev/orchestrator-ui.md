@@ -257,8 +257,10 @@ PR in its **Chain**. A free agent's card shows no PR.
 
 ### Where a task launches
 
-`session/useLaunchOptions.ts` gives the launch choices: "Launch here", then "Launch on <host>" for
-each online **Remote host** in `GET /api/host`'s `remoteHosts`. The node card's split button and
+`session/useLaunchOptions.ts` gives the launch choices: "Launch on <this server>", then
+"Launch on <host>" for each online **Remote host** in `GET /api/host`'s `remoteHosts`. The button
+always says "Launch"; the choices are in its menu. The server's name is the `host` entity's `name`.
+Before the host loads, the first choice is "Launch here". The node card's split button and
 the deck row's swipe both use these choices, so the two cannot launch in different places.
 
 The default is the host of the task's newest agent when that host is online. Else it is here. The
