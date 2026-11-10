@@ -620,7 +620,7 @@ side sheet that More opens from the right edge:
 | Session  | the agent; Stop               | the state, the mode, the meta line, Compact, the subagents |
 | Document | the title                     | the task, phase, version, status, Session link, siblings   |
 
-The readings and New are at the top of the More sheet. A pick in the sheet that navigates closes
+The agents chip and New are at the top of the More sheet. A pick in the sheet that navigates closes
 it. Every side sheet starts its head row with a bare × named Close. It has no caption, as the
 strip's Close and More have none. A tap on the backdrop closes the sheet too, but a phone user cannot see that.
 The review dock stays on the Document screen, because it is the terminal act (§ Review Dock).
@@ -645,18 +645,10 @@ thing dropped is the comment margin, which draws nothing today.
 Reachable is not the same as on screen. A command behind one tap counts. What the rule forbids is
 a command the narrow layout cannot reach at all.
 
-Reading matter is held to a second test: it earns its band when it is notable. The usage chips are
-the worked case. The wide bar shows both windows always; the narrow bar shows a window only when
-its budget quotient has turned the tone amber or red, and withholds a stale reading whatever its
-tone.
+On the narrow bar the agent count is the one reading. The usage and gates readings move into the
+Welcome dialog, one tap away behind the mark. There they read as on the wide bar.
 
-The staleness rule is a trade the narrow bar makes, not a correctness claim. A usage reading
-arrives only while an agent takes a turn, so a quiet desk holds an ageing one — which means the
-narrow bar stays quiet in the case the operator most often opens it. The wide bar is where a
-stale figure is read: `SplitChip` greys it and its title gives its age. The narrow bar buys a
-quiet row at that cost.
-
-The chrome is two rows on the deck. The first row holds the mark, the readings, the attention
+The chrome is two rows on the deck. The first row holds the mark, the agents chip, the attention
 chip, Filters and New. The mark opens the Welcome dialog, as the brand does on the wide layout. The screen strip has no room for it. Filters opens the side sheet with the filters of the view on screen, one
 control a row. Its caption counts the filters in force, as "Filters · 2", so a filtered view
 never looks like the whole: the Nothing Hidden Rule. The sheet stays open while a filter changes. The second row holds Desk, Tasks, Worktrees and Comms at equal widths. That row

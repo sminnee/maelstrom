@@ -370,10 +370,8 @@ describe('isNotable', () => {
   });
 
   it('drops a stale reading whatever its tone', () => {
-    // The clause that costs the narrow bar its alarm on a quiet desk: a
-    // reading arrives only while an agent takes a turn, so `bad` and `stale`
-    // together is the resting state rather than an edge case. The narrow bar
-    // trades that alarm for a quiet row; the wide bar still greys and shows it.
+    // A reading arrives only while an agent takes a turn, so `bad` and
+    // `stale` together is the resting state rather than an edge case.
     expect(isNotable(chip({ tone: 'bad', stale: true }))).toBe(false);
     expect(isNotable(chip({ tone: 'busy', stale: true }))).toBe(false);
   });

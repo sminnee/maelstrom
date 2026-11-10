@@ -92,7 +92,8 @@ export function TopBar({
         <div className={styles.row}>
           {/* The narrow type scale leaves no room for the word: DESIGN.md, "The Phone Type Rule". */}
           <Brand word={false} />
-          <Readings />
+          {/* The one reading a phone's bar holds: the Welcome dialog holds the rest. */}
+          <AgentsChip />
           <div className={styles.spacer} />
           <AttentionChip />
           {filters && <FiltersButton {...filters} />}
@@ -144,8 +145,8 @@ function Brand({ word }: { word: boolean }) {
 }
 
 /**
- * The readings, as one group. The chips decide what a phone has room for, so
- * the bar never has to know what a reading means.
+ * The readings, as one group. The chips decide what to show, so the bar never
+ * has to know what a reading means.
  */
 function Readings() {
   return (
@@ -175,14 +176,14 @@ function FiltersButton({ open, onOpen }: { open: boolean; onOpen: () => void }) 
 }
 
 /**
- * The head of the More side sheet: the readings and New, which the screen
+ * The head of the More side sheet: the agents chip and New, which the screen
  * strip has no room for. New closes the sheet, as anything that navigates does.
  */
 export function SheetHead({ onClose }: { onClose: () => void }) {
   const newWork = useNewWork();
   return (
     <>
-      <Readings />
+      <AgentsChip />
       <div className={styles.spacer} />
       <AppButton
         variant="primary"

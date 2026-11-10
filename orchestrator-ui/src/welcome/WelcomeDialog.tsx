@@ -8,7 +8,10 @@ import {
   type StartedJob,
   type SystemBody,
 } from '../api/system';
+import { useLayoutMode } from '../layout/useLayoutMode';
 import { isLive } from '../selectors/graph';
+import { GatesChip } from '../shell/GatesChip';
+import { UsageChips } from '../shell/UsageChips';
 import { tildePath } from '../protocol/paths';
 import { useWorld } from '../api/useWorld';
 import { useAddProjectDialog, useWelcome } from '../nav/useOverlays';
@@ -40,6 +43,7 @@ export function WelcomeDialog() {
     return () => clearTimeout(timer);
   }, [startedJob]);
   const reachable = host.data?.host?.reachable;
+  const narrow = useLayoutMode() === 'narrow';
 
   return (
     <Dialog label="Welcome to maelstrom" onClose={welcome.close} testId="welcome">
@@ -86,6 +90,16 @@ export function WelcomeDialog() {
             <dd data-testid="welcome-host">
               {reachable === undefined ? '…' : reachable ? 'reachable' : 'not reachable'}
             </dd>
+            {/* The narrow bar has room for the agent count only. */}
+            {narrow && (
+              <>
+                <dt>Readings</dt>
+                <dd className={styles.readings} data-testid="welcome-readings">
+                  <UsageChips />
+                  <GatesChip />
+                </dd>
+              </>
+            )}
             <dt>Machine</dt>
             <dd data-testid="welcome-machine">
               <MachineMetrics />
