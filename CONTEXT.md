@@ -141,7 +141,7 @@ _Avoid_: State, folder
 
 **Parent**:
 The grouping key that puts a task in a chain sharing one branch and one pull request — "one PR
-per parent". In a `merge: local` project, the chain has one **Candidate** in place of a PR. A
+per parent". In a `merge: local` project, the chain has one **Merge request** in place of a PR. A
 task with an empty parent roots its own chain. A parent is often virtual, such
 as `linear.NORT-123`, and is never checked against a real task.
 _Avoid_: Epic, group
@@ -231,7 +231,7 @@ to GitHub's data about that PR, which the orchestrator server reads on its workt
 - An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
   `unknown` never counts as reached.
 - In a `merge: local` project, `merged` comes from the **Build queue**'s record of the
-  **Candidate**'s merge, not from a PR.
+  **Merge request**'s merge, not from a PR.
 - A project with no `deploy:` block stops at `merged`.
 - The server records each landing step the first time a task reaches it, with the time it
   recorded it.
@@ -910,27 +910,38 @@ tells each agent in a gate job's worktree when the job ends, with a `gate` **Ext
 _Avoid_: gate poll
 
 **Build queue**:
-The per-project service that runs the `@merge` **Gate set** on each **Candidate** in a **Build
-worktree**, in a `merge: local` project. It gates Candidates and never merges one or changes a
-branch. It replaces CI, not the gates. See `docs/dev/build-queue.md`.
+The orchestrator server's service that runs a **Queue build** for each submit to a **Merge
+request**, in a **Build worktree**, in a `merge: local` project. It gates and never merges or
+changes a branch. It replaces CI, not the gates. See `docs/dev/build-queue.md`.
 _Avoid_: merge queue (it does not order merges), CI, pipeline
 
-**Candidate**:
-A branch head that `mael submit` put in the **Build queue**, based on the `origin/main` tip at
-submit. Its states are `queued`, `building`, `passed`, `stale`, `failed`, `withdrawn` and
-`merged`. A `passed` Candidate draws the Merge button. The next submit replaces it.
-_Avoid_: Submission, merge request, build (the gate run on it)
+**Merge request**:
+A task branch's request to merge into `main`, as a PR is, in a `merge: local` project. It holds
+the head SHA and base of the last `mael merge submit`, and links the newest **Queue build**. Its
+states are `open`, `withdrawn` and `merged`. A submit updates an `open` or `withdrawn` one and
+reopens it; a submit after `merged` opens a new one.
+Its status comes from it and its linked Queue build: `queued`, `building`, `passed`, `stale`,
+`failed`, `withdrawn` or `merged`. A `passed` Merge request draws the Merge button.
+_Avoid_: Candidate, Submission, PR (in a `merge: local` project)
+
+**Queue build**:
+One gate run of a **Merge request**'s SHA in a **Build worktree**. Its states are `queued`,
+`running`, `passed`, `failed`, `stale` and `cancelled`. It ends `stale` when `main` moved since
+the submit, and no gate runs. A Merge request has many; only its newest counts. Called `Build`
+in the code: the glossary's **Build** is the phase.
+_Avoid_: Build (the phase), job (tangier's), Candidate
 
 **Build worktree**:
-A worktree in the **Build queue**'s pool, `_build1` … `_buildN`, that checks out a **Candidate**
-to gate it. Like `_main`, it never closes. It has its own `PORT_BASE` and `.env`. `build_slots:`
-sets N.
+A worktree in the **Build queue**'s pool, `_build1` … `_buildN`, that checks out a **Queue
+build**'s SHA, detached, to gate it. Like `_main`, it never closes. It has its own `PORT_BASE`
+and `.env`. It is not in the world: the running Queue build's **Gate lozenge** shows on the
+Merge request's own worktree node. `build_slots:` sets N.
 _Avoid_: Build slot (the count), runner, CI worktree
 
 **Chaperone**:
-The agent of a **Candidate**'s task. It gets every `build.*` and `merge.*` **External event**
-for the Candidate, and does all git work on its branch. The orchestrator resumes the task's last
-session when an event is due and the chaperone is not live.
+The agent of a **Merge request**'s task. It gets every `build.*` and `merge.*` **External event**
+for the Merge request, and does all git work on its branch. The orchestrator resumes the task's
+last agent when an event is due and the chaperone is not live.
 _Avoid_: Owner, watcher
 
 **Machine metrics**:
@@ -1053,11 +1064,12 @@ Producing an agreed plan for one task. Ends at the plan-review checkpoint.
 
 **Build**:
 Building the code, running its own review, presenting it, opening the PR. Ends when the PR first
-ships. In a `merge: local` project, it ends at the first `mael submit`.
+ships. In a `merge: local` project, it ends at the first `mael merge submit`. Not the **Queue
+build**, the gate run of a Merge request.
 
 **Land**:
 Answering CI failures and review feedback on an open PR. Ends when it merges. In a `merge: local`
-project, the **Chaperone** answers `build.*` events and review feedback on its **Candidate**.
+project, the **Chaperone** answers `build.*` events and review feedback on its **Merge request**.
 
 **Held text**:
 What the user typed into a surface of the orchestrator UI and has not submitted, kept in the

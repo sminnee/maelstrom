@@ -325,6 +325,40 @@ error counts as a failure. A line the table cannot read fails the watch too.
 **One gap.** A job that ends while the server is down is not told: the table and
 the told set start empty at each start.
 
+**The Build queue hook.** Each ended job also goes to `build_queue.job_ended`, by job id. A
+**Queue build** that waits on that job ends with it; any other job is ignored. A job in a
+**Build worktree** tells no agent through the worktree, because a Build worktree is not in the
+world. See [the build queue](build-queue.md).
+
+### The Build queue
+
+`build_queue.BuildQueue` runs each **Merge request**'s **Queue builds**. The server owns one and
+is the one writer of both records. `Orchestrator.start` starts it after the agents are read,
+because a re-tell may resume an agent. At start it cancels the Queue builds the last server life
+left running. It then re-tells each linked Queue build whose tell lags, and kicks the queue. Each running
+Queue build is one `build` **Operation**.
+
+The routes are on the task, as its PR's are:
+
+| Route | Command | Answer |
+|---|---|---|
+| `PUT /api/tasks/{project}/{id}/merge-request` `{branch, sha, base}` | `mergeRequest.submit` | The request, its `status`, and its Queue builds |
+| `GET /api/tasks/{project}/{id}/merge-request` | — | The same; `?all=1` adds `earlier`, the task's earlier requests |
+| `DELETE /api/tasks/{project}/{id}/merge-request` | `mergeRequest.withdraw` | The request, `withdrawn` |
+
+`validate.py` refuses an unknown task, a missing branch, and a `sha` or `base` that is not 40
+hex digits. The handler refuses a project that is not `merge: local`, and a withdraw with no
+open request: neither fact is in the world.
+
+`_tell_chaperone` tells the task's live top-level agents. With none, it resumes the task's
+latest exited top-level agent with the rendered event as its first turn. A delegated agent is
+left out, as for the PR watch.
+
+Each worktree carries `mergeRequest`, the current Merge request of its project and branch, or
+`null`. The queue keeps `current` in memory and calls the server on each change; the server
+overlays it on each worktree poll, each gate line, and each queue change. While a Queue build
+runs, `mergeRequest.gate` is the gate job in its Build worktree, found by path.
+
 ## A tagged document
 
 An agent puts a document in front of the user by writing a marker in the text of an ordinary
@@ -843,6 +877,7 @@ snapshot and its first live one.
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
 | Gate jobs | Pushed by the gate watch. See "The gate watch" | on each change |
+| Merge requests | Pushed by the Build queue on each change. See "The Build queue" | on each change |
 
 Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
