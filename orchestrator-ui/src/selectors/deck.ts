@@ -1,5 +1,7 @@
+import type { TaskStatus } from '../protocol/entities';
 import type { Zone } from '../protocol/progress';
-import { ZONES } from '../protocol/progress';
+import { isActionable } from '../protocol/phase';
+import { ZONES, progressOf, zoneForState } from '../protocol/progress';
 import type { WorldView } from './world';
 import type { Filters } from './filters';
 import { deriveGraph, nodeZone, type GraphNode } from './graph';
@@ -80,4 +82,42 @@ export function emptyZoneWords(zone: Zone): string {
     case 'todo':
       return 'Nothing is ready to start.';
   }
+}
+
+/** The status a drop on each zone sets. Running has none: a drop never launches. */
+const DROP_STATUS: Record<Zone, TaskStatus | null> = {
+  queued: 'blocked',
+  todo: 'todo',
+  running: null,
+  done: 'done',
+};
+
+/**
+ * The status a drop of `node` on `zone` sets, or null when the drop is refused.
+ *
+ * A drop is legal when its status differs from the current one and puts the
+ * node in `zone`. The zone is predicted with `progressOf`, the reading the
+ * board draws from, so a card always lands in the column it was dropped on.
+ * `actionable` is predicted with `isActionable`, the server's rule.
+ *
+ * Only a task drags. A free agent has no status, and an opening node or one an
+ * operation holds has no settled zone. A template never draws.
+ */
+export function dropStatus(
+  node: GraphNode,
+  zone: Zone,
+  tasks: WorldView['tasks'],
+): TaskStatus | null {
+  const { task } = node;
+  if (node.kind !== 'task' || !task || node.zone || nodeZone(node) === zone) return null;
+  const status = DROP_STATUS[zone];
+  if (!status || status === task.status) return null;
+  const actionable = isActionable({ ...task, status }, tasks);
+  const predicted = progressOf(
+    { ...task, status, actionable },
+    node.agent,
+    node.attention,
+    node.worktree?.gate ?? null,
+  );
+  return zoneForState(predicted.state) === zone ? status : null;
 }

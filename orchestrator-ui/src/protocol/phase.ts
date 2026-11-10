@@ -90,7 +90,10 @@ export function phaseLabel(phase: Phase): string {
 }
 
 /** May maelstrom launch this task now. Same rule as the notebook. */
-export function isActionable(task: Task, tasks: Record<TaskId, Task>): boolean {
+export function isActionable(
+  task: Pick<Task, 'status' | 'follows'>,
+  tasks: Record<TaskId, Pick<Task, 'status'>>,
+): boolean {
   if (['done', 'cancelled', 'blocked', 'template'].includes(task.status)) return false;
   return task.follows.every((id) => tasks[id]?.status === 'done');
 }
