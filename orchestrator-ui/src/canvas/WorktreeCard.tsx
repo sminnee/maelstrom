@@ -2,7 +2,7 @@ import type { Worktree } from '../protocol/entities';
 import { useOwnHost } from '../api/host';
 import { worktreeName } from '../selectors/worktrees';
 import { useNewWork } from '../nav/useOverlays';
-import { useCard } from '../nav/useCard';
+import { CollapseButton } from './CollapseButton';
 import { useCardOperation } from '../console/useConsole';
 import { endedBadly, unitWords } from '../selectors/operations';
 import { CommandSet } from '../ui/CommandSet';
@@ -35,7 +35,6 @@ export function WorktreeCard({
   open: boolean;
   onClosed: () => void;
 }) {
-  const { collapse } = useCard();
   const newWork = useNewWork();
   const op = useCardOperation({ worktreeId: worktree.id }, open);
   const name = worktreeName(worktree, useOwnHost().idPrefix);
@@ -53,14 +52,7 @@ export function WorktreeCard({
           <h2 className={styles.title}>{name}</h2>
           <span className={styles.project}>{worktree.project}</span>
         </div>
-        <button
-          type="button"
-          className={styles.close}
-          aria-label="Collapse"
-          onClick={() => collapse()}
-        >
-          {actionIcon('close')}
-        </button>
+        <CollapseButton />
       </header>
       {op && (
         <div className={styles.operation} data-ended={endedBadly(op) || undefined}>

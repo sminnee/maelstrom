@@ -5,7 +5,7 @@ import { nodeTitle } from '../selectors/graph';
 import { CanvasCard } from './CanvasCard';
 import { NodeCardBody } from './NodeCardBody';
 import { NODE } from './layout';
-import { actionIcon } from '../ui/actionIcons';
+import { CollapseButton } from './CollapseButton';
 import styles from './NodeCard.module.css';
 
 /** The card's width in flow units. Its height comes from its content. */
@@ -40,16 +40,7 @@ export function NodeCard({
         node={node}
         open={open}
         onDone={() => collapse()}
-        closeControl={
-          <button
-            type="button"
-            className={styles.close}
-            aria-label="Collapse"
-            onClick={() => collapse()}
-          >
-            {actionIcon('close')}
-          </button>
-        }
+        closeControl={<CollapseButton />}
       />
     </CanvasCard>
   );

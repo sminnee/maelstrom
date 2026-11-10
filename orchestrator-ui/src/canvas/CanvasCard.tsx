@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { ViewportPortal, useReactFlow } from '@xyflow/react';
 import { useCard } from '../nav/useCard';
+import { useEscape } from '../ui/useEscape';
 import styles from './CanvasCard.module.css';
 import { VIEW_MOVE_MS } from './viewport';
 
@@ -129,16 +130,7 @@ export function CanvasCard({
     };
   }, [open, onClosed]);
 
-  // Esc collapses the card, unless the panel is handling it (a composer, an input).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if ((e.target as Element | null)?.closest?.('[data-testid="panel"]')) return;
-      collapse();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [collapse]);
+  useEscape(collapse);
 
   return (
     <ViewportPortal>

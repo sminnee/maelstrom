@@ -18,6 +18,7 @@ import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
 import { focusedTaskId } from '../selectors/tabs';
 import { useShowing } from '../layout/useShowing';
+import { useEscape } from '../ui/useEscape';
 import { useAppStore } from '../store/store';
 import { cardOf, useCard } from '../nav/useCard';
 import { useLoc } from '../nav/useNav';
@@ -205,17 +206,8 @@ export function Canvas() {
   }
   const selected = [...selection].flatMap((id) => byId[id] ?? []);
 
-  useEffect(() => {
-    if (selection.size === 0) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      // The panel handles its own Esc. An open offer stops its Esc before here.
-      if ((e.target as Element | null)?.closest?.('[data-testid="panel"]')) return;
-      clearSelection();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [selection, clearSelection]);
+  // An open offer stops its Esc before here.
+  useEscape(clearSelection, selection.size > 0);
 
   const expanded: Expanded | null = expandedNodeId
     ? { kind: 'node', id: expandedNodeId }
