@@ -50,6 +50,10 @@ def test_model_reference_resolves_the_supported_forms(model, harness, alias):
             ("--model", "gpt-5.6-terra", "-c", "model_reasoning_effort=medium"),
         ),
         ("codex:luna", ("--model", "gpt-5.6-luna")),
+        # Claude Code's own `fable` alias still selects an older model.
+        ("claude:fable", ("--model", "claude-fable-5-2")),
+        ("fable", ("--model", "claude-fable-5-2")),
+        ("claude:opus", ("--model", "opus")),
         # An alias the table does not know passes through to the CLI.
         ("codex:custom", ("--model", "custom")),
         ("opencode:kimi", ("--model", "kimi")),

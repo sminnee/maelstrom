@@ -29,6 +29,10 @@ _MODELS = {
     ),
 }
 
+#: Claude Code aliases that maelstrom resolves to a full id, because Claude Code's
+#: own alias still points at an older model.
+_CLAUDE_MODELS = {"fable": "claude-fable-5-2"}
+
 _CODEX_MODELS = {
     "astra": ("gpt-6-astra", None),
     "sol": ("gpt-5.6-sol", "low"),
@@ -43,6 +47,8 @@ class ModelReference:
 
     harness: str
     alias: str
+    #: The model the CLI receives: a full id from the harness's table, else the alias.
+    model_id: str
     cli_args: tuple[str, ...]
     mode_args: tuple[str, ...]
 
@@ -64,16 +70,19 @@ def resolve_model_reference(model: str | None, mode: str = "normal") -> ModelRef
         )
     if not alias:
         raise ValueError("A model reference needs an alias after ':'.")
-    cli_args = ("--model", alias)
-    if prefix == HARNESS_CODEX and (codex_model := _CODEX_MODELS.get(alias)):
+    model_id, effort = alias, None
+    if prefix == HARNESS_CLAUDE:
+        model_id = _CLAUDE_MODELS.get(alias, alias)
+    elif prefix == HARNESS_CODEX and (codex_model := _CODEX_MODELS.get(alias)):
         model_id, effort = codex_model
-        cli_args = ("--model", model_id)
-        if effort:
-            cli_args += ("-c", f"model_reasoning_effort={effort}")
+    cli_args = ("--model", model_id)
+    if effort:
+        cli_args += ("-c", f"model_reasoning_effort={effort}")
 
     return ModelReference(
         harness=prefix,
         alias=alias,
+        model_id=model_id,
         cli_args=cli_args,
         mode_args=_mode_args(prefix, mode),
     )

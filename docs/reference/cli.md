@@ -301,8 +301,9 @@ always did.
 `claude:sonnet`, `claude:opus`, `claude:fable`, `codex:luna`, `codex:terra`,
 `codex:sol`, `codex:astra`, `opencode:kimi`, `opencode:glm`,
 `opencode:glm-flash`, `opencode:qwen`, `opencode:qwen-flash`, and
-`opencode:deepseek` select a CLI. Claude and OpenCode pass their alias. The
-listed Codex aliases resolve as follows:
+`opencode:deepseek` select a CLI. Claude and OpenCode pass their alias. Maelstrom runs
+`claude:fable` as `claude-fable-5-2`, because the Claude Code alias `fable` still
+selects an older model. The listed Codex aliases resolve as follows:
 
 | Model reference | Codex model | Reasoning effort |
 |---|---|---|
