@@ -1,0 +1,62 @@
+/* Four columns side by side, each scrolling on its own. */
+.board {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: var(--u);
+  height: 100%;
+  min-height: 0;
+  padding: var(--u);
+  overflow-x: auto;
+  box-sizing: border-box;
+  background: var(--bg);
+}
+.column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+/* Only a column that accepts the dragged card lights. */
+.column[data-drop] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg));
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+  margin: 0;
+  padding: var(--u) var(--u-2);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--fg-muted);
+}
+.cards {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* Over the board: the card it refers to stayed in its column. */
+.dropError {
+  position: absolute;
+  z-index: var(--z-card);
+  top: var(--u);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  padding: var(--u-half) var(--u);
+  border: 1px solid var(--attention);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--attention);
+  font-size: var(--text-sm);
+}

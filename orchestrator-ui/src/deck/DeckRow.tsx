@@ -1,3 +1,4 @@
+import type { DragEvent } from 'react';
 import { Link } from 'react-router';
 import { useLinkState } from '../nav/useNav';
 import { useDocuments } from '../api/documents';
@@ -28,17 +29,21 @@ import { useRowAction } from './useRowAction';
  *
  * A row whose work can start or has ended swipes left to Launch or Dismiss
  * (CONTEXT.md, "Swipe action"). The action shows behind the row as it moves.
+ * With `drag`, the row is a card the kanban can drag to another column.
  */
 export function DeckRow({
   node,
   showProject,
   to,
+  drag,
 }: {
   node: GraphNode;
   /** Whether the row names its project. False when the project filter already does. */
   showProject: boolean;
   /** Where a tap goes: the node's card, which the narrow layout draws as its detail. */
   to: string;
+  /** The kanban's drag handlers. Without them the row does not drag. */
+  drag?: { onDragStart: (e: DragEvent) => void; onDragEnd: () => void };
 }) {
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   const documents = useDocuments();
@@ -63,6 +68,9 @@ export function DeckRow({
       data-phase={node.phase ?? undefined}
       data-state={node.progress.state}
       data-operation={op?.state}
+      draggable={drag !== undefined}
+      onDragStart={drag?.onDragStart}
+      onDragEnd={drag?.onDragEnd}
     >
       {action && (
         <div

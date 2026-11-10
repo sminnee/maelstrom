@@ -1,4 +1,5 @@
 import { DeckList } from '../deck/DeckList';
+import { DeskKanban } from '../deck/DeskKanban';
 import { SlotCard } from '../deck/SlotCard';
 import { useLoc } from '../nav/useNav';
 import { DeskModeSwitch } from './DeskModeSwitch';
@@ -15,7 +16,7 @@ export function Desk() {
     <div className={styles.desk}>
       <DeskModeSwitch />
       <div className={styles.view}>
-        {mode === 'graph' ? <Canvas /> : <DeckList />}
+        {mode === 'graph' ? <Canvas /> : mode === 'kanban' ? <DeskKanban /> : <DeckList />}
         {mode !== 'graph' && <SlotCard />}
       </div>
     </div>
