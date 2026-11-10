@@ -1,8 +1,15 @@
+/* Floats over the view at the slot's top-right, clear of the zone strip's labels. */
 .bar {
-  display: flex;
-  flex: none;
-  justify-content: center;
-  padding: var(--u) var(--u-2);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
+  position: absolute;
+  z-index: var(--z-card);
+  top: var(--u);
+  right: var(--u-2);
+  border-radius: var(--radius-pill);
+  box-shadow: var(--shadow-card);
+}
+/* An icon segment is square-ish: the group's end padding would make the ends wider. */
+.mode,
+.mode:first-child,
+.mode:last-child {
+  padding: 0 var(--u);
 }

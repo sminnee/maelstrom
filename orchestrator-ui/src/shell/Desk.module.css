@@ -4,8 +4,11 @@
   height: 100%;
   min-height: 0;
 }
-/* The slot card is positioned against this box, so it sits over the view. */
+/* The slot card and the mode switch are positioned against this box, so they sit over the
+   view. The list's tab strip reads the two sizes to hold the switch beside its tabs. */
 .view {
+  --desk-switch-strip: calc(var(--control) + var(--u) * 2);
+  --desk-switch-room: 128px;
   position: relative;
   flex: 1;
   min-height: 0;
