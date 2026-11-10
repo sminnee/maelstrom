@@ -28,6 +28,12 @@ release while that section is empty, and retitles it to the version it is releas
 - **The panel's worktree view has a Tab picker.** A `+` after the last tab opens a menu of the
   worktree's Changes, sessions and documents. The worktree bar no longer has a Changes link. It
   now names the worktree's task, which opens the task dialog.
+- **`mael merge submit`, `status` and `withdraw` finish a task's work.** In a `merge: github`
+  project they do what `mael gh create-pr`, `read-pr` and `withdraw-pr` do. In a `merge: local`
+  project, a submit updates the task's **Merge request**, and the orchestrator server's **Build
+  queue** gates it in a **Build worktree**. `build_slots:` sets how many run at once. See
+  [Merge](docs/reference/cli.md#merge) and
+  [`merge:`](docs/reference/configuration.md#merge-and-build_slots).
 - **The desk draws as a graph, a kanban or a list.** A switch at the top of the desk picks the
   mode, and each mode has its own path, such as `/desk/kanban`. In kanban, drag a card to another
   column to set its task status. The desk now has four zones, Queued | To do | Running | Done,

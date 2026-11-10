@@ -86,6 +86,7 @@ from .integrations.sentry_cli import sentry_group
 from .integrations.slack_cli import slack_group
 from .integrations.uptimerobot_cli import uptimerobot_group
 from .json_flag import wants_json
+from .merge_cli import merge as merge_cli
 from .orchestrator_client import OrchestratorClient, tell_pr_changed
 from .project_cli import project as project_cli
 from .self.self_cli import self_group
@@ -1377,6 +1378,7 @@ cli.add_command(doc)
 cli.add_command(env_cli)
 cli.add_command(git_cli)
 cli.add_command(gh_cli)
+cli.add_command(merge_cli)
 cli.add_command(linear_group)
 cli.add_command(sentry_group)
 cli.add_command(slack_group)

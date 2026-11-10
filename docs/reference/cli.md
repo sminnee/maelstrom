@@ -390,7 +390,7 @@ prints each action's line on stderr. The server writes each task that `add`, `pr
 `load-many` create, and puts it on the desk, so it shows on the canvas at once.
 
 In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
-commands call the parent in place of `orchestrator_url:`, and `mael gh create-pr` registers its PR
+commands call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
 there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
 uses the local state database, and this agent's task is on <url>.":
 
@@ -863,7 +863,71 @@ mael env status -w myproject._main
 
 ---
 
+## Merge
+
+`mael merge` finishes a task's work. Each command reads the project's
+[`merge:` key](configuration.md#merge-and-build_slots) and works one of two ways.
+
+| Command | `merge: github` | `merge: local` |
+|---|---|---|
+| `mael merge submit` | Does what `mael gh create-pr` does. | Pushes the branch and submits its head to the task's **Merge request**. A **Queue build** is queued. |
+| `mael merge status` | Does what `mael gh read-pr` does. | Shows the Merge request, its status, and its linked Queue build. |
+| `mael merge withdraw` | Does what `mael gh withdraw-pr` does. | Withdraws the open Merge request and cancels its unfinished Queue build. |
+
+```bash
+mael merge submit                 # finish: a PR, or a Queue build
+mael merge status --wait          # local: wait for the Queue build to end
+mael merge status --builds        # local: every Queue build of the request
+mael merge withdraw               # more work to do after the submit
+```
+
+The local commands call the orchestrator server, or the **Parent server** for a delegated agent.
+A flag the project's mode has no use for fails with exit 2. `--timeout` and `--interval` are
+ignored in a `merge: github` project.
+
+**`mael merge submit`**
+
+In a `merge: local` project, the submit refuses when:
+
+- no task runs: `$MAEL_TASK_ID` is unset;
+- the worktree has uncommitted changes, because a Queue build gates a commit;
+- `HEAD` is detached;
+- the branch is not based on `origin/main` after a fetch. Run `mael sync`, then submit.
+
+It then pushes with `--force-with-lease` and prints the Merge request, the Queue build and the
+status. The first submit opens the task's Merge request. A later submit updates it and cancels
+its unfinished Queue build. A submit after a merge opens a new one.
+
+| Option | Description |
+|---|---|
+| `--draft`, `--wait`, `--wait-for-review`, `--squash`, `--autorepair`, `--skip-pre-push` | `merge: github` only. As for `mael gh create-pr`. |
+| `--target TEXT` | Project/worktree target for directory resolution. |
+
+**`mael merge status`**
+
+| Option | Description |
+|---|---|
+| `--task TEXT` | `merge: local`: the task. Default: `$MAEL_TASK_ID`. |
+| `--builds` | `merge: local`: list every Queue build of the request, newest first. |
+| `--wait` | Wait until the status settles. Exit 0 = `passed` or `merged`, 1 = any other settled status (local) or a CI failure (GitHub), 2 = timeout. |
+| `--timeout INTEGER` | `merge: local`: the `--wait` timeout in seconds. Default: 3600. |
+| `--interval INTEGER` | `merge: local`: the `--wait` poll interval in seconds. Default: 10. |
+| `--wait-for-review`, `--all-comments` | `merge: github` only. As for `mael gh read-pr`. |
+| `--target TEXT` | Project/worktree target for directory resolution. |
+
+**`mael merge withdraw`**
+
+| Option | Description |
+|---|---|
+| `--task TEXT` | Task whose PR or Merge request to withdraw. Default: `$MAEL_TASK_ID`. |
+| `--target TEXT` | Project/worktree target for directory resolution. |
+
+---
+
 ## GitHub
+
+`create-pr`, `read-pr` and `withdraw-pr` are legacy commands: they ignore `merge:` and always
+use GitHub. Use `mael merge` to finish a task.
 
 | Command | Description |
 |---|---|
