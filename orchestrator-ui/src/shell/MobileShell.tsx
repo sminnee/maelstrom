@@ -26,6 +26,7 @@ import { useAppStore } from '../store/store';
 import { ConnectionBanner } from './ConnectionBanner';
 import { FilterBar } from './FilterBar';
 import { HostBanner } from './HostBanner';
+import { GatesOverlay } from './GatesDialog';
 import { ProjectOverlays } from './ProjectOverlays';
 import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
 import { SheetHead, TopBar } from './TopBar';
@@ -128,6 +129,8 @@ export function MobileShell() {
         {/* Before the editor and New work: a modal mounted later sits on top, and both open over
             the Project dialog. */}
         <ProjectOverlays />
+        {/* After the project dialogs, so the Gate jobs dialog opens over them. */}
+        <GatesOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

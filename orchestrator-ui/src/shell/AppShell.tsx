@@ -21,6 +21,7 @@ import { usePresence } from '../ui/usePresence';
 import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
+import { GatesOverlay } from './GatesDialog';
 import { ProjectOverlays } from './ProjectOverlays';
 import { TopBar } from './TopBar';
 import styles from './AppShell.module.css';
@@ -113,6 +114,8 @@ function SlotShell() {
         {/* Before the editor and New work: a modal mounted later sits on top, and both open over
             the Project dialog. */}
         <ProjectOverlays />
+        {/* After the project dialogs, so the Gate jobs dialog opens over them. */}
+        <GatesOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>
