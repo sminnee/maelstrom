@@ -25,6 +25,7 @@ from .migrations.attachments_move import ATTACHMENTS_MOVE
 from .migrations.comms import COMMS
 from .migrations.desk import DESK
 from .migrations.landings import LANDINGS
+from .migrations.merge_requests import MERGE_REQUESTS
 from .migrations.operations import OPERATIONS
 from .migrations.pr_events import PR_EVENTS
 from .migrations.spine import SPINE
@@ -47,6 +48,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "operations": OPERATIONS,
     "pr_events": PR_EVENTS,
     "wiki": WIKI,
+    "merge_requests": MERGE_REQUESTS,
     # Reads `tasks` and `task_attachments`, so it climbs after both.
     "attachments_move": ATTACHMENTS_MOVE,
 }
@@ -85,6 +87,10 @@ TABLES: dict[str, TableSpec] = {
     "pr_events": TableSpec("pr_events", notifies=False),
     # The wiki pages. Canonical. Only the CLI reads them, so a write is not news.
     "wiki_pages": TableSpec("wiki_pages", notifies=False),
+    # The Build queue's Merge requests and Builds. Canonical. The server
+    # publishes each change on the worktree it shows on, so a write is not news.
+    "merge_requests": TableSpec("merge_requests", notifies=False),
+    "builds": TableSpec("builds", notifies=False),
 }
 
 
