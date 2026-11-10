@@ -52,6 +52,9 @@ from .server import Orchestrator, task_document_refusal
 log = logging.getLogger(__name__)
 #: How often an idle notice stream sends a comment, so a proxy keeps it open.
 PING_SECS = 15.0
+#: How long the browser waits before it redials a dropped notice stream. See
+#: orchestrator-server.md, "Change notices".
+RETRY_MS = 500
 #: How long a stop waits for open streams before it cancels them.
 SHUTDOWN_SECS = 1.0
 #: How often a transcript socket pings, so a proxy keeps it open.
@@ -1620,7 +1623,8 @@ async def _events(request: web.Request) -> web.StreamResponse:
     with orch.notices.subscribe() as subscriber:
         # The prefix lets a parent check that its `hosts:` key is this name.
         await response.write(
-            _sse("reset", {"epoch": orch.epoch, "idPrefix": orch.ids.prefix})
+            f"retry: {RETRY_MS}\n".encode()
+            + _sse("reset", {"epoch": orch.epoch, "idPrefix": orch.ids.prefix})
         )
         while True:
             try:
