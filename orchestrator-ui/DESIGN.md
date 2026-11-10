@@ -549,15 +549,19 @@ panel link brings Tabs to the front. No item has a side, so there is no shift-cl
 
 ### Desk modes
 
-On the medium and wide layouts the desk slot opens with a switch of three links: Graph, Kanban,
-List. Each is a **Desk mode** at its own path. Links, not buttons, so a mode opens in a new
-window, as the top bar's view items do.
+On the medium and wide layouts a switch of three icon links floats at the desk slot's top-right:
+Graph (a network), Kanban (a kanban square), List. Each link is named for its mode, and shows
+the name as its tooltip. Each is a **Desk mode** at its own path. Links, not buttons, so a mode
+opens in a new window, as the top bar's view items do. The switch takes no row of its own. The
+list's tab strip grows to hold it at its right end, and the slot card opens below it, so the
+switch stays in reach while a card is open.
 
 Kanban is four columns, one per zone, in board order. Each column holds deck rows, with its count
 in the head. The four columns share the slot's width, down to 128px each, so the board scrolls
 sideways only in a slot under about 540px. In a column under 220px a row's identity line
-truncates its names, and a chip or the phase that does not fit drops to a second line. A drag of a row to another column sets the status that puts it there; `dropStatus`
-in `selectors/deck.ts` holds the rule. A column that refuses the dragged card draws no drop
+truncates its names, and a chip or the phase that does not fit drops to a second line. A drag
+of a row to another column sets the status that puts it there; `dropStatus` in
+`selectors/deck.ts` holds the rule. A column that refuses the dragged card draws no drop
 highlight. The status picker on the card stays the keyboard path.
 
 In kanban and list, a click opens the node card fixed to the right edge of the desk slot, over

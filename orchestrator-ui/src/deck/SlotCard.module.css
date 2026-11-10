@@ -1,11 +1,12 @@
-/* The node card's look, fixed to the slot's right edge rather than grown from a node. */
+/* The node card's look, fixed to the slot's right edge rather than grown from a node. It
+   opens below the floating mode switch, so the switch stays in reach. */
 .card {
   position: absolute;
-  top: var(--u-2);
+  top: calc(var(--desk-switch-strip, var(--u)) + var(--u));
   right: var(--u-2);
   z-index: var(--z-card);
   width: min(440px, calc(100% - var(--u-2) * 2));
-  max-height: calc(100% - var(--u-2) * 2);
+  max-height: calc(100% - var(--desk-switch-strip, var(--u)) - var(--u-2));
   display: flex;
   flex-direction: column;
   overflow: hidden;

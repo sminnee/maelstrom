@@ -7,15 +7,15 @@ import { Canvas } from '../canvas/Canvas';
 import styles from './Desk.module.css';
 
 /**
- * The desk on the wide and medium layouts: the **Desk mode** switch, then the mode itself.
+ * The desk on the wide and medium layouts: the mode itself, with the **Desk mode** switch over it.
  * Kanban and list have no board to grow a card on, so their card opens at the slot's right edge.
  */
 export function Desk() {
   const { mode } = useLoc();
   return (
     <div className={styles.desk}>
-      <DeskModeSwitch />
       <div className={styles.view}>
+        <DeskModeSwitch />
         {mode === 'graph' ? <Canvas /> : mode === 'kanban' ? <DeskKanban /> : <DeckList />}
         {mode !== 'graph' && <SlotCard />}
       </div>

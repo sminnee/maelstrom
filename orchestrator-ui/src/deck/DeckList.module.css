@@ -6,10 +6,13 @@
   background: var(--bg);
 }
 /* A tab is full-height and the row divides the width evenly, so every zone is
-   one thumb-width target. */
+   one thumb-width target. On the desk the strip is tall enough to hold the floating mode
+   switch, and leaves room for it at the right (`shell/Desk.module.css`). */
 .tabs {
   display: flex;
   flex: none;
+  min-height: var(--desk-switch-strip, auto);
+  padding-right: var(--desk-switch-room, 0);
   border-bottom: 1px solid var(--border);
   background: var(--bg-raised);
 }
