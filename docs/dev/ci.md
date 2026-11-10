@@ -5,6 +5,10 @@ defines them in `pipeline.toml` at the repository root. A gate whose content alr
 does not run again in CI, so a push after a local run costs CI almost nothing. `e2e` accepts only
 a record from CI.
 
+A project with `merge: local` runs these gates in maelstrom's own build queue, not in GitHub
+Actions. Maelstrom moves to that mode in a later task, which rewrites this doc. See
+[the build queue](build-queue.md).
+
 ## The gates
 
 `pipeline.toml` holds each gate's command and gate scope. `web` is a group of five members:
