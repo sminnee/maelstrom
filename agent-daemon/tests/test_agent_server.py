@@ -34,6 +34,7 @@ from mael_agent.agent_wire import (
     reply_for_approval,
     user_message,
 )
+from mael_agent.harness_model import resolve_model_reference
 from mael_common.process_table import ProcessInfo, ProcessTableUnavailable
 from mael_daemon import agent_server
 from mael_daemon.agent_model import (
@@ -2252,13 +2253,14 @@ def test_an_execute_model_equal_to_the_current_one_switches_nothing():
     assert len(sent) == 5
 
 
-def test_a_qualified_execute_model_sends_the_bare_alias():
-    """``/model`` takes a Claude alias, not a maelstrom model reference."""
+def test_a_qualified_execute_model_sends_the_claude_model_id():
+    """``/model`` takes a Claude model, not a maelstrom model reference. A
+    resolved alias goes as its full id."""
     daemon, sent = _approving_agent(execute_model="claude:fable")
 
     asyncio.run(_handle(daemon, {"cmd": "approve", "id": "a1"}))
 
-    assert "/model fable" in _texts(sent)
+    assert f"/model {resolve_model_reference('claude:fable').model_id}" in _texts(sent)
 
 
 def test_an_unusable_execute_model_still_hands_over():

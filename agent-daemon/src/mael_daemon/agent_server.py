@@ -976,7 +976,7 @@ class AgentDaemon:
         argv = build_agent_argv(
             permission_mode=permission_mode,
             session_id=session_id,
-            model=ref.alias,
+            model=ref.model_id,
             resume=resume,
             system_prompt_file=system_prompt_file or None,
             plugin_dirs=present_dirs,
@@ -1641,7 +1641,7 @@ class AgentDaemon:
         if ref.alias == spec.model:
             return None, None
         try:
-            sent = await agent.send(user_message(f"{MODEL_COMMAND} {ref.alias}"))
+            sent = await agent.send(user_message(f"{MODEL_COMMAND} {ref.model_id}"))
         except (ConnectionResetError, BrokenPipeError) as exc:
             # `drain` raises on a pipe that broke after the closed check. The
             # handover below would raise the same way, escaping `handle` and
