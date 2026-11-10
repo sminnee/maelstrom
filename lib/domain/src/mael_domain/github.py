@@ -588,6 +588,28 @@ def discard_pr_draft(cwd: Path) -> None:
     (cwd / PR_DRAFT_PATH).unlink(missing_ok=True)
 
 
+def push_head(cwd: Path) -> None:
+    """Push ``HEAD`` to its branch on origin, with a lease, and print git's words.
+
+    Raises:
+        GitHubCommandFailed: If the push fails.
+        GitHubCliMissing: If git is not on PATH.
+    """
+    try:
+        result = run_cmd(
+            ["git", "push", "--force-with-lease", "-u", "origin", "HEAD"],
+            cwd=cwd,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise GitHubCommandFailed("push branch", result.stderr)
+        # Print push output for visibility
+        if result.stderr:
+            print(result.stderr.strip())
+    except FileNotFoundError:
+        raise GitHubCliMissing("git")
+
+
 def create_pr(
     cwd: Path | None = None,
     draft: bool = False,
@@ -694,20 +716,7 @@ def create_pr(
     except FETCH_ERRORS:
         pass
 
-    # Push the branch
-    try:
-        result = run_cmd(
-            ["git", "push", "--force-with-lease", "-u", "origin", "HEAD"],
-            cwd=cwd,
-            check=False,
-        )
-        if result.returncode != 0:
-            raise GitHubCommandFailed("push branch", result.stderr)
-        # Print push output for visibility
-        if result.stderr:
-            print(result.stderr.strip())
-    except FileNotFoundError:
-        raise GitHubCliMissing("git")
+    push_head(cwd)
 
     # `get_current_branch` goes through `run_git` with check=True, so a
     # detached HEAD raises CalledProcessError. Convert it: this function
