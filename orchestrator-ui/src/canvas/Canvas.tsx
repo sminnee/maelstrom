@@ -9,7 +9,9 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useUpdateTask } from '../api/tasks';
+import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
+import { usedByParent, worktreeName } from '../selectors/worktrees';
 import type { TaskId } from '../protocol/ids';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -85,6 +87,7 @@ export function Canvas() {
   // A panel off screen shows no tab, so no node is marked as its source.
   const focused = panelShowing ? focusedTaskId(world, tabs, activeTabKey) : null;
 
+  const { idPrefix } = useOwnHost();
   const { nodes, edges, byId, positions, boxes } = useMemo(() => {
     const graph = deriveGraph(world, { filters });
     const layout = layoutSwimlanes(graph);
@@ -130,7 +133,11 @@ export function Canvas() {
         height: box.height,
         draggable: false,
         selectable: false,
-        data: { box },
+        data: {
+          box,
+          name: worktreeName(box.worktree, idPrefix),
+          usedBy: usedByParent(world, box.worktree, idPrefix),
+        },
       };
     }
     const positions: Record<string, { x: number; y: number }> = {};
@@ -179,7 +186,7 @@ export function Canvas() {
       positions,
       boxes,
     };
-  }, [world, filters, focused, expandedNodeId]);
+  }, [world, filters, focused, expandedNodeId, idPrefix]);
   // Apart from the layout: a Shift-click marks nodes, and moves none.
   const flowNodes = useMemo(
     () =>

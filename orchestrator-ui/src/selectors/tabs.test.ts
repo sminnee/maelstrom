@@ -247,6 +247,25 @@ describe('groupTabs', () => {
     expect(groupKeyOf(world, changesTab('acme-alpha'))).toBe('acme-alpha');
   });
 
+  // Two bravos, one merged from cobalt: the label names the owner, the key stays the id.
+  it("labels another host's worktree with its owner, apart from this server's own", () => {
+    const merged = makeWorktree({
+      id: 'cobalt:northwind-bravo',
+      project: 'northwind',
+      nato: 'bravo',
+    });
+    const world = worldWith({
+      projects,
+      worktrees: [...worktrees, merged],
+      agents: [...agents, makeAgent({ id: 'cobalt:cb', worktreeId: merged.id, taskId: '' })],
+    });
+    const groups = groupTabs(world, [sessionTab('cobalt:cb'), sessionTab('nb')]);
+    expect(groups[0]!.worktrees.map((g) => [g.key, g.label])).toEqual([
+      ['northwind-bravo', 'bravo'],
+      ['cobalt:northwind-bravo', 'cobalt:bravo'],
+    ]);
+  });
+
   // A task relaunched in a new worktree leaves its exited agent behind. The
   // document goes where the work runs now, and never to a subagent.
   it("places an orphaned document with its task's live top-level agent", () => {

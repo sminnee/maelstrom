@@ -1,5 +1,6 @@
 import { Handle, Position, type NodeProps, type Node } from '@xyflow/react';
 import { useDocuments } from '../api/documents';
+import { useOwnHost } from '../api/host';
 import { driftLabel } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
 import { nodeIdLine, nodeTitle } from '../selectors/graph';
@@ -23,6 +24,7 @@ export type TaskFlowNode = Node<
 export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
   const { node, focused, expanded, selected } = data;
   const { open } = useCard();
+  const title = nodeTitle(node, useOwnHost().idPrefix);
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   // One query, not the whole world: a node draws for every task on the desk.
   const documents = useDocuments();
@@ -44,8 +46,8 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
     >
       <Handle type="target" position={Position.Left} className={styles.handle} />
       <div className={styles.head}>
-        <span className={`${styles.title} truncate`} title={nodeTitle(node)}>
-          {nodeTitle(node)}
+        <span className={`${styles.title} truncate`} title={title}>
+          {title}
         </span>
         {node.progress.state === 'needs-attention' &&
           (documentId ? (

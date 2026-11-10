@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMilestones } from '../api/milestones';
+import { useOwnHost } from '../api/host';
 import { useSetStatus, useTask } from '../api/tasks';
 import { useWorld } from '../api/useWorld';
 import { useEditor } from '../nav/useOverlays';
@@ -73,13 +74,14 @@ export function NodeCardBody(props: NodeCardBodyProps) {
  */
 function OpeningCardBody({ node, closeControl, open = true }: NodeCardBodyProps) {
   const marked = useCardOperation(nodeUnit(node), open);
+  const { idPrefix } = useOwnHost();
   const openConsole = useAppStore((s) => s.openConsole);
   const op = marked ?? node.operation!;
   return (
     <>
       <header className={styles.header}>
         <div className={styles.titleBlock}>
-          <h2 className={`${styles.title} wrap`}>{nodeTitle(node)}</h2>
+          <h2 className={`${styles.title} wrap`}>{nodeTitle(node, idPrefix)}</h2>
           <div className={styles.idLine} data-testid="node-id-line">
             <span className={`${styles.id} truncate`}>{nodeIdLine(node)}</span>
           </div>
@@ -156,7 +158,7 @@ function WorkCardBody({
     agent?.permissionMode || '',
     agent?.costUsd ? `$${agent.costUsd.toFixed(2)}` : '',
   ].filter(Boolean);
-  const title = nodeTitle(node);
+  const title = nodeTitle(node, useOwnHost().idPrefix);
   const deciding = !!agent && agent.pendingRequestIds.length > 0;
   const running = [...transcript.items]
     .reverse()

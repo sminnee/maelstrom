@@ -1293,6 +1293,28 @@ function launchFails(): Seed {
   return seed;
 }
 
+/**
+ * cobalt's own view: monolith's **Delegated agent** works in delta. cobalt has
+ * `host_name: cobalt`, so delta's id carries the prefix; the seed's other ids
+ * stay bare, and read as cobalt's too.
+ */
+function delegatedAgent(): Seed {
+  const seed = seedWorld();
+  const { world } = seed;
+  world.host = { ...world.host!, name: 'cobalt', idPrefix: 'cobalt' };
+  const delta = 'cobalt:northwind-delta';
+  world.worktrees[delta] = { ...world.worktrees['northwind-delta']!, id: delta };
+  delete world.worktrees['northwind-delta'];
+  for (const agent of Object.values(world.agents))
+    if (agent.worktreeId === 'northwind-delta')
+      world.agents[agent.id] = {
+        ...agent,
+        worktreeId: delta,
+        parentUrl: agent.parent ? '' : 'https://monolith.tailbaef49.ts.net:2772',
+      };
+  return seed;
+}
+
 /** NORT-7.1 can launch; the remote host `cobalt` is online and `zinc` is not. */
 function remoteHost(): Seed {
   const seed = seedWorld();
@@ -1421,6 +1443,10 @@ export const SCENARIOS = {
     about: "NORT-7.1's card: it launches here, or on cobalt; zinc is offline.",
     build: remoteHost,
     screen: at({ card: { kind: 'task', id: 'NORT-7.1' } }),
+  },
+  'delegated-agent': {
+    about: "cobalt's board: monolith's delegated agent works in delta.",
+    build: delegatedAgent,
   },
   'long-text': {
     about: 'Titles, ids, a branch, a commit and a comm too long for a phone.',

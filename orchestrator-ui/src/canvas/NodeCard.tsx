@@ -1,5 +1,6 @@
 import type { GraphNode } from '../selectors/graph';
 import { useCard } from '../nav/useCard';
+import { useOwnHost } from '../api/host';
 import { nodeTitle } from '../selectors/graph';
 import { CanvasCard } from './CanvasCard';
 import { NodeCardBody } from './NodeCardBody';
@@ -23,9 +24,10 @@ export function NodeCard({
   onClosed: () => void;
 }) {
   const { collapse } = useCard();
+  const { idPrefix } = useOwnHost();
   return (
     <CanvasCard
-      label={nodeTitle(node)}
+      label={nodeTitle(node, idPrefix)}
       className={styles.card}
       position={position}
       from={NODE}

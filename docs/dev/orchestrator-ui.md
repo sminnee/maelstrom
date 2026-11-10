@@ -884,7 +884,9 @@ its own. On the wide and medium layouts that link opens a dev env tab, not a bro
 
 Five things belong to a worktree and not to an agent: the branch, the changes, cmux, the
 environment and sync. `worktrees/WorktreeSection.tsx` draws them as one area: a head, the name
-and branch, the links, then the commands. The node card ends with this area, and the Worktree
+and branch, the links, then the commands. The name is `worktreeName`, and a worktree a
+**Delegated agent** uses adds `· in use by <parent>`: see "Names the UI shows" in
+`docs/dev/remote-hosts.md`. The node card ends with this area, and the Worktree
 card is this area under a header. Both draw the one component, so the two cannot drift.
 
 `worktrees/CloseControl.tsx` is the area's close: a split button with four options.
@@ -1402,7 +1404,8 @@ is one node wide and one label high. The strip holds one box per column, so each
 box that holds a node in that column starts.
 
 `canvas/WorktreeBoxNode.tsx` draws each box behind the nodes. The box takes no pointer events;
-its label does. The label is a button that names the worktree and its branch, and opens the
+its label does. The label is a button that names the worktree (`worktreeName`), its branch, and
+the **Parent server** whose **Delegated agent** works in it. It opens the
 **Worktree card** — see "The Worktree card".
 
 Commenting on a document takes one drag. Selecting text shows a "Comment on selection" control

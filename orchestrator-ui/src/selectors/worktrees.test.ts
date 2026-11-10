@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { makeAgent, makeWorktree, worldWith } from '../fake/fixtures';
-import { noWorktreeFilters, projectWorktrees } from './worktrees';
+import {
+  noWorktreeFilters,
+  parentName,
+  projectWorktrees,
+  usedByParent,
+  worktreeName,
+} from './worktrees';
 
 const natos = (rows: ReturnType<typeof projectWorktrees>) => rows.map((r) => r.worktree.nato);
 
@@ -88,5 +94,80 @@ describe('the tracked agents on a row', () => {
       agents: [],
     });
     expect(projectWorktrees(world, 'acme', noWorktreeFilters())[0]!.agents).toEqual([]);
+  });
+});
+
+describe('worktreeName', () => {
+  it('keeps the bare nato for a worktree this server owns', () => {
+    const own = makeWorktree({ id: 'acme-bravo', nato: 'bravo' });
+    expect(worktreeName(own, '')).toBe('bravo');
+  });
+
+  it('keeps the bare nato on a server whose own ids carry a prefix', () => {
+    const own = makeWorktree({ id: 'cobalt:acme-bravo', nato: 'bravo' });
+    expect(worktreeName(own, 'cobalt')).toBe('bravo');
+  });
+
+  it('keeps the bare nato for a bare id on a server with a prefix', () => {
+    const bare = makeWorktree({ id: 'acme-bravo', nato: 'bravo' });
+    expect(worktreeName(bare, 'cobalt')).toBe('bravo');
+  });
+
+  it('names the owner of a worktree another host owns', () => {
+    const merged = makeWorktree({ id: 'cobalt:acme-bravo', nato: 'bravo' });
+    expect(worktreeName(merged, '')).toBe('cobalt:bravo');
+  });
+});
+
+describe('parentName', () => {
+  it('is the first DNS label of the URL host', () => {
+    expect(parentName('https://monolith.tailbaef49.ts.net:2772')).toBe('monolith');
+  });
+
+  it('is the whole host for an IP address', () => {
+    expect(parentName('https://100.64.0.7:2772')).toBe('100.64.0.7');
+  });
+
+  it('is empty for a URL that does not parse', () => {
+    expect(parentName('not a url')).toBe('');
+  });
+});
+
+describe('usedByParent', () => {
+  const PARENT = 'https://monolith.tailbaef49.ts.net:2772';
+  const worktree = makeWorktree({ id: 'acme-bravo', nato: 'bravo' });
+  const agentIn = (over: Parameters<typeof makeAgent>[0]) =>
+    makeAgent({ worktreeId: 'acme-bravo', parentUrl: PARENT, ...over });
+
+  it('names the parent of a live delegated agent', () => {
+    const world = worldWith({ worktrees: [worktree], agents: [agentIn({})] });
+    expect(usedByParent(world, worktree, '')).toBe('monolith');
+  });
+
+  it('names the parent of the newest delegated agent', () => {
+    const older = agentIn({ id: 'old', startedAt: '2026-06-11T09:00:00Z' });
+    const newer = agentIn({
+      id: 'new',
+      startedAt: '2026-06-11T10:00:00Z',
+      parentUrl: 'https://zinc.tailbaef49.ts.net:2772',
+    });
+    const world = worldWith({ worktrees: [worktree], agents: [older, newer] });
+    expect(usedByParent(world, worktree, '')).toBe('zinc');
+  });
+
+  it.each([
+    ['an exited agent', agentIn({ state: 'exited' })],
+    ['a subagent', agentIn({ parent: 'agent-0' })],
+    ['a direct agent', agentIn({ parentUrl: '' })],
+  ])('ignores %s', (_label, agent) => {
+    const world = worldWith({ worktrees: [worktree], agents: [agent] });
+    expect(usedByParent(world, worktree, '')).toBe('');
+  });
+
+  it('ignores a worktree another host owns', () => {
+    const merged = makeWorktree({ id: 'cobalt:acme-bravo', nato: 'bravo' });
+    const agent = agentIn({ worktreeId: merged.id });
+    const world = worldWith({ worktrees: [merged], agents: [agent] });
+    expect(usedByParent(world, merged, '')).toBe('');
   });
 });

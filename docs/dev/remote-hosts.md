@@ -150,6 +150,22 @@ bare id, such as `mael close`, still reaches `cobalt:maelstrom-alpha`.
 When a server with live agents gets a `host_name`, the bare-id records retire. The next list
 adopts the same agents again under prefixed ids.
 
+### Names the UI shows
+
+The `host` entity carries `name` and `idPrefix`. `idPrefix` is `IdSpace.prefix`. `name` is
+`GlobalConfig.server_name()`: `host_name`, else the first DNS label of a named `dev_host`, else
+the machine's host name up to the first `.`.
+
+The UI names a worktree `<owner>:<nato>` when its id has an owner other than its own `idPrefix`,
+and `nato` otherwise (`worktreeName` in `selectors/worktrees.ts`). A bare id names no other owner,
+so it reads as this server's. So monolith shows cobalt's bravo as `cobalt:bravo`, and its own
+bravo as `bravo`.
+
+On the remote host, the **Worktree box** and the worktree area of a worktree that a live
+**Delegated agent** uses say `· in use by <parent>` (`usedByParent`). The parent's name is the first DNS label of the agent's `parentUrl`. The
+parent makes that URL from its `dev_host`, so this agrees with the parent's own `name` unless the
+parent sets a `host_name` that differs from its `dev_host` label.
+
 ## Merge and dispatch at the handler layer
 
 ### Merge

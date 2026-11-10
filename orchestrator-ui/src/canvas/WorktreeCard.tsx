@@ -1,4 +1,6 @@
 import type { Worktree } from '../protocol/entities';
+import { useOwnHost } from '../api/host';
+import { worktreeName } from '../selectors/worktrees';
 import { useNewWork } from '../nav/useOverlays';
 import { useCard } from '../nav/useCard';
 import { useCardOperation } from '../console/useConsole';
@@ -36,9 +38,10 @@ export function WorktreeCard({
   const { collapse } = useCard();
   const newWork = useNewWork();
   const op = useCardOperation({ worktreeId: worktree.id }, open);
+  const name = worktreeName(worktree, useOwnHost().idPrefix);
   return (
     <CanvasCard
-      label={`Worktree ${worktree.project} ${worktree.nato}`}
+      label={`Worktree ${worktree.project} ${name}`}
       className={styles.card}
       position={position}
       from={EMPTY_BOX}
@@ -47,7 +50,7 @@ export function WorktreeCard({
     >
       <header className={styles.header}>
         <div className={styles.titleBlock}>
-          <h2 className={styles.title}>{worktree.nato}</h2>
+          <h2 className={styles.title}>{name}</h2>
           <span className={styles.project}>{worktree.project}</span>
         </div>
         <button

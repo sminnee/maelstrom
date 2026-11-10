@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
+import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
 import { useRefreshWorktrees } from '../api/worktrees';
 import type { Worktree } from '../protocol/entities';
 import type { ProjectId } from '../protocol/ids';
 import { worktreePr } from '../selectors/cardPr';
-import { projectWorktrees } from '../selectors/worktrees';
+import { projectWorktrees, worktreeName } from '../selectors/worktrees';
 import { PrChip } from '../shell/PrChip';
 import { useGo, useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
@@ -105,10 +106,11 @@ export function WorktreeTable({ project }: { project: ProjectId }) {
 /** One worktree: what it holds, and what can be done to it. */
 function Row({ worktree, agents }: { worktree: Worktree; agents: number }) {
   const op = useUnitOperation({ worktreeId: worktree.id });
+  const { idPrefix } = useOwnHost();
   return (
     <tr data-worktree-id={worktree.id} data-closed={worktree.isClosed} data-operation={op?.state}>
       <td className={styles.mono}>
-        {worktree.nato}
+        {worktreeName(worktree, idPrefix)}
         {/* In the first cell, so the narrow layout's reorder of the cells holds. */}
         {op && (
           <span className={styles.operation} data-ended={endedBadly(op) || undefined}>
