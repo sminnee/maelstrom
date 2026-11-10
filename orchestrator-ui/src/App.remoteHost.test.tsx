@@ -12,17 +12,17 @@ const launches = (server: { requests: { method: string; path: string; body: unkn
   server.requests.filter((r) => r.method === 'POST' && r.path.endsWith('/launch'));
 
 describe('the Launch button of a task card', () => {
-  it('launches here by default, and offers each online remote host in its menu', async () => {
+  it('launches on this server by default, and offers each online remote host in its menu', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp({ scenario: 'remote-host' });
     clickNode('NORT-7.1');
     const card = screen.getByRole('dialog');
 
-    expect(within(card).getByRole('button', { name: 'Launch here' })).toBeInTheDocument();
+    expect(within(card).getByRole('button', { name: 'Launch' })).toBeInTheDocument();
     await user.click(within(card).getByRole('button', { name: 'Launch on another host' }));
     // An offline host is not offered.
     expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toEqual([
-      'Launch here',
+      'Launch on monolith',
       'Launch on cobalt',
     ]);
     await user.click(screen.getByRole('menuitem', { name: 'Launch on cobalt' }));
