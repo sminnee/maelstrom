@@ -21,6 +21,7 @@ from mael_domain.comm_store import Comm as DomainComm
 from mael_domain.comm_store import CommUpdate as DomainCommUpdate
 from mael_domain.document_tags import DRAFT_KIND, as_plan
 from mael_domain.landing_store import StepEvent
+from mael_domain.merge_request import Current
 from mael_domain.normalise import background_shells_of_row
 from mael_domain.protocol import (
     Agent,
@@ -41,6 +42,7 @@ from mael_domain.protocol import (
     UsageWindow,
     Worktree,
     WorktreeGate,
+    WorktreeMergeRequest,
 )
 from mael_domain.task_attachments import Link, TaskAttachment, Version
 from mael_domain.worktree_model import get_worktree_folder_name
@@ -256,6 +258,8 @@ def worktree_entity(
         "liveFeedback": [],
         # The server overlays the live job; see ``worktree_gates``.
         "gate": None,
+        # The server overlays it from the Build queue; see ``with_merge_requests``.
+        "mergeRequest": None,
     }
 
 
@@ -523,21 +527,63 @@ def worktree_gates(jobs: Iterable[GateJob]) -> dict[str, WorktreeGate]:
     A job with no worktree is skipped.
     """
     gates: dict[str, WorktreeGate] = {}
-    ranked = sorted(jobs, key=lambda job: (job["state"] == "queued", job["started"]))
-    for job in ranked:
+    for job in _ranked(jobs):
         worktree = job["worktree"]
         if worktree is None or worktree in gates:
             continue
-        running = next(
-            (g["name"] for g in job["gates"] if g["state"] == "running"), None
-        )
-        gates[worktree] = {
-            "jobId": job["id"],
-            "state": job["state"],
-            "gate": running,
-            "queuePosition": job["queuePosition"],
-        }
+        gates[worktree] = _lozenge(job)
     return gates
+
+
+def _ranked(jobs: Iterable[GateJob]) -> list[GateJob]:
+    """A job out of the queue first, then the oldest."""
+    return sorted(jobs, key=lambda job: (job["state"] == "queued", job["started"]))
+
+
+def _lozenge(job: GateJob) -> WorktreeGate:
+    running = next((g["name"] for g in job["gates"] if g["state"] == "running"), None)
+    return {
+        "jobId": job["id"],
+        "state": job["state"],
+        "gate": running,
+        "queuePosition": job["queuePosition"],
+    }
+
+
+def merge_request_entity(
+    current: Current, jobs: dict[str, GateJob], build_path: str | None
+) -> WorktreeMergeRequest:
+    """A branch's current Merge request, as its worktree node shows it.
+
+    ``build_path`` is the real path of the Build worktree its running Build
+    is in, or ``None``; the gate job there is the lozenge.
+    """
+    gate = None
+    if build_path is not None:
+        here = [job for job in jobs.values() if job["path"] == build_path]
+        gate = _lozenge(_ranked(here)[0]) if here else None
+    build = current.build
+    return {
+        "id": current.request.id,
+        "status": current.status,
+        "sha": current.request.sha,
+        "detail": build.detail if build is not None else "",
+        "gate": gate,
+    }
+
+
+def with_merge_requests(
+    worktrees: dict[str, Any],
+    overlay: dict[tuple[str, str], WorktreeMergeRequest],
+) -> dict[str, Any]:
+    """``worktrees``, each with the Merge request of its project and branch."""
+    return {
+        worktree_id: {
+            **worktree,
+            "mergeRequest": overlay.get((worktree["project"], worktree["branch"])),
+        }
+        for worktree_id, worktree in worktrees.items()
+    }
 
 
 def with_gates(worktrees: dict[str, Any], jobs: dict[str, GateJob]) -> dict[str, Any]:

@@ -1,0 +1,5 @@
+job 212: lint, test, web.lint, web.typecheck, web.knip, web.test, web.build, jig.lint, jig.typecheck, jig.test, jig.smoke (6f233ba)
+job 212 is in the background: starting.
+Run `tangier gate wait --job 212` to keep waiting (up to an hour; exits 0 if every gate passed, 1 if one failed or it was cancelled, 3 if still queued or running).
+`tangier gate status` shows progress; `tangier gate cancel` stops it.
+Full output: ~/.tangier/jobs/212/output.log

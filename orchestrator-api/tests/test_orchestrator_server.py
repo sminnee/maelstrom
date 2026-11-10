@@ -15132,3 +15132,173 @@ def test_a_metrics_socket_that_falls_behind_is_closed_lagging(harness_factory):
     close_code, reopened = run(scenario())
     assert close_code == 4409
     assert [s["at"] for s in reopened["samples"]] == ["0", "1", "2", "3"]
+
+
+# --- the Build queue ---------------------------------------------------------
+
+
+class StaleBuildHost:
+    """A Build host whose ``origin/main`` has moved, so no Build runs a gate."""
+
+    def __init__(self, merge: str = "local") -> None:
+        self.merge = merge
+
+    def config(self, project: str) -> MaelstromConfig:
+        return MaelstromConfig(merge=self.merge)  # type: ignore[arg-type]
+
+    def origin_main(self, project: str) -> str:
+        return "e" * 40
+
+    def slot_path(self, project: str, slot: str) -> Path:
+        return Path("/projects") / project / slot
+
+
+MR_BODY = {"branch": "feat/orders", "sha": "a" * 40, "base": "c" * 40}
+MR_PATH = f"/api/tasks/{PROJECT}/NORT-7/merge-request"
+
+
+async def put_json(api: Api, path: str, body: dict) -> Reply:
+    async with api.session.put(path, json=body) as response:
+        return await _reply(response)
+
+
+def test_a_submit_tells_the_live_agent_on_the_task_and_shows_on_the_node(
+    harness_factory,
+):
+    harness = harness_factory(build_host=StaleBuildHost())
+    an_agent_on_a_task(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: "ag1" in harness.orch.world["agents"])
+            put = await put_json(api, MR_PATH, MR_BODY)
+            await wait_until(
+                lambda: events_said(harness) == ["build.queued", "build.rebase"]
+            )
+            await wait_until(
+                lambda: (
+                    harness.orch.world["worktrees"]["northwind-alpha"]["mergeRequest"]
+                    is not None
+                    and harness.orch.world["worktrees"]["northwind-alpha"][
+                        "mergeRequest"
+                    ]["status"]
+                    == "stale"
+                )
+            )
+            return put, await api.get_json(MR_PATH)
+
+    put, read = run(scenario())
+    assert put.status == 200, put.body
+    assert (put.body["id"], put.body["task"]) == ("mr1", f"{PROJECT}/NORT-7")
+    assert (read["status"], [b["state"] for b in read["builds"]]) == (
+        "stale",
+        ["stale"],
+    )
+    node = harness.orch.world["worktrees"]["northwind-alpha"]["mergeRequest"]
+    assert node == {
+        "id": "mr1",
+        "status": "stale",
+        "sha": "a" * 40,
+        "detail": "main moved since the submit, so no gate ran",
+        "gate": None,
+    }
+
+
+def test_a_submit_with_no_live_agent_resumes_the_tasks_last_agent(harness_factory):
+    harness = harness_factory(build_host=StaleBuildHost())
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    harness.daemon.rows["ag1"] = agent_row(
+        session=session_of("NORT-7"), state="exited(0)"
+    )
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(
+                lambda: harness.orch.world["agents"].get("ag1", {}).get("taskId")
+            )
+            await put_json(api, MR_PATH, MR_BODY)
+            await wait_until(
+                lambda: any(c["cmd"] == "resume" for c in harness.daemon.calls)
+            )
+
+    run(scenario())
+    resume = next(c for c in harness.daemon.calls if c["cmd"] == "resume")
+    event = parse_external_event(resume["text"])
+    assert event is not None
+    assert (event.source, event.type) == ("build", "build.queued")
+
+
+def test_a_submit_in_a_github_project_is_refused(harness_factory):
+    harness = harness_factory(build_host=StaleBuildHost(merge="github"))
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await put_json(api, MR_PATH, MR_BODY)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "merge: local" in reply.body["error"]["message"]
+
+
+def test_withdraw_with_no_open_request_is_refused(harness):
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.delete(MR_PATH)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "no open Merge request" in reply.body["error"]["message"]
+
+
+class PassingBuildHost(StaleBuildHost):
+    """A Build host whose ``origin/main`` is the submitted base."""
+
+    def origin_main(self, project: str) -> str:
+        return MR_BODY["base"]
+
+    def checkout(self, project: str, slot: str, sha: str) -> Path:
+        return self.slot_path(project, slot)
+
+    def install(self, project: str, path: Path) -> None:
+        pass
+
+
+def test_a_gate_watch_job_end_ends_the_running_queue_build(store):
+    watch = ScriptedGateWatch()
+    started = (Path(__file__).parent / "fixtures" / "gate-run-started.txt").read_text()
+
+    async def tangier(argv, cwd, env):
+        return 3, started
+
+    harness = Harness(
+        store,
+        gate_watch=watch,
+        gate_backoff=0.01,
+        build_host=PassingBuildHost(),
+        build_run=tangier,
+    )
+    harness.add_task("NORT-7")
+    watch.lines.put_nowait(gate_status())
+
+    async def scenario():
+        async with harness.client() as api:
+            await put_json(api, MR_PATH, MR_BODY)
+
+            async def job_seen():
+                read = await api.get_json(MR_PATH)
+                return read["builds"][0]["job"] == 212
+
+            async with asyncio.timeout(2):
+                while not await job_seen():
+                    await asyncio.sleep(0.01)
+            watch.lines.put_nowait(job_line(gate_job(212, "passed", "/x")))
+            async with asyncio.timeout(2):
+                while (await api.get_json(MR_PATH))["status"] != "passed":
+                    await asyncio.sleep(0.01)
+            return await api.get_json(MR_PATH)
+
+    read = run(scenario())
+    assert [(b["state"], b["job"]) for b in read["builds"]] == [("passed", 212)]

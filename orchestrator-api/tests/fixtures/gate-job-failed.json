@@ -1,0 +1,35 @@
+{
+  "id": 211,
+  "state": "failed",
+  "pid": 1285765,
+  "head": "7e13b27a871c1fa624d6de71db9be04540f3b959",
+  "tree": "61688f71822ecee225c45830e5d1fb38b8d6e708",
+  "dirty": false,
+  "base": "origin/main",
+  "started": "2026-11-10T22:10:38.566057+00:00",
+  "code": 1,
+  "stale": null,
+  "log": "/home/me/.tangier/jobs/211/output.log",
+  "worktree": "/tmp/x/check/projects/demo/_build1",
+  "git_dir": "/tmp/x/check/projects/demo/.git/worktrees/_build1",
+  "queue_position": null,
+  "cancelled": null,
+  "gates": [
+    {
+      "name": "check",
+      "key": "f48850f905704cecceea0689117f799942da37b0",
+      "state": "failed",
+      "code": 1,
+      "started": "2026-11-10T22:10:38.650331+00:00",
+      "ended": "2026-11-10T22:10:38.655431+00:00",
+      "ref": "refs/tangier/failures/check/f48850f905704cecceea0689117f799942da37b0",
+      "load": {
+        "load": 0.6,
+        "cpus": 24
+      },
+      "stale": null,
+      "drift": null
+    }
+  ],
+  "usage": null
+}

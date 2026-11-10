@@ -930,6 +930,44 @@ def test_a_pr_registration_refuses_a_bad_number_or_url(over, message):
     assert validate_command(world, cmd) == {"code": "invalid", "message": message}
 
 
+SUBMIT = {
+    "type": "mergeRequest.submit",
+    "taskId": "northwind/NORT-7",
+    "branch": "feat/x",
+    "sha": "a" * 40,
+    "base": "c" * 40,
+}
+
+
+def test_a_merge_request_submit_with_a_branch_and_two_shas_is_allowed():
+    assert validate_command(world_with(tasks=[make_task()]), SUBMIT) is None
+
+
+@pytest.mark.parametrize(
+    ("over", "message"),
+    [
+        ({"branch": ""}, "branch is the task branch"),
+        ({"sha": "abc1234"}, "sha is a 40-hex commit SHA"),
+        ({"base": "C" * 40}, "base is a 40-hex commit SHA"),
+        ({"sha": None}, "sha is a 40-hex commit SHA"),
+    ],
+)
+def test_a_merge_request_submit_refuses_a_bad_branch_or_sha(over, message):
+    world = world_with(tasks=[make_task()])
+    assert validate_command(world, {**SUBMIT, **over}) == {
+        "code": "invalid",
+        "message": message,
+    }
+
+
+@pytest.mark.parametrize("kind", ["mergeRequest.submit", "mergeRequest.withdraw"])
+def test_a_merge_request_command_for_an_unknown_task_is_refused(kind):
+    cmd = {**SUBMIT, "type": kind, "taskId": "northwind/NORT-99"}
+    assert (
+        validate_command(world_with(tasks=[make_task()]), cmd)["code"] == "unknown_id"
+    )
+
+
 def test_a_say_carrying_only_an_image_is_allowed():
     """An image with no words is a message in its own right.
 

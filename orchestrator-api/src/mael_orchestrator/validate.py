@@ -6,6 +6,7 @@ host is touched. ``orchestrator-ui/src/test/fakeServer.ts`` refuses the same com
 the web tests, so a rule added here belongs there too.
 """
 
+import re
 from typing import Any
 from uuid import UUID
 
@@ -184,6 +185,13 @@ WAIT_NAMES: dict[str, str] = {
 def _wait_name(*kinds: str) -> str:
     """What to call ``kinds`` in a refusal a user reads."""
     return " or ".join(WAIT_NAMES.get(kind, kind) for kind in kinds)
+
+
+_SHA = re.compile(r"[0-9a-f]{40}")
+
+
+def _is_sha(value: object) -> bool:
+    return isinstance(value, str) and _SHA.fullmatch(value) is not None
 
 
 def _err(code: str, message: str) -> dict[str, str]:
@@ -910,6 +918,20 @@ def validate_command(
         # The id becomes a `--resume` argument and a transcript file name.
         if not _is_uuid(cmd.get("sessionId")):
             return _err("invalid", "sessionId is a session id: a UUID")
+        return None
+
+    if kind in ("mergeRequest.submit", "mergeRequest.withdraw"):
+        # The project's `merge:` mode and the open request are read by the
+        # handler: neither is in the world.
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        if kind == "mergeRequest.submit":
+            if not isinstance(cmd.get("branch"), str) or not cmd["branch"]:
+                return _err("invalid", "branch is the task branch")
+            for field in ("sha", "base"):
+                if not _is_sha(cmd.get(field)):
+                    return _err("invalid", f"{field} is a 40-hex commit SHA")
         return None
 
     if kind == "task.update":

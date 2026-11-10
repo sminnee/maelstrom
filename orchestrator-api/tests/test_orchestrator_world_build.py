@@ -12,10 +12,12 @@ from mael_daemon.agent_model import (
     mark_exited,
 )
 from mael_domain import task as model
+from mael_domain.merge_request import Build, Current, MergeRequest
 from mael_orchestrator.world_build import (
     agent_entity,
     diff_kind,
     link_agent,
+    merge_request_entity,
     parse_agent_state,
     project_entity,
     row_totals,
@@ -185,6 +187,7 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "sshTarget": "",
         "liveFeedback": [],
         "gate": None,
+        "mergeRequest": None,
     }
 
 
@@ -611,3 +614,44 @@ def test_row_totals_reads_what_a_row_says_its_subagents_spent(row, expected):
     this path are worth pinning.
     """
     assert row_totals(row)["subagentTokens"] == expected
+
+
+MR = MergeRequest(
+    "mr1", "northwind/NORT-7", "northwind", "NORT-7", "feat/orders", "a" * 40,
+    "c" * 40, "open", "b2", "t0", "t1",
+)  # fmt: skip
+IN_BUILD1 = {**RUNNING, "id": "45", "worktree": None, "path": "/p/northwind/_build1"}
+
+
+def _current(state: str, detail: str = "") -> Current:
+    build = Build("b2", "mr1", "northwind", "a" * 40, "c" * 40, state, "t0",
+                  slot="_build1", detail=detail)  # fmt: skip
+    status = {"running": "building"}.get(state, state)
+    return Current(MR, build, status)  # type: ignore[arg-type]
+
+
+def test_a_running_build_shows_the_gate_job_in_its_build_worktree():
+    jobs = {"43": RUNNING, "45": IN_BUILD1}
+    entity = merge_request_entity(_current("running"), jobs, "/p/northwind/_build1")
+    assert entity == {
+        "id": "mr1",
+        "status": "building",
+        "sha": "a" * 40,
+        "detail": "",
+        "gate": {
+            "jobId": "45",
+            "state": "running",
+            "gate": "test",
+            "queuePosition": None,
+        },
+    }
+
+
+def test_an_ended_build_shows_its_detail_and_no_gate():
+    jobs = {"45": IN_BUILD1}
+    entity = merge_request_entity(_current("failed", "- test: failed"), jobs, None)
+    assert (entity["status"], entity["detail"], entity["gate"]) == (
+        "failed",
+        "- test: failed",
+        None,
+    )

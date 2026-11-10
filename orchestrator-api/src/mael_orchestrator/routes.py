@@ -178,6 +178,11 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_put("/api/tasks/{project}/{id}/pr", _register_pr)
     app.router.add_delete("/api/tasks/{project}/{id}/pr", _withdraw_pr)
     app.router.add_post("/api/tasks/{project}/{id}/sessions", _add_session)
+    app.router.add_put("/api/tasks/{project}/{id}/merge-request", _submit_merge_request)
+    app.router.add_get("/api/tasks/{project}/{id}/merge-request", _read_merge_request)
+    app.router.add_delete(
+        "/api/tasks/{project}/{id}/merge-request", _withdraw_merge_request
+    )
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
@@ -1224,6 +1229,43 @@ async def _withdraw_pr(request: web.Request) -> web.StreamResponse:
     task_id = _task_id(request)
     return await _command(
         request, lambda _body: {"type": "task.withdrawPr", "taskId": task_id}
+    )
+
+
+async def _submit_merge_request(request: web.Request) -> web.StreamResponse:
+    """Submit ``{branch, sha, base}`` to the task's Merge request: a Build is queued."""
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "mergeRequest.submit",
+            "taskId": task_id,
+            "branch": body.get("branch"),
+            "sha": body.get("sha"),
+            "base": body.get("base"),
+        },
+    )
+
+
+async def _read_merge_request(request: web.Request) -> web.Response:
+    """The task's current Merge request with its Builds; ``?all=1`` adds earlier ones."""
+    orch = await _ready_with_tasks(request)
+    task_id = _task_id(request)
+    if task_id not in orch.world["tasks"]:
+        return error_response("unknown_id", f"No task {task_id}")
+    found = await orch.merge_request_of(
+        task_id, every=request.query.get("all") in ("1", "true")
+    )
+    if found is None:
+        return error_response("unknown_id", f"Task {task_id} has no Merge request")
+    return web.json_response(found)
+
+
+async def _withdraw_merge_request(request: web.Request) -> web.StreamResponse:
+    """Withdraw the task's open Merge request, and cancel its unfinished Build."""
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda _body: {"type": "mergeRequest.withdraw", "taskId": task_id}
     )
 
 
