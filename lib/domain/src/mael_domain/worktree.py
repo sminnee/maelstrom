@@ -826,6 +826,57 @@ def _is_ancestor(worktree_path: Path, commit: str, of: str = "HEAD") -> bool:
     )
 
 
+def is_based_on_origin_main(worktree_path: Path) -> str | None:
+    """The ``origin/main`` SHA when ``HEAD`` is based on it, else ``None``.
+
+    Reads the refs as they are: the caller fetches first.
+    """
+    found = run_git(
+        ["rev-parse", "--verify", "--quiet", f"origin/{MAIN_BRANCH}"],
+        cwd=worktree_path,
+        quiet=True,
+        check=False,
+    )
+    base = found.stdout.strip() if found.returncode == 0 else ""
+    if not base or not _is_ancestor(worktree_path, base):
+        return None
+    return base
+
+
+def ensure_build_worktree(project_path: Path, name: str) -> Path:
+    """The Build worktree ``name`` (``_buildN``), made when it is missing.
+
+    A Build worktree is detached: it holds no branch. Its ports come from the
+    pool, keyed by its name, as a NATO worktree's do.
+    """
+    path = project_path / name
+    if not path.exists():
+        run_git(
+            ["worktree", "add", "--detach", str(path), f"origin/{MAIN_BRANCH}"],
+            cwd=project_path,
+            quiet=True,
+        )
+    if not (path / ".env").exists():
+        _build_env_file(project_path, path, name, reuse_ports=True)
+    return path
+
+
+def prepare_build(worktree_path: Path, sha: str) -> None:
+    """Fetch, then reset the Build worktree to exactly ``sha``.
+
+    ``git clean -fd``, not ``-fdx``: the ignored ``.env``, ``.venv`` and
+    ``node_modules`` stay, so the install that follows is quick.
+
+    Raises:
+        subprocess.CalledProcessError: If a git command fails, such as an
+            unknown SHA.
+    """
+    run_git(["fetch", "origin"], cwd=worktree_path, quiet=True)
+    run_git(["checkout", "--detach", "--force", sha], cwd=worktree_path, quiet=True)
+    run_git(["reset", "--hard", sha], cwd=worktree_path, quiet=True)
+    run_git(["clean", "-fd"], cwd=worktree_path, quiet=True)
+
+
 def rebase_worktree(
     worktree_path: Path,
     max_age: float | None = None,

@@ -54,11 +54,11 @@ WORKTREE_SHORTCODES = {name[0]: name for name in WORKTREE_NAMES}
 def worktree_num(worktree_name: str) -> int:
     """Return the WORKTREE_NUM for a worktree.
 
-    The number is unique per worktree: the NATO name's index, 0-25, and 26 for
-    ``_main``.
+    The number is unique per worktree: the NATO name's index, 0-25, 26 for
+    ``_main``, and ``100 + N`` for the Build worktree ``_buildN``.
 
     Args:
-        worktree_name: A full NATO worktree name, or ``_main``.
+        worktree_name: A full NATO worktree name, ``_main``, or ``_buildN``.
 
     Returns:
         The worktree number.
@@ -68,6 +68,8 @@ def worktree_num(worktree_name: str) -> int:
     """
     if worktree_name == MAIN_WORKTREE_FOLDER:
         return len(WORKTREE_NAMES)
+    if is_build_worktree(worktree_name):
+        return 100 + int(worktree_name[len(BUILD_WORKTREE_PREFIX) :])
     return WORKTREE_NAMES.index(worktree_name)
 
 
@@ -223,15 +225,27 @@ def print_flushed(line: str) -> None:
 # worktree — see `is_worktree_closable` and `docs/guide/worktrees.md`.
 MAIN_WORKTREE_FOLDER = "_main"
 
+#: A Build worktree's folder is this prefix and its slot number: ``_build1``.
+#: The Build queue owns it; it is not in the world. See ``CONTEXT.md``, "Build worktree".
+BUILD_WORKTREE_PREFIX = "_build"
+
+
+def is_build_worktree(name: str) -> bool:
+    """True for a Build worktree's name or folder: ``_build1`` … ``_buildN``."""
+    rest = name[len(BUILD_WORKTREE_PREFIX) :]
+    return name.startswith(BUILD_WORKTREE_PREFIX) and rest.isdigit()
+
 
 def is_worktree_closable(worktree_name: str) -> bool:
     """True if the worktree may be closed, recycled or removed.
 
-    ``_main`` is the one unclosable worktree: it holds the project's `main`
-    checkout, and its port allocation is reserved rather than pooled. Every site
-    that frees an allocation or reuses a folder gates on this.
+    ``_main`` holds the project's `main` checkout, and its port allocation is
+    reserved rather than pooled. A Build worktree belongs to the Build queue.
+    Every site that frees an allocation or reuses a folder gates on this.
     """
-    return worktree_name != MAIN_WORKTREE_FOLDER
+    return worktree_name != MAIN_WORKTREE_FOLDER and not is_build_worktree(
+        worktree_name
+    )
 
 
 class WorktreeError(Exception):
@@ -284,11 +298,11 @@ def get_worktree_folder_name(project_name: str, worktree_name: str) -> str:
             ``_main``.
 
     Returns:
-        The folder name (e.g., 'askastro-alpha'). ``_main`` maps to itself — it
-        takes no project prefix.
+        The folder name (e.g., 'askastro-alpha'). ``_main`` and a Build
+        worktree map to themselves — they take no project prefix.
     """
-    if worktree_name == MAIN_WORKTREE_FOLDER:
-        return MAIN_WORKTREE_FOLDER
+    if worktree_name == MAIN_WORKTREE_FOLDER or is_build_worktree(worktree_name):
+        return worktree_name
     return f"{project_name}-{worktree_name}"
 
 
@@ -304,11 +318,12 @@ def extract_worktree_name_from_folder(
     Returns:
         The worktree name (e.g., 'alpha') or None if not a valid worktree folder.
         The ``_main`` folder yields ``'_main'`` — it is a real worktree, and it
-        carries no project prefix. Use :func:`is_worktree_closable` to tell it
-        apart from a NATO worktree.
+        carries no project prefix. A Build worktree folder yields itself too.
+        Use :func:`is_worktree_closable` to tell either apart from a NATO
+        worktree.
     """
-    if folder_name == MAIN_WORKTREE_FOLDER:
-        return MAIN_WORKTREE_FOLDER
+    if folder_name == MAIN_WORKTREE_FOLDER or is_build_worktree(folder_name):
+        return folder_name
     prefix = f"{project_name}-"
     if folder_name.startswith(prefix):
         potential_name = folder_name[len(prefix) :]

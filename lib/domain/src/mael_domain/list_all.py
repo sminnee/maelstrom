@@ -54,7 +54,7 @@ from .worktree import (
     list_worktrees_async,
     run_git_async,
 )
-from .worktree_model import extract_worktree_name_from_folder
+from .worktree_model import extract_worktree_name_from_folder, is_build_worktree
 
 log = logging.getLogger(__name__)
 
@@ -274,8 +274,14 @@ async def _project_data(
     )
 
     # Skip the project root (bare repo). Resolved, because git reports the
-    # real path and a symlinked projects dir would never match.
-    rows = [wt for wt in worktrees if wt.path.resolve() != project_path.resolve()]
+    # real path and a symlinked projects dir would never match. A Build
+    # worktree is the Build queue's, not the world's: it shows no node.
+    rows = [
+        wt
+        for wt in worktrees
+        if wt.path.resolve() != project_path.resolve()
+        and not is_build_worktree(wt.path.name)
+    ]
 
     # Each worktree's reads are independent too, so they run together. The
     # projects already read at the same time, which left the whole read
