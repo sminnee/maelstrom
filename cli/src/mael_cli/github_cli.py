@@ -109,6 +109,28 @@ async def gh_create_pr(
     pushes. If the base moves while the check runs, it rebases and checks
     again, up to 3 times.
     """
+    await create_pr_command(
+        draft=draft,
+        wait=wait,
+        wait_for_review_flag=wait_for_review_flag,
+        squash=squash,
+        autorepair=autorepair,
+        skip_pre_push=skip_pre_push,
+        target=target,
+    )
+
+
+async def create_pr_command(
+    *,
+    draft: bool = False,
+    wait: bool = False,
+    wait_for_review_flag: bool = False,
+    squash: bool = False,
+    autorepair: bool = False,
+    skip_pre_push: bool = False,
+    target: str | None = None,
+) -> None:
+    """``gh create-pr``'s work; ``mael merge submit`` calls it in a GitHub project."""
     if wait and wait_for_review_flag:
         raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
 
@@ -244,6 +266,11 @@ async def gh_withdraw_pr(task_id):
     The card shows the PR as withdrawn. The next ``create-pr`` push makes it
     ready again.
     """
+    await withdraw_pr_command(task_id)
+
+
+async def withdraw_pr_command(task_id: str | None) -> None:
+    """``gh withdraw-pr``'s work; ``mael merge withdraw`` calls it in a GitHub project."""
     refuse_with_parent("gh withdraw-pr")
     task = await task_cli.withdraw_pr(task_id)
     click.echo(f"Withdrew PR #{task.pr_number} on {task.id}")
@@ -495,6 +522,22 @@ def _render_pr_comments(pr_info, all_comments: bool) -> None:
 )
 def gh_read_pr(target, wait, wait_for_review_flag, all_comments):
     """Read PR status, comments, and check results."""
+    read_pr_command(
+        target=target,
+        wait=wait,
+        wait_for_review_flag=wait_for_review_flag,
+        all_comments=all_comments,
+    )
+
+
+def read_pr_command(
+    *,
+    target: str | None = None,
+    wait: bool = False,
+    wait_for_review_flag: bool = False,
+    all_comments: bool = False,
+) -> None:
+    """``gh read-pr``'s work; ``mael merge status`` calls it in a GitHub project."""
     if wait and wait_for_review_flag:
         raise click.UsageError("--wait and --wait-for-review are mutually exclusive")
 
