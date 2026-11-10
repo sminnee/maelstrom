@@ -63,7 +63,6 @@ function seedChanges(server: FakeServer) {
         { path: 'auth/tokens.py', status: 'M' },
         { path: 'auth/rotate.py', status: '?' },
       ],
-      base: 'main',
       commits: [
         {
           sha: SHA,

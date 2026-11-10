@@ -26,7 +26,6 @@ from git_helpers import (
 )
 
 from mael_domain import worktree as worktree_module
-from mael_domain.base_store import InMemoryBaseStore
 from mael_domain.worktree import (
     get_commits_ahead,
     get_worktree_dirty_files,
@@ -34,11 +33,11 @@ from mael_domain.worktree import (
     squash_branch,
     uncommit_branch,
 )
-from mael_domain.worktree_model import SQUASH_MESSAGE, BaseRef, WorktreeError
+from mael_domain.worktree_model import SQUASH_MESSAGE, WorktreeError
 
 
 class TestSquashCollapsesTheWholeBranch:
-    """The default scope takes every commit ahead of the base fork point."""
+    """The default scope takes every commit ahead of the fork point from main."""
 
     def test_three_commits_become_one(self, collapsible_project):
         _, worktree_path = collapsible_project
@@ -160,31 +159,6 @@ class TestSquashLocalScope:
 
         assert result.commits == 3
         assert subjects(worktree_path, "origin/main..HEAD") == [SQUASH_MESSAGE]
-
-    def test_a_never_pushed_stacked_branch_keeps_its_bases_commits(
-        self, collapsible_project
-    ):
-        """The fallback is the fork point, not ``origin/main``.
-
-        ``get_local_only_commits`` falls back to ``origin/main``, which on a
-        stacked branch would sweep the base's commits into the squash. This is
-        why that helper is not reused.
-        """
-        _, worktree_path = collapsible_project
-        run_git(worktree_path, "checkout", "-q", "-b", "feat/base")
-        create_commit(worktree_path, "base.txt", "base\n", "feat: base work")
-        run_git(worktree_path, "push", "-q", "origin", "feat/base")
-        run_git(worktree_path, "fetch", "-q", "origin")
-
-        run_git(worktree_path, "checkout", "-q", "-b", "feat/child")
-        three_commits(worktree_path)
-
-        store = InMemoryBaseStore()
-        store.write("feat/child", BaseRef(branch="feat/base"))
-        result = squash_branch(worktree_path, scope="local", store=store)
-
-        assert result.commits == 3
-        assert subjects(worktree_path, "origin/feat/base..HEAD") == [SQUASH_MESSAGE]
 
     def test_a_fully_pushed_branch_refuses(self, collapsible_project):
         _, worktree_path = collapsible_project

@@ -12,10 +12,9 @@ from unittest.mock import MagicMock
 import pytest
 from git_helpers import create_commit, run_git
 
-from mael_domain.base_store import GitConfigBaseStore
 from mael_domain.github_model import GitHubCommandFailed, PrStatus
 from mael_domain.worktree import CloseResult
-from mael_domain.worktree_model import BaseRef, CopyBackResult
+from mael_domain.worktree_model import CopyBackResult
 from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import TrashSteps, trash_worktree_fully
 
@@ -56,12 +55,9 @@ def _branch_of(worktree_path: Path) -> str:
 
 
 def _pushed_branch(project_path: Path, worktree_path: Path) -> None:
-    """``feature/work`` with a commit, pushed, a base, and a working history."""
+    """``feature/work`` with a commit, pushed, and a working history."""
     create_commit(worktree_path, "work.txt", "work\n", "feat: work")
     run_git(worktree_path, "push", "-u", "origin", "feature/work")
-    GitConfigBaseStore(project_path).write(
-        "feature/work", BaseRef(branch="feature/base", tip=None)
-    )
     run_git(
         project_path,
         "update-ref",
@@ -108,11 +104,10 @@ class TestAgainstARealRepo:
             project_path, "show", "--name-only", "--format=", "trash/feature/work"
         ).stdout.split()
         assert files == ["draft.txt"]
-        # The history moved, and the base went.
+        # The history moved.
         assert _refs(project_path, "refs/mael/history/") == [
             "refs/mael/history/trash/feature/work/20260101T000000Z"
         ]
-        assert GitConfigBaseStore(project_path).all() == {}
         # The worktree is an empty slot.
         assert _branch_of(worktree_path) == "HEAD"
 
@@ -208,7 +203,6 @@ class TestAgainstARealRepo:
             ("trash/old", "trash/old is already in the trash"),
             ("feature/taken", "trash/feature/taken already exists"),
             ("feature/remote", "trash/feature/remote already exists on origin"),
-            ("feature/base", "Other branches are stacked on feature/base"),
         ],
     )
     async def test_a_branch_that_cannot_be_trashed_is_refused(
@@ -221,13 +215,9 @@ class TestAgainstARealRepo:
             "feature/taken",
             "trash/feature/taken",
             "feature/remote",
-            "feature/base",
         ):
             run_git(project_path, "branch", name, "main")
         run_git(project_path, "push", "origin", "feature/work:trash/feature/remote")
-        GitConfigBaseStore(project_path).write(
-            "feature/child", BaseRef(branch="feature/base", tip=None)
-        )
         before = _refs(project_path, "refs/heads/")
 
         result = await _trash_alpha(

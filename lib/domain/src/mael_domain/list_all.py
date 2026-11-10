@@ -21,7 +21,6 @@ from pathlib import Path
 from typing import Any
 
 from . import session_discovery
-from .base_store import GitConfigBaseStore
 from .config import (
     ServiceDef,
     linear_team_id,
@@ -169,7 +168,7 @@ async def build_list_all_data(
     """Every project under ``projects_dir`` with its worktrees, as rows.
 
     ``{"projects": [...]}``, each project carrying ``name``, ``path``,
-    ``stack_tip``, ``repo_url`` and ``worktrees``.
+    ``repo_url`` and ``worktrees``.
     A closed worktree is included with ``is_closed`` true and its counts
     zeroed.
 
@@ -224,7 +223,7 @@ class _ProjectContext:
     """What every worktree row in one project needs, read once for all of them.
 
     Each field is a per-project batch — the PR state, the closed set, the
-    bases, the repo URL — so a row reads only what is specific to itself.
+    repo URL — so a row reads only what is specific to itself.
     ``limit`` is shared with every other project too, so the two fan-out
     levels draw on one budget.
     """
@@ -232,7 +231,6 @@ class _ProjectContext:
     path: Path
     name: str
     closed_paths: set[Path]
-    bases: dict[str, str]
     prs: ProjectPrs
     repo_url: str | None
     live_sessions: session_discovery.LiveSessionSet
@@ -267,20 +265,12 @@ async def _project_data(
         closed_paths = await closed_worktrees_async(project_path, worktrees)
         # One repo lookup per project answers the PR URL for every row.
         repo_url = await project_repo_url(project_path)
-    # One store read per project answers the base for every row. Both store
-    # calls shell out to `git config`, so they go to a thread: run inline they
-    # would block every other project's reads behind this one.
-    base_store = GitConfigBaseStore(project_path)
-    bases, stack_tip, has_linear = await asyncio.gather(
-        asyncio.to_thread(base_store.all),
-        asyncio.to_thread(base_store.read_stack_tip),
-        # Reads `.maelstrom.yaml` from disk, so it joins the two `git config`
-        # calls off the loop rather than blocking every other project's reads.
-        # Only the flag crosses to the UI: the orchestrator offers the Linear
-        # kind on it, and the team id itself is of no use to a browser.
-        asyncio.to_thread(
-            lambda: bool(linear_team_id(project_path, [wt.path for wt in worktrees]))
-        ),
+    # Reads `.maelstrom.yaml` from disk, so it goes to a thread rather than
+    # blocking every other project's reads. Only the flag crosses to the UI:
+    # the orchestrator offers the Linear kind on it, and the team id itself is
+    # of no use to a browser.
+    has_linear = await asyncio.to_thread(
+        lambda: bool(linear_team_id(project_path, [wt.path for wt in worktrees]))
     )
 
     # Skip the project root (bare repo). Resolved, because git reports the
@@ -295,7 +285,6 @@ async def _project_data(
         path=project_path,
         name=project_name,
         closed_paths=closed_paths,
-        bases=bases,
         prs=prs,
         repo_url=repo_url,
         live_sessions=live_sessions,
@@ -322,7 +311,6 @@ async def _project_data(
     return {
         "name": project_name,
         "path": str(project_path),
-        "stack_tip": stack_tip,
         "repo_url": repo_url,
         "has_linear": has_linear,
         "worktrees": worktree_data,
@@ -345,7 +333,6 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             "folder": wt.path.name,
             "path": str(wt.path),
             "branch": wt.branch or None,
-            "base": None,
             "is_closed": True,
             "dirty_files": 0,
             "local_commits": 0,
@@ -367,7 +354,6 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
             "session_count": 0,
         }
 
-    base = ctx.bases.get(wt.branch or "")
     # The subprocess reads below are what the cap is for. Held together
     # rather than one permit each, so a row that takes a permit finishes and
     # gives it back, instead of queueing again between its own reads.
@@ -397,7 +383,6 @@ async def _worktree_row(wt: WorktreeInfo, ctx: _ProjectContext) -> dict[str, Any
         "folder": wt.path.name,
         "path": str(wt.path),
         "branch": wt.branch or None,
-        "base": base,
         "is_closed": False,
         "dirty_files": dirty_count,
         "local_commits": local_commits,

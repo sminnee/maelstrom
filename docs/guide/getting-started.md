@@ -165,7 +165,7 @@ the project. See [Setting up a project](planning.md#setting-up-a-project).
 Click a project's row to open its Project dialog. It has two tabs:
 
 - **Overview** shows where `_main` is and where the worktrees go, for example
-  `~/Projects/askastro/askastro-alpha..zulu`. It also shows the stack tip and the Linear link.
+  `~/Projects/askastro/askastro-alpha..zulu`. It also shows the Linear link.
 - **Worktrees** lists the project's worktrees, with their sync, environment and close controls.
 
 Its **Set up** button launches the same task. **Create your first task** opens the new-work form
@@ -305,7 +305,7 @@ When the work has merged:
 mael close
 ```
 
-Close syncs against the branch's base, checks the worktree is clean, and resets it to main. It
+Close syncs against `main`, checks the worktree is clean, and resets it to main. It
 **keeps** the folder, the NATO name and the port allocation, so the next `mael add`
 recycles the slot.
 

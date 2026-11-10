@@ -7,7 +7,7 @@ description: Git, task, PR, dev environment, Linear, Sentry, and UptimeRobot wor
 
 Use `mael --help` for the command surface. Prefer `mael` over raw `git` or `gh`. Network commands need the approved unsandboxed path. Read-only git does not. Mael owns the branch: never create, switch, or check out one.
 
-If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the user must reload it. A recycled branch is normal: `mael sync` rebases onto its real base and `create-pr` can open a new PR after an old one merged. If old or merged commits look wrong, ask rather than making a branch.
+If network access reports an empty SSH agent, diagnose with `ssh-add -l`; the user must reload it. A recycled branch is normal: `mael sync` rebases onto `main` and `create-pr` can open a new PR after an old one merged. If old or merged commits look wrong, ask rather than making a branch.
 
 ## Reference files
 
@@ -44,7 +44,7 @@ Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the br
 
 When the implementation is written, run this unattended sequence:
 
-1. Run `mael sync --no-push`, so the gates run on the current base.
+1. Run `mael sync --no-push`, so the gates run on the current `main`.
 2. Commit the implementation, then run the project gates on the clean tree. Continue when they pass. When the system prompt teaches `<compact-session>`, write `<compact-session min-tokens="200k">` and end your turn.
 3. Write `.drafts/pr.md`: the decisions, the rationale, diagrams, and the test plan. Review reads it.
 4. Run `/code-review`, if the skill is available. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.

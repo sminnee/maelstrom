@@ -9,13 +9,12 @@ import { MergeControl } from './MergeControl';
 
 export default { title: 'Worktrees / MergeControl' };
 
-const ready = makeWorktree({ prNumber: 118, prState: 'ready', base: 'main' });
+const ready = makeWorktree({ prNumber: 118, prState: 'ready' });
 const refused = makeWorktree({
   id: 'northwind-bravo' as Worktree['id'],
   nato: 'bravo',
   prNumber: 121,
   prState: 'ready',
-  base: 'main',
 });
 
 /** The control posts through `useMergePullRequest`, so it takes the suite's own fake. */

@@ -75,7 +75,6 @@ function worktree(prState: PrState | '', prDraft = false): Worktree {
     nato: 'delta',
     path: '/tmp/delta',
     branch: 'feat/thing',
-    base: 'main',
     isClosed: false,
     dirtyFiles: 0,
     localCommits: 0,

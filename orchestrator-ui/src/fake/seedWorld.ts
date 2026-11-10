@@ -55,8 +55,8 @@ function gateJob(
   };
 }
 
-function project(id: string, stackTip: string, hasLinear = false): Project {
-  return { id, name: id, stackTip, hasLinear };
+function project(id: string, hasLinear = false): Project {
+  return { id, name: id, hasLinear };
 }
 
 function worktree(
@@ -73,7 +73,6 @@ function worktree(
     nato,
     path: `/Users/dev/Projects/${project}/${folder}`,
     branch: '',
-    base: 'main',
     isClosed: false,
     dirtyFiles: 0,
     localCommits: 0,
@@ -314,11 +313,7 @@ export function seedWorld(): Seed {
   seq = 0;
   // Two projects name a Linear team and one does not, so the panel's Linear
   // kind has every case: shown, hidden, and carried across a project change.
-  const projects = [
-    project('maelstrom', 'main', true),
-    project('northwind', 'feat/db-migrate', true),
-    project('riverbend', 'main'),
-  ];
+  const projects = [project('maelstrom', true), project('northwind', true), project('riverbend')];
 
   const worktrees = [
     worktree('maelstrom', '_main', { branch: 'main' }),

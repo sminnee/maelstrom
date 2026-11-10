@@ -12,7 +12,6 @@ from git_helpers import advance_origin_main, create_commit, remote_tip
 from git_helpers import run_git as git
 
 from mael_domain import github
-from mael_domain.base_store import InMemoryBaseStore
 from mael_domain.context import GlobalConfig
 from mael_domain.github import (
     close_pr,
@@ -41,8 +40,22 @@ from mael_domain.github_model import (
     PullRequestNotMergeable,
     SyncFailed,
 )
-from mael_domain.worktree import SyncResult, base_moved
-from mael_domain.worktree_model import BaseRef, PrePushFailed
+from mael_domain.worktree import SyncResult, main_moved
+from mael_domain.worktree_model import PrePushFailed
+
+
+def test_worktree_code_lists_only_the_commits_ahead_of_origin_main(
+    project_with_worktree,
+):
+    _, cwd, _ = project_with_worktree
+    create_commit(cwd, "mine.txt", "mine\n", "feat: mine")
+
+    commits, uncommitted = get_worktree_code(cwd)
+
+    assert "feat: mine" in commits
+    assert "+mine" in commits
+    assert "Initial commit" not in commits
+    assert uncommitted == ""
 
 
 def _pr(state="OPEN", merged=False, number=7):
@@ -391,7 +404,7 @@ class TestCreatePrRunsThePrePushCheck:
 
     A project can record that its checks passed on a commit. The record is only
     reused when the pushed commit is the one the check saw, so the check runs
-    after the rebase, and again whenever the base moved while it ran.
+    after the rebase, and again whenever main moved while it ran.
 
     Real git against a bare remote; only ``gh`` is faked. Every ``run_cmd`` is
     recorded, so a push from the worktree module counts as one from here. The
@@ -472,12 +485,12 @@ class TestCreatePrRunsThePrePushCheck:
         assert r.remote_seen == [r.before]
         assert len(r.pushes) == 1
 
-    def test_an_unreachable_remote_is_not_a_moved_base(self, project_with_worktree):
+    def test_an_unreachable_remote_is_not_a_moved_main(self, project_with_worktree):
         """The caller pushes either way, so an unanswered question must not loop."""
         _, cwd, _ = project_with_worktree
         git(cwd, "remote", "set-url", "origin", "/nowhere/at/all.git")
 
-        assert base_moved(cwd, "main") is False
+        assert main_moved(cwd) is False
 
     def test_a_failing_check_raises_before_the_pr_is_created(
         self, project_with_worktree, tmp_path
@@ -980,224 +993,6 @@ class TestGetOpenPrs:
             assert await get_open_prs(Path("."), {"one"}) is None
 
 
-class TestCreatePrRegistersTheStack:
-    """`create_pr` registers a stacked chain on GitHub with ``gh stack link``.
-
-    ``link`` is the only ``gh stack`` command used, because every local one is
-    unusable from a maelstrom worktree — see ``docs/dev/stacking.md``. The last
-    test here is the guard that keeps it that way.
-    """
-
-    def _run(
-        self, tmp_path, bases, branch="feat/child", *, link_fails=False, pr_open=True
-    ):
-        """Call create_pr with a fake store and captured gh/git argv."""
-        store = InMemoryBaseStore()
-        for child, parent in bases.items():
-            store.write(child, BaseRef(branch=parent))
-
-        calls: list[list[str]] = []
-        sync_result = SyncResult(success=True, branch=branch, message="ok")
-
-        def fake_run_cmd(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            if cmd[:3] == ["gh", "stack", "link"] and link_fails:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=1,
-                    stdout="",
-                    stderr="link exploded",
-                )
-            if cmd[:3] == ["gh", "pr", "view"]:
-                out = (
-                    "https://example/pr OPEN 7"
-                    if pr_open
-                    else "https://example/pr MERGED 7"
-                )
-                return subprocess.CompletedProcess(
-                    args=cmd, returncode=0, stdout=out, stderr=""
-                )
-            if cmd[:3] == ["gh", "pr", "create"]:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout="https://example/new-pr",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="", stderr=""
-            )
-
-        def fake_run_git(cmd, *args, **kwargs):
-            calls.append(["git", *cmd])
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=0,
-                stdout=branch,
-                stderr="",
-            )
-
-        with (
-            patch("mael_domain.github.rebase_worktree", return_value=sync_result),
-            patch("mael_domain.github.GitConfigBaseStore", return_value=store),
-            patch("mael_domain.github.get_current_branch", return_value=branch),
-            patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
-            patch("mael_domain.github.run_git", side_effect=fake_run_git),
-            patch("mael_domain.github.ensure_fetched"),
-        ):
-            pushed = create_pr(cwd=tmp_path)
-        return pushed.url, pushed.created, calls
-
-    def _links(self, calls):
-        return [c for c in calls if c[:3] == ["gh", "stack", "link"]]
-
-    def test_a_stacked_branch_links_the_chain_bottom_to_top(self, tmp_path):
-        _, _, calls = self._run(
-            tmp_path, {"feat/child": "feat/parent", "feat/parent": "feat/grandparent"}
-        )
-
-        assert self._links(calls) == [
-            ["gh", "stack", "link", "feat/grandparent", "feat/parent", "feat/child"]
-        ]
-
-    def test_a_two_branch_stack_links_both(self, tmp_path):
-        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
-
-        assert self._links(calls) == [
-            ["gh", "stack", "link", "feat/parent", "feat/child"]
-        ]
-
-    def test_an_unstacked_branch_never_calls_gh_stack(self, tmp_path):
-        """No base, no stack — and no dependency on a public-preview extension."""
-        _, _, calls = self._run(tmp_path, {}, branch="feat/solo")
-
-        assert not [c for c in calls if c[:2] == ["gh", "stack"]]
-
-    def test_no_base_flag_is_passed_to_gh_pr_create(self, tmp_path):
-        """``link`` owns base chaining; a --base here would fight it.
-
-        Everything still merges into main — the chained bases are review-time
-        scaffolding that GitHub collapses as each PR lands.
-        """
-        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"}, pr_open=False)
-
-        creates = [c for c in calls if c[:3] == ["gh", "pr", "create"]]
-        assert creates, "expected a PR to be created"
-        assert all("--base" not in c for c in creates)
-
-    def test_a_link_failure_warns_and_still_returns_the_pr_url(self, tmp_path, capsys):
-        """Registration is decoration. The branch is pushed and the PR exists."""
-        url, _, calls = self._run(
-            tmp_path, {"feat/child": "feat/parent"}, link_fails=True
-        )
-
-        assert url == "https://example/pr"
-        assert self._links(calls), "link was still attempted"
-        assert "stack" in capsys.readouterr().out.lower()
-
-    def test_a_missing_gh_stack_extension_warns_and_still_returns_the_url(
-        self, tmp_path, capsys
-    ):
-        """``gh stack`` is a separate extension; not having it must not fail the PR."""
-        store = InMemoryBaseStore()
-        store.write("feat/child", BaseRef(branch="feat/parent"))
-
-        def fake_run_cmd(cmd, *args, **kwargs):
-            if cmd[:3] == ["gh", "stack", "link"]:
-                raise FileNotFoundError("gh stack")
-            if cmd[:3] == ["gh", "pr", "view"]:
-                return subprocess.CompletedProcess(
-                    args=cmd,
-                    returncode=0,
-                    stdout="https://example/pr OPEN 7",
-                    stderr="",
-                )
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=0, stdout="", stderr=""
-            )
-
-        with (
-            patch(
-                "mael_domain.github.rebase_worktree",
-                return_value=SyncResult(
-                    success=True, branch="feat/child", message="ok"
-                ),
-            ),
-            patch("mael_domain.github.GitConfigBaseStore", return_value=store),
-            patch("mael_domain.github.get_current_branch", return_value="feat/child"),
-            patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
-            patch("mael_domain.github.run_git"),
-            patch("mael_domain.github.ensure_fetched"),
-        ):
-            url = create_pr(cwd=tmp_path).url
-
-        assert url == "https://example/pr"
-        assert "gh extension install github/gh-stack" in capsys.readouterr().out
-
-    def test_no_local_gh_stack_subcommand_is_ever_invoked(self, tmp_path):
-        """The guard that keeps us clear of the worktree state bug (issue #35)."""
-        _, _, calls = self._run(tmp_path, {"feat/child": "feat/parent"})
-
-        local = {
-            "rebase",
-            "sync",
-            "push",
-            "submit",
-            "modify",
-            "init",
-            "add",
-            "checkout",
-            "unstack",
-        }
-        for call in calls:
-            if call[:2] == ["gh", "stack"]:
-                assert call[2] not in local, f"local gh stack command invoked: {call}"
-
-
-class TestGetWorktreeCodeUsesTheBase:
-    """A review must see this branch's own work, not the whole stack.
-
-    Which refs name the base is ``base_refs_for_diff``'s rule, tested on real
-    repos in ``test_worktree_changes.py``. This pins what the review does with
-    them: the first ref that resolves is the one it diffs against.
-    """
-
-    def test_a_base_whose_ref_is_gone_falls_back_to_the_next(self, tmp_path):
-        """A merged-and-pruned base must not leave the reviewer with no diff at all.
-
-        ``merge-base`` against a ref that does not resolve raises, the caller
-        swallows it, and ``commits_output`` comes back empty — so a reviewing agent
-        silently receives no code rather than the branch's work.
-        """
-        calls: list[list[str]] = []
-
-        def fake_run_git(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            if cmd[:1] == ["merge-base"] and "origin/feat/gone" in cmd:
-                raise subprocess.CalledProcessError(128, cmd)
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=0,
-                stdout="deadbeef",
-                stderr="",
-            )
-
-        with (
-            patch(
-                "mael_domain.github.base_refs_for_diff",
-                return_value=["origin/feat/gone", "origin/main"],
-            ),
-            patch("mael_domain.github.run_git", side_effect=fake_run_git),
-        ):
-            get_worktree_code(tmp_path)
-
-        merge_bases = [c for c in calls if c[0] == "merge-base"]
-        assert merge_bases == [
-            ["merge-base", "HEAD", "origin/feat/gone"],
-            ["merge-base", "HEAD", "origin/main"],
-        ]
-
-
 class TestReadersDegradeOnUnparseableOutput:
     """gh printing something that is not JSON must not crash the reader.
 
@@ -1301,7 +1096,7 @@ class TestCreatePrUsesThePrDraft:
     def _run(
         self, tmp_path, *, pr_open, edit_fails=False, branch="feat/solo", task_id=None
     ):
-        """Call create_pr on an unstacked branch, capturing gh/git argv.
+        """Call create_pr on a branch, capturing gh/git argv.
 
         ``bodies`` records what the draft file held when ``gh pr edit`` ran, so
         the assertion is on the body GitHub would receive, not on the argv alone.
@@ -1350,10 +1145,6 @@ class TestCreatePrUsesThePrDraft:
 
         with (
             patch("mael_domain.github.rebase_worktree", return_value=sync_result),
-            patch(
-                "mael_domain.github.GitConfigBaseStore",
-                return_value=InMemoryBaseStore(),
-            ),
             patch("mael_domain.github.get_current_branch", return_value=branch),
             patch("mael_domain.github.run_cmd", side_effect=fake_run_cmd),
             patch("mael_domain.github.run_git", side_effect=fake_run_git),

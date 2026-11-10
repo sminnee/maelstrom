@@ -299,7 +299,7 @@ the main checkout, but it still syncs.
 ### The Projects view
 
 `projects/ProjectList.tsx` draws one row per **Project** in the world: its name, its open
-worktree count, its stack tip and whether it has Linear. The count includes `_main`, and comes
+worktree count and whether it has Linear. The count includes `_main`, and comes
 from `world.worktrees`.
 
 **Add project** opens `projects/AddProject.tsx`, which posts `{gitUrl}` to `/api/projects`. The
@@ -317,7 +317,7 @@ so one place draws all three.
 `projects/ProjectDetail.tsx` draws one project in two tabs. `?dtab=` holds the tab. A tab change
 replaces the history entry, so Back closes the dialog.
 
-- **Overview** shows the `_main` path, the worktree range, the stack tip and Linear.
+- **Overview** shows the `_main` path, the worktree range and Linear.
   `projectPaths` in `selectors/projects.ts` derives the paths from `_main`, which every project
   has. The worktree range is `<project folder>/<project>-alpha..zulu`. The home directory reads
   as `~`: `GET /api/system` supplies `home`, because a browser cannot know it.

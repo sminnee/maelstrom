@@ -113,19 +113,15 @@ Run `mael project check NEW` afterwards.
 
 | Command | Description |
 |---|---|
-| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto its base before the session starts. A new branch bases on `main`, unless the project's stack tip has been moved. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. A recycled or reused worktree gets its `.env` rebuilt; running services restart only when the `.env` changed. A failed rebuild stops a recycle, and only warns on a reuse. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
+| `mael add [BRANCH]` | Add a worktree for `BRANCH`, and rebase `BRANCH` onto `origin/main` before the session starts. A new branch starts from `origin/main`. Recycles a closed worktree when one exists. An existing worktree for `BRANCH` is reused and rebased too, but that rebase does not push. A recycled or reused worktree gets its `.env` rebuilt; running services restart only when the `.env` changed. A failed rebuild stops a recycle, and only warns on a reuse. With no `BRANCH`, creates a fresh worktree detached at `origin/main`: there is no branch to rebase, and no worktree is recycled. |
 | `mael list [PROJECT]` | List open worktrees with branch, dirty files, local commits, PR, app URL and session. Closed worktrees are named on one line under the table. Reads the orchestrator server, and fails without one or for a project it does not know. A PR cell ending in `(stale)` is the last known state. See [listing.md](../guide/listing.md) for what each column means. |
 | `mael list-all` | List worktrees across every project. Adds a `PROJECT` column, and names worktrees by folder rather than by NATO name. Reads the orchestrator server, and fails without one. `mael --json list-all` prints the server's `Worktree` entities, grouped by project. |
 | `mael close [TARGETS]...` | Sync, check the worktree is clean, then check out main. Keeps the folder, name and ports. |
 | `mael remove TARGETS...` | Delete one or more worktrees. |
 | `mael rm TARGETS...` | Alias for `mael remove`. |
-| `mael sync [TARGET]` | Rebase the worktree against its base (`origin/main` unless the branch is stacked). |
-| `mael sync-all [PROJECT]` | Sync every worktree in the project, parents before their children. |
-| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Skips any branch another branch is stacked on. Deletes each deleted branch's working history. |
-| `mael base [TARGET]` | Show the branch this worktree's work is stacked on. |
-| `mael stack-tip [BRANCH]` | Show or move the branch new worktrees stack on. `main` is the default tip; passing it resets. |
-| `mael promote [TARGET]` | Move this branch to the bottom of its stack so it can merge first. |
-| `mael eject [TARGET]` | Pull this branch out of its stack onto `main`, leaving the rest alone. |
+| `mael sync [TARGET]` | Rebase the worktree against `origin/main`. |
+| `mael sync-all [PROJECT]` | Sync every worktree in the project. |
+| `mael tidy-branches [PROJECT]` | Rebase feature branches, delete merged ones, force-push unmerged ones. Deletes each deleted branch's working history. |
 
 ```bash
 mael add feature/avatar-upload  # worktree for a branch, ports allocated
@@ -151,7 +147,6 @@ orchestrator UI's open, `mael env reset` and `mael project mv`.
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
 | `--open` | Open the configured editor instead of a Claude session. |
 | `--no-recycle` | Always create a new worktree, even when closed ones exist. |
-| `--base TEXT` | Stack the new branch on this branch. Default: the project's stack tip. Use `main` to start unstacked. |
 
 **`mael close`**
 
@@ -181,8 +176,7 @@ branch that was never pushed too.
 - the target is `_main`, or the branch is `main`;
 - the worktree is not on a branch;
 - the branch is already under `trash/`;
-- `trash/<branch>` already exists locally, or exists on origin at a different commit;
-- another branch is stacked on the branch.
+- `trash/<branch>` already exists locally, or exists on origin at a different commit.
 
 It stops, with the worktree still on its branch, when:
 
@@ -190,8 +184,8 @@ It stops, with the worktree still on its branch, when:
 - `origin/<branch>` has commits that the local branch lacks;
 - the push fails.
 
-Run the same command again after the cause is fixed. The branch's stored base is cleared, and its
-working history moves to the new name.
+Run the same command again after the cause is fixed. The branch's working history moves to the
+new name.
 
 **`mael remove` / `mael rm`**
 
@@ -207,8 +201,7 @@ environment, asks the agent daemon to stop the agents running there, then signal
 
 | Option | Description |
 |---|---|
-| `--squash` | Autosquash `fixup!` commits while rebasing onto the base. A `fixup!` aimed at a commit in the *parent* branch does not squash — put it in the parent's worktree. |
-| `--base TEXT` | Stack this branch on `TEXT` before rebasing. `main` unstacks it. Rejects a self-base or a cycle with exit code 1. |
+| `--squash` | Autosquash `fixup!` commits while rebasing onto `origin/main`. |
 | `--abort` | On conflict, abort the rebase and restore the worktree. |
 | `--close` | If the branch is empty after the rebase, delete it (local and remote) and close the worktree. Rejected with `--no-push`. |
 | `--no-push` | Rebase only, and leave the remote branch alone. Use it when something else may be working in the worktree. |
@@ -225,8 +218,6 @@ on the rebased branch. A failed check leaves the branch rebased and unpushed.
 ```bash
 mael sync --autorepair             # let a headless session resolve the conflict
 mael sync --squash --no-push       # tidy Land's fixup! commits, publish nothing
-mael sync --base feat/parent       # stack this branch on feat/parent, then rebase
-mael sync --base main              # unstack it again
 ```
 
 **`mael sync-all`**
@@ -242,41 +233,6 @@ next worktree. At the end it names the refused worktrees and exits 1.
 ```bash
 mael sync-all --autorepair         # repair each conflicting worktree in the sweep
 ```
-
-**`mael base`**
-
-Prints the branch this worktree's work is stacked on. Change it with `mael sync --base`.
-
-```bash
-mael base                          # "feat/child is based on feat/parent."
-```
-
-**`mael stack-tip`**
-
-The stack tip is one pointer per project: the branch new worktrees stack on. It is `main`
-until you move it, so new work bases on `main`. When its branch is deleted the tip falls back to
-`main`, so new work can never stack on a merged or abandoned branch. When its branch has had
-no commits for 30 days, `mael add` warns and proceeds.
-
-```bash
-mael stack-tip                     # show where new work will stack
-mael stack-tip feat/parent         # stack the next worktrees on feat/parent
-mael stack-tip main                # reset — start unrelated work
-```
-
-**`mael promote` / `mael eject`**
-
-A stack registered on GitHub merges bottom-up, so an urgent PR stuck mid-stack needs a way
-out. `promote` re-points this branch onto `main` **and** re-points anything based on it onto
-this branch's old base, closing the stack up. `eject` skips that second half and leaves the
-rest of the stack alone. Run `mael sync` afterwards, here and in any re-pointed worktree.
-
-```bash
-mael promote                       # jump the merge queue
-mael eject                         # just leave the stack
-```
-
-See [stacking.md](../dev/stacking.md) for the full model.
 
 `--autorepair` is available on every command that rebases: `mael sync`, `mael sync-all`,
 and `mael gh create-pr`. Each one is off by default. The flag starts an
@@ -402,7 +358,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task promote FILES...` | Create one task per draft file, chained in order. Print the ids and delete the files. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
-| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto its base. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
+| `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto `origin/main`. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
 | `mael task list` | List actionable tasks. |
 | `mael task show ID` | Show a summary of a task. For a template, the `schedule:` line ends with the **Schedule zone**, as the orchestrator read it at start. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
@@ -1040,7 +996,7 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | `mael git status [TARGET]` | Show a compact git status summary. |
 | `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
 | `mael git squash-branch [TARGET]` | Collapse the branch's commits into one, keeping a working history. |
-| `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its base tip, keeping a working history. |
+| `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its fork point from `main`, keeping a working history. |
 
 ```bash
 mael git status              # compact summary; also honours --json
@@ -1075,16 +1031,16 @@ Its body lists each commit it collapsed, oldest first: the short SHA, then the m
 reasons of the build commits stay on the branch, and the working history keeps each SHA
 reachable, so `git show <sha>` still works.
 
-It prints the base, the working-history ref, the commit count and the diff stat.
+It prints the working-history ref, the commit count and the diff stat.
 
 **`mael git uncommit-branch`**
 
-Returns the branch to unstaged changes at its base tip, keeping a working history.
+Returns the branch to unstaged changes at its fork point from `main`, keeping a working history.
 
 This is `squash-branch` followed by `git reset --mixed HEAD^`. `/present` runs it to re-cut the
 reviewed tree into story commits. Run it yourself only to re-cut a branch's commits by hand.
 
-It prints the base, the working-history ref, the commit count, the short SHA and message of each
+It prints the working-history ref, the commit count, the short SHA and message of each
 commit it uncommitted, and the diff stat. After `squash-branch`, the squashed commit's message holds the
 build commits' messages, so `/present` reads them all here.
 
@@ -1092,7 +1048,7 @@ build commits' messages, so `/present` reads them all here.
 
 | Option | Description |
 |---|---|
-| `--remote` | Collapse every commit ahead of the base fork point. The default. |
+| `--remote` | Collapse every commit ahead of the fork point from `main`. The default. |
 | `--local` | Collapse only the commits that were never pushed. |
 
 `--local` collapses `origin/<branch>..HEAD`, so already-pushed commits keep their own subjects.
@@ -1109,14 +1065,14 @@ Each exits 1 and changes nothing when:
 
 - the working tree has uncommitted changes (`.env` excluded);
 - a rebase or merge is in progress;
-- the branch has no commits ahead of its base;
+- the branch has no commits ahead of `main`;
 - the rebase conflicts. The rebase aborts and the tree is restored. Run `mael sync` first;
 - `--local` only: every commit is already pushed, so there is nothing new to collapse;
 - `--local` only: the unpushed commits hold a `fixup!` aimed at an already-pushed commit, which
   the collapse would silently discard. Run `mael sync --squash --no-push` first, or use
   `--remote`.
 
-The rebase is not optional: a base tip computed against a stale base would collapse someone
+The rebase is not optional: a fork point computed against a stale `main` would collapse someone
 else's work into the tree.
 
 `mael tidy-branches`, `mael sync --close` and `mael git merge --close` delete a branch's working

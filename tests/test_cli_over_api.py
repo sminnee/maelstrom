@@ -478,7 +478,7 @@ def test_read_keeps_a_hand_wrapped_log_entry_and_an_unset_branch(table, start_se
 def a_world() -> InMemoryWorktreeSource:
     """A project with an open worktree whose PR state is stale and a closed
     one, and another project with one open worktree."""
-    project = project_entity({"name": PROJECT, "stack_tip": "main"})
+    project = project_entity({"name": PROJECT})
     other = project_entity({"name": OTHER_PROJECT})
     alpha = worktree_entity(
         PROJECT,
@@ -486,7 +486,6 @@ def a_world() -> InMemoryWorktreeSource:
             "name": "alpha",
             "path": f"/p/{PROJECT}/{PROJECT}-alpha",
             "branch": "feat/orders",
-            "base": "main",
             "dirty_files": 2,
             "local_commits": 1,
             "pr_number": 7,
@@ -529,8 +528,6 @@ def test_list_all_draws_the_servers_worktrees(start_server):
         PROJECT,
         f"{PROJECT}-alpha",
         "feat/orders",
-        "\u2190",
-        "main",
         "2",
         "1",
         "#7",
@@ -568,7 +565,7 @@ def test_list_prints_one_projects_open_rows_then_the_closed_names(start_server):
         ["WORKTREE", "BRANCH", "DIRTY", "FILES", "LOCAL", "COMMITS"]
         + ["PR", "(COMMITS)", "APP", "SESSION"],
         [result.output.splitlines()[1].strip()],
-        ["alpha", "feat/orders", "\u2190", "main", "2", "1", "#7", "(3)", "(stale)"]
+        ["alpha", "feat/orders", "2", "1", "#7", "(3)", "(stale)"]
         + ["https://dev.example:3010", "1"],
         [],
         ["Closed", "environments:", "bravo"],

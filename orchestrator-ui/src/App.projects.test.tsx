@@ -117,7 +117,7 @@ describe('the projects view', () => {
     const id = Object.keys(server.world.projects).sort()[0]!;
     await waitFor(() => expect(row(id)).not.toBeNull());
 
-    await user.click(within(row(id)!).getByText(`${server.world.projects[id]!.stackTip}`));
+    await user.click(within(row(id)!).getByText(/ open$/));
     const dialog = within(
       await screen.findByRole('dialog', { name: server.world.projects[id]!.name }),
     );

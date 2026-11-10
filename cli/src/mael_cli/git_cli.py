@@ -18,7 +18,12 @@ from mael_domain.worktree import (
     squash_branch,
     uncommit_branch,
 )
-from mael_domain.worktree_model import MAIN_BRANCH, WorktreeError, describe_commits
+from mael_domain.worktree_model import (
+    MAIN_BRANCH,
+    ORIGIN_MAIN,
+    WorktreeError,
+    describe_commits,
+)
 
 from .json_flag import wants_json
 from .orchestrator_client import tell_pr_changed
@@ -40,11 +45,9 @@ def print_rebase_conflict_help(result: SyncResult) -> None:
         click.echo(f"  git log {result.merge_base}..{result.upstream_head} --oneline")
         click.echo(f"  git diff {result.merge_base}...{result.upstream_head}")
     else:
-        # A stacked branch conflicts with its base, not with main.
-        base_ref = f"origin/{result.base}"
         click.echo("To see what changed upstream:")
-        click.echo(f"  git log HEAD..{base_ref} --oneline")
-        click.echo(f"  git diff HEAD...{base_ref}")
+        click.echo(f"  git log HEAD..{ORIGIN_MAIN} --oneline")
+        click.echo(f"  git diff HEAD...{ORIGIN_MAIN}")
 
     click.echo()
     click.echo("To resolve conflicts:")
@@ -365,7 +368,6 @@ def git_squash_branch(target, remote):
         click.echo(f"git failed: {e.stderr or e}", err=True)
         raise SystemExit(1)
 
-    click.echo(f"Base: {result.base}")
     click.echo(f"Working history: {result.history_ref}")
     click.echo(f"Squashed {result.commits} commits into {result.sha[:12]}.")
     if result.stat:
@@ -377,9 +379,9 @@ def git_squash_branch(target, remote):
 @click.argument("target", required=False, default=None)
 @_scope_option
 def git_uncommit_branch(target, remote):
-    """Return this branch to unstaged changes at its base tip.
+    """Return this branch to unstaged changes at its fork point from main.
 
-    Rebases onto the branch's base, keeps the commits under a working-history
+    Rebases onto origin/main, keeps the commits under a working-history
     ref, then resets. The changes are all still there, unstaged, ready to be
     re-cut into story commits.
 
@@ -407,7 +409,6 @@ def git_uncommit_branch(target, remote):
         click.echo(f"git failed: {e.stderr or e}", err=True)
         raise SystemExit(1)
 
-    click.echo(f"Base: {result.base}")
     click.echo(f"Working history: {result.history_ref}")
     if result.collapsed:
         click.echo(f"Uncommitted {result.commits} commits into the working tree:")

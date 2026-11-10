@@ -95,7 +95,6 @@ function worktree(over: Partial<Worktree> = {}): Worktree {
     nato: 'kilo',
     path: '/Users/dev/Projects/maelstrom/maelstrom-kilo',
     branch: 'feat/idle-vs-stopped',
-    base: 'main',
     isClosed: false,
     dirtyFiles: 0,
     localCommits: 0,

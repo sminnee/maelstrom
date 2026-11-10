@@ -8,7 +8,7 @@ When an execute session's implementation is written, it runs this sequence **wit
 The gates are the project's automated checks — tests, lint and type check, as CLAUDE.md defines
 them:
 
-1. Rebase onto the current base: `mael sync --no-push`.
+1. Rebase onto the current `main`: `mael sync --no-push`.
 2. Commit the implementation, then run the gates on the clean tree.
 3. Write `.drafts/pr.md` — the decisions, the rationale, diagrams and the test plan. It is what
    review reads first, and it becomes the PR body.
@@ -27,7 +27,7 @@ When more work starts after step 6, the session runs `mael gh withdraw-pr` first
 draws the PR as a **Withdrawn PR**, grey and struck through, so you are not asked to review it.
 The next step 6 push makes it ready again. A CI fix inside `/watch-pr` does not withdraw.
 
-The gates run on the current base and on a clean tree, so a project can record that they passed
+The gates run on the current `main` and on a clean tree, so a project can record that they passed
 on that commit. The project's pre-push check can then reuse that record.
 
 Review triages its own findings: it applies what is correct and in scope, discards what does not
@@ -66,7 +66,7 @@ printf 'feat: widen the port range [PROJ-123]\n\nDetail.\n' | git commit -F -
 A story commit's body states the decision:
 
 ```
-feat: store the base tip per branch [PROJ-12]
+feat: store the port base per worktree [PROJ-12]
 
 Why this decision, what it replaces, what was rejected. Mermaid allowed.
 ```
@@ -120,13 +120,13 @@ mael git squash-branch     # collapse into one commit, still committed
 mael git uncommit-branch   # collapse into the working tree, unstaged
 ```
 
-Both save the commits as a working history and rebase the branch onto its base. They differ in
+Both save the commits as a working history and rebase the branch onto `origin/main`. They differ in
 where the collapsed work ends up. `squash-branch` leaves one commit on the branch, so a stray
 `git reset --hard` cannot destroy it. `uncommit-branch` then resets that commit into the working
 tree, ready to be committed again in whatever order reads best.
 
 Both refuse, and change nothing, when the working tree is dirty, when a rebase or merge is in
-progress, or when the branch has no commits ahead of its base. A rebase conflict aborts and
+progress, or when the branch has no commits ahead of `main`. A rebase conflict aborts and
 restores the tree — run `mael sync`, resolve the conflict, then try again.
 
 ### Re-reviewing an open PR
@@ -178,8 +178,7 @@ Review chooses its scope first. A branch whose PR is already open gets an **addi
 `--local`, reading only the commits that were never pushed. Any other branch, or a request for
 substantial rework, gets a **fresh** pass over the whole branch.
 
-That squash is also the sync: it fetches origin, fast-forwards local main, resolves the base
-and rebases, which is everything `mael sync --no-push` does. It refuses a dirty working tree, so
+That squash is also the sync: it fetches origin, fast-forwards local main and rebases, which is everything `mael sync --no-push` does. It refuses a dirty working tree, so
 the build must commit its work before review runs.
 
 Then it spawns **read-only sub-agents**, all running concurrently, so the diff never enters the
@@ -265,7 +264,7 @@ A project can name a check in [`pre_push_cmd`](../reference/configuration.md#pre
 `create-pr` runs it after its last rebase, so the check sees the commit that is pushed. A failed
 check pushes nothing and opens no PR.
 
-The check can take many minutes, and the base can move while it runs. Then the pushed commit
+The check can take many minutes, and `main` can move while it runs. Then the pushed commit
 would not be the one the check saw. So `create-pr` rebases and checks again, up to 3 times. After
 the third check it pushes anyway, with a warning that CI may not reuse the project's records.
 
@@ -348,8 +347,7 @@ it keeps them.
 
 To merge from the orchestrator, open the task's node. A pull request that is ready to merge, and
 is not a draft, shows a **Merge** button. The button asks first, then rebase-merges on GitHub.
-The question names the branch the pull request merges into: a stacked pull request merges into
-its base, not into `main`.
+The question names `main`, the branch the pull request merges into.
 
 The Changes tab header compares the worktree's local `HEAD` with the pull request's head commit.
 It shows **PR #n matches** or **PR #n differs**. When it differs, the local branch has commits

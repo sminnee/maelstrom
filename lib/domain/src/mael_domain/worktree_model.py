@@ -126,7 +126,7 @@ def trash_name(branch: str) -> str:
 
 
 # How much of a branch a collapse takes in. ``remote`` is every commit ahead of
-# the base fork point — the whole branch. ``local`` is only ``origin/<branch>..HEAD``,
+# the fork point from main — the whole branch. ``local`` is only ``origin/<branch>..HEAD``,
 # the part that was never pushed, so a re-review reads the new work alone.
 SquashScope = Literal["remote", "local"]
 
@@ -166,8 +166,6 @@ def describe_commits(commits: Sequence[CollapsedCommit]) -> str:
 class SquashResult:
     """What ``squash_branch`` did: what it collapsed, and into what."""
 
-    base: str
-    """The branch the work was rebased onto — ``main`` unless it is stacked."""
     history_ref: str
     """The ref now holding the chronological commits that were collapsed."""
     commits: int
@@ -192,8 +190,6 @@ class SquashResult:
 class UncommitResult:
     """What ``uncommit_branch`` did: where it reset to, and what it kept."""
 
-    base: str
-    """The branch the work was rebased onto — ``main`` unless it is stacked."""
     history_ref: str
     """The ref now holding the chronological commits that were collapsed."""
     commits: int
@@ -210,218 +206,6 @@ class UncommitResult:
 # takes --autorepair reports it: a repaired tree holds commits an agent
 # rewrote, and it must never read as a clean rebase.
 REPAIRED_MESSAGE = "Rebase conflicts resolved by a headless Claude session."
-
-
-@dataclass(frozen=True)
-class BaseRef:
-    """The branch a worktree's work is stacked on, and where it last started.
-
-    Maelstrom has always rebased every branch onto ``origin/main``. That was never
-    "rebase onto main" — it was "rebase onto my base", with ``main`` as the only
-    base that existed. ``BaseRef`` names the base, so the same auto-rebase that
-    already runs on open, on ``create_pr``, and on every ``/watch-pr`` loop keeps a
-    stack up to date instead of flattening it.
-
-    ``tip`` is the SHA ``origin/<branch>`` had at the last successful rebase. It is
-    the ``<upstream>`` argument of ``git rebase --onto``: the point this branch's
-    own commits start at. Without it, a base amended during review leaves the child
-    holding a stale copy whose patch-id no longer matches, and the rebase conflicts.
-    Review churn is the normal path here (every ``--fixup`` + ``--squash`` cycle
-    rewrites the parent), so ``tip`` must be re-recorded on every successful rebase.
-    """
-
-    branch: str = MAIN_BRANCH
-    tip: str | None = None
-
-    @property
-    def is_default(self) -> bool:
-        """True when this is the plain "rebase onto origin/main" of old.
-
-        A recorded ``tip`` disqualifies it even on ``main``: a tip means a real
-        stacked rebase happened, and the ``--onto`` form must be kept.
-        """
-        return self.branch == MAIN_BRANCH and self.tip is None
-
-
-@dataclass(frozen=True)
-class RebasePlan:
-    """The rebase a worktree should run, decided without touching git."""
-
-    onto: str
-    """The ref to land the commits on."""
-    upstream: str | None
-    """``<upstream>`` for ``git rebase --onto``. ``None`` ⇒ a plain rebase."""
-    collapsed: bool = False
-    """True when the base's remote branch is gone, so the stack flattened."""
-    label: str = f"origin/{MAIN_BRANCH}"
-    """What to call the target in messages a human reads."""
-    effective_base: str = MAIN_BRANCH
-    """The branch this rebase actually lands on — always ``onto`` without its
-    ``origin/`` prefix.
-
-    Distinct from the *stored* base, which can name a branch whose remote ref is
-    gone. Callers report this as ``SyncResult.base`` and rebuild ``origin/<base>``
-    from it, so a value that disagrees with ``onto`` yields a ref that does not
-    resolve and turns their next git call into a hard error."""
-
-
-def plan_rebase(base: BaseRef, base_exists: bool) -> RebasePlan:
-    """Decide the rebase for ``base``, given whether ``origin/<base>`` still exists.
-
-    Three cases:
-
-    - **Default base** — a plain rebase onto ``origin/main``, with no ``--onto``.
-      This is the pre-stacking argv exactly, so an unstacked worktree cannot
-      notice stacking exists.
-    - **Base alive** — rebase this branch's own commits (those after ``tip``) onto
-      the base's current tip, cascading the base's new work into the child.
-    - **Base gone** — the base merged or was abandoned. Replay from ``tip`` onto
-      ``origin/main``, which drops the base's commits whether or not a squash
-      merge preserved their patch-ids, and flag it so the caller clears the store.
-
-    Args:
-        base: The stored base for this branch.
-        base_exists: Whether ``origin/<base.branch>`` resolves after a prune-fetch.
-            Ignored for the default base — ``main`` is never gone.
-
-    Returns:
-        The :class:`RebasePlan` to execute.
-    """
-    if base.is_default:
-        return RebasePlan(onto=f"origin/{MAIN_BRANCH}", upstream=None)
-
-    if base_exists and base.branch != MAIN_BRANCH:
-        onto = f"origin/{base.branch}"
-        return RebasePlan(
-            onto=onto, upstream=base.tip, label=onto, effective_base=base.branch
-        )
-
-    return RebasePlan(
-        onto=f"origin/{MAIN_BRANCH}",
-        upstream=base.tip,
-        collapsed=True,
-    )
-
-
-# A stack tip whose branch has had no commits for this long draws a warning at
-# `mael add`. Long enough that ordinary review latency never trips it, short
-# enough to catch a branch that was quietly shelved.
-STALE_TIP_DAYS = 30
-
-
-@dataclass(frozen=True)
-class StackTip:
-    """The branch new worktrees stack on, after validation."""
-
-    branch: str
-    healed: bool = False
-    """True when the stored tip's branch was gone and this fell back to ``main``."""
-    stale_days: int | None = None
-    """Age in days when the tip's branch is stale; ``None`` when it is fresh."""
-
-
-def resolve_stack_tip(
-    stored: str, ages: dict[str, int], *, stale_days: int = STALE_TIP_DAYS
-) -> StackTip:
-    """Validate the stored stack tip against the remote branches that exist.
-
-    Two failure modes, handled differently because their costs differ:
-
-    - **The tip's branch is gone** (merged, or abandoned and deleted). Basing new
-      work on it would fail outright, so the tip self-heals to ``main``.
-    - **The tip's branch is stale** — it exists but has had no commits for a long
-      time. See ``docs/dev/stacking.md`` for why that base is a bad one. "Stale"
-      is a judgement call, and an unattended agent session must not stall on one,
-      so this warns and proceeds.
-
-    Args:
-        stored: The stack tip as the store holds it. Empty reads as ``main``.
-        ages: ``branch -> days since last commit`` for every branch on the remote.
-            One ``git for-each-ref`` over ``refs/remotes/origin`` answers both
-            existence and age, with no network call and no per-branch cost.
-        stale_days: Age past which a tip is reported stale.
-
-    Returns:
-        The :class:`StackTip` to use, and what was wrong with the stored one.
-    """
-    if not stored or stored == MAIN_BRANCH:
-        return StackTip(MAIN_BRANCH)
-
-    if stored not in ages:
-        return StackTip(MAIN_BRANCH, healed=True)
-
-    age = ages[stored]
-    return StackTip(stored, stale_days=age if age > stale_days else None)
-
-
-def order_by_stack(branches: list[str], bases: dict[str, str]) -> list[str]:
-    """Order ``branches`` so a base sorts before anything stacked on it.
-
-    ``sync-all`` rebases every worktree in one pass. Without an order, a child can
-    rebase onto a parent tip the parent then replaces moments later, and the child
-    is stale until the next run. This is convergence rather than correctness — a
-    second ``sync-all`` fixes it today — so a cycle or a missing base degrades to
-    "some order" rather than raising.
-
-    A base with no worktree in ``branches`` simply does not constrain anything.
-    Ties keep their input order, so an unstacked project's output is its input.
-
-    Args:
-        branches: The branches to order.
-        bases: Every stored ``branch -> base`` pair.
-
-    Returns:
-        The same branches, parents first.
-    """
-    present = set(branches)
-    ordered: list[str] = []
-    placed: set[str] = set()
-
-    def place(branch: str, seen: frozenset[str]) -> None:
-        if branch in placed or branch in seen:
-            return  # already placed, or a cycle — stop rather than recurse forever
-        base = bases.get(branch)
-        if base and base in present:
-            place(base, seen | {branch})
-        if branch not in placed:
-            placed.add(branch)
-            ordered.append(branch)
-
-    for branch in branches:
-        place(branch, frozenset())
-    return ordered
-
-
-def validate_base(branch: str, base: str, bases: dict[str, str]) -> None:
-    """Raise if setting ``branch``'s base to ``base`` would be self- or cyclic.
-
-    A cycle would make the cascading rebase never terminate, so it is rejected at
-    set time rather than discovered at rebase time. Validation is pure: ``bases``
-    is the whole branch→base mapping as the store holds it. A branch missing from
-    it is implicitly based on ``main``, which ends the walk.
-
-    Args:
-        branch: The branch whose base is being set.
-        base: The proposed base branch.
-        bases: Every currently stored branch→base pair.
-
-    Raises:
-        ValueError: If ``base`` is ``branch`` itself, or reaches it by following
-            existing bases.
-    """
-    if base == branch:
-        raise ValueError(f"A branch cannot be based on itself: {branch}")
-
-    seen = {branch}
-    current = base
-    while current and current != MAIN_BRANCH:
-        if current in seen:
-            chain = " → ".join([branch, base])
-            raise ValueError(
-                f"Cycle in stack bases: {chain} loops back through {current}"
-            )
-        seen.add(current)
-        current = bases.get(current, MAIN_BRANCH)
 
 
 def print_flushed(line: str) -> None:
@@ -773,7 +557,7 @@ def apply_preserved_values(text: str, preserved: dict[str, str]) -> str:
 
 @dataclass(frozen=True)
 class RebaseCommand:
-    """The ``git rebase`` invocation a :class:`RebasePlan` turns into."""
+    """A ``git rebase`` invocation."""
 
     argv: list[str]
     """The full argv, ``git`` included."""
@@ -781,105 +565,34 @@ class RebaseCommand:
     """Environment overrides, or ``None`` when the rebase needs none."""
 
 
+ORIGIN_MAIN = f"origin/{MAIN_BRANCH}"
+
 # --autosquash makes git open the rebase todo in an editor. Stubbing both editors
 # out with `true` applies the generated todo verbatim, unattended.
 NON_INTERACTIVE_REBASE_ENV = {"GIT_SEQUENCE_EDITOR": "true", "GIT_EDITOR": "true"}
 
 
-def plan_squash_rebase(plan: RebasePlan, *, squash: bool) -> RebaseCommand:
-    """Build the rebase command for ``plan``.
-
-    The default base has no ``upstream``, so it yields the plain pre-stacking
-    argv exactly — an unstacked worktree cannot notice that stacking exists. A
-    stacked plan replays only this branch's own commits with ``--onto``.
+def plan_squash_rebase(*, squash: bool) -> RebaseCommand:
+    """Build the rebase command that lands the branch on ``origin/main``.
 
     Args:
-        plan: The rebase decided by :func:`plan_rebase`.
         squash: Autosquash ``fixup!`` commits into their targets.
 
     Returns:
         The :class:`RebaseCommand` to run.
     """
-    if plan.upstream is None:
-        argv = ["git", "rebase", "--autostash", plan.onto]
-    else:
-        argv = ["git", "rebase", "--autostash", "--onto", plan.onto, plan.upstream]
-
     if not squash:
-        return RebaseCommand(argv=argv)
-
-    argv.insert(2, "--autosquash")
-    return RebaseCommand(argv=argv, env=dict(NON_INTERACTIVE_REBASE_ENV))
-
-
-def fetch_prunes(base: BaseRef) -> bool:
-    """True when the fetch before a rebase should also prune remote refs.
-
-    Only a stacked branch needs it: pruning is what tells a merged base from a
-    live one. It deletes stale remote-tracking refs — a visible side effect the
-    default, unstacked path must not acquire.
-    """
-    return not base.is_default
+        return RebaseCommand(argv=["git", "rebase", "--autostash", ORIGIN_MAIN])
+    return RebaseCommand(
+        argv=["git", "rebase", "--autosquash", "--autostash", ORIGIN_MAIN],
+        env=dict(NON_INTERACTIVE_REBASE_ENV),
+    )
 
 
-# What :func:`plan_sync_after_rebase` says to do with a rebased branch.
-SYNC_PUSH = "push"
-"""Publish the branch with ``--force-with-lease``, if it has a remote."""
-SYNC_CLOSE_KEEP_BRANCH = "close-keep-branch"
-"""Close the worktree; keep the branch, because another is stacked on it."""
-SYNC_CLOSE_DELETE_BRANCH = "close-delete-branch"
-"""Close the worktree and delete the now-empty branch."""
-
-
-@dataclass(frozen=True)
-class SyncDecision:
-    """What :func:`sync_worktree` does once the rebase has landed."""
-
-    action: str
-    """One of ``SYNC_PUSH``, ``SYNC_CLOSE_KEEP_BRANCH``, ``SYNC_CLOSE_DELETE_BRANCH``."""
-    base_label: str
-    """``origin/<base>`` — the ref emptiness was measured against, for messages."""
-
-
-def plan_sync_after_rebase(
-    base: str,
-    *,
-    close_if_empty: bool,
-    is_empty: bool,
-    is_a_base: bool,
-) -> SyncDecision:
-    """Decide what a successful rebase is followed by.
-
-    "Empty" is measured against the resolved base, not ``main``: a child
-    identical to its parent has nothing of its own, even when ``main`` has moved
-    on beneath them both.
-
-    Args:
-        base: The branch the rebase landed on, without an ``origin/`` prefix.
-        close_if_empty: Whether the caller asked for the close-when-empty path.
-        is_empty: Whether the branch is fully merged into its base. Read only
-            when ``close_if_empty`` holds.
-        is_a_base: Whether another branch is stacked on this one. Read only when
-            ``is_empty`` holds, so a caller for which both cost a git call may
-            ask them in that order and skip the second.
-
-    Returns:
-        The :class:`SyncDecision` to execute.
-    """
-    label = f"origin/{base}"
-    if not (close_if_empty and is_empty):
-        return SyncDecision(SYNC_PUSH, label)
-    if is_a_base:
-        return SyncDecision(SYNC_CLOSE_KEEP_BRANCH, label)
-    return SyncDecision(SYNC_CLOSE_DELETE_BRANCH, label)
-
-
-def describe_branch_deletion(
-    branch: str, base_label: str, *, remote_deleted: bool
-) -> str:
+def describe_branch_deletion(branch: str, *, remote_deleted: bool) -> str:
     """The message for a branch that was empty and got deleted."""
     scope = "local + remote" if remote_deleted else "local"
     return (
-        f"{branch} is empty (merged into {base_label}); "
+        f"{branch} is empty (merged into {ORIGIN_MAIN}); "
         f"deleted branch ({scope}) and closed worktree."
     )

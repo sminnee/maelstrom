@@ -20,7 +20,7 @@ export function MergeControl({ worktree }: { worktree: Worktree }) {
       disabled={differs}
       title={differs ? 'The local branch differs from the PR. Sync it first.' : undefined}
       icon={actionIcon('merge')}
-      question={`Merge PR #${worktree.prNumber} into ${worktree.base || 'main'}?`}
+      question={`Merge PR #${worktree.prNumber} into main?`}
       confirm="Merge"
       confirmProcessing="Merging…"
       cancel="Not yet"

@@ -121,7 +121,7 @@ console. A non-zero exit stops the push, and the branch stays rebased and unpush
 
 | Command | When the check runs |
 |---|---|
-| `mael gh create-pr` | Always. When the base moves during the check, it rebases and checks again, up to 3 times. |
+| `mael gh create-pr` | Always. When `main` moves during the check, it rebases and checks again, up to 3 times. |
 | `mael sync` | When the branch is on the remote, so the sync will push. |
 | `mael sync-all`, the orchestrator's sync, opening and closing a worktree | Never. These push without the check. |
 

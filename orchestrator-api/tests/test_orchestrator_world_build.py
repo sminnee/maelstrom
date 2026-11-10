@@ -113,7 +113,6 @@ LIST_ALL_ROW = {
     "folder": "northwind-alpha",
     "path": "/Users/dev/Projects/northwind/northwind-alpha",
     "branch": "feat/orders",
-    "base": "main",
     "is_closed": False,
     "dirty_files": 2,
     "local_commits": 1,
@@ -155,7 +154,6 @@ def test_worktree_entity_mirrors_a_list_all_row():
         "nato": "alpha",
         "path": "/Users/dev/Projects/northwind/northwind-alpha",
         "branch": "feat/orders",
-        "base": "main",
         "isClosed": False,
         "dirtyFiles": 2,
         "localCommits": 1,
@@ -263,13 +261,11 @@ def test_worktree_entity_blanks_the_nulls_of_a_closed_row():
     row = {
         **LIST_ALL_ROW,
         "branch": None,
-        "base": None,
         "is_closed": True,
         "env": None,
     }
     entity = worktree_entity("northwind", row)
     assert entity["branch"] == ""
-    assert entity["base"] == ""
     assert entity["isClosed"] is True
     assert entity["env"] == {"state": "stopped", "services": []}
 
@@ -345,19 +341,17 @@ def test_worktree_entity_without_a_pr_url_carries_an_empty_string():
     assert entity["prUrl"] == ""
 
 
-def test_project_entity_carries_the_stack_tip_and_whether_linear_is_set_up():
+def test_project_entity_carries_whether_linear_is_set_up():
     entity = project_entity(
         {
             "name": "northwind",
             "path": "/p",
-            "stack_tip": "feat/base",
             "has_linear": True,
         }
     )
     assert entity == {
         "id": "northwind",
         "name": "northwind",
-        "stackTip": "feat/base",
         "hasLinear": True,
     }
 

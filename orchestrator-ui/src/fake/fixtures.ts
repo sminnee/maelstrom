@@ -6,7 +6,7 @@ import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../pro
 import { emptyFakeWorld, type FakeWorld } from './fakeServer';
 
 export function makeProject(over: Partial<Project> = {}): Project {
-  return { id: 'northwind', name: 'northwind', stackTip: 'main', hasLinear: false, ...over };
+  return { id: 'northwind', name: 'northwind', hasLinear: false, ...over };
 }
 
 export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
@@ -16,7 +16,6 @@ export function makeWorktree(over: Partial<Worktree> = {}): Worktree {
     nato: 'alpha',
     path: '/Users/dev/Projects/northwind/northwind-alpha',
     branch: 'feat/orders',
-    base: 'main',
     isClosed: false,
     dirtyFiles: 0,
     localCommits: 0,

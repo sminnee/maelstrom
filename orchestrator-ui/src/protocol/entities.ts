@@ -27,7 +27,6 @@ export type TaskMode = PermissionMode;
 export interface Project {
   id: ProjectId;
   name: string;
-  stackTip: string;
   /** Whether the project names a Linear team in its `.maelstrom.yaml`. */
   hasLinear: boolean;
 }
@@ -63,7 +62,6 @@ export interface Worktree {
   nato: string;
   path: string;
   branch: string;
-  base: string;
   isClosed: boolean;
   dirtyFiles: number;
   localCommits: number;
@@ -147,7 +145,7 @@ export interface ChangedFile {
   status: string;
 }
 
-/** One commit on a worktree's branch that its base does not have. */
+/** One commit on a worktree's branch that `main` does not have. */
 export interface BranchCommit {
   sha: string;
   shortSha: string;
@@ -163,8 +161,6 @@ export interface BranchCommit {
 /** `GET /api/worktrees/{id}/changes`: what the Changes tab can show. */
 export interface WorktreeChanges {
   dirtyFiles: ChangedFile[];
-  /** The **Base** the commits are measured against: `main` when the base was pruned. */
-  base: string;
   /** Oldest first. */
   commits: BranchCommit[];
 }

@@ -7,7 +7,7 @@ import pathlib
 
 import pytest
 
-from mael_domain import github_model, worktree_model
+from mael_domain import github_model
 from mael_domain.github_model import (
     Artifact,
     CheckRun,
@@ -31,39 +31,7 @@ from mael_domain.github_model import (
     parse_pr_ref,
     parse_run_states,
     run_id_from_link,
-    stack_chain,
 )
-
-
-class TestStackChain:
-    """`stack_chain` — the bottom-to-top branch list `gh stack link` wants."""
-
-    def test_an_unstacked_branch_is_a_chain_of_one(self):
-        assert stack_chain("feat/solo", {}) == ["feat/solo"]
-
-    def test_a_two_branch_stack_reads_bottom_to_top(self):
-        assert stack_chain("feat/b", {"feat/b": "feat/a"}) == ["feat/a", "feat/b"]
-
-    def test_a_deep_stack_reads_bottom_to_top(self):
-        bases = {"feat/c": "feat/b", "feat/b": "feat/a"}
-        assert stack_chain("feat/c", bases) == ["feat/a", "feat/b", "feat/c"]
-
-    def test_the_walk_stops_at_main(self):
-        assert stack_chain("feat/b", {"feat/b": "feat/a", "feat/a": "main"}) == [
-            "feat/a",
-            "feat/b",
-        ]
-
-    def test_unrelated_bases_do_not_join_the_chain(self):
-        bases = {"feat/b": "feat/a", "feat/x": "feat/y"}
-        assert stack_chain("feat/b", bases) == ["feat/a", "feat/b"]
-
-    def test_a_cycle_terminates_rather_than_hanging(self):
-        """Cycles are rejected at set time; this is the belt-and-braces stop."""
-        assert stack_chain("feat/a", {"feat/a": "feat/b", "feat/b": "feat/a"}) == [
-            "feat/b",
-            "feat/a",
-        ]
 
 
 class TestParsePrInfo:
@@ -975,12 +943,10 @@ class TestTheModelStaysPure:
         imported = self._imported_modules(github_model.__file__)
         assert self.BANNED.isdisjoint(imported), imported & self.BANNED
 
-    def test_its_one_maelstrom_import_is_another_leaf(self):
-        """`worktree_model` is stdlib-only, so this arrow cannot cycle."""
+    def test_it_imports_no_maelstrom_module(self):
+        """A leaf, so no arrow out of it can cycle."""
         imported = self._imported_modules(github_model.__file__)
-        siblings = {n for n in imported if n.startswith(".") or "worktree" in n}
-        assert siblings == {".worktree_model", ".worktree_model.MAIN_BRANCH"}
-        assert self.BANNED.isdisjoint(self._imported_modules(worktree_model.__file__))
+        assert not {n for n in imported if n.startswith(".") or "mael" in n}
 
 
 class TestSyncFailed:

@@ -53,35 +53,11 @@ that sets unmerged work aside.
 
 **Open**:
 Put a branch into a worktree ready to work in: create the worktree, recycle a closed one, or
-reuse the one that already holds the branch, then rebase the branch onto its base before the
+reuse the one that already holds the branch, then rebase the branch onto `main` before the
 session starts. A reused worktree keeps the setup it has, except its `.env`, and its rebase
 does not push. A recycled or reused worktree gets its `.env` rebuilt from the project root's
 `.env`.
 _Avoid_: Set up (a worktree), provision. "Set up" names **Project setup**.
-
-**Base**:
-The branch a branch's work is stacked on. Every rebase maelstrom runs targets the base, and
-`main` is the base a branch has when it has none of its own. Stored per branch in git config,
-so every worktree in the project reads the same value.
-_Avoid_: Parent branch, upstream, target branch
-
-**Base tip**:
-The SHA `origin/<base>` had at the last successful rebase — the point a branch's own commits
-start at. Re-recorded on every successful rebase, because a base amended during review leaves
-a stale tip that conflicts.
-_Avoid_: Merge base, fork point
-
-**Stack tip**:
-One pointer per project naming the branch new worktrees stack on. It is `main` until
-`mael stack-tip` moves it, so new work bases on `main`. It falls back to `main` when its
-branch is deleted.
-_Avoid_: Head, current branch, newest branch
-
-**Collapse**:
-What happens to a stacked branch when its base branch is gone — merged or abandoned. The
-branch rebases onto `origin/main`, keeping only its own commits, and its stored base is
-cleared.
-_Avoid_: Flatten, unstack, rebase down
 
 **Close**:
 Return a worktree to an empty slot: detach to `origin/main`, free the port allocation, keep the
@@ -97,8 +73,7 @@ worktree leaves nothing of its own running.
 **Trash**:
 A close that sets unmerged work aside without deleting it: `mael close --trash`. The branch
 becomes `trash/<branch>` locally and on origin, and its open PR closes. Outstanding work is
-committed as `wip: uncommitted changes` first. A trashed branch has no base, so it leaves its
-stack.
+committed as `wip: uncommitted changes` first.
 _Avoid_: Archive, abandon, discard
 
 **Shelve**:
@@ -1022,7 +997,7 @@ _Avoid_: Backup branch, history branch, archive ref
 
 **Squash**:
 To collapse a branch's commits into one, leaving it committed. `mael git squash-branch` saves the
-working history, collapses the commits, then rebases onto the base. Review runs it to put the
+working history, collapses the commits, then rebases onto `origin/main`. Review runs it to put the
 branch's final state in one commit a reviewer reads whole.
 _Avoid_: Fold, flatten, uncommit (which resets the commit into the working tree)
 
@@ -1035,7 +1010,7 @@ subjects.
 _Avoid_: Range, extent, depth
 
 **Uncommit**:
-To return a branch to unstaged changes at its base tip. `mael git uncommit-branch` squashes the
+To return a branch to unstaged changes at its fork point from `main`. `mael git uncommit-branch` squashes the
 branch, then resets that commit into the working tree. Nothing is discarded — every change is in
 the working tree, ready to be committed again. Present runs it to re-cut a reviewed tree.
 _Avoid_: Reset, unwind
@@ -1624,7 +1599,7 @@ their project.
 
 **Changes tab**:
 A panel tab that shows one worktree's changes: its **Dirty files**, each commit its branch has
-over its **Base**, or the whole branch as one diff. The expanded node's `Changes` link opens it.
+over `main`, or the whole branch as one diff. The expanded node's `Changes` link opens it.
 The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 

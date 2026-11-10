@@ -27,7 +27,6 @@ AgentStateName = Literal[
 class Project(TypedDict):
     id: str
     name: str
-    stackTip: str
     #: Whether ``linear.team_id`` is set in the project's ``.maelstrom.yaml``.
     hasLinear: bool
 
@@ -104,7 +103,6 @@ class Worktree(TypedDict):
     nato: str
     path: str
     branch: str
-    base: str
     isClosed: bool
     dirtyFiles: int
     localCommits: int
@@ -157,7 +155,7 @@ class ChangedFile(TypedDict):
 
 
 class BranchCommit(TypedDict):
-    """One commit on a worktree's branch that its base does not have."""
+    """One commit on a worktree's branch that ``main`` does not have."""
 
     sha: str
     shortSha: str
@@ -174,8 +172,6 @@ class WorktreeChanges(TypedDict):
     """``GET /api/worktrees/{id}/changes``: what the Changes tab can show."""
 
     dirtyFiles: list[ChangedFile]
-    #: The **Base** the commits are measured against: ``main`` when the base was pruned.
-    base: str
     #: Oldest first.
     commits: list[BranchCommit]
 

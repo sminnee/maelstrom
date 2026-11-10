@@ -204,10 +204,6 @@ chaperone go through the parent's normal forward. See [remote hosts](remote-host
 | `landing.py`, `landing_github.py`                        | Landing `merged` from the queue.        |
 | `MergeControl.tsx` (`orchestrator-ui/src/worktrees/`)    | The Merge and "Rebase and rebuild" button. |
 
-Stacking goes first: `base_store.py`, `_register_stack` (`github.py`), `stack_chain`
-(`github_model.py`), `base_branches` and `stacked_branches` (`worktree.py`), and
-`docs/dev/stacking.md`.
-
 ## Risks to test
 
 Each task's plan writes its own test plan. These risks need cover:

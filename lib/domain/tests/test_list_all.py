@@ -79,7 +79,6 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
     assert [p["name"] for p in data["projects"]] == ["test-repo"]
     project = data["projects"][0]
     assert project["path"] == str(project_path)
-    assert project["stack_tip"] == "main"
     # No `.maelstrom.yaml`, so no Linear team to plan against.
     assert project["has_linear"] is False
     assert len(project["worktrees"]) == 1
@@ -644,31 +643,22 @@ class _BlockingProbe:
             self.running -= 1
 
 
-def test_the_project_store_reads_do_not_block_the_other_projects(tmp_path):
-    """``GitConfigBaseStore`` runs ``git config``, so it must not run inline.
+def test_the_project_config_read_does_not_block_the_other_projects(tmp_path):
+    """``linear_team_id`` reads ``.maelstrom.yaml``, so it must not run inline.
 
-    Both its calls are subprocesses. Run on the event loop they serialise
-    every other project's reads behind them, which gives back the
-    concurrency the gather above buys.
+    Run on the event loop it serialises every other project's reads behind
+    it, which gives back the concurrency the gather above buys.
     """
     for n in range(4):
         (tmp_path / f"project-{n}" / ".mael").mkdir(parents=True)
     probe = _BlockingProbe()
 
-    class SlowStore:
-        def __init__(self, project_path):
-            pass
+    def slow_team_id(*args):
+        probe.read()
+        return None
 
-        def all(self):
-            probe.read()
-            return {}
-
-        def read_stack_tip(self):
-            probe.read()
-            return "main"
-
-    with _quiet_worktree_reads(GitConfigBaseStore=SlowStore):
+    with _quiet_worktree_reads(linear_team_id=slow_team_id):
         data = asyncio.run(build_list_all_data(tmp_path))
 
     assert len(data["projects"]) == 4
-    assert probe.peak > 1, "the store reads ran one after another"
+    assert probe.peak > 1, "the config reads ran one after another"

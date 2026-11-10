@@ -104,7 +104,7 @@ const NO_COMMENTS_HERE: ChangeComment[] = [];
 
 /**
  * The first commit when the branch has commits, else the uncommitted changes.
- * With neither, the whole branch: its empty text names the base.
+ * With neither, the whole branch: its empty text names `main`.
  */
 const defaultRev = (changes: WorktreeChanges) =>
   changes.commits[0]?.sha ?? (changes.dirtyFiles.length > 0 ? UNCOMMITTED : BRANCH);
@@ -119,8 +119,8 @@ function revToShow(changes: WorktreeChanges, picked: string | null): string {
 }
 
 /**
- * A worktree's changes: its dirty files, each commit its branch has over its
- * base, and the branch as one diff. The strip chooses which; the file list
+ * A worktree's changes: its dirty files, each commit its branch has over
+ * `main`, and the branch as one diff. The strip chooses which; the file list
  * and the file tree jump to a file; every file follows as one continuous list.
  * The user comments on lines of any rev, and one post sends every comment to
  * the agents in the worktree.
@@ -271,7 +271,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
     );
   }
 
-  const { commits, base } = changes.data;
+  const { commits } = changes.data;
   const at = commits.findIndex((c) => c.sha === rev);
   const commit = commits[at];
   const prev = commits[at - 1]?.sha;
@@ -281,9 +281,6 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
       <span className={styles.where}>
         <span className={`${styles.branch} truncate`} title={worktree?.branch || worktreeId}>
           {worktree?.branch || worktreeId}
-        </span>
-        <span className={`${styles.base} truncate`} title={`on ${base}`}>
-          on {base}
         </span>
       </span>
       {worktree?.prNumber != null && worktree.prMatch && <PrMatch worktree={worktree} />}
@@ -356,7 +353,7 @@ export function ChangesTab({ worktreeId }: { worktreeId: WorktreeId }) {
             onUnpin={unpin}
             folds={folds}
             onFold={setFold}
-            empty={emptyText(rev, base)}
+            empty={emptyText(rev)}
             commit={commit}
             prev={prev}
             next={next}
@@ -591,9 +588,9 @@ function CommitMessage({ commit, id, open }: { commit: BranchCommit; id: string;
   );
 }
 
-function emptyText(rev: string | null, base: string): string {
+function emptyText(rev: string | null): string {
   if (rev === UNCOMMITTED) return 'No uncommitted changes';
-  if (rev === BRANCH) return `No commits ahead of ${base}`;
+  if (rev === BRANCH) return 'No commits ahead of main';
   return 'This commit changes no files';
 }
 

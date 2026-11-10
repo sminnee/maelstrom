@@ -410,10 +410,6 @@ class TestTheProductionCallSites:
         monkeypatch.setattr(
             worktree_mod, "find_worktree_by_branch", lambda *a, **k: None
         )
-        monkeypatch.setattr(worktree_mod, "_branch_exists_anywhere", lambda *a: False)
-        monkeypatch.setattr(
-            worktree_mod, "_resolve_new_branch_base", lambda *a, **k: "main"
-        )
         monkeypatch.setattr(worktree_mod, "find_closed_worktree", find_closed)
 
         with contextlib.suppress(_StopAfterClaim):

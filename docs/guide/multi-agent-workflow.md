@@ -147,21 +147,6 @@ Their **environments** cannot collide: different worktrees, different branches, 
 Their **code** still can. Chains that touch the same files conflict on rebase, and the last one
 to merge does the work of reconciling.
 
-Stacking is the answer to that. Base one chain's branch on another's, and the auto-rebase
-cascades the parent's changes into the child as they land, instead of saving the whole
-reconciliation for merge time.
-
-Chains are independent until you ask for this. Turn it on when you know two chains will touch
-the same files. Leave the tip on `main` otherwise: a stacked branch cannot merge until the branch
-below it merges.
-
-```bash
-mael stack-tip feat/first-chain    # new worktrees stack on this branch
-mael stack-tip main                # back to independent chains
-```
-
-See [stacking.md](../dev/stacking.md).
-
 Watch them:
 
 ```bash
@@ -189,7 +174,7 @@ When an execute session's implementation is written, it runs the finishing seque
 asking**. The gates are the project's automated checks — tests, lint and type check, as
 CLAUDE.md defines them:
 
-1. Rebase onto the current base: `mael sync --no-push`.
+1. Rebase onto the current `main`: `mael sync --no-push`.
 2. Commit the implementation, then run the gates on the clean tree. A gate job runs in the
    background. The session ends its turn, and the orchestrator tells it when the job passes or
    fails.
@@ -199,7 +184,7 @@ CLAUDE.md defines them:
 5. Run `/present` — re-cut the reviewed tree into story commits, one per design decision, so the
    reviewer reads the change as a story rather than as the order the work happened in.
 6. Push: `mael gh create-pr --squash`. The `--squash` autosquashes any fixups into
-   their targets while rebasing onto the branch's base, so the PR lands with clean history.
+   their targets while rebasing onto `origin/main`, so the PR lands with clean history.
    The project's [pre-push check](pull-requests.md#the-pre-push-check) runs after that rebase.
 7. Close the task: `mael task status done`.
 8. Run `/watch-pr` to take CI (continuous integration) to green.

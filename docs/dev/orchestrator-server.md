@@ -1499,8 +1499,8 @@ close over the `Orchestrator`, and one `run_sequence` runs them.
 | `close`, `shelve`, `trash`, `delete` | the worktree command's own steps, then `off_desk` |
 
 A worktree chain sends no stop of its own: the teardown stops every agent in the worktree. A
-refusal of the worktree end — a close on a dirty tree or unmerged commits, a trash on a stacked
-branch or an existing `trash/<branch>` — ends the operation before `off_desk`, so the node stays
+refusal of the worktree end — a close on a dirty tree or unmerged commits, a trash on an existing
+`trash/<branch>` — ends the operation before `off_desk`, so the node stays
 on the desk. `off_desk` says `Not on the desk.` when the unit has no entry: a live node draws
 without one.
 
@@ -1565,7 +1565,7 @@ without waiting for the poll.
 | `GET /api/projects` | `{projects: [Project]}` |
 | `GET /api/linear/issues?project=` | `{issues: [{id, title, status}]}` — the project's current Linear cycle. Refused unless the project sets `linear.team_id` |
 | `GET /api/worktrees?max_age=` | `{projects: [Project], worktrees: [Worktree]}`. With `max_age` (seconds), the route first reads every branch on disk, unless such a read finished within `max_age`. A poll's desk-only read does not count. `mael list` uses it. A `max_age` that is not a finite, non-negative number is `invalid`. `prStale` is true when the PR fields are the last known state. `appUrl` and `appRunning` are the first web port and a port probe on it. A worktree's `env` is `{state, services}`: its env state, and its per-worktree services as `{name, optional, running, url}` — declared ones in config order, or for a Procfile project its tracked services and a synthetic `app`. `running` reads the tracked pid, not a port probe |
-| `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], base, commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
+| `GET /api/worktrees/{id}/changes` | `WorktreeChanges`: `{dirtyFiles: [{path, status}], commits: [BranchCommit]}`. Read from git on each request. See "A worktree's changes" |
 | `GET /api/worktrees/{id}/diff?rev=` | `{rev, groups: [FileGroup], files: [FileDiff]}`: the diff one rev names, as files, hunks and numbered lines, each hunk with its new-side `range`, with the files sorted into **Diff groups**. A file is `navigable` when a **Language server** reads it. Compressed |
 | `GET /api/worktrees/{id}/tree?rev=` | `FileList`: `{rev, paths}`, every file path on the rev's new side, sorted. The working tree lists untracked files and drops ignored ones. Compressed |
 | `GET /api/worktrees/{id}/excerpt?rev=&path=&start=&end=` | `FileExcerpt`: `{rev, path, navigable, total, truncated, span}`, lines of one file on the rev's new side, every line `context`. No range is the whole file. The range is clipped to the file and to 5000 lines. A path the rev lacks is `unknown_id`; a range that is not a number is `invalid`. Compressed |
@@ -1605,11 +1605,10 @@ A rev is one of three values:
 | Rev | The diff |
 |---|---|
 | `uncommitted` | The working tree against `HEAD`, with each untracked file as an addition |
-| `branch` | The merge-base with the **Base** to `HEAD`: every commit on the branch as one diff |
+| `branch` | The merge-base with `origin/main` to `HEAD`: every commit on the branch as one diff |
 | A commit sha | That commit against its first parent |
 
-The **Base** resolves as it does for a review: `origin/<base>` first, then `origin/main` when the
-base has merged and been pruned. `base` in the reply is the branch that resolved. `dirtyFiles` and
+`dirtyFiles` and
 the uncommitted diff hold **Dirty files** only. `commits` is oldest first, the order the work was
 done in.
 

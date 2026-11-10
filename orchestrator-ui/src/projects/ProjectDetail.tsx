@@ -90,8 +90,6 @@ export function ProjectDetail({ projectId }: { projectId: ProjectId }) {
               )}
               <span className={styles.faint}>{` ${row.openWorktrees} open`}</span>
             </dd>
-            <dt>stack tip</dt>
-            <dd className={row.stackTip ? styles.mono : styles.faint}>{row.stackTip || 'none'}</dd>
             <dt>linear</dt>
             <dd className={row.hasLinear ? undefined : styles.faint}>
               {row.hasLinear ? 'Linear' : 'none'}
