@@ -177,6 +177,27 @@ class TestMainPortBase:
             MaelstromConfig.from_dict({"main_port_base": "277"})
 
 
+class TestMergeConfig:
+    """`merge:` and `build_slots:` choose how a project's work merges."""
+
+    def test_defaults_are_github_and_two_slots(self):
+        config = MaelstromConfig.from_dict({})
+        assert (config.merge, config.build_slots) == ("github", 2)
+
+    def test_local_with_slots_is_read(self):
+        config = MaelstromConfig.from_dict({"merge": "local", "build_slots": 3})
+        assert (config.merge, config.build_slots) == ("local", 3)
+
+    def test_an_unknown_mode_is_refused(self):
+        with pytest.raises(ValueError, match="merge"):
+            MaelstromConfig.from_dict({"merge": "gitlab"})
+
+    @pytest.mark.parametrize("slots", [0, "2", True])
+    def test_a_bad_slot_count_is_refused(self, slots):
+        with pytest.raises(ValueError, match="build_slots"):
+            MaelstromConfig.from_dict({"build_slots": slots})
+
+
 class TestServicesConfig:
     """Tests for structured `services:` parsing and derived helpers."""
 

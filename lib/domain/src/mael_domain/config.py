@@ -4,6 +4,7 @@ import logging
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import yaml
 
@@ -175,6 +176,39 @@ def _parse_main_port_base(value: object) -> int | None:
     return value
 
 
+#: How a project's work merges. See ``CONTEXT.md``, "Merge request".
+MergeMode = Literal["github", "local"]
+MERGE_MODES: tuple[MergeMode, ...] = ("github", "local")
+
+
+def _parse_merge(value: object) -> MergeMode:
+    """The ``merge:`` mode; ``github`` when unset.
+
+    Raises:
+        ValueError: If the value is not a known mode.
+    """
+    if value is None:
+        return "github"
+    if value not in MERGE_MODES:
+        raise ValueError(
+            f"merge must be one of {', '.join(MERGE_MODES)}, not {value!r}"
+        )
+    return value  # type: ignore[return-value]
+
+
+def _parse_build_slots(value: object) -> int:
+    """The ``build_slots:`` count; 2 when unset.
+
+    Raises:
+        ValueError: If the value is not an integer of 1 or more.
+    """
+    if value is None:
+        return 2
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise ValueError(f"build_slots must be an integer of 1 or more, not {value!r}")
+    return value
+
+
 def _parse_deploy_environments(value: object) -> dict[str, str]:
     """``deploy.environments`` as step -> GitHub environment.
 
@@ -260,6 +294,10 @@ class MaelstromConfig:
     deploy_environments: dict[str, str] = field(default_factory=dict)
     # The Changes tab's file classes, in match priority.
     diff_groups: list[DiffGroup] = field(default_factory=list)
+    # How work merges: through a GitHub PR, or through the local Build queue.
+    merge: MergeMode = "github"
+    # How many Build worktrees the Build queue runs at once.
+    build_slots: int = 2
 
     @classmethod
     def from_dict(cls, data: dict) -> "MaelstromConfig":
@@ -304,6 +342,8 @@ class MaelstromConfig:
             uptimerobot_monitors=ur_config.get("monitors"),
             deploy_environments=_parse_deploy_environments(data.get("deploy")),
             diff_groups=_parse_diff_groups(data.get("diff_groups")),
+            merge=_parse_merge(data.get("merge")),
+            build_slots=_parse_build_slots(data.get("build_slots")),
         )
 
 

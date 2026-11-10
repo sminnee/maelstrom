@@ -37,6 +37,8 @@ Put this file in your repository root.
 | `uptimerobot` | map | — | UptimeRobot settings. See below. |
 | `deploy` | map | — | The GitHub environments that signal each **Landing** step. See below. |
 | `diff_groups` | list of map | `[]` | The **Diff groups** the Changes tab sorts a diff's files into. See below. |
+| `merge` | string | `github` | How a task's work merges: `github` (a PR) or `local` (the **Build queue**). See below. |
+| `build_slots` | int | `2` | How many **Build worktrees** the Build queue runs at once, in a `merge: local` project. 1 or more. |
 
 When `services:` is present it supersedes `port_names`, `shared_port_names`, the Procfile
 and `start_cmd`. Precedence is **`services:` → Procfile → `start_cmd`**.
@@ -72,6 +74,25 @@ without a word; above 6552 the derived ports pass 65535 and no service can bind.
 
 Omit the key and `_main` keeps no ports and no `.env`. See
 [the fixed environment](../guide/worktrees.md#the-fixed-environment).
+
+### `merge:` and `build_slots:`
+
+`merge:` chooses what `mael merge submit`, `status` and `withdraw` do:
+
+| Value | What a submit does |
+|---|---|
+| `github` | Pushes and opens or updates the PR, as `mael gh create-pr` does. GitHub Actions gates it. |
+| `local` | Pushes the branch and submits its head to the task's **Merge request**. The orchestrator server's **Build queue** runs every gate on it in a **Build worktree**. |
+
+```yaml
+merge: local
+build_slots: 2     # _build1 and _build2
+```
+
+Each Build worktree is a detached checkout beside `_main`, made on first use. It takes its
+ports from the pool, as a NATO worktree does. Maelstrom rejects an unknown `merge:` value, and
+a `build_slots:` that is not an integer of 1 or more, when the config loads. See
+`docs/dev/build-queue.md` in the maelstrom repository.
 
 ### `check_host_cmd:`
 
