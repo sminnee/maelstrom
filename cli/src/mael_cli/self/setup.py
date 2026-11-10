@@ -130,6 +130,7 @@ def host_services(
             env=env,
             cwd=prod.state,
             log=prod.service_logs / f"{AGENT_DAEMON}.log",
+            daemon_owns_children=True,
         ),
     ]
 

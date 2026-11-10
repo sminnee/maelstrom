@@ -11,7 +11,7 @@ import pytest
 import yaml
 from self_cli_support import FakeSupervisor
 
-from mael_cli.self.host_service import ORCHESTRATOR
+from mael_cli.self.host_service import ORCHESTRATOR, render_unit
 from mael_cli.self.production import Production
 from mael_cli.self.setup import Setup, SetupError
 from mael_domain.dev_cert import DevCertError, cert_paths
@@ -230,6 +230,21 @@ def test_setup_without_a_dev_host_serves_loopback_only(bare_home):
     assert "--public-host" not in run.orchestrator.argv
     assert "DEV_TLS_CERT" not in run.orchestrator.env
     assert run.issued == []
+
+
+def test_only_the_agent_daemon_unit_keeps_its_children_through_a_stop(bare_home):
+    """The daemon stops its agents itself, and one OOM kill takes one agent."""
+    run = SetupRun(bare_home)
+
+    run()
+
+    keys = {"KillMode=mixed", "OOMPolicy=continue"}
+    found = {
+        spec.name: keys & set(render_unit(spec)[f"{spec.unit}.service"].splitlines())
+        for spec in run.supervisor.applied
+    }
+    assert {name for name, lines in found.items() if lines} == {"agent-daemon"}
+    assert found["agent-daemon"] == keys
 
 
 @pytest.mark.parametrize(("old", "restarted"), [(b"old", True), (b"cert", False)])

@@ -269,6 +269,11 @@ through an injected `run`. `supervisor()` picks `Launchd` on macOS and `Systemd`
 - systemd: `Restart=always`, `RestartSec=5` and `WantedBy=default.target`. Setup runs
   `loginctl enable-linger $USER`, so the units run without a login. A failure there warns. The
   logs go to the journal: `journalctl --user -u maelstrom-<name>.service`.
+- The agent-daemon unit alone also sets `KillMode=mixed` and `OOMPolicy=continue`
+  (`HostService.daemon_owns_children`). A stop signals the daemon only, and the daemon stops its
+  agents so the next daemon resumes them. An OOM kill takes one agent, not the unit. See
+  [agent-daemon.md](agent-daemon.md#ending-an-agent). launchd already signals only the job's own
+  process.
 - The scheduler runs `mael task add-scheduled --all-projects --run` through the shim, hourly. See
   [scheduled-tasks.md](scheduled-tasks.md#firing-behaviour) for when it fires.
 

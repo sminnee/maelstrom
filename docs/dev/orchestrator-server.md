@@ -1085,7 +1085,8 @@ second consecutive failed poll upserts the `agent-host` entity as unreachable, w
 first successful poll after upserts it reachable again. One failed poll raises nothing, because a
 daemon restart costs exactly one dropped connection. So a restart shows in the UI as a banner for
 a few seconds and then the same agent ids, revived, with every client's cursors intact — never as
-a canvas full of exits. `GET /api/host` serves the entity; a `host` change notice names it.
+a canvas full of exits. The daemon's shutdown ends each attach stream with no exit marker, so the
+stream reads as lost, not as an exit. `GET /api/host` serves the entity; a `host` change notice names it.
 
 The entity also carries two usage readings. `usage` comes from the Claude daemon's `list` reply.
 `codexUsage` comes from the Codex adapter's, which the router passes on as `codex_usage`. The

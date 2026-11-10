@@ -67,6 +67,10 @@ class HostService:
     cwd: Path | None = None
     #: The log file, on macOS. Linux logs to the journal.
     log: Path | None = None
+    #: The unit's own process stops its children, and an OOM kill takes one
+    #: process, not the unit. systemd gets ``KillMode=mixed`` and
+    #: ``OOMPolicy=continue``. launchd already signals only the job's process.
+    daemon_owns_children: bool = False
 
     @property
     def label(self) -> str:
@@ -114,6 +118,8 @@ def render_unit(spec: HostService) -> dict[str, str]:
     service += [f"Environment={_quote(f'{k}={v}')}" for k, v in spec.env.items()]
     if spec.cwd is not None:
         service.append(f"WorkingDirectory={_quote(str(spec.cwd))}")
+    if spec.daemon_owns_children:
+        service += ["KillMode=mixed", "OOMPolicy=continue"]
     if not spec.hourly:
         service += [
             "Restart=always",
