@@ -42,6 +42,8 @@ See `docs/dev/` for architecture and design docs:
   and systemd units, the restart mapping, why the migration comes first, and the `self` fence.
 - `docs/dev/ci.md` — the CI gates in `pipeline.toml`: how CI reuses a local pass, and the
   service buckets that give each service its version.
+- `docs/dev/build-queue.md` — `merge: local`: the Candidate, the build queue and its build
+  worktrees, the steer review, the gate weights, and the fast-forward merge.
 - `docs/dev/testing.md` — which suite owns which contract, what an outer layer and e2e keep,
   where test support lives, and how fakes get their replies.
 - `docs/dev/dead-code.md` — the vulture and knip gates: why each runs twice, and where a false
