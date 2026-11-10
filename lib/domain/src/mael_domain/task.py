@@ -29,8 +29,8 @@ import subprocess
 import tempfile
 import uuid
 from collections import deque
-from collections.abc import Callable
-from dataclasses import dataclass, field
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -575,6 +575,18 @@ def is_done(status: str) -> bool:
 
 def is_terminal(status: str) -> bool:
     return status in (STATUS_DONE, STATUS_CANCELLED)
+
+
+async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
+    """Return whether a **New session** may start on ``task`` now.
+
+    As :func:`is_actionable`, but a done task is accepted too: a new session
+    reopens it. A cancelled, template or blocked task stays refused, and so
+    does a task that follows unfinished work.
+    """
+    if is_done(task.status):
+        return await is_actionable(replace(task, status=STATUS_TODO), table)
+    return await is_actionable(task, table)
 
 
 async def is_actionable(task: Task, table: "TaskTable") -> bool:
@@ -1712,7 +1724,9 @@ CODEX_PLAN_HANDOFF = (
 )
 
 
-def build_prompt(task: Task, harness: str = HARNESS_CLAUDE) -> str:
+def build_prompt(
+    task: Task, harness: str = HARNESS_CLAUDE, earlier_sessions: Sequence[str] = ()
+) -> str:
     """Build the initial prompt for a task.
 
     The shape is ``/<command> <title>`` followed by a blank line and the task's
@@ -1726,6 +1740,10 @@ def build_prompt(task: Task, harness: str = HARNESS_CLAUDE) -> str:
 
     Codex reads a slash command as text, so a ``codex`` harness names the
     skill in words, and a plan-mode task gets :data:`CODEX_PLAN_HANDOFF`.
+
+    ``earlier_sessions`` is given for a **New session**: the prompt ends with
+    one line naming them, oldest first, so the agent can read their
+    transcripts when it needs them.
     """
     command = task.command or ("planning" if task.mode == "plan" else "")
     head = f"/{command} {task.title}" if command else task.title
@@ -1737,6 +1755,12 @@ def build_prompt(task: Task, harness: str = HARNESS_CLAUDE) -> str:
             head = f"Load the `{name}` skill{with_args}, then: {task.title}"
         if task.mode == "plan":
             blocks.insert(0, CODEX_PLAN_HANDOFF)
+    if earlier_sessions:
+        blocks.append(
+            "This is a new session of the task. Its earlier sessions, oldest "
+            f"first: {', '.join(earlier_sessions)}. Read their transcripts if "
+            "you need what they did."
+        )
     return "\n\n".join([head, *(block for block in blocks if block)])
 
 
@@ -1793,6 +1817,33 @@ async def ensure_session(table: "TaskTable", task: Task, harness: str) -> str:
     task.sessions = [*task.sessions, TaskSession(id=session_id, harness=harness)]
     await table.save(task)
     return session_id
+
+
+async def new_session(table: "TaskTable", task: Task, harness: str) -> str:
+    """Start a **New session** of ``task`` on ``harness``, and return its id.
+
+    For Claude, a new uuid4 is appended and saved, so :func:`current_session`
+    returns it and the launch passes it as ``--session-id``. Codex makes its
+    own thread id, so for Codex this returns ``""``: the launch starts a new
+    thread, and :func:`add_session` stores its id.
+    """
+    if harness != HARNESS_CLAUDE:
+        return ""
+    session_id = str(uuid.uuid4())
+    task.sessions = [*task.sessions, TaskSession(id=session_id, harness=harness)]
+    await table.save(task)
+    return session_id
+
+
+async def drop_session(
+    table: "TaskTable", project: str, id: str, session_id: str
+) -> None:
+    """Remove the session ``session_id`` from the task, when no agent started on it."""
+    task = await load(table, project, id)
+    kept = [s for s in task.sessions if s.id != session_id]
+    if len(kept) != len(task.sessions):
+        task.sessions = kept
+        await table.save(task)
 
 
 async def add_session(

@@ -15,7 +15,9 @@ from mael_domain.task_launch import (
     check_not_live,
     check_synced,
     plan_launch,
+    prepare_launch,
 )
+from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
 
 
@@ -88,6 +90,42 @@ def test_a_launch_on_a_codex_model_writes_a_codex_prompt():
     plan = plan_launch("northwind", task, model_name="codex:sol")
     assert plan.model == "codex:sol"
     assert plan.prompt == "Load the `plan-task` skill, then: x"
+
+
+async def test_a_new_session_gets_a_new_id_and_names_the_earlier_ones():
+    """A relaunch resumes the newest session. A New session does not."""
+    table = InMemoryTaskTable()
+    task = await model.create(table, project="northwind", title="x", content="Do it.")
+    first = await prepare_launch(table, "northwind", task)
+    again = await prepare_launch(table, "northwind", task)
+    assert again.session_id == first.session_id
+
+    renewed = await prepare_launch(table, "northwind", task, new_session=True)
+
+    assert renewed.session_id not in ("", first.session_id)
+    stored = await model.load(table, "northwind", task.id)
+    assert [s.id for s in stored.sessions] == [first.session_id, renewed.session_id]
+    assert model.current_session(stored, "claude") == renewed.session_id
+    assert renewed.prompt == (
+        "/planning x\n\nDo it.\n\nThis is a new session of the task. Its earlier sessions, "
+        f"oldest first: {first.session_id}. Read their transcripts if you need "
+        "what they did."
+    )
+    assert "earlier sessions" not in again.prompt
+
+
+async def test_a_new_codex_session_resumes_no_thread():
+    """Codex makes its own thread id, so a New session names none."""
+    table = InMemoryTaskTable()
+    task = await model.create(table, project="northwind", title="x", model="codex:sol")
+    await model.add_session(table, "northwind", task.id, "thread-1", "codex")
+    task = await model.load(table, "northwind", task.id)
+
+    plan = await prepare_launch(table, "northwind", task, new_session=True)
+
+    assert plan.session_id == ""
+    assert "oldest first: thread-1." in plan.prompt
+    assert [s.id for s in task.sessions] == ["thread-1"]
 
 
 def test_check_not_live_refuses_a_task_with_a_live_session():

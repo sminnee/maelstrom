@@ -255,6 +255,7 @@ async def _run_task(
     task: "model.Task",
     *,
     fresh: bool = False,
+    new_session: bool = False,
     harness: str = TRANSPORT_CLI,
 ) -> None:
     """Prepare the task's worktree, mark the task in-progress, and launch it.
@@ -271,81 +272,101 @@ async def _run_task(
     scheduled run): it has no prior conversation, so it always launches with
     ``--session-id`` and never ``--resume``. The relaunch callers (``task run`` /
     ``task next``) leave it ``False`` so they still resume a stopped session.
+
+    ``new_session=True`` starts a **New session** on a task that ran before: a
+    new session id in place of the current one, and a prompt that names the
+    earlier sessions.
     """
     if harness == TRANSPORT_CLI and not has_terminal():
         raise click.ClickException(NO_TERMINAL_REFUSAL)
-    # The plan settles the session id, env, permission mode and branch once,
-    # the same way the orchestrator server does. Codex makes its own thread id,
-    # so a --cli Codex launch pins, resumes and guards nothing.
-    plan = await prepare_launch(table, project, task)
-    ref = resolve_model_reference(plan.model, task.mode)
-    if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
-        raise click.ClickException(
-            f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
-        )
-    if plan.execute_model:
-        # Refused here rather than at the daemon, where the plan is already
-        # approved and the context already cleared.
-        try:
-            resolve_execute_model(plan.execute_model)
-        except ValueError as e:
-            raise click.ClickException(str(e))
-    has_session_id = ref.harness == HARNESS_CLAUDE
-    session_id = plan.session_id if has_session_id else None
     # One sweep answers both questions below: is this task already running, and
     # is anything running in the worktree the open is about to rebase.
     # Swept here, on the loop: the lazy property falls back to a thread when a
     # loop is running, and the state database is bound to the loop's thread.
     live = await session_discovery.LiveSessionSet().sweep()
-    # Refuse a second parallel launch *of this task*. A finished session leaves
-    # nothing running, so a finished task stays re-runnable.
-    if has_session_id:
+    if new_session:
+        # The plan's new id runs nowhere yet, so the check below cannot see
+        # a live agent of this task. Each earlier session is checked here.
         try:
-            check_not_live(task.id, plan.session_id, live)
+            for session in task.sessions:
+                check_not_live(task.id, session.id, live)
         except LaunchBlocked as e:
             raise click.ClickException(str(e))
-
-    # Skills running inside the session self-reference via these — e.g. to
-    # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
-    session_env = plan.env
-    perm = plan.permission_mode
-
-    ctx = resolve_context(project, require_project=True, arg_is_project=True)
-    project_path = ctx.project_path
-    if project_path is None or not project_path.exists():
-        raise click.ClickException(f"Project '{project}' not found at {project_path}")
-    branch = plan.branch
-    # ``run_install=False``: each launch below starts the installer in the background.
-    # ``task.base`` seeds the branch's stored base the first time the worktree is
-    # set up. Empty falls through to the stack tip.
+    # The plan settles the session id, env, permission mode and branch once,
+    # the same way the orchestrator server does. Codex makes its own thread id,
+    # so a --cli Codex launch pins, resumes and guards nothing.
+    plan = await prepare_launch(table, project, task, new_session=new_session)
+    added = plan.session_id if new_session else ""
     try:
-        result = setup_worktree_for_branch(
-            project_path,
-            project,
-            branch,
-            run_install=False,
-            base=task.base or None,
-            live=live,
-            announce=click.echo,
-        )
-    except (ValueError, WorktreeError) as e:
-        raise click.ClickException(str(e))
-    # Opening the worktree rebased its branch onto its base. If that failed,
-    # block: an unattended session must not run against stale code. The failure
-    # lands before the in-progress write below, so the task never leaves TODO.
-    try:
-        check_synced(task.id, branch, result)
-    except LaunchBlocked as e:
-        raise click.ClickException(str(e))
-    # A rejected push is not a failed sync: the rebase landed, so the session may
-    # start. Say so anyway — the branch and its remote have diverged, and nobody
-    # is watching this run to notice.
-    if result.sync is not None and result.sync.push_failed:
-        click.echo(result.sync.push_message, err=True)
-    if result.rebuilds_env:
-        refresh_worktree_env(
-            project, result.name, project_path, result.path, fatal=False
-        )
+        ref = resolve_model_reference(plan.model, task.mode)
+        if harness == TRANSPORT_DAEMON and ref.harness != HARNESS_CLAUDE:
+            raise click.ClickException(
+                f"The {ref.harness} daemon is not available; use --cli with a {ref.harness}:* model."
+            )
+        if plan.execute_model:
+            # Refused here rather than at the daemon, where the plan is already
+            # approved and the context already cleared.
+            try:
+                resolve_execute_model(plan.execute_model)
+            except ValueError as e:
+                raise click.ClickException(str(e))
+        has_session_id = ref.harness == HARNESS_CLAUDE
+        session_id = plan.session_id if has_session_id else None
+        # Refuse a second parallel launch *of this task*. A finished session leaves
+        # nothing running, so a finished task stays re-runnable.
+        if has_session_id:
+            try:
+                check_not_live(task.id, plan.session_id, live)
+            except LaunchBlocked as e:
+                raise click.ClickException(str(e))
+
+        # Skills running inside the session self-reference via these — e.g. to
+        # `mael task done $MAEL_TASK_ID` and `--follow-end linear.<parent>`.
+        session_env = plan.env
+        perm = plan.permission_mode
+
+        ctx = resolve_context(project, require_project=True, arg_is_project=True)
+        project_path = ctx.project_path
+        if project_path is None or not project_path.exists():
+            raise click.ClickException(
+                f"Project '{project}' not found at {project_path}"
+            )
+        branch = plan.branch
+        # ``run_install=False``: each launch below starts the installer in the background.
+        # ``task.base`` seeds the branch's stored base the first time the worktree is
+        # set up. Empty falls through to the stack tip.
+        try:
+            result = setup_worktree_for_branch(
+                project_path,
+                project,
+                branch,
+                run_install=False,
+                base=task.base or None,
+                live=live,
+                announce=click.echo,
+            )
+        except (ValueError, WorktreeError) as e:
+            raise click.ClickException(str(e))
+        # Opening the worktree rebased its branch onto its base. If that failed,
+        # block: an unattended session must not run against stale code. The failure
+        # lands before the in-progress write below, so the task never leaves TODO.
+        try:
+            check_synced(task.id, branch, result)
+        except LaunchBlocked as e:
+            raise click.ClickException(str(e))
+        # A rejected push is not a failed sync: the rebase landed, so the session may
+        # start. Say so anyway — the branch and its remote have diverged, and nobody
+        # is watching this run to notice.
+        if result.sync is not None and result.sync.push_failed:
+            click.echo(result.sync.push_message, err=True)
+        if result.rebuilds_env:
+            refresh_worktree_env(
+                project, result.name, project_path, result.path, fatal=False
+            )
+    except click.ClickException:
+        if added:
+            await model.drop_session(table, project, task.id, added)
+        raise
 
     # Resume a previously-started (now-stopped) session rather than re-creating
     # its id: the worktree the session lives in is the one just set up.
@@ -407,6 +428,8 @@ async def _run_task(
         await task_actions.move_with_actions(
             table, project, task.id, model.STATUS_TODO, warn=_warn
         )
+        if added:
+            await model.drop_session(table, project, task.id, added)
         # The launcher already named the reason.
         click.echo(f"Left {task.id} TODO (mael task run {task.id})", err=True)
 
@@ -1471,11 +1494,17 @@ async def task_next(
 @_harness_options()
 @click.argument("id")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option(
+    "--new-session",
+    is_flag=True,
+    help="Start a new session, not resume the current one. A done task reopens.",
+)
 async def task_run(
     id: str,
     project: str | None,
     cli: bool,
     daemon: bool,
+    new_session: bool,
 ) -> None:
     """Launch a task as a Claude session (ensures its worktree first)."""
     refuse_with_parent("task run")
@@ -1486,7 +1515,12 @@ async def task_run(
         t = await model.load(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    await _run_task(table, proj, t, harness=resolved)
+    if new_session and not await model.can_start_new_session(t, table):
+        raise click.ClickException(
+            f"Task {id} is {t.status}, or follows unfinished work: "
+            "a new session cannot start on it."
+        )
+    await _run_task(table, proj, t, new_session=new_session, harness=resolved)
 
 
 async def _live_sessions_by_task(

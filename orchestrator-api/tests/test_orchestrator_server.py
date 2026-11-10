@@ -1737,6 +1737,63 @@ def test_a_launch_resumes_its_session_only_when_it_ran_before(
     assert asked == [(Path(WORKTREE_PATH), session_of("NORT-7"))]
 
 
+def test_a_new_session_reopens_a_done_task_on_a_new_session_id(harness):
+    """New session: the old session has a transcript, the new one starts clean."""
+    old = session_of("NORT-7")
+    harness.add_task("NORT-7", session=old, status="done")
+    harness.daemon.rows["ag1"] = agent_row(session=old, state="exited(0)")
+    harness.opener.has_transcript = lambda path, session: session == old
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"newSession": True}
+            )
+
+    op = run(scenario())
+    assert op["state"] == "done"
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    task = run(model.load(harness.store, PROJECT, "NORT-7"))
+    assert task.status == "in-progress"
+    assert [s.id for s in task.sessions][0] == old
+    assert start["session"] == task.sessions[-1].id != old
+    assert start["resume"] is False
+    assert f"oldest first: {old}." in start["prompt"]
+
+
+def test_a_new_session_the_host_refuses_keeps_the_sessions_it_had(harness):
+    old = session_of("NORT-7")
+    harness.add_task("NORT-7", session=old, status="done")
+    harness.daemon.replies["start"] = [{"error": "could not start claude"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            return await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"newSession": True}
+            )
+
+    assert run(scenario())["state"] == "refused"
+    task = run(model.load(harness.store, PROJECT, "NORT-7"))
+    assert (task.status, [s.id for s in task.sessions]) == ("done", [old])
+
+
+def test_a_new_session_waits_for_the_live_agent_of_its_task(harness):
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    harness.daemon.rows["ag1"] = agent_row(session=session_of("NORT-7"))
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: "ag1" in harness.daemon.attached)
+            return await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"newSession": True}
+            )
+
+    op = run(scenario())
+    assert op["state"] == "refused"
+    assert "already has a live agent, ag1" in op["words"]
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
 def test_a_launch_the_host_refuses_rolls_the_task_back_to_todo(harness):
     harness.add_task("NORT-7")
     harness.daemon.replies["start"] = [

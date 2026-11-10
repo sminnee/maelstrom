@@ -500,6 +500,63 @@ class TestRun:
         session.assert_not_called()
 
 
+class TestNewSession:
+    async def _done_task(self, store):
+        t = await model.create(store, project="p", title="t")
+        await _with_session(store, t, "sess-old")
+        t.status = model.STATUS_DONE
+        await store.save(t)
+        return t
+
+    async def test_reopens_a_done_task_on_a_new_session_id(self, runner, store, launch):
+        t = await self._done_task(store)
+        result = runner.invoke(
+            task_cli.task, ["run", t.id, "--daemon", "--new-session"]
+        )
+        assert result.exit_code == 0, result.output
+        stored = await model.load(store, "p", t.id)
+        assert stored.status == model.STATUS_IN_PROGRESS
+        assert [s.id for s in stored.sessions][0] == "sess-old"
+        kwargs = launch.session.call_args.kwargs
+        assert kwargs["session_id"] == stored.sessions[-1].id != "sess-old"
+        assert kwargs["resume"] is False
+
+    async def test_refuses_while_an_earlier_session_is_live(
+        self, runner, store, launch, monkeypatch
+    ):
+        t = await model.create(store, project="p", title="t")
+        await _with_session(store, t, "sess-old")
+        _patch_live_sessions(monkeypatch, [_live_session(pid=7, session_id="sess-old")])
+        result = runner.invoke(task_cli.task, ["run", t.id, "--new-session"])
+        assert result.exit_code != 0
+        assert "already has a live Claude session" in result.output
+        launch.session.assert_not_called()
+        assert [s.id for s in (await model.load(store, "p", t.id)).sessions] == [
+            "sess-old"
+        ]
+
+    async def test_a_failed_start_keeps_the_sessions_it_had(
+        self, runner, store, launch
+    ):
+        launch.session.return_value = False
+        t = await self._done_task(store)
+        result = runner.invoke(
+            task_cli.task, ["run", t.id, "--daemon", "--new-session"]
+        )
+        assert result.exit_code == 0, result.output
+        stored = await model.load(store, "p", t.id)
+        assert [s.id for s in stored.sessions] == ["sess-old"]
+
+    async def test_refuses_a_cancelled_task(self, runner, store, launch):
+        t = await model.create(store, project="p", title="t")
+        t.status = model.STATUS_CANCELLED
+        await store.save(t)
+        result = runner.invoke(task_cli.task, ["run", t.id, "--new-session"])
+        assert result.exit_code != 0
+        assert "a new session cannot start on it" in result.output
+        launch.session.assert_not_called()
+
+
 def _live_session(pid=1, cwd=Path("/work/tree"), session_id=None):
     """A minimal :class:`LiveSession` stand-in (always live by construction)."""
     from mael_domain.session_discovery import LiveSession

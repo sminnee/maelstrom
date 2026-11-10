@@ -1107,6 +1107,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
     """Launch a task. It opens a worktree, so it runs as an operation.
 
     ``host`` names a **Remote host** to delegate the launch to; none is here.
+    ``newSession`` starts a **New session**, which may reopen a done task.
     """
     task_id = _task_id(request)
     return await _command(
@@ -1116,6 +1117,7 @@ async def _launch(request: web.Request) -> web.StreamResponse:
             "taskId": task_id,
             **({"model": body["model"]} if body.get("model") else {}),
             **({"host": body["host"]} if body.get("host") else {}),
+            **({"newSession": True} if body.get("newSession") is True else {}),
         },
         status=202,
     )

@@ -244,6 +244,8 @@ class LaunchClaim:
     plan: LaunchPlan
     #: The task's stored base, which seeds the branch's base on its first open.
     base: str = ""
+    #: The session id a **New session** saved, which the rollback removes.
+    new_session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -313,8 +315,12 @@ class TaskSource(Protocol):
     #: reads the whole notebook rather than a cursor the source cannot honour.
     version_is_revision: bool
 
-    async def claim_launch(self, task_id: str, model_name: str | None) -> LaunchClaim:
+    async def claim_launch(
+        self, task_id: str, model_name: str | None, *, new_session: bool = False
+    ) -> LaunchClaim:
         """Plan the task's launch, and move it in-progress.
+
+        ``new_session`` starts a **New session** in place of the task's current one.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -672,21 +678,33 @@ class NotebookTaskSource:
         removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
 
-    async def claim_launch(self, task_id: str, model_name: str | None) -> LaunchClaim:
+    async def claim_launch(
+        self, task_id: str, model_name: str | None, *, new_session: bool = False
+    ) -> LaunchClaim:
         """``task_id`` is the wire id; the notebook is asked for the bare one."""
         project, notebook_id = split_task_key(task_id)
         task = await model.load(self.table, project, notebook_id)
-        plan = await prepare_launch(self.table, task.project, task, model_name)
-        if plan.execute_model:
+        if task.execute_model:
             # The board's launch reaches the daemon without passing `validate`,
             # which guards the free-agent path only. Refused here for the same
             # reason the CLI refuses it: after approval the context is gone.
+            # Refused before the plan, which may save a new session id.
             try:
-                resolve_execute_model(plan.execute_model)
+                resolve_execute_model(task.execute_model)
             except ValueError as exc:
                 raise LaunchBlocked(str(exc)) from exc
+        plan = await prepare_launch(
+            self.table, task.project, task, model_name, new_session=new_session
+        )
         await self._move(task.project, task.id, model.STATUS_IN_PROGRESS)
-        return LaunchClaim(task.project, task.id, task.status, plan, task.base or "")
+        return LaunchClaim(
+            task.project,
+            task.id,
+            task.status,
+            plan,
+            task.base or "",
+            new_session_id=plan.session_id if new_session else "",
+        )
 
     async def started(self, claim: LaunchClaim, agent_id: str) -> str:
         if claim.plan.harness != HARNESS_CODEX:
@@ -698,6 +716,10 @@ class NotebookTaskSource:
 
     async def rollback(self, claim: LaunchClaim) -> None:
         await self._move(claim.project, claim.task_id, claim.previous_status)
+        if claim.new_session_id:
+            await model.drop_session(
+                self.table, claim.project, claim.task_id, claim.new_session_id
+            )
 
     async def set_status(self, task_id: str, status: str) -> StatusMoved:
         project, notebook_id = split_task_key(task_id)
