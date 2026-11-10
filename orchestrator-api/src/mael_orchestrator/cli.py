@@ -41,6 +41,7 @@ from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.language_servers import LANGUAGE_SERVERS
+from mael_domain.merge_request_store import SqliteBuildStore, SqliteMergeRequestStore
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
@@ -71,6 +72,7 @@ from mael_domain.worktree_steps import StepHook
 from mael_domain.worktree_trash import trash_worktree_fully
 
 from . import machine_metrics
+from .build_queue import BuildHost
 from .codex_bridge import CodexBridge
 from .codex_daemon import CodexDaemonClient
 from .daemon_bridge import DaemonRouter
@@ -402,6 +404,9 @@ def build_orchestrator(
         comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
         pr_ledger=SqlitePrLedgerStore(state_db),
+        merge_requests=SqliteMergeRequestStore(state_db),
+        builds=SqliteBuildStore(state_db),
+        build_host=BuildHost(projects_dir),
         executor=executor,
         worktree_executor=worktree_executor,
         gate_watch=watch_gates,

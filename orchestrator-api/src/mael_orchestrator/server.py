@@ -97,6 +97,17 @@ from mael_domain.integrations.errors import IntegrationError
 from mael_domain.landing import Landings
 from mael_domain.landing_store import StepEvent
 from mael_domain.list_all import project_repo_url
+from mael_domain.merge_request import (
+    MergeRequest,
+    MergeRequestError,
+    merge_request_json,
+)
+from mael_domain.merge_request_store import (
+    BuildStore,
+    InMemoryBuildStore,
+    InMemoryMergeRequestStore,
+    MergeRequestStore,
+)
 from mael_domain.normalise import (
     Milestone,
     NormaliseContext,
@@ -133,6 +144,7 @@ from mael_domain.protocol import (
     Task,
     TranscriptItem,
     Worktree,
+    WorktreeMergeRequest,
     World,
     group_members,
 )
@@ -173,6 +185,7 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
 from . import linear_source
+from .build_queue import BuildHost, BuildQueue, Run, run_process
 from .clients import normal_ip
 from .daemon_bridge import (
     EARLIER_SESSIONS,
@@ -242,10 +255,12 @@ from .world_build import (
     host_usage,
     link_agent,
     linked_tasks,
+    merge_request_entity,
     parse_agent_state,
     row_totals,
     split_task_key,
     with_gates,
+    with_merge_requests,
 )
 from .world_build import task_key as wire_task_key
 
@@ -664,6 +679,10 @@ class Orchestrator:
         comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
         pr_ledger: PrLedgerStore | None = None,
+        merge_requests: MergeRequestStore | None = None,
+        builds: BuildStore | None = None,
+        build_host: BuildHost | None = None,
+        build_run: Run | None = None,
         clock: Callable[[], str] = now_iso,
         executor: Executor | None = None,
         worktree_executor: Executor | None = None,
@@ -788,6 +807,20 @@ class Orchestrator:
             clock,
             self.ids,
         )
+        #: The **Build queue**: the Merge requests and their Builds. Started
+        #: after the agents are read, because a re-tell may resume one.
+        self.build_queue = BuildQueue(
+            merge_requests
+            if merge_requests is not None
+            else InMemoryMergeRequestStore(),
+            builds if builds is not None else InMemoryBuildStore(),
+            operations=self.operations,
+            tell=self._tell_chaperone,
+            host=build_host or BuildHost(Path.home() / "Projects"),
+            clock=clock,
+            on_change=self._publish_merge_requests,
+            run=build_run or run_process,
+        )
         #: Every file an agent named, by the id that stands for it.
         self.files = FileRegistry()
         #: Minted per server life, so a client can tell a restart from a reconnect.
@@ -905,6 +938,7 @@ class Orchestrator:
         await self._restore_ended_agents()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
+        await self.build_queue.start()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self.loop_watch.run()),
@@ -968,6 +1002,7 @@ class Orchestrator:
         self._pollers = []
         self._catch_up = None
         self._event_read = None
+        await self.build_queue.stop()
         await self.operations.stop()
         await asyncio.gather(*self._server_stops, return_exceptions=True)
         await self.language_servers.stop_all()
@@ -1486,7 +1521,10 @@ class Orchestrator:
             own = self.ids.prefix
             events += diff_kind("gateJob", world["gateJobs"], jobs, owner=own)
             events += diff_kind(
-                "worktree", world["worktrees"], with_gates(rows, jobs), owner=own
+                "worktree",
+                world["worktrees"],
+                self._with_merge_requests(with_gates(rows, jobs), jobs),
+                owner=own,
             )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
@@ -2945,6 +2983,8 @@ class Orchestrator:
             "task.registerPr": self._register_task_pr,
             "task.withdrawPr": self._withdraw_task_pr,
             "task.addSession": self._add_task_session,
+            "mergeRequest.submit": self._submit_merge_request,
+            "mergeRequest.withdraw": self._withdraw_merge_request,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "task.promote": self._promote,
@@ -3658,6 +3698,57 @@ class Orchestrator:
             },
         }
 
+    def _task_agents(self, task_key: str) -> list[Agent]:
+        """The task's live top-level agents that this server tells.
+
+        A delegated agent is left out: its parent tells it.
+        """
+        return [
+            agent
+            for agent in self.world["agents"].values()
+            if not agent["parent"]
+            and agent["state"] != "exited"
+            and agent["taskId"] == task_key
+            and not self._delegated(agent)
+        ]
+
+    async def _tell_chaperone(self, mr: MergeRequest, event: ExternalEvent) -> bool:
+        """Tell the **Chaperone** of ``mr``'s task; true when an agent took it.
+
+        With no live agent, the task's latest exited top-level agent is resumed
+        with the event as its first turn. With no agent at all, the event is
+        dropped: the status still shows on the node.
+        """
+        live = [agent["id"] for agent in self._task_agents(mr.task)]
+        if live:
+            delivered, refusals = await self._tell(live, event)
+            for agent_id, refused in refusals:
+                log.warning(
+                    "agent %s: %s not delivered: %s",
+                    agent_id,
+                    event.type,
+                    refused["error"]["message"],
+                )
+            return bool(delivered)
+        exited = sorted(
+            (
+                agent
+                for agent in self.world["agents"].values()
+                if not agent["parent"]
+                and agent["state"] == "exited"
+                and agent["taskId"] == mr.task
+            ),
+            key=lambda agent: agent["startedAt"],
+        )
+        if not exited:
+            log.info("task %s has no agent: %s dropped", mr.task, event.type)
+            return False
+        outcome = await self._resume(exited[-1]["id"], text=render_event(event))
+        if outcome.blocked:
+            log.warning("could not resume %s: %s", exited[-1]["id"], outcome.blocked)
+            return False
+        return True
+
     # -- the PR watch --
 
     def _pr_recipients(self) -> dict[str, tuple[list[str], bool]]:
@@ -3822,6 +3913,7 @@ class Orchestrator:
                         self._publish_gates()
                         for job in ended:
                             self._schedule_gate_tell(job.job)
+                            self.build_queue.job_ended(job.job)
                         if event.get("type") == "status":
                             # Only a recent job can end again: forget the rest.
                             self._gate_told &= {
@@ -3881,8 +3973,44 @@ class Orchestrator:
         own = self.ids.prefix
         self._apply(
             diff_kind("gateJob", self.world["gateJobs"], jobs, owner=own)
-            + diff_kind("worktree", worktrees, with_gates(worktrees, jobs))
+            + diff_kind(
+                "worktree",
+                worktrees,
+                self._with_merge_requests(with_gates(worktrees, jobs), jobs),
+            )
         )
+
+    def _publish_merge_requests(self) -> None:
+        """Put each branch's current Merge request on its worktree node."""
+        worktrees = {
+            worktree_id: row
+            for worktree_id, row in self.world["worktrees"].items()
+            if self.ids.is_own(worktree_id)
+        }
+        jobs = self._gate_jobs(worktrees)
+        self._apply(
+            diff_kind("worktree", worktrees, self._with_merge_requests(worktrees, jobs))
+        )
+
+    def _with_merge_requests(
+        self, worktrees: dict[str, Any], jobs: dict[str, GateJob]
+    ) -> dict[str, Any]:
+        """``worktrees``, each with its branch's Merge request from the Build queue.
+
+        A running Build's gate job is in its Build worktree, which is not in
+        the world, so its lozenge is found by the Build worktree's path.
+        """
+        host = self.build_queue.host
+        overlay: dict[tuple[str, str], WorktreeMergeRequest] = {}
+        for (project, branch), current in self.build_queue.current.items():
+            build = current.build
+            path = (
+                os.path.realpath(host.slot_path(project, build.slot))
+                if build is not None and build.state == "running"
+                else None
+            )
+            overlay[(project, branch)] = merge_request_entity(current, jobs, path)
+        return with_merge_requests(worktrees, overlay)
 
     def _schedule_gate_tell(self, job: dict[str, Any]) -> None:
         job_id = str(job["id"])
@@ -5240,6 +5368,40 @@ class Orchestrator:
         task_id = command["taskId"]
         reply = await self._write_task(self.tasks.withdraw_pr, task_id)
         return self._with_task(reply, task_id)
+
+    async def _submit_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Submit the task branch's head to its Merge request: a Build is queued."""
+        project, _, task_id = command["taskId"].partition("/")
+        config = await asyncio.to_thread(self.build_queue.host.config, project)
+        if config.merge != "local":
+            return _refused(
+                "invalid", f"Project {project} merges through GitHub, not merge: local"
+            )
+        mr, _ = await self.build_queue.submit(
+            project, task_id, command["branch"], command["sha"], command["base"]
+        )
+        return {"ok": True, "result": await self.merge_request_of(mr.task)}
+
+    async def _withdraw_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        try:
+            mr = await self.build_queue.withdraw(command["taskId"])
+        except MergeRequestError as exc:
+            return _refused("invalid", str(exc))
+        return {"ok": True, "result": await self.merge_request_of(mr.task)}
+
+    async def merge_request_of(
+        self, task_key: str, *, every: bool = False
+    ) -> dict[str, Any] | None:
+        """The task's current Merge request, its status and its Builds, newest first.
+
+        ``every`` adds ``earlier``: the task's earlier requests, each the same
+        shape. ``None`` when the task has never submitted.
+        """
+        found = await self.build_queue.read(task_key, every=every)
+        if not found:
+            return None
+        shaped = [merge_request_json(mr, builds) for mr, builds in found]
+        return {**shaped[0], **({"earlier": shaped[1:]} if every else {})}
 
     def _with_task(self, reply: dict[str, Any], task_id: str) -> dict[str, Any]:
         """``reply``, answered with the task as it now stands when it succeeded."""

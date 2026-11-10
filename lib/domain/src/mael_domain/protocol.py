@@ -95,6 +95,20 @@ class WorktreeGate(TypedDict):
     queuePosition: int | None
 
 
+class WorktreeMergeRequest(TypedDict):
+    """The branch's current **Merge request**, as its worktree node shows it."""
+
+    id: str
+    #: :data:`mael_domain.merge_request.Status`.
+    status: str
+    sha: str
+    #: The linked Build's detail: the failed gates and log, or the failed step.
+    detail: str
+    #: The running Build's **Gate job**, from its Build worktree; ``None``
+    #: while no Build runs.
+    gate: WorktreeGate | None
+
+
 class Worktree(TypedDict):
     """One row of ``mael --json list-all``."""
 
@@ -145,6 +159,9 @@ class Worktree(TypedDict):
     #: The worktree's live **Gate job**, or ``None`` with none. The server
     #: overlays it from ``gateJobs``; see ``worktree_gates``.
     gate: WorktreeGate | None
+    #: The branch's current **Merge request** in a ``merge: local`` project,
+    #: or ``None``. The server overlays it from the Build queue.
+    mergeRequest: WorktreeMergeRequest | None
 
 
 class ChangedFile(TypedDict):

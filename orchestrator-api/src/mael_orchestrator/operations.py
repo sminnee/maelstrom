@@ -306,6 +306,18 @@ class OperationRunner:
         except Exception:  # noqa: BLE001 — the world still holds it
             log.exception("could not save operation %s", record.operation["id"])
 
+    def holds(self, key: str) -> bool:
+        """Whether a running operation holds the busy key ``key``."""
+        return key in self._busy
+
+    async def wait(self, id: str) -> None:
+        """Return once the operation ``id`` has ended and freed its keys."""
+        task = self._tasks.get(id)
+        if task is not None:
+            # `asyncio.wait`, not `gather`: a cancelled waiter must not cancel
+            # the operation it waits on.
+            await asyncio.wait({task})
+
     async def read(self, id: str) -> OperationRecord | None:
         """The operation with its log and command; a running one as it stands."""
         running = self._records.get(id)
