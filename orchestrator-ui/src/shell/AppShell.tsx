@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
-import { Canvas } from '../canvas/Canvas';
+import { Desk } from './Desk';
 import { CommList } from '../comms/CommList';
 import { ProjectList } from '../projects/ProjectList';
 import { Panel } from '../panel/Panel';
@@ -94,7 +94,7 @@ function SlotShell() {
           {MAIN_VIEWS.filter((view) => showing.includes(view)).map((view) => (
             <section key={view} className={styles.slot} {...slot(view)}>
               {view === 'desk' ? (
-                <Canvas />
+                <Desk />
               ) : view === 'comms' ? (
                 <CommList />
               ) : view === 'projects' ? (

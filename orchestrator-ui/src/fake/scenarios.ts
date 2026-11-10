@@ -1456,7 +1456,7 @@ export const SCENARIOS = {
 
 /** The URL a scenario opens on: the desk, for one whose first screen is the point. */
 export const screenOf = (name: ScenarioName): string =>
-  (SCENARIOS[name] as Scenario).screen ?? '/desk';
+  (SCENARIOS[name] as Scenario).screen ?? '/desk/graph';
 
 export type ScenarioName = keyof typeof SCENARIOS;
 

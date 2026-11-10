@@ -15,7 +15,7 @@ describe('the expanded node', () => {
   it('clicking a node expands it in place with its state in words; a second click or Esc collapses it', async () => {
     const { router } = await renderApp();
     clickNode('NORT-7');
-    expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
+    expect(router.state.location.pathname).toBe('/desk/graph/task/NORT-7');
     const card = screen.getByRole('dialog', { name: 'Plan the order export' });
     expect(card).toHaveTextContent('Needs you · plan review');
     expect(card).not.toHaveTextContent('awaiting-plan-review');
@@ -23,11 +23,11 @@ describe('the expanded node', () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     clickNode('NORT-7');
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.pathname).toBe('/desk/graph');
     clickNode('NORT-7');
     pressKey('Escape');
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.pathname).toBe('/desk/graph');
   });
 
   it('collapses on a click on the canvas outside it: its lane, the pane', async () => {
@@ -35,10 +35,10 @@ describe('the expanded node', () => {
     const outside = ['[data-testid="group-node"][data-group-id="northwind"]', '.react-flow__pane'];
     for (const selector of outside) {
       clickNode('NORT-7');
-      expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
+      expect(router.state.location.pathname).toBe('/desk/graph/task/NORT-7');
       fireEvent.click(document.querySelector(selector)!);
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-      expect(router.state.location.pathname).toBe('/desk');
+      expect(router.state.location.pathname).toBe('/desk/graph');
     }
   });
 
@@ -52,7 +52,7 @@ describe('the expanded node', () => {
       screen.getByTestId('top-bar'),
     ]) {
       fireEvent.click(target);
-      expect(router.state.location.pathname).toBe('/desk/task/NORT-7');
+      expect(router.state.location.pathname).toBe('/desk/graph/task/NORT-7');
     }
     expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument();
   });
@@ -61,7 +61,7 @@ describe('the expanded node', () => {
     const { router } = await renderApp({ url: '/desk/task/NORT-7' });
     expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument();
     clickNode('NORT-9');
-    expect(router.state.location.pathname).toBe('/desk/task/NORT-9');
+    expect(router.state.location.pathname).toBe('/desk/graph/task/NORT-9');
     await act(() => router.navigate(-1));
     await waitFor(() =>
       expect(screen.getByRole('dialog', { name: 'Plan the order export' })).toBeInTheDocument(),
@@ -72,7 +72,7 @@ describe('the expanded node', () => {
     const user = userEvent.setup();
     const { router } = await renderApp({ url: '/desk/task/NORT-7' });
     await user.selectOptions(screen.getByLabelText('Project'), 'maelstrom');
-    await waitFor(() => expect(router.state.location.pathname).toBe('/desk'));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/desk/graph'));
     expect(router.state.historyAction).toBe('REPLACE');
     expect(screen.queryByRole('dialog', { name: 'Plan the order export' })).toBeNull();
   });
@@ -219,7 +219,7 @@ describe('the expanded node', () => {
       clickNode('NORT-12');
       expect(within(expanded()).getByRole('link', { name: 'Dev env' })).toHaveAttribute(
         'href',
-        '/desk/task/NORT-12?panel=devenv/northwind-delta/web',
+        '/desk/graph/task/NORT-12?panel=devenv/northwind-delta/web',
       );
       await user.click(within(expanded()).getByRole('button', { name: 'Stop env' }));
       await waitFor(() =>

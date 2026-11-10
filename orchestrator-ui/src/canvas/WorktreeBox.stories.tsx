@@ -19,7 +19,7 @@ function amend(seed: Seed) {
     const id = `northwind-${nato}`;
     seed.world.worktrees[id] = makeWorktree({ id, nato, branch: `feat/${nato}` });
   }
-  // A worktree that holds one not-started task, which follows a task of
+  // A worktree that holds one queued task, which follows a task of
   // bravo. Its box has no column in common with the box of bravo, so the
   // two sit side by side and the follows edge crosses the two borders.
   const queued = makeTask({
@@ -47,7 +47,7 @@ function amend(seed: Seed) {
  */
 function Harness({ open, more }: { open?: string; more?: (seed: Seed) => void }) {
   // A memory router: Ladle owns the page's URL.
-  const [router] = useState(() => createMemoryRouter(routes, { initialEntries: ['/desk'] }));
+  const [router] = useState(() => createMemoryRouter(routes, { initialEntries: ['/desk/graph'] }));
   // Opened once the board has drawn and fitted, as a click would: a card set
   // before the first draw is placed before the viewport settles, and its pan
   // into view is lost.
@@ -89,19 +89,19 @@ export const ProjectLane: Story = () => <Harness />;
  * label, or a node, and the card moves there: one card shows at a time.
  */
 export const WorktreeCardOnAnEmptyBox: Story = () => (
-  <Harness open="/desk/worktree/northwind-foxtrot" />
+  <Harness open="/desk/graph/worktree/northwind-foxtrot" />
 );
 
 /** What to look at: the Worktree card open on `delta`, a box that holds a node. */
 export const WorktreeCardOnAHeldBox: Story = () => (
-  <Harness open="/desk/worktree/northwind-delta" />
+  <Harness open="/desk/graph/worktree/northwind-delta" />
 );
 
 /**
  * What to look at: the node card of NORT-12. The worktree area is its last
  * band, under one hairline, and reads the same as the Worktree card of `delta`.
  */
-export const NodeCardWorktreeArea: Story = () => <Harness open="/desk/task/NORT-12" />;
+export const NodeCardWorktreeArea: Story = () => <Harness open="/desk/graph/task/NORT-12" />;
 
 /** The board scenario's operations, over this story's lanes. */
 function underOperations(seed: Seed) {

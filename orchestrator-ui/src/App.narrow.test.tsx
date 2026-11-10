@@ -36,8 +36,9 @@ describe('the narrow layout', () => {
     // The chip that expands a node on the canvas, drawn with the canvas around it.
     expect(within(bar).getByRole('button', { name: /items need attention/ })).toBeInTheDocument();
     expect(within(bar).getByRole('group', { name: 'Views' })).toBeInTheDocument();
-    expect(screen.getByTestId('canvas')).toBeInTheDocument();
-    expect(screen.queryByTestId('deck-list')).not.toBeInTheDocument();
+    // The narrow layout put the desk in list mode, and the medium layout keeps it there.
+    expect(screen.getByRole('navigation', { name: 'Desk mode' })).toBeInTheDocument();
+    expect(screen.getByTestId('deck-list')).toBeInTheDocument();
   });
 
   it('reads the PR number on a deck row, as the canvas node does', async () => {
@@ -69,6 +70,24 @@ describe('the narrow layout', () => {
 
     await userEvent.click(zoneTab(/^Done/));
     expect(deckRows()).toContain('NORT-9.1');
+  });
+
+  it('draws the desk as the list in every mode, with four tabs and no mode switch', async () => {
+    const { router } = await renderApp({
+      viewport: 'narrow',
+      url: '/desk/kanban/task/NORT-12?zone=done',
+    });
+    await waitFor(() => expect(router.state.location.pathname).toBe('/desk/list/task/NORT-12'));
+    expect(router.state.location.search).toBe('?zone=done');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(screen.queryByRole('navigation', { name: 'Desk mode' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    expect(screen.getAllByRole('tab').map((t) => t.getAttribute('data-zone'))).toEqual([
+      'queued',
+      'todo',
+      'running',
+      'done',
+    ]);
   });
 
   it('opens on the zone the URL names, and a tab moves the location', async () => {
@@ -167,7 +186,7 @@ describe('the narrow layout', () => {
     const { router } = await renderApp({ viewport: 'narrow', url: '/desk/task/NORT-9' });
     expect(screen.getByRole('dialog')).toHaveTextContent('Migrate to Postgres 16');
     await userEvent.click(screenStrip().getByRole('button', { name: 'Close' }));
-    expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.pathname).toBe('/desk/list');
     expect(router.state.historyAction).toBe('REPLACE');
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
   });
@@ -176,7 +195,7 @@ describe('the narrow layout', () => {
     await renderApp({ viewport: 'narrow' });
     expect(screen.getByRole('link', { name: /Migrate to Postgres 16/ })).toHaveAttribute(
       'href',
-      '/desk/task/NORT-9',
+      '/desk/list/task/NORT-9',
     );
   });
 

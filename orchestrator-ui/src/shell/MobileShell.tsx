@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
 import { useOwnHost } from '../api/host';
 import { DeckList } from '../deck/DeckList';
@@ -42,9 +42,13 @@ import styles from './MobileShell.module.css';
  *
  * A swipe in from the right edge opens the screen's side sheet: Filters on the
  * deck list, More on a pushed screen.
+ *
+ * The desk is the deck list in every **Desk mode**, so a graph or kanban path is replaced with
+ * the same location in list mode. The viewport is only known at render, so a route cannot do
+ * it.
  */
 export function MobileShell() {
-  const { view, panel, edit: editingTaskId, newWork: newWorkOpen } = useLoc();
+  const { view, mode, panel, edit: editingTaskId, newWork: newWorkOpen } = useLoc();
   const { expandedNodeId } = useCard();
   const { status } = useWorld();
   // A worktree's card has no narrow screen, nor has a dev env tab.
@@ -59,6 +63,10 @@ export function MobileShell() {
   // The console is pushed over whatever screen is up, and closes back to it.
   const top = consoleOpen ? CONSOLE_SCREEN : panel && panel.kind !== 'devenv' ? panel : detail;
   const go = useGo();
+  const notList = view === 'desk' && mode !== 'list';
+  useEffect(() => {
+    if (notList) go({ mode: 'list' }, { replace: true });
+  }, [notList, go]);
   // A panel tab closes to the detail under it, and the detail to the view.
   const panelOnTop = top !== detail;
   const onClose = useCallback(() => {

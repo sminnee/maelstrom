@@ -300,7 +300,7 @@ describe('the console keys', () => {
       'op6',
     );
     await user.keyboard('{Enter}');
-    expect(router.state.location.pathname).toBe('/desk/worktree/northwind-alpha');
+    expect(router.state.location.pathname).toBe('/desk/graph/worktree/northwind-alpha');
     expect(consoleRegion()).toBeNull();
   });
 

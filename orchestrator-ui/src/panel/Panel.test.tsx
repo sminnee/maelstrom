@@ -64,7 +64,7 @@ describe('the panel tab in the URL', () => {
     const { router } = await renderApp();
     clickNode('NORT-9');
     const link = within(expanded()).getByRole('link', { name: 'Session' });
-    expect(link).toHaveAttribute('href', '/desk/task/NORT-9?panel=session/d9a4c7f1');
+    expect(link).toHaveAttribute('href', '/desk/graph/task/NORT-9?panel=session/d9a4c7f1');
     await user.click(link);
     expect(router.state.location.search).toBe('?panel=session/d9a4c7f1');
     await openSession(user, 'NORT-7');

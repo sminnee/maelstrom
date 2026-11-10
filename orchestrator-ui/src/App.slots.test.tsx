@@ -253,13 +253,13 @@ describe('the view in the URL', () => {
     expect(router.state.location.pathname).toBe('/comms');
     expect(screen.getByTestId('comm-list')).toBeInTheDocument();
     await act(() => router.navigate(-1));
-    expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.pathname).toBe('/desk/graph');
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
   });
 
   it('moves a path with no screen to the desk', async () => {
     const { router } = await renderApp({ url: '/?panel=session/d9a4c7f1' });
-    expect(router.state.location.pathname).toBe('/desk');
+    expect(router.state.location.pathname).toBe('/desk/graph');
     expect(router.state.location.search).toBe('?panel=session/d9a4c7f1');
     expect(router.state.historyAction).toBe('REPLACE');
     expect(screen.getByTestId('canvas')).toBeInTheDocument();

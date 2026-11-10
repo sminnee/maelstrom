@@ -1,0 +1,12 @@
+.desk {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+/* The slot card is positioned against this box, so it sits over the view. */
+.view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
