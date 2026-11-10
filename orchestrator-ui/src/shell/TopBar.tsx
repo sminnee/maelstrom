@@ -51,7 +51,6 @@ export function TopBar({
   filters?: { open: boolean; onOpen: () => void };
 }) {
   const newWork = useNewWork();
-  const welcome = useWelcome();
   const mode = useLayoutMode();
   const narrow = mode === 'narrow';
   if (narrow && strip) {
@@ -91,10 +90,8 @@ export function TopBar({
     return (
       <header className={styles.bar} data-narrow data-testid="top-bar">
         <div className={styles.row}>
-          {/* At the narrow type scale the row cannot hold the brand beside the
-              readings and both actions. The brand shows on the wide layout only;
-              a screen reader keeps it here. */}
-          <h1 className="srOnly">maelstrom</h1>
+          {/* The narrow type scale leaves no room for the word: DESIGN.md, "The Phone Type Rule". */}
+          <Brand word={false} />
           <Readings />
           <div className={styles.spacer} />
           <AttentionChip />
@@ -109,18 +106,7 @@ export function TopBar({
   }
   return (
     <header className={styles.bar} data-testid="top-bar">
-      {/* The mark is decoration: the word beside it already names the app. */}
-      <h1 className={styles.brand}>
-        <button
-          type="button"
-          className={`bareButton ${styles.brandButton}`}
-          aria-label="About maelstrom"
-          onClick={welcome.open}
-        >
-          <img src="/logo.svg" alt="" className={styles.mark} />
-          maelstrom
-        </button>
-      </h1>
+      <Brand word />
       <PaneMenu side={mode === 'wide' ? 'left' : null} />
       <FilterBar />
       <div className={styles.spacer} />
@@ -133,6 +119,27 @@ export function TopBar({
         New
       </AppButton>
     </header>
+  );
+}
+
+/**
+ * The brand, as the button that opens the Welcome dialog. The mark is
+ * decoration: the word names the app, shown or for a screen reader only.
+ */
+function Brand({ word }: { word: boolean }) {
+  const welcome = useWelcome();
+  return (
+    <h1 className={styles.brand}>
+      <button
+        type="button"
+        className={`bareButton ${styles.brandButton}`}
+        aria-label="About maelstrom"
+        onClick={welcome.open}
+      >
+        <img src="/logo.svg" alt="" className={styles.mark} />
+        {word ? 'maelstrom' : <span className="srOnly">maelstrom</span>}
+      </button>
+    </h1>
   );
 }
 

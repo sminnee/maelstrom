@@ -776,7 +776,7 @@ _Avoid_: Log panel, activity feed, drawer (alone), toast
 **Welcome dialog**:
 The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
 whether **minnstack** is installed, its version, the last **Update job**, and whether the agent
-host answers. It opens by itself on a world with no **Project**, once per page load, and the logo
+host answers. It opens by itself on a world with no **Project**, once per page load, and the mark
 opens it at any time. Its actions start Add project and an **Update job**.
 _Avoid_: Onboarding, splash, about box
 
