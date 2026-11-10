@@ -847,9 +847,14 @@ identity block — id, phase, and a mono line of model, permission mode and cost
 line, the brief, the decision block, and a footer. The task's settable status sits at the right
 end of the id line. A hairline opens each band from the one above.
 
-The footer reads in three steps: the Session link and the documents, the agent's commands, then
+The footer reads in three steps: the Session links and the documents, the agent's commands, then
 the worktree area. The order follows the reading path: what the agent says, what to do with the
 agent, then where the work lives.
+
+A task card lists each of the task's agents, oldest first, one row each: a Session link, then
+the start time, the state and the short session id in muted text. Rows with the same session id
+are one session resumed several times. Past three rows, only the newest shows, under an
+"N earlier" toggle, as archived documents fold. A free agent's card has one Session link.
 
 The worktree area is the last band of the card. One hairline and one `WORKTREE` head set it
 apart, in the style of a document kind head, with no nested box. Under the head sit the name and

@@ -136,6 +136,23 @@ export function agentsByTask(world: WorldView): Map<TaskId, Agent> {
   return new Map([...last, ...live]);
 }
 
+/**
+ * Every top-level agent of each task, oldest first. Each one is a session the
+ * task card lists. A subagent is not: its parent's tab lists it. Agents that
+ * share a `session` are one Claude session resumed several times.
+ */
+export function agentsOfTask(world: WorldView): Map<TaskId, Agent[]> {
+  const byTask = new Map<TaskId, Agent[]>();
+  for (const agent of Object.values(world.agents)) {
+    if (!agent.taskId || agent.parent) continue;
+    listAt(byTask, agent.taskId).push(agent);
+  }
+  for (const agents of byTask.values()) {
+    agents.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
+  }
+  return byTask;
+}
+
 /** The open attention items, oldest first, keyed by task id and by agent id. */
 function openAttentionIndex(world: WorldView): {
   byTask: Map<TaskId, Attention[]>;

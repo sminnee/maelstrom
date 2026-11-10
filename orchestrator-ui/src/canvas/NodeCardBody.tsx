@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMilestones } from '../api/milestones';
 import { useOwnHost } from '../api/host';
 import { useSetStatus, useTask } from '../api/tasks';
@@ -9,14 +9,14 @@ import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
-import { driftFixLabel, driftSentence } from '../protocol/progress';
+import { driftFixLabel, driftSentence, progressOf } from '../protocol/progress';
 import { isTerminal, type Agent, type DeskEntry } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
 import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
-import { nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
+import { agentsOfTask, isLive, nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
 import { type CardGroup, documentsByKind, linkedEntries } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { documentTab, sessionTab } from '../selectors/tabs';
@@ -153,6 +153,8 @@ function WorkCardBody({
   );
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = nodeWorktree(world, node);
+  const byTask = useMemo(() => agentsOfTask(world), [world]);
+  const sessions = (task && byTask.get(task.id)) || [];
   const meta = [
     modelLabel(agent?.model || task?.model || ''),
     agent?.permissionMode || '',
@@ -369,10 +371,14 @@ function WorkCardBody({
       {node.kind === 'task' && task && <FollowsSection taskId={task.id} />}
 
       <footer className={styles.footer}>
-        {agent && (
-          <div className={styles.actions} data-testid="node-actions">
-            <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
-          </div>
+        {node.kind === 'task' && task ? (
+          <TaskSessions agents={sessions} clock={clock} />
+        ) : (
+          agent && (
+            <div className={styles.actions} data-testid="node-actions">
+              <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
+            </div>
+          )
         )}
         {documents.length > 0 && (
           <div className={styles.documents} data-testid="node-documents">
@@ -572,6 +578,53 @@ function DocumentEntry({ group: g }: { group: CardGroup }) {
         </PanelLink>
       ))}
     </div>
+  );
+}
+
+/** How many sessions the card lists before it folds the earlier ones. */
+const SESSIONS_SHOWN = 3;
+
+/**
+ * One row per agent of the task, oldest first, each with its Session link.
+ * Past {@link SESSIONS_SHOWN}, only the newest shows, and a toggle opens the
+ * earlier ones.
+ */
+function TaskSessions({ agents, clock }: { agents: Agent[]; clock: number }) {
+  const [open, setOpen] = useState(false);
+  if (agents.length === 0) return null;
+  const folded = agents.length > SESSIONS_SHOWN && !open;
+  const shown = folded ? agents.slice(-1) : agents;
+  return (
+    <ul className={styles.sessions} aria-label="Sessions" data-testid="node-sessions">
+      {agents.length > SESSIONS_SHOWN && (
+        <li>
+          <button
+            type="button"
+            className={styles.archivedToggle}
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? 'Fewer' : `${agents.length - 1} earlier`}
+          </button>
+        </li>
+      )}
+      {shown.map((agent) => (
+        <li key={agent.id} className={styles.session}>
+          <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
+          <span className={`${styles.sessionMeta} truncate`}>
+            {[
+              clockTime(agent.startedAt, clock),
+              // The card's head reads a live agent's state, with its
+              // attention and gate. An ended one's state needs neither.
+              isLive(agent) ? 'Live' : progressOf(undefined, agent, [], null).words,
+              agent.session.slice(0, 8),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

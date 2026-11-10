@@ -83,9 +83,9 @@ describe('the expanded node', () => {
       clickNode('NORT-12');
 
       const card = expanded();
-      const actions = within(card).getByTestId('node-actions');
+      const sessions = within(card).getByTestId('node-sessions');
       expect(
-        within(actions)
+        within(sessions)
           .getAllByRole('link')
           .map((l) => l.textContent),
       ).toEqual(['Session']);
@@ -97,6 +97,41 @@ describe('the expanded node', () => {
         .getAllByRole('region')
         .flatMap((section) => within(section).getAllByRole('link'));
       expect(listed).toEqual(within(documents).getAllByRole('link'));
+    });
+
+    it("lists each of the task's sessions, and folds the earlier ones past three", async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      server.change({ kind: 'agent', ids: ['e5b1d8c3', 'old-1', 'old-2', 'old-3'] }, (w) => {
+        const live = w.agents['e5b1d8c3']!;
+        w.agents['e5b1d8c3'] = { ...live, startedAt: '2026-01-04T00:00:00Z' };
+        for (const n of [1, 2, 3]) {
+          w.agents[`old-${n}`] = {
+            ...live,
+            id: `old-${n}`,
+            session: `0000000${n}-aaaa`,
+            state: 'exited',
+            exitCode: 0,
+            startedAt: `2026-01-0${n}T00:00:00Z`,
+          };
+        }
+      });
+      clickNode('NORT-12');
+      const sessions = () => within(expanded()).getByRole('list', { name: 'Sessions' });
+      await waitFor(() => expect(sessions()).toHaveTextContent('3 earlier'));
+      // Folded: the newest only, which is the live one.
+      expect(within(sessions()).getAllByRole('link', { name: 'Session' })).toHaveLength(1);
+
+      await user.click(within(sessions()).getByRole('button', { name: '3 earlier' }));
+      const rows = within(sessions())
+        .getAllByRole('listitem')
+        .filter((row) => within(row).queryByRole('link'));
+      expect(rows.map((row) => row.textContent)).toEqual([
+        expect.stringMatching(/Session.*Finished · 00000001$/),
+        expect.stringMatching(/Session.*Finished · 00000002$/),
+        expect.stringMatching(/Session.*Finished · 00000003$/),
+        expect.stringMatching(/^Session/),
+      ]);
     });
 
     // One area holds what belongs to the worktree, not to the agent. The
