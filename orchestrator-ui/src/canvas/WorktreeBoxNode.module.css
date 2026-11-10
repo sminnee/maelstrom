@@ -53,7 +53,8 @@
   color: var(--fg-faint);
 }
 /* What runs on the worktree, or how it ended. It never gives way: the branch does. */
-.operation {
+.operation,
+.usedBy {
   flex: none;
   color: var(--fg-muted);
 }

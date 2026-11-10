@@ -1,6 +1,8 @@
 import { Link } from 'react-router';
 import { useLinkState } from '../nav/useNav';
 import { useDocuments } from '../api/documents';
+import { useOwnHost } from '../api/host';
+import { worktreeName } from '../selectors/worktrees';
 import { driftLabel } from '../protocol/progress';
 import { phaseLabel } from '../protocol/phase';
 import type { GraphNode } from '../selectors/graph';
@@ -41,6 +43,7 @@ export function DeckRow({
   const documentId = node.attention.find((a) => a.documentId)?.documentId;
   const documents = useDocuments();
   const linkState = useLinkState();
+  const { idPrefix } = useOwnHost();
   const documentTitle = documentId
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
@@ -89,7 +92,7 @@ export function DeckRow({
         // release must still reach the hook to end it.
         {...swipe.handlers}
       >
-        <span className={styles.title}>{nodeTitle(node)}</span>
+        <span className={styles.title}>{nodeTitle(node, idPrefix)}</span>
         <span className={styles.status}>
           <span className={styles.dot} aria-hidden="true" />
           <span className={`${styles.state} truncate`} title={words}>
@@ -116,7 +119,9 @@ export function DeckRow({
             {nodeIdLine(node)}
           </span>
           {node.worktree && (
-            <span className={`${styles.worktree} truncate`}>{node.worktree.nato}</span>
+            <span className={`${styles.worktree} truncate`}>
+              {worktreeName(node.worktree, idPrefix)}
+            </span>
           )}
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
           {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} interactive={false} />}

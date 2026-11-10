@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useWorld } from '../api/useWorld';
+import { useOwnHost } from '../api/host';
 import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
 import { CommList } from '../comms/CommList';
@@ -179,9 +180,10 @@ function useChrome(top: MobileScreen | undefined) {
 function useScreenTitle(screen: MobileScreen | undefined): string {
   const { world } = useWorld();
   const node = useDeck().byId.get(screen?.kind === 'detail' ? screen.nodeId : '');
+  const { idPrefix } = useOwnHost();
   switch (screen?.kind) {
     case 'detail':
-      return node ? nodeTitle(node) : '';
+      return node ? nodeTitle(node, idPrefix) : '';
     case 'console':
       return 'Console';
     case 'session':
@@ -226,13 +228,14 @@ function Screen({ screen, onClose }: { screen: MobileScreen; onClose: () => void
 function Detail({ nodeId, onDone }: { nodeId: string; onDone: () => void }) {
   const node = useDeck().byId.get(nodeId);
   const showProject = showsProject(useLoc().filters);
+  const { idPrefix } = useOwnHost();
   // The node has left the desk, or the world no longer holds it.
   if (!node) return <p className={styles.gone}>This work is no longer on the desk.</p>;
   return (
     <div
       className={styles.detail}
       role="dialog"
-      aria-label={nodeTitle(node)}
+      aria-label={nodeTitle(node, idPrefix)}
       data-phase={node.phase ?? undefined}
     >
       <NodeCardBody node={node} showProject={showProject} onDone={onDone} />

@@ -5,6 +5,7 @@ import type { AgentId, ProjectId, TaskId, WorktreeId } from '../protocol/ids';
 import { phaseForTask } from '../protocol/phase';
 import { agentsByTask, isLive } from './graph';
 import type { PanelTab } from '../store/uiSlice';
+import { worktreeName } from './worktrees';
 
 /** The tab of one kind. */
 export type TabOf<K extends PanelTab['kind']> = Extract<PanelTab, { kind: K }>;
@@ -383,9 +384,10 @@ const worktreeRank = (g: TabGroup): [number, string] =>
  * The open tabs, grouped by project and then by worktree, for the sidebar.
  *
  * The order depends on names only, never on the order the tabs opened or the
- * world arrived in, so a row does not move when a tab opens.
+ * world arrived in, so a row does not move when a tab opens. `ownPrefix` is
+ * this server's **Id prefix**, as `worktreeName` reads it.
  */
-export function groupTabs(world: WorldView, tabs: PanelTab[]): ProjectGroup[] {
+export function groupTabs(world: WorldView, tabs: PanelTab[], ownPrefix = ''): ProjectGroup[] {
   const projects = new Map<ProjectId, Map<string, TabGroup>>();
   for (const tab of tabs) {
     const { key, worktree, project } = placeTab(world, tab);
@@ -394,7 +396,7 @@ export function groupTabs(world: WorldView, tabs: PanelTab[]): ProjectGroup[] {
     const group = groups.get(key) ?? {
       key,
       worktree,
-      label: worktree?.nato ?? 'no worktree',
+      label: worktree ? worktreeName(worktree, ownPrefix) : 'no worktree',
       tabs: [],
     };
     groups.set(key, group);
@@ -407,7 +409,7 @@ export function groupTabs(world: WorldView, tabs: PanelTab[]): ProjectGroup[] {
       worktrees: [...groups.values()].sort((a, b) => {
         const [ra, na] = worktreeRank(a);
         const [rb, nb] = worktreeRank(b);
-        return ra - rb || na.localeCompare(nb);
+        return ra - rb || na.localeCompare(nb) || a.label.localeCompare(b.label);
       }),
     }))
     .sort((a, b) => Number(!a.project) - Number(!b.project) || a.label.localeCompare(b.label));

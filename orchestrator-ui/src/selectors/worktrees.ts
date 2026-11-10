@@ -1,4 +1,5 @@
 import type { Agent, Worktree } from '../protocol/entities';
+import { ownerOf } from '../protocol/ids';
 import type { WorldView } from './world';
 
 /** The worktree table's own filters. */
@@ -34,6 +35,52 @@ export function trackedAgents(world: WorldView, worktreeId: string): Agent[] {
   return Object.values(world.agents).filter(
     (a) => a.worktreeId === worktreeId && !a.parent && a.state !== 'exited',
   );
+}
+
+/**
+ * Whether this server owns the worktree. `ownPrefix` is its **Id prefix**: a
+ * server with `host_name:` owns prefixed ids of its own. A bare id names no
+ * other owner, so it is this server's.
+ */
+export function isOwnWorktree(worktree: Worktree, ownPrefix: string): boolean {
+  const owner = ownerOf(worktree.id);
+  return !owner || owner === ownPrefix;
+}
+
+/** The worktree's name as a reader sees it: `nato`, or `<owner>:<nato>` when another host owns it. */
+export function worktreeName(worktree: Worktree, ownPrefix: string): string {
+  return isOwnWorktree(worktree, ownPrefix)
+    ? worktree.nato
+    : `${ownerOf(worktree.id)}:${worktree.nato}`;
+}
+
+/**
+ * The name a reader sees for a **Parent server**: the first DNS label of its
+ * URL's host, the whole host for an IP address, or `''` for a URL that does
+ * not parse.
+ */
+export function parentName(parentUrl: string): string {
+  try {
+    const { hostname } = new URL(parentUrl);
+    return IP_HOST.test(hostname) ? hostname : (hostname.split('.')[0] ?? '');
+  } catch {
+    return '';
+  }
+}
+
+/** An IPv4 address, or an IPv6 one in its URL brackets: no DNS label to take. */
+const IP_HOST = /^(\d+\.){3}\d+$|^\[/;
+
+/**
+ * The **Parent server** whose **Delegated agent** works in a worktree this
+ * server owns, or `''`. The newest such agent names it.
+ */
+export function usedByParent(world: WorldView, worktree: Worktree, ownPrefix: string): string {
+  if (!isOwnWorktree(worktree, ownPrefix)) return '';
+  const delegated = trackedAgents(world, worktree.id)
+    .filter((a) => a.parentUrl)
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  return delegated.length ? parentName(delegated[0]!.parentUrl) : '';
 }
 
 /** Whether this is `_main`, which holds the project's main checkout and so never closes. */

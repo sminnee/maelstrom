@@ -1,3 +1,4 @@
+import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
 import { groupTabs } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
@@ -18,7 +19,7 @@ export function usePanelGroups() {
   const { world } = useWorld();
   const tabs = useAppStore((s) => s.ui.tabs);
   const { activeTabKey, close } = usePanelNav();
-  const groups = groupTabs(world, tabs);
+  const groups = groupTabs(world, tabs, useOwnHost().idPrefix);
   const activeGroup =
     groups.flatMap((p) => p.worktrees).find((g) => g.tabs.some((t) => t.key === activeTabKey)) ??
     null;

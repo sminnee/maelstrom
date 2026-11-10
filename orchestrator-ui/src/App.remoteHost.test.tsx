@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expanded } from './test/appHelpers';
+import { expanded, worktreeBox } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /**
@@ -73,10 +73,31 @@ describe('an operation a remote host runs', () => {
       return found!;
     });
     expect(row).toHaveAttribute('data-operation', 'running');
+    // Another host's worktree is named with its owner, so it is not this server's echo.
+    expect(within(row).getByText('cobalt:echo')).toBeInTheDocument();
     expect(within(row).getByText(/^Closing echo/)).toBeInTheDocument();
     const strip = screen.getByRole('region', { name: 'Operations now' });
     expect(strip.querySelector('[data-operation-id="cobalt:op3"]')).toHaveTextContent(
       'Closing echo',
     );
+  });
+});
+
+describe('a worktree another host owns', () => {
+  it('names its owner on the board', async () => {
+    await renderApp({ scenario: 'remote-host' });
+    const box = await waitFor(() => worktreeBox('cobalt:northwind-echo')!);
+    expect(within(box).getByText('cobalt:echo')).toBeInTheDocument();
+  });
+});
+
+describe("the remote host's board", () => {
+  it('marks the worktree a delegated agent uses with its parent, and no other', async () => {
+    await renderApp({ scenario: 'delegated-agent' });
+    const delta = await waitFor(() => worktreeBox('cobalt:northwind-delta')!);
+    // cobalt owns delta, so its own name stays bare.
+    expect(within(delta).getByText('delta')).toBeInTheDocument();
+    expect(within(delta).getByText(/in use by monolith/)).toBeInTheDocument();
+    expect(worktreeBox('northwind-alpha')).not.toHaveTextContent(/in use by/);
   });
 });

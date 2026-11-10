@@ -21,7 +21,8 @@
   line-height: 1.4;
   color: var(--fg-faint);
 }
-.nato {
+.nato,
+.usedBy {
   color: var(--fg-muted);
 }
 .links {

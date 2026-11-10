@@ -1,12 +1,15 @@
 import type { Worktree } from '../protocol/entities';
 import { worktreePr, type PrReading } from '../selectors/cardPr';
-import { branchLabel } from '../selectors/worktrees';
+import { useOwnHost } from '../api/host';
+import { useWorld } from '../api/useWorld';
+import { branchLabel, usedByParent, worktreeName } from '../selectors/worktrees';
 import { WorktreeCommands, WorktreeLinks } from './WorktreeControls';
 import styles from './WorktreeSection.module.css';
 
 /**
- * The worktree area: what belongs to a worktree and not to an agent. Its name
- * and branch, the links out of it, then the commands on it.
+ * The worktree area: what belongs to a worktree and not to an agent. Its name,
+ * branch and any **Parent server** using it, the links out of it, then the
+ * commands on it.
  *
  * The node card and the **Worktree card** both draw this, so the two cannot
  * drift. `pr` is the PR to show, as `WorktreeLinks` reads it.
@@ -21,13 +24,17 @@ export function WorktreeSection({
   worktree: Worktree;
   pr?: PrReading | null;
 }) {
+  const { world } = useWorld();
+  const { idPrefix } = useOwnHost();
+  const parent = usedByParent(world, worktree, idPrefix);
   return (
     <section className={styles.section} aria-label="Worktree" data-testid="worktree-section">
       <span className={styles.head}>Worktree</span>
       <div className={`${styles.name} wrap`} data-testid="worktree-name" title={worktree.branch}>
-        <span className={styles.nato}>{worktree.nato}</span>
+        <span className={styles.nato}>{worktreeName(worktree, idPrefix)}</span>
         {' · '}
         <span>{branchLabel(worktree)}</span>
+        {parent && <span className={styles.usedBy}>{` · in use by ${parent}`}</span>}
       </div>
       <div className={styles.links}>
         <WorktreeLinks worktree={worktree} pr={pr} />

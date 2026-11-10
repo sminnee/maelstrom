@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
+import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
+import { worktreeName } from '../selectors/worktrees';
 import type { GateJob, Worktree } from '../protocol/entities';
 import { bytes } from '../protocol/bytes';
 import { ago } from '../protocol/time';
@@ -91,6 +93,7 @@ function JobRow({
   where: string;
 }) {
   const ref = useRef<HTMLLIElement>(null);
+  const { idPrefix } = useOwnHost();
   useEffect(() => {
     if (marked) ref.current?.scrollIntoView?.({ block: 'nearest' });
   }, [marked]);
@@ -99,7 +102,7 @@ function JobRow({
       <div className={styles.line}>
         {/* Mono Means Literal: a path or a worktree name is an identifier. */}
         <span className={`${styles.where} truncate`} title={job.path}>
-          {worktree ? `${worktree.project}/${worktree.nato}` : job.path}
+          {worktree ? `${worktree.project}/${worktreeName(worktree, idPrefix)}` : job.path}
         </span>
         <span className={styles.head} title={job.head}>
           {job.head.slice(0, 7)}

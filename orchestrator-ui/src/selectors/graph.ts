@@ -17,7 +17,7 @@ import type { Progress, Zone } from '../protocol/progress';
 import { isWorking, progressOf, zoneForState } from '../protocol/progress';
 import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey, matchesText, searching } from './filters';
-import { byName, trackedAgents } from './worktrees';
+import { byName, trackedAgents, worktreeName } from './worktrees';
 import { hasRegisteredPr } from './cardPr';
 
 /**
@@ -84,12 +84,14 @@ export interface GraphOptions {
 /**
  * What a node is called: a task's title, else the worktree a free agent runs
  * in. An agent whose worktree the world has not read yet has neither.
+ * `ownPrefix` is this server's **Id prefix**, as `worktreeName` reads it.
  */
-export function nodeTitle(node: GraphNode): string {
+export function nodeTitle(node: GraphNode, ownPrefix = ''): string {
   if (node.task) return node.task.title;
   const { worktree } = node;
   if (!worktree) return node.operation?.kind === 'plan' ? 'New plan' : 'Agent';
-  return worktree.branch ? `${worktree.nato} · ${worktree.branch}` : worktree.nato;
+  const name = worktreeName(worktree, ownPrefix);
+  return worktree.branch ? `${name} · ${worktree.branch}` : name;
 }
 
 /**
