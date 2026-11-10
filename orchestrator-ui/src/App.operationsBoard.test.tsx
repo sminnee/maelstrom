@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { commandsSince, putAway } from './test/appHelpers';
+import { commandsSince, putAway, worktreeBox as box } from './test/appHelpers';
 import { clickNode, renderApp } from './test/renderApp';
 
 /**
@@ -9,8 +9,6 @@ import { clickNode, renderApp } from './test/renderApp';
  * close is refused on maelstrom-bravo (MAEL-40.1), a shelve failed on
  * northwind-delta (NORT-12), and a sync runs on northwind-bravo (NORT-9).
  */
-const box = (id: string) =>
-  document.querySelector<HTMLElement>(`[data-testid="worktree-box"][data-worktree-id="${id}"]`);
 const node = (id: string) => document.querySelector<HTMLElement>(`[data-task-id="${id}"]`);
 /** The state of each segment of a step meter, in order. */
 const segments = (meter: HTMLElement) =>

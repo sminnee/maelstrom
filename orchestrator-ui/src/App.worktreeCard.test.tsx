@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import type { FakeServer } from './fake/fakeServer';
 import { makeAgent } from './fake/fixtures';
-import { commandsSince, expanded, worktreeControls } from './test/appHelpers';
+import { commandsSince, expanded, worktreeBox, worktreeControls } from './test/appHelpers';
 import { useAppStore } from './store/store';
 import { clickNode, pressKey, renderApp } from './test/renderApp';
 
@@ -18,8 +18,7 @@ function openCharlie(server: FakeServer, branch = 'feat/idle') {
   });
 }
 
-const box = (id: string) =>
-  document.querySelector(`[data-testid="worktree-box"][data-worktree-id="${id}"]`) as HTMLElement;
+const box = (id: string) => worktreeBox(id)!;
 
 /**
  * Click a box's label. fireEvent, not user-event: a canvas mousedown reaches

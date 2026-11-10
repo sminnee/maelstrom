@@ -28,6 +28,10 @@ export const expanded = () => screen.getByRole('dialog');
 export const tabStrip = () => screen.getByRole('tablist', { name: 'Open tabs' });
 
 /** The panel's sidebar row for a worktree, named `<project> <nato>`. */
+/** A **Worktree box** on the board, by worktree id. */
+export const worktreeBox = (id: string) =>
+  document.querySelector<HTMLElement>(`[data-testid="worktree-box"][data-worktree-id="${id}"]`);
+
 export const worktreeRow = (name: string) =>
   within(screen.getByRole('tablist', { name: 'Worktrees' })).getByRole('tab', { name });
 
