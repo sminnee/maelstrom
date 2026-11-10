@@ -102,6 +102,23 @@ class TestMainWorktree:
             assert is_worktree_closable(name) is True
 
 
+class TestBuildWorktree:
+    """`_buildN` is a Build worktree: the Build queue's, never closed by hand."""
+
+    def test_a_build_worktree_folder_is_its_own_name(self):
+        assert get_worktree_folder_name("askastro", "_build2") == "_build2"
+        assert extract_worktree_name_from_folder("askastro", "_build2") == "_build2"
+
+    def test_a_build_worktree_is_not_closable(self):
+        assert is_worktree_closable("_build1") is False
+
+    def test_a_build_worktree_number_is_past_every_other(self):
+        assert (worktree_num("_build1"), worktree_num("_build12")) == (101, 112)
+
+    def test_a_name_that_only_starts_like_one_is_not_one(self):
+        assert extract_worktree_name_from_folder("askastro", "_buildx") is None
+
+
 class TestWorktreeShortcodes:
     """Tests for worktree shortcode mapping and resolution."""
 

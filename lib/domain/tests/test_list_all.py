@@ -27,7 +27,12 @@ from mael_domain.list_all import (
     session_display,
 )
 from mael_domain.ports import record_port_allocation
-from mael_domain.worktree import WorktreeInfo, list_worktrees, run_git
+from mael_domain.worktree import (
+    WorktreeInfo,
+    ensure_build_worktree,
+    list_worktrees,
+    run_git,
+)
 
 
 def _pr(number, *, commits=1, state="ready", merged_at="", head_oid="", **over):
@@ -71,6 +76,8 @@ def test_build_list_all_data_reads_the_project_and_its_worktree(
 ):
     project_path, worktree_path, _remote = project_with_worktree
     (project_path / ".mael").touch()
+    # A Build worktree is the Build queue's: it shows no row.
+    ensure_build_worktree(project_path, "_build1")
     with (
         patch("mael_domain.session_discovery.LiveSessionSet.count_for", return_value=0),
     ):
