@@ -153,9 +153,8 @@ def build_orchestrator(
     state_db = db if db is not None else open_state_db()
     table = SqliteTaskTable(state_db)
 
-    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
-        # The launcher owns install; ``base`` seeds the branch's stored base
-        # the first time, as ``mael task run`` does.
+    def open_worktree(project: str, branch: str) -> WorktreeSetup:
+        # The launcher owns install.
         #
         # A worktree that cannot be opened is a refused launch, not a crashed
         # server: LaunchBlocked is the wire's word for "this task could not
@@ -166,7 +165,6 @@ def build_orchestrator(
                 project,
                 branch,
                 run_install=False,
-                base=base or None,
                 token=github.orchestrator_token(),
                 announce=lambda line: click.echo(line, err=True),
             )

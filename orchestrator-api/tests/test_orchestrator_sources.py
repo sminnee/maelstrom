@@ -488,7 +488,7 @@ async def test_the_board_refuses_a_non_claude_execute_model(table):
 async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
     table,
 ):
-    await model.create(table, project=PROJECT, title="x", id="NORT-7", base="main")
+    await model.create(table, project=PROJECT, title="x", id="NORT-7")
     source = a_source(table)
 
     claim = await source.claim_launch(f"{PROJECT}/NORT-7", None)
@@ -497,7 +497,7 @@ async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
 
     assert claimed == "in-progress"
     assert (await model.load(table, PROJECT, "NORT-7")).status == "todo"
-    assert (claim.project, claim.task_id, claim.base) == (PROJECT, "NORT-7", "main")
+    assert (claim.project, claim.task_id) == (PROJECT, "NORT-7")
     # A never-run Claude task gets its session id stored by the claim.
     stored = await model.load(table, PROJECT, "NORT-7")
     assert [(e.id, e.harness) for e in stored.sessions] == [
@@ -507,7 +507,7 @@ async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
 
 async def test_an_opener_with_no_worktree_opener_refuses_to_open_one():
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
-        await WorktreeOpener().open(PROJECT, "feat/x", "")
+        await WorktreeOpener().open(PROJECT, "feat/x")
 
 
 async def test_an_opener_writes_the_env_only_of_a_worktree_that_needs_it():

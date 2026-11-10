@@ -117,7 +117,6 @@ def test_read_prints_the_markdown_the_notebook_renders(table, start_server):
         id="NORT-7",
         mode="auto",
         branch="feat/orders",
-        base="feat/base",
         follows=["NORT-1"],
         schedule="0 3 * * *",
         trigger="build:main",

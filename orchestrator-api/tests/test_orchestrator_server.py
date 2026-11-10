@@ -180,7 +180,7 @@ class Harness:
         #: The scripted host, or the router a remote-host test puts in front.
         self.daemon = daemon if daemon is not None else ScriptedAsyncDaemonClient()
         self.opener = WorktreeOpener(
-            lambda project, branch, base: WorktreeSetup(
+            lambda project, branch: WorktreeSetup(
                 path=Path(WORKTREE_PATH), name="alpha", action="reused"
             ),
             # Never the real machine's claude processes, or its transcripts.
@@ -1818,7 +1818,7 @@ def test_a_launch_whose_env_write_fails_rolls_the_task_back_and_fails(harness):
         raise OSError("disk full")
 
     harness.opener.refresh_env = refresh_env
-    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.open_worktree = lambda project, branch: WorktreeSetup(
         path=Path(WORKTREE_PATH), name="alpha", action="recycled"
     )
 
@@ -1846,7 +1846,7 @@ def test_write_env_rebuilds_a_reopened_worktree_and_leaves_a_created_one(harness
 
     harness.opener.refresh_env = refresh_env
     actions = iter(["recycled", "created"])
-    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.open_worktree = lambda project, branch: WorktreeSetup(
         path=Path(WORKTREE_PATH), name="alpha", action=next(actions)
     )
 
@@ -1869,7 +1869,7 @@ def test_a_second_launch_of_one_task_is_busy(harness):
     harness.add_task("NORT-7")
     entered, release = threading.Event(), threading.Event()
 
-    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+    def open_worktree(project: str, branch: str) -> WorktreeSetup:
         entered.set()
         release.wait(timeout=2)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
@@ -1898,7 +1898,7 @@ def test_the_server_answers_while_a_launch_opens_its_worktree(harness):
     entered, release = threading.Event(), threading.Event()
     held_to_timeout: list[bool] = []
 
-    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+    def open_worktree(project: str, branch: str) -> WorktreeSetup:
         entered.set()
         held_to_timeout.append(not release.wait(timeout=2))
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="reused")
@@ -1925,7 +1925,7 @@ def test_a_launch_blocked_by_a_failed_sync_leaves_the_task_todo(store, model_nam
 
     harness = Harness(store)
     harness.add_task("NORT-7", model=model_name)
-    harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
+    harness.opener.open_worktree = lambda project, branch: WorktreeSetup(
         path=Path(WORKTREE_PATH),
         name="alpha",
         action="recycled",
@@ -2022,21 +2022,6 @@ def test_update_writes_only_the_fields_it_was_given(harness):
     stored = run(model.load(harness.store, PROJECT, "NORT-7"))
     assert stored.title == "Export the orders"
     assert stored.branch == "feat/orders"
-
-
-def test_update_writes_base(harness):
-    harness.add_task("NORT-7", base="main")
-
-    async def scenario():
-        async with harness.client() as api:
-            reply = await api.patch("/api/tasks/northwind/NORT-7", {"base": "develop"})
-            return reply, await api.get_json("/api/tasks/northwind/NORT-7")
-
-    reply, task = run(scenario())
-    assert reply.status == 200
-    assert reply.body == {}
-    assert task["base"] == "develop"
-    assert run(model.load(harness.store, PROJECT, "NORT-7")).base == "develop"
 
 
 def test_a_rewire_stores_bare_ids_and_serves_qualified_ones(harness):
@@ -4812,7 +4797,7 @@ def test_the_first_task_under_a_linear_issue_is_named_under_its_number(harness):
 def test_a_create_that_names_and_launches_opens_the_branch_it_named(harness):
     opened: list[str] = []
 
-    def open_worktree(project: str, branch: str, base: str) -> WorktreeSetup:
+    def open_worktree(project: str, branch: str) -> WorktreeSetup:
         opened.append(branch)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
@@ -4941,7 +4926,6 @@ def test_create_from_a_task_duplicates_its_recipe_under_the_overrides(harness):
         title="Sweep",
         command="plan-task",
         mode="auto",
-        base="feat/under",
         content="The body.",
         branch="feat/sweep",
     )
@@ -4961,11 +4945,10 @@ def test_create_from_a_task_duplicates_its_recipe_under_the_overrides(harness):
     reply = run(scenario())
     assert reply.status == 200, reply.body
     copy = run(load_task(harness, reply.body["taskId"]))
-    assert (copy.title, copy.command, copy.mode, copy.base, copy.content) == (
+    assert (copy.title, copy.command, copy.mode, copy.content) == (
         "Sweep",
         "other",
         "auto",
-        "feat/under",
         "The body.",
     )
     assert copy.branch == "feat/copy"
@@ -5202,7 +5185,7 @@ def test_an_investigation_without_its_rules_is_refused_before_the_worktree(
     (markers_only / "agent-prompt.md").write_text("markers")
     monkeypatch.setattr(shared_dir, "get_shared_dir", lambda: markers_only)
     opened: list[str] = []
-    harness.opener.open_worktree = lambda project, branch, base: opened.append(branch)
+    harness.opener.open_worktree = lambda project, branch: opened.append(branch)
 
     reply = _investigate(harness)
     assert reply.status == 400
@@ -5212,10 +5195,10 @@ def test_an_investigation_without_its_rules_is_refused_before_the_worktree(
 
 
 def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
-    opened: list[tuple[str, str, str]] = []
+    opened: list[tuple[str, str]] = []
 
-    def open_worktree(project: str, branch: str, base: str):
-        opened.append((project, branch, base))
+    def open_worktree(project: str, branch: str):
+        opened.append((project, branch))
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
     harness.opener.open_worktree = open_worktree
@@ -5234,8 +5217,8 @@ def test_a_free_agent_opens_a_worktree_for_a_branch_that_has_none(harness):
             )
 
     assert run(scenario())["state"] == "done"
-    # The same path a task launch takes, with no base to seed.
-    assert opened == [(PROJECT, "feat/brand-new", "")]
+    # The same path a task launch takes.
+    assert opened == [(PROJECT, "feat/brand-new")]
 
 
 def test_a_free_agent_the_host_refuses_ends_refused(harness):
@@ -5264,7 +5247,7 @@ def test_a_free_agent_the_host_refuses_ends_refused(harness):
 def test_a_free_agent_with_no_branch_names_one_from_its_prompt(harness):
     opened: list[str] = []
 
-    def open_worktree(project: str, branch: str, base: str):
+    def open_worktree(project: str, branch: str):
         opened.append(branch)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
@@ -5299,7 +5282,7 @@ def test_a_retried_free_agent_opens_the_branch_its_first_run_named(harness):
         named.append(draft)
         return real_infer(draft)
 
-    def open_worktree(project: str, branch: str, base: str):
+    def open_worktree(project: str, branch: str):
         opened.append(branch)
         return WorktreeSetup(path=Path(WORKTREE_PATH), name="alpha", action="created")
 
@@ -14012,7 +13995,7 @@ class Cobalt:
 
     def build(self) -> Harness:
         harness = Harness(self.store, daemon=self.router, ids=IdSpace("cobalt"))
-        harness.opener.open_worktree = lambda project, branch, base: WorktreeSetup(
+        harness.opener.open_worktree = lambda project, branch: WorktreeSetup(
             path=self.path, name="bravo", action="created"
         )
         harness.opener.has_transcript = lambda path, session: True

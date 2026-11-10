@@ -48,27 +48,6 @@ same way. Two paths differ:
 | `branch` | Wins | An existing sibling's branch, then the parent task's, then a generated name |
 | `comms` | Wins; `[]` opts out | The parent task's `comms`, or `[]` when the parent is virtual |
 
-## `parent` vs `base` — near-identical names, near-opposite meanings
-
-A task's `base` frontmatter names **the branch this task's branch is stacked on**. It is
-not a variant of `parent`, and the two are never derived from each other:
-
-| | `parent` | `base` |
-|---|---|---|
-| what it groups | tasks | branches |
-| branch | siblings share **one** branch | each is a **different** branch |
-| pull request | siblings land in **one** PR | each gets its **own** PR |
-| where it lives | task frontmatter | git config (`base:` seeds it) |
-
-`parent` says "this task is more of the same work". `base` says "this branch builds on
-that branch". A chain of five tasks under one parent is one PR; five tasks each with a
-`base` are five PRs that merge bottom-up.
-
-`base` is a declarative *input*: it seeds the branch's stored base the first time the
-worktree is set up. The live value lives in git config, so a later `mael sync --base`
-changes the branch without rewriting the task file. An empty `base` uses the project's
-stack tip. See [`stacking.md`](stacking.md).
-
 ## Dotted ids express the fuller hierarchy
 
 Dots in an **id** capture *lineage / nesting*, independently of chain-grouping:

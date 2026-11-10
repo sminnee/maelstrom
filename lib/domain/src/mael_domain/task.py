@@ -180,13 +180,6 @@ TASK_FIELDS = (
     # LLM model reference. Bare values remain Claude-compatible; empty selects
     # ``DEFAULT_MODEL`` at launch.
     _FieldSpec("model", block=True),
-    # The branch this task's branch is stacked on -- a declarative input that
-    # seeds the branch's stored base when the worktree is set up. Empty = use the
-    # project's stack tip. Appended at the end so existing files keep a stable
-    # diff. Not to be confused with ``parent``: near-identical name, near-opposite
-    # meaning. ``parent`` groups tasks onto ONE branch and ONE PR; ``base`` stacks
-    # a DIFFERENT branch as its own PR. See ``docs/dev/stacking.md``.
-    _FieldSpec("base", block=True),
     # The execute model. Appended at the end so existing files keep a stable
     # diff. See CONTEXT.md, "Execute model".
     _FieldSpec("execute-model", block=True),
@@ -269,9 +262,6 @@ class Task:
     # LLM model for the launched session (``claude --model``). Free-form
     # passthrough — an alias or a full id; empty launches on ``DEFAULT_MODEL``.
     model: str = ""
-    # Branch to stack this task's branch on; empty uses the project's stack tip.
-    # Declarative input only — the stored base in git config is the live value.
-    base: str = ""
     # The execute model; empty means no switch. See CONTEXT.md.
     execute_model: str = ""
     # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
@@ -346,7 +336,6 @@ class Task:
             priority=str(frontmatter.get("priority", DEFAULT_PRIORITY))
             or DEFAULT_PRIORITY,
             model=str(frontmatter.get("model", "")),
-            base=str(frontmatter.get("base", "")),
             execute_model=str(frontmatter.get("execute-model", "")),
             pr_number=_coerce_pr_number(frontmatter.get("pr")),
             pr_url=str(frontmatter.get("pr-url", "")),
@@ -679,7 +668,6 @@ async def create(
     mode: str = "",
     model: str = "",
     execute_model: str = "",
-    base: str = "",
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -760,7 +748,6 @@ async def create(
         priority=resolved_priority,
         model=model,
         execute_model=execute_model,
-        base=base,
         comms=(
             list(comms)
             if comms is not None
@@ -783,7 +770,6 @@ async def duplicate(
     mode: str | None = None,
     model: str | None = None,
     execute_model: str | None = None,
-    base: str | None = None,
     content: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
@@ -802,7 +788,7 @@ async def duplicate(
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
     The model primitive behind ``mael task add --from``. Copies the source's
-    title/command/mode/model/base/content/pre_action/post_action; any non-``None`` override
+    title/command/mode/model/content/pre_action/post_action; any non-``None`` override
     wins over the copied default. Source-agnostic — works from any status,
     including ``template/`` — and never mutates the source. ``schedule``/
     ``trigger``/``last_run`` are intentionally *not* copied: ``schedule`` and
@@ -831,7 +817,6 @@ async def duplicate(
         execute_model=(
             execute_model if execute_model is not None else src.execute_model
         ),
-        base=base if base is not None else src.base,
         branch=branch,
         pre_action=pre_action if pre_action is not None else src.pre_action,
         post_action=post_action if post_action is not None else src.post_action,
@@ -859,7 +844,6 @@ def draft_markdown(
     mode: str = "",
     model: str = "",
     execute_model: str = "",
-    base: str = "",
     branch: str = "",
     parent: str = "",
     pre_action: str = "",
@@ -890,7 +874,6 @@ def draft_markdown(
         priority=resolved_priority,
         model=model,
         execute_model=execute_model,
-        base=base,
         content=content,
     )
     return task.to_markdown()
@@ -928,7 +911,6 @@ PROMOTABLE_FIELDS = (
     "mode",
     "model",
     "execute_model",
-    "base",
     "priority",
     "branch",
     "parent",
@@ -1234,7 +1216,6 @@ async def load_many(
                 mode=str(args.get("mode", "")),
                 model=str(args.get("model", "")),
                 execute_model=str(args.get("execute-model", "")),
-                base=str(args.get("base", "")),
                 priority=str(args.get("priority", "")),
                 # An explicit branch: opts the task out of "one PR per parent" —
                 # create() gives it precedence over sibling/parent inheritance,
@@ -1336,7 +1317,6 @@ async def update(
     mode: str | None = None,
     model: str | None = None,
     execute_model: str | None = None,
-    base: str | None = None,
     pre_action: str | None = None,
     post_action: str | None = None,
     schedule: str | None = None,
@@ -1368,8 +1348,6 @@ async def update(
         task.model = model
     if execute_model is not None:
         task.execute_model = execute_model
-    if base is not None:
-        task.base = base
     if pre_action is not None:
         task.pre_action = pre_action
     if post_action is not None:

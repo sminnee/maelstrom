@@ -122,7 +122,6 @@ def task_entity(
         "follows": [task_key(task.project, f) for f in task.follows],
         "priority": task.priority,
         "model": task.model,
-        "base": task.base,
         "executeModel": task.execute_model,
         "prNumber": task.pr_number,
         "prUrl": task.pr_url,

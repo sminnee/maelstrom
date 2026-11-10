@@ -81,26 +81,6 @@ class TestRoundTrip:
         )
         assert Task.from_markdown(text).model == ""
 
-    def test_base_round_trips(self):
-        # `base` is a declarative input: it seeds the branch's stored base when
-        # the worktree is set up. Near-identical name to `parent`, near-opposite
-        # meaning -- `parent` shares one branch and one PR, `base` stacks a
-        # different branch as a separate PR.
-        t = Task(id="x", title="t", project="p", base="feat/parent")
-        back = Task.from_markdown(t.to_markdown())
-        assert back.base == "feat/parent"
-
-    def test_missing_base_defaults_to_empty(self):
-        # An old file with no `base` key must still load; empty means "use the
-        # project's stack tip", which is what every task did before stacking.
-        text = (
-            "---\n"
-            'id: x\ntitle: t\nproject: p\ncommand: ""\nmode: normal\n'
-            "created: c\nupdated: u\n"
-            "---\n\n## Content\n\n"
-        )
-        assert Task.from_markdown(text).base == ""
-
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
         assert model.FRONTMATTER_KEYS[-5:] == (
@@ -1850,20 +1830,20 @@ class TestLoadMany:
         created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].follows == [seed.id]
 
-    async def test_block_model_and_base_reach_the_created_task(self, store):
+    async def test_block_model_reaches_the_created_task(self, store):
         blocks = [
             {
                 "name": "a",
-                "args": {"title": "A", "model": "opus", "base": "feat/under"},
+                "args": {"title": "A", "model": "opus"},
                 "content": "",
             },
             {"name": "b", "args": {"title": "B"}, "content": ""},
         ]
         created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         a, b = created
-        assert (a.model, a.base) == ("opus", "feat/under")
+        assert a.model == "opus"
         # An omitted key leaves the task inheriting the user's default.
-        assert (b.model, b.base) == ("", "")
+        assert b.model == ""
 
     async def test_block_actions_are_applied(self, store):
         blocks = [
@@ -2308,12 +2288,6 @@ class TestDuplicate:
         assert dup.content == "body"
         assert dup.pre_action == "a"
         assert dup.post_action == "b"
-
-    @pytest.mark.parametrize(("override", "base"), [(None, "feat/a"), ("", "")])
-    async def test_copies_the_base_unless_overridden(self, store, override, base):
-        await model.create(store, project="p", title="T", id="tmpl", base="feat/a")
-        dup = await model.duplicate(store, "p", "tmpl", base=override)
-        assert dup.base == base
 
     async def test_does_not_copy_the_sessions(self, store):
         await model.create(store, project="p", title="T", id="tmpl")

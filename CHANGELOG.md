@@ -129,6 +129,9 @@ release while that section is empty, and retitles it to the version it is releas
   `maelstrom.stackTip` key is ignored too. A branch that is stacked now is rebased onto
   `origin/main` at its next sync, and keeps its parent's commits. Merge or rebase the parent
   first. A PR that `gh stack link` registered keeps its parent branch as its GitHub base.
+- **The task `base` field.** Tasks, the API and the orchestrator UI no longer carry it. The
+  orchestrator no longer shows a project's stack tip or a worktree's base. A task file with a
+  `base:` key still loads. A task block with a `base:` key is refused as an unknown key.
 
 ## [0.2.0] - 2026-11-06
 

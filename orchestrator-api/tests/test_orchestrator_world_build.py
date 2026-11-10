@@ -39,7 +39,6 @@ created: "2026-09-01T00:00:00"
 updated: "2026-09-02T00:00:00"
 priority: high
 model: claude-opus-5
-base: feat/base
 ---
 
 ## Content
@@ -66,7 +65,6 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     assert entity["parent"] == "NORT-7"
     assert entity["priority"] == "high"
     assert entity["model"] == "claude-opus-5"
-    assert entity["base"] == "feat/base"
     assert entity["content"] == "Do the export."
     assert entity["log"] == [
         {"ts": "2026-09-01T10:00:00", "text": "started"},

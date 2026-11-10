@@ -35,7 +35,6 @@ EDITABLE = (
     "priority",
     "model",
     "execute_model",
-    "base",
     "follows",
     "comms",
 )
@@ -1180,7 +1179,7 @@ def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
     A parent's delegated launch names its task's wire id, its env, its own URL,
     and the task's session when the task has one. See "Delegation" in ``docs/dev/remote-hosts.md``.
     """
-    for key in ("base", "session", "taskId", "parentUrl"):
+    for key in ("session", "taskId", "parentUrl"):
         if not isinstance(cmd.get(key, ""), str):
             return _err("invalid", f"{key} must be a string")
     env = cmd.get("env", {})

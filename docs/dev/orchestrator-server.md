@@ -1846,10 +1846,10 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?, host?, newSession?}` | `agent.launch` | `202 {operationId}`. `host` names a **Remote host** to delegate to. `newSession` starts a **New session**, which may reopen a done task |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
-| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, base?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
+| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
 | `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |
 | `POST /api/tasks/load-many` | `{project, text, defaultParent?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
-| `POST /api/agents` | `{project, branch?, prompt, mode, model?}`; a delegated launch adds `base, executeModel, session, env, taskId, parentUrl` | `agent.start` | `202 {operationId}` |
+| `POST /api/agents` | `{project, branch?, prompt, mode, model?}`; a delegated launch adds `executeModel, session, env, taskId, parentUrl` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |

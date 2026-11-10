@@ -436,7 +436,7 @@ of the six statuses. The expanded card carries the same control, at the right en
 strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
 which says why the select is native. Choosing a status posts the new one, and a refusal shows
 beside the control. A click anywhere on a row opens the task editor, which holds title, status,
-content and branch, with command, mode, base, priority and model under a folded "Advanced". A
+content and branch, with command, mode, priority and model under a folded "Advanced". A
 task with an agent has a panel link in its state cell, to the agent's session. The row's click
 guard skips links, so that link does not open the editor. The
 title cell carries a real button, because a table row reaches no keyboard. The dialog opens

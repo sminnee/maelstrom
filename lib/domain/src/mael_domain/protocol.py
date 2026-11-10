@@ -375,7 +375,6 @@ class Task(TypedDict):
     follows: list[str]
     priority: str
     model: str
-    base: str
     executeModel: str
     #: The Registered PR: its number, 0 for none, and its URL.
     prNumber: int
@@ -425,7 +424,6 @@ class TaskRow(TypedDict):
     follows: list[str]
     priority: str
     model: str
-    base: str
     executeModel: str
     prNumber: int
     prUrl: str

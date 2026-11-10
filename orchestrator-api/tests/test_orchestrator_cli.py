@@ -225,7 +225,7 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         refresh.return_value.copy_back.added = []
         refresh.return_value.copy_back.conflicts = []
         orchestrator = build_orchestrator()
-        opened = orchestrator.opener.open_worktree("northwind", "feat/x", "feat/base")
+        opened = orchestrator.opener.open_worktree("northwind", "feat/x")
         assert orchestrator.opener.refresh_env is not None
         refresh.assert_not_called()
         lines = orchestrator.opener.refresh_env("northwind", opened)
@@ -250,7 +250,6 @@ def test_build_orchestrator_wires_the_notebook_list_all_and_a_worktree_opener(
         "feat/x",
     )
     assert open_wt.call_args.kwargs["run_install"] is False
-    assert open_wt.call_args.kwargs["base"] == "feat/base"
     # The launch's write_env step rebuilds the .env from the parent template.
     assert lines == [".env unchanged."]
     refresh.assert_called_once()

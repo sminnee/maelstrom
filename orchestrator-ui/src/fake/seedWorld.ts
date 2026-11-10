@@ -134,7 +134,6 @@ export function task(spec: TaskSpec): Task {
     follows: spec.follows ?? [],
     priority: 'medium',
     model: '',
-    base: '',
     executeModel: '',
     prNumber: spec.prNumber ?? 0,
     prUrl: spec.prNumber ? `https://github.com/acme/${spec.project}/pull/${spec.prNumber}` : '',

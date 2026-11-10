@@ -26,7 +26,6 @@ def make_task(**over):
         "follows": [],
         "priority": "normal",
         "model": "",
-        "base": "",
         "executeModel": "",
         "prNumber": 0,
         "prUrl": "",
