@@ -12,7 +12,6 @@ import {
   touchDrag,
 } from './test/appHelpers';
 import { renderApp, resizeTo } from './test/renderApp';
-import type { FakeServer } from './fake/fakeServer';
 
 describe('the narrow layout', () => {
   /** The deck list's rows, in the order they are drawn. */
@@ -435,59 +434,35 @@ describe('the narrow layout', () => {
     expect(screen.queryByTestId('comment-margin')).not.toBeInTheDocument();
   });
 
-  /**
-   * Put a five-hour reading on the host. `spent` is the utilisation and
-   * `hoursLeft` how much of the window remains. With `week` a seven-day window
-   * is reported too, at 30% one day in — `busy`, so its chip survives the
-   * narrow bar and a case can wait on it.
-   *
-   * Times are built from `Date.now()` so pace does not drift with the wall clock.
-   */
-  const reportUsage = async (
-    server: FakeServer,
-    { spent, hoursLeft, week }: { spent: number; hoursLeft: number; week?: boolean },
-  ) => {
+  it('holds the agent count alone on the bar, and the other readings in the Welcome dialog', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ viewport: 'narrow' });
+    // 20% spent with two of five hours left: a reading that keeps up.
     await act(async () => {
       server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
         world.host = {
           ...world.host!,
           usage: {
-            fiveHour: {
-              utilization: spent,
-              resetsAt: Math.floor(Date.now() / 1000) + hoursLeft * 3600,
-            },
-            sevenDay: week
-              ? { utilization: 0.3, resetsAt: Math.floor(Date.now() / 1000) + 6 * 86_400 }
-              : null,
+            fiveHour: { utilization: 0.2, resetsAt: Math.floor(Date.now() / 1000) + 2 * 3600 },
+            sevenDay: null,
             at: new Date().toISOString(),
           },
         };
       });
     });
-  };
+    const bar = within(screen.getByTestId('top-bar'));
+    await user.click(bar.getByRole('button', { name: 'About maelstrom' }));
+    const readings = within(await screen.findByTestId('welcome-readings'));
+    expect(await readings.findByLabelText(/5-hour limit: 20% consumed/)).toBeInTheDocument();
+    const gates = await readings.findByLabelText(/gate jobs running/);
+    // Both readings have landed, so their absence from the bar means something.
+    expect(bar.getByLabelText(/agents/i)).toBeInTheDocument();
+    expect(bar.queryByLabelText(/5-hour limit/)).toBeNull();
+    expect(bar.queryByLabelText(/gate jobs running/)).toBeNull();
 
-  // `isNotable` in `selectors/usage.ts` owns which readings are worth a band,
-  // and `usage.test.ts` pins its cases. These two say the narrow bar applies
-  // it: one reading through, one held back.
-  it('shows a window that is ahead of pace, which is worth a band on a phone', async () => {
-    const { server } = await renderApp({ viewport: 'narrow' });
-    // 45% spent with three of five hours left: amber, the same figure
-    // `usage.test.ts` pins as `busy`.
-    await reportUsage(server, { spent: 0.45, hoursLeft: 3 });
-    await waitFor(() =>
-      expect(screen.getByLabelText(/5-hour limit: 45% consumed/)).toBeInTheDocument(),
-    );
-  });
-
-  it('withholds a window that is keeping up, so a quiet bar stays one row', async () => {
-    const { server } = await renderApp({ viewport: 'narrow' });
-    // 20% spent with two of five hours left: a quotient of 0.5, well inside the
-    // quiet band rather than balanced on the pace line.
-    await reportUsage(server, { spent: 0.2, hoursLeft: 2, week: true });
-    // The week chip survives the narrow bar, so waiting on it proves the
-    // reading landed before the absence below is read.
-    await screen.findByLabelText(/7-day limit: 30% consumed/);
-    expect(screen.queryByLabelText(/5-hour limit/)).toBeNull();
+    // The Gate jobs dialog still draws on a phone, over the Welcome dialog.
+    await user.click(gates);
+    expect(await screen.findByRole('dialog', { name: 'Gate jobs' })).toBeInTheDocument();
   });
 
   it('leaves Enter as a newline and sends from the button, as a soft keyboard needs', async () => {

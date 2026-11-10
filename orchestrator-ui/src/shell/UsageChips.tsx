@@ -1,5 +1,4 @@
 import { useHost } from '../api/host';
-import { useLayoutMode } from '../layout/useLayoutMode';
 import type { HostUsage } from '../protocol/entities';
 import type { UsageKey } from '../selectors/usage';
 import { isNotable, usageChip } from '../selectors/usage';
@@ -16,7 +15,8 @@ interface Account {
 }
 
 /**
- * `5h 7%` and `week 24%` in the top bar: what the account has spent. Then
+ * `5h 7%` and `week 24%` in the top bar, or in the Welcome dialog on the
+ * narrow layout: what the account has spent. Then
  * `week gpt 31%` for the Codex account, and `5h gpt` when it is ahead of pace.
  *
  * The usage-shaped adapter over `SplitChip`, as `PrChip` is the PR-shaped one:
@@ -29,7 +29,6 @@ interface Account {
 export function UsageChips() {
   const { data } = useHost();
   const now = useNow();
-  const narrow = useLayoutMode() === 'narrow';
   const host = data?.host ?? undefined;
   const accounts: Account[] = [
     {
@@ -54,9 +53,9 @@ export function UsageChips() {
           // No chip rather than `0%`: a bar that shows nothing is honest about
           // knowing nothing.
           if (!chip) return null;
-          // A band is scarce on a phone, and an `onlyWhenNotable` window earns
-          // none: show only a reading the operator would act on.
-          if ((narrow || account.onlyWhenNotable.includes(key)) && !isNotable(chip)) return null;
+          // An `onlyWhenNotable` window earns no chip until the operator would
+          // act on it.
+          if (account.onlyWhenNotable.includes(key) && !isNotable(chip)) return null;
           return (
             <SplitChip
               key={`${account.name}:${key}`}

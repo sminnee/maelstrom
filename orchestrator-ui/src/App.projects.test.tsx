@@ -240,6 +240,8 @@ describe('the Welcome dialog', () => {
     const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
     expect(router.state.location.search).toBe('?welcome=1');
     expect(dialog.getByRole('button', { name: 'Add project' })).toBeInTheDocument();
+    // The wide bar holds the usage and gates readings: the dialog does not repeat them.
+    expect(dialog.queryByTestId('welcome-readings')).toBeNull();
 
     // The seed's last sample: job 41 uses 212.3% of one core of 8, and 1.2G.
     const now = await dialog.findByTestId('machine-now');

@@ -776,8 +776,8 @@ _Avoid_: Log panel, activity feed, drawer (alone), toast
 **Welcome dialog**:
 The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
 whether **minnstack** is installed, its version, the last **Update job**, and whether the agent
-host answers. It opens by itself on a world with no **Project**, once per page load, and the mark
-opens it at any time. Its actions start Add project and an **Update job**.
+host answers. On the narrow layout it also holds the usage and gates readings. It opens by itself
+on a world with no **Project**, once per page load, and the mark opens it at any time. Its actions start Add project and an **Update job**.
 _Avoid_: Onboarding, splash, about box
 
 **Project dialog**:
@@ -899,7 +899,7 @@ _Avoid_: gate run (for the job)
 **Gate lozenge**:
 The pill on a node whose worktree has a **Gate job**. It names the gate that runs now, or the
 job's place in the queue: `queued 2`. A click opens the Gate jobs dialog on that job.
-_Avoid_: gate badge, gate chip (the Gates chip is the top-bar count)
+_Avoid_: gate badge, gate chip (the Gates chip is the count of gate jobs)
 
 **Gate watch**:
 The orchestrator's one `tangier gate status --watch` process. It keeps the world's gate jobs, and
