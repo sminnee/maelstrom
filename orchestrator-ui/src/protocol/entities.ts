@@ -110,6 +110,26 @@ export interface Worktree {
   liveFeedback?: LiveFeedbackService[];
   /** The worktree's live **Gate job**, or `null` with none. The server picks it. */
   gate: WorktreeGate | null;
+  /**
+   * The branch's current **Merge request** in a `merge: local` project, or
+   * `null`. Absent from a server older than the UI; read it as none.
+   */
+  mergeRequest?: WorktreeMergeRequest | null;
+}
+
+/** A **Merge request**'s status: see `mael_domain.merge_request.Status`. */
+export type MergeRequestStatus =
+  'queued' | 'building' | 'passed' | 'stale' | 'failed' | 'withdrawn' | 'merged';
+
+/** The branch's current **Merge request**, as its worktree node shows it. */
+export interface WorktreeMergeRequest {
+  id: string;
+  status: MergeRequestStatus;
+  sha: string;
+  /** The linked Build's failed gates and log, or its failed step; `''` with none. */
+  detail: string;
+  /** The running Build's **Gate job**, in its Build worktree; `null` while none runs. */
+  gate: WorktreeGate | null;
 }
 
 /** The one gate job a worktree shows. */
