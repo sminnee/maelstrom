@@ -584,7 +584,7 @@ narrow layout re-points every `--text-*` token (§ Hierarchy): prose is 20px, an
 units to three with them. Code is scanned, not read, so on a phone its width is worth more than its
 size. At 13px, a 390px diff row holds at least 42 columns of code, as GitHub's mobile view does.
 At this scale the top bar
-does not hold the brand, so the brand is hidden visually and kept for a screen reader.
+has no room for the word "maelstrom": it holds the mark alone, and a screen reader keeps the word.
 
 **The Still Screen Rule.** The app is the visible area and does not move.
 `layout/visualViewport.ts` writes the visual viewport's height to `--vvh` and its top to
@@ -653,8 +653,8 @@ narrow bar stays quiet in the case the operator most often opens it. The wide ba
 stale figure is read: `SplitChip` greys it and its title gives its age. The narrow bar buys a
 quiet row at that cost.
 
-The chrome is two rows on the deck. The first row holds the brand, the readings, the attention
-chip, Filters and New. Filters opens the side sheet with the filters of the view on screen, one
+The chrome is two rows on the deck. The first row holds the mark, the readings, the attention
+chip, Filters and New. The mark opens the Welcome dialog, as the brand does on the wide layout. The screen strip has no room for it. Filters opens the side sheet with the filters of the view on screen, one
 control a row. Its caption counts the filters in force, as "Filters · 2", so a filtered view
 never looks like the whole: the Nothing Hidden Rule. The sheet stays open while a filter changes. The second row holds Desk, Tasks, Worktrees and Comms at equal widths. That row
 is navigation, not chrome, so the deck keeps it. Where the menu fits beside the first row, as on a

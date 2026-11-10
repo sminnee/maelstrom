@@ -111,6 +111,7 @@ describe('the narrow layout', () => {
     expect(bar().queryByRole('group', { name: 'Views' })).toBeNull();
     expect(bar().getByTestId('screen-title')).toHaveTextContent('Migrate to Postgres 16');
     expect(bar().queryByRole('button', { name: 'New' })).toBeNull();
+    expect(bar().queryByRole('button', { name: 'About maelstrom' })).toBeNull();
 
     await userEvent.click(bar().getByRole('button', { name: 'Close' }));
     expect(screen.getByTestId('deck-list')).toBeInTheDocument();
@@ -119,6 +120,16 @@ describe('the narrow layout', () => {
     expect(router.state.historyAction).toBe('POP');
     expect(bar().getByRole('group', { name: 'Views' })).toBeInTheDocument();
     expect(bar().queryByRole('button', { name: 'Close' })).toBeNull();
+  });
+
+  it('opens the Welcome dialog from the mark on the deck bar', async () => {
+    const user = userEvent.setup();
+    await renderApp({ viewport: 'narrow' });
+    const bar = within(screen.getByTestId('top-bar'));
+    expect(bar.getByRole('heading', { level: 1, name: /maelstrom/ })).toBeInTheDocument();
+
+    await user.click(bar.getByRole('button', { name: 'About maelstrom' }));
+    expect(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' })).toBeInTheDocument();
   });
 
   it('opens the side sheet from More, with New in it, which closes it', async () => {
