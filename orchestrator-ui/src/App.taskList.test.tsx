@@ -598,7 +598,7 @@ describe('the task list', () => {
     await renderApp({ url: '/tasks' });
     expect(
       within(listRow('NORT-9') as HTMLElement).getByRole('link', { name: 'NORT-9' }),
-    ).toHaveAttribute('href', '/desk/task/NORT-9');
+    ).toHaveAttribute('href', '/desk/graph/task/NORT-9');
   });
 
   it('disables Prev on the first row and Next on the last', async () => {

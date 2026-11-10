@@ -84,7 +84,7 @@ export async function renderApp(
   );
   if (opts.ready === false) server.hold();
   // A memory router, so a test reads `router.state.location` and moves with `router.navigate`.
-  const router = createMemoryRouter(routes, { initialEntries: [opts.url ?? '/desk'] });
+  const router = createMemoryRouter(routes, { initialEntries: [opts.url ?? '/desk/graph'] });
   deps.router = router;
   const tree = opts.strict ? (
     <StrictMode>

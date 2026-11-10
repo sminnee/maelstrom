@@ -11,7 +11,13 @@ function Given() {
 }
 
 /** `children` at `url`, on a memory router: for a story, whose page URL Ladle owns. */
-export function MemoryNav({ url = '/desk', children }: { url?: string; children: ReactNode }) {
+export function MemoryNav({
+  url = '/desk/graph',
+  children,
+}: {
+  url?: string;
+  children: ReactNode;
+}) {
   const [router] = useState(() =>
     createMemoryRouter(routesFor(<Given />), { initialEntries: [url] }),
   );

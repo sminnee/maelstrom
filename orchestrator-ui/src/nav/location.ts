@@ -20,6 +20,11 @@ export interface Card {
 /** The **Location**, parsed from the URL. See docs/dev/orchestrator-ui.md, "The URL". */
 export interface Loc {
   view: View;
+  /**
+   * How the desk draws. Off the desk the `desk` search value holds it, so a move back keeps it
+   * and the wide layout's desk slot beside another view keeps drawing it.
+   */
+  mode: DeskMode;
   /** Only on the desk: a card is drawn on the canvas, and the deck list stands for it. */
   card: Card | null;
   /** The active panel tab. The narrow layout draws it as a screen over the card or the view. */
@@ -27,7 +32,7 @@ export interface Loc {
   filters: Filters;
   listFilters: ListFilters;
   worktreeFilters: WorktreeFilters;
-  /** The deck list's zone. Narrow layout only. */
+  /** The deck list's tab. Read only in list mode. */
   zone: Zone;
   /** The task the editor is open on. */
   edit: TaskId | null;
@@ -55,6 +60,11 @@ export type LocPatch = Partial<Omit<Loc, 'filters' | 'listFilters' | 'worktreeFi
   worktreeFilters?: Partial<WorktreeFilters>;
 };
 
+/** A **Desk mode**: how the desk draws its nodes. Each has its own path. */
+export type DeskMode = 'graph' | 'kanban' | 'list';
+export const DESK_MODES: readonly DeskMode[] = ['graph', 'kanban', 'list'];
+export const DEFAULT_DESK_MODE: DeskMode = 'graph';
+
 const DEFAULT_ZONE: Zone = 'running';
 /** The `status` value for every status: an empty selection. */
 const EVERY_STATUS = 'all';
@@ -63,27 +73,35 @@ const EVERY_STATUS = 'all';
 export interface Screen {
   path: string;
   view: View;
+  /** The desk mode it draws. Null off the desk. */
+  mode: DeskMode | null;
   card: Card['kind'] | null;
 }
+
+/** The desk screens of one mode: the mode alone, and each kind of card on it. */
+const deskScreens = (mode: DeskMode): Screen[] => [
+  { path: `/desk/${mode}`, view: 'desk', mode, card: null },
+  { path: `/desk/${mode}/task/*`, view: 'desk', mode, card: 'task' },
+  { path: `/desk/${mode}/agent/:id`, view: 'desk', mode, card: 'agent' },
+  { path: `/desk/${mode}/worktree/:id`, view: 'desk', mode, card: 'worktree' },
+];
 
 /**
  * The screens, one route each: `routes.tsx` declares them, React Router matches them, and
  * `toHref` fills them. A task id can hold `/`, so the task path ends in a splat.
  */
 export const SCREENS: readonly Screen[] = [
-  { path: '/desk', view: 'desk', card: null },
-  { path: '/desk/task/*', view: 'desk', card: 'task' },
-  { path: '/desk/agent/:id', view: 'desk', card: 'agent' },
-  { path: '/desk/worktree/:id', view: 'desk', card: 'worktree' },
-  { path: '/tasks', view: 'list', card: null },
-  { path: '/comms', view: 'comms', card: null },
-  { path: '/projects', view: 'projects', card: null },
+  ...DESK_MODES.flatMap(deskScreens),
+  { path: '/tasks', view: 'list', mode: null, card: null },
+  { path: '/comms', view: 'comms', mode: null, card: null },
+  { path: '/projects', view: 'projects', mode: null, card: null },
 ];
 
 /** The location the app opens on: the desk, with nothing open and no filter. */
 export function defaultLoc(): Loc {
   return {
     view: 'desk',
+    mode: DEFAULT_DESK_MODE,
     card: null,
     panel: null,
     filters: noFilters(),
@@ -173,6 +191,21 @@ function statusValue(statuses: TaskStatus[]): string | null {
   return statuses.length === 0 ? EVERY_STATUS : statuses.join(',');
 }
 
+/** A screen's path with its card id. `generatePath` encodes a param but not the splat. */
+function screenPath(screen: Screen, id: string | undefined): string {
+  return generatePath(screen.path, { id, '*': id?.split('/').map(encodeURIComponent).join('/') });
+}
+
+/**
+ * `/desk` and the card paths from before the desk had modes, each with the path of the same
+ * card in the default **Desk mode**.
+ */
+export const oldDeskRoutes = () =>
+  deskScreens(DEFAULT_DESK_MODE).map((screen) => ({
+    path: screen.path.replace(`/${DEFAULT_DESK_MODE}`, ''),
+    to: (params: Params) => screenPath(screen, screen.card === 'task' ? params['*'] : params.id),
+  }));
+
 /** The routes of the screens, each with its screen as its handle. */
 export const screenRoutes = () => SCREENS.map((screen) => ({ path: screen.path, handle: screen }));
 
@@ -186,6 +219,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
   const q = new URLSearchParams(search);
   const agents = q.get('agents');
   const zoneValue = q.get('zone') ?? '';
+  const deskValue = q.get('desk') ?? '';
   const zone = (ZONES as readonly string[]).includes(zoneValue)
     ? (zoneValue as Zone)
     : // The retired `notStarted` zone reads as to do.
@@ -195,7 +229,12 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
   const dtab = q.get('dtab') as ProjectTab | null;
   return {
     view: screen.view,
-    // `/desk/task` matches the splat with nothing in it: the desk, with no card.
+    mode:
+      screen.mode ??
+      ((DESK_MODES as readonly string[]).includes(deskValue)
+        ? (deskValue as DeskMode)
+        : DEFAULT_DESK_MODE),
+    // `/desk/<mode>/task` matches the splat with nothing in it: the desk, with no card.
     card: screen.card && id ? { kind: screen.card, id } : null,
     panel: parsePanel(q.get('panel')),
     filters: {
@@ -227,13 +266,13 @@ export function parseLocation(pathname: string, search: string): Loc | null {
 /** The URL of a location: its path and search, every default left out. */
 export function toHref(loc: Loc): string {
   const card = loc.view === 'desk' ? loc.card : null;
-  const screen = SCREENS.find((s) => s.view === loc.view && s.card === (card?.kind ?? null))!;
-  // `generatePath` encodes a param but not the splat, so the task id's segments are encoded here.
-  const path = generatePath(screen.path, {
-    id: card?.id,
-    '*': card?.id.split('/').map(encodeURIComponent).join('/'),
-  });
+  const mode = loc.view === 'desk' ? loc.mode : null;
+  const screen = SCREENS.find(
+    (s) => s.view === loc.view && s.mode === mode && s.card === (card?.kind ?? null),
+  )!;
+  const path = screenPath(screen, card?.id);
   const params: [string, string | null][] = [
+    ['desk', loc.view !== 'desk' && loc.mode !== DEFAULT_DESK_MODE ? loc.mode : null],
     ['panel', loc.panel && panelValue(loc.panel)],
     ['project', loc.filters.project],
     ['branch', loc.filters.branch],

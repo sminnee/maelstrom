@@ -78,7 +78,7 @@ export function FakeApp({
       server.refuse(routePattern(refuse), { status: 500, code: 'internal', message: 'Refused' });
     return {
       ...deps,
-      router: router ?? createMemoryRouter(routes, { initialEntries: ['/desk'] }),
+      router: router ?? createMemoryRouter(routes, { initialEntries: ['/desk/graph'] }),
     };
   });
   const { queryClient } = deps;
