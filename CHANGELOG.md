@@ -20,6 +20,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The desk draws as a graph, a kanban or a list.** A switch at the top of the desk picks the
+  mode, and each mode has its own path, such as `/desk/kanban`. In kanban, drag a card to another
+  column to set its task status. The desk now has four zones, Queued | To do | Running | Done,
+  with new work on the left. Old `/desk` links open in graph mode.
 - **A task can start a New session.** Open the Resume menu on a task's ended agent and choose
   **New session**, or run `mael task run --new-session`. The new session gets a new session id,
   and its prompt names the earlier sessions. A done task reopens.

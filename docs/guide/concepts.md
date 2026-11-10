@@ -169,7 +169,7 @@ lines there and post the comments to the agents in that worktree. The file list 
 the whole file: Final shows the new file, Whole file marks the changes in it, and Changes only
 shows the changed parts. A `.feature` file draws as its scenarios, not as lines. A worktree's dev env
 opens in a tab too. A shift-click on a tab shows it beside the tab you have open. Desk shows the work on your
-desk plus everything running now. Tasks is where you add a task to the desk, and either view takes it off. Project, branch and Search filters apply
+desk plus everything running now. Desk draws as a graph, a kanban or a list; the switch at its top picks one. Each runs left to right in four zones: Queued, To do, Running, Done. In kanban, drag a card to another column to set its status. A phone shows only the list. Tasks is where you add a task to the desk, and either view takes it off. Project, branch and Search filters apply
 to both views. On a phone, the Filters button holds them, or swipe in from the right edge. Swipe a row left to Launch a task that can start, or to Dismiss ended work. Drag a side sheet right to close it. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Comms lists what to tell people outside the team when work lands, and links tasks to each comm.
 A comm has a category and a project. A new comm takes the project its category's comms use most.

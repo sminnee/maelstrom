@@ -506,14 +506,16 @@ Opening the worktree card marks it seen.
 
 Horizontal position is progress first and dependency second:
 
-- The board runs left to right in three zones — DONE, RUNNING, NOT STARTED.
-- A zone boundary sits at the same x in every lane, so the board reads as three vertical stripes.
-- Inside a zone a task sits one column right of the deepest task it follows in that zone.
+- The board runs left to right in four zones — QUEUED, TO DO, RUNNING, DONE. New work is on the
+  left, and work moves right as it progresses.
+- A zone boundary sits at the same x in every lane, so the board reads as four vertical stripes.
+- Inside a zone a task sits one column left of the deepest task it follows in that zone, so new
+  work is on the left at every scale. A follows wire runs from right to left.
 - A zone no lane uses takes no columns and collapses, and draws no label.
 - A zone's label spans the nodes of the zone, from the left edge of its first column to the right
   edge of its last. The text is centred on a faint tint of `--border`, with 4px above and below.
 - When the two rules conflict — a done task that follows a running one — progress wins, and the
-  follows edge draws backwards.
+  follows edge draws left to right.
 - A task sits on the row of the task it follows, across zones; a second follower branches below.
   In a project lane a follower in another worktree box keeps its box. It sits on the row of the
   task it follows when its box fits there, and it is never a branch. A follows edge between two
@@ -545,6 +547,20 @@ each can be read at. So the medium layout, from 840px to 1599px, has one slot. T
 group of four items beside the brand, and a click shows the item in place of the one in front. A
 panel link brings Tabs to the front. No item has a side, so there is no shift-click and no grip.
 
+### Desk modes
+
+On the medium and wide layouts the desk slot opens with a switch of three links: Graph, Kanban,
+List. Each is a **Desk mode** at its own path. Links, not buttons, so a mode opens in a new
+window, as the top bar's view items do.
+
+Kanban is four columns, one per zone, in board order. Each column holds deck rows, with its count
+in the head. A drag of a row to another column sets the status that puts it there; `dropStatus`
+in `selectors/deck.ts` holds the rule. A column that refuses the dragged card draws no drop
+highlight. The status picker on the card stays the keyboard path.
+
+In kanban and list, a click opens the node card fixed to the right edge of the desk slot, over
+the view. It holds the body the canvas card holds, and Esc or Close collapses it.
+
 ### The narrow layout
 
 The lower breakpoint is 840px. Below it the board does not fit: the canvas needs room for a node
@@ -557,8 +573,9 @@ with a coarse pointer, and it is still held in the hand. So the narrow query is
 desktop window has a fine pointer, so it stays out. A tablet stays out by its width: on Android,
 a soft keyboard can make a landscape tablet's viewport less than 540px high, but never narrower.
 
-The deck list takes the canvas's place. The three zones run left to right on a board as vertical
-stripes; on a phone the same three run as tabs, opening on running. The model does not change
+The deck list takes the canvas's place. The four zones run left to right on a board as vertical
+stripes; on a phone the same four run as tabs, opening on running. A graph or kanban path
+redirects to the list, and no mode switch shows. The model does not change
 between the surfaces, only the axis. A row keeps the task node's three registers — the title, the
 state in words, then the identity — and its whole state vocabulary, drawn as a full-width band
 with the phase bar still on its left edge. A row under an operation reads as its node does: the
