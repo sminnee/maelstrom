@@ -565,6 +565,9 @@ with the phase bar still on its left edge. A row under an operation reads as its
 band hatches while the operation runs, and the words and the danger rule follow the node's. A
 running operation takes the row's swipe away.
 
+The Welcome dialog takes the full width, so it reflows: each fact's label goes above its value,
+and the Machine charts stack, each full width.
+
 One thing owns the screen. There is no panel and no tab strip: a node's detail, a session and a
 document each take the viewport. The wide layout's floating card has no
 place here, so the detail is flat — it overlaps nothing, and the Overlap Test says it earns no

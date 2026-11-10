@@ -42,3 +42,16 @@
   align-items: center;
   gap: var(--u);
 }
+
+/* On a phone the value column is too thin for a path: each label goes above
+   its value. See DESIGN.md, "The narrow layout". */
+@media (--narrow) {
+  .facts {
+    grid-template-columns: 1fr;
+    row-gap: var(--u-half);
+  }
+  .facts dt:not(:first-of-type) {
+    margin-top: var(--u);
+  }
+}
+

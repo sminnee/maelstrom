@@ -116,3 +116,12 @@
 .faint {
   color: var(--fg-faint);
 }
+
+/* On a phone a third of the width is too thin to read: the charts stack, each
+   full width. */
+@media (--narrow) {
+  .charts {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+  }
+}
