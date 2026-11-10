@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
+import { useGateJobs } from '../api/gateJobs';
 import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
 import { worktreeName } from '../selectors/worktrees';
+import { useAppStore } from '../store/store';
 import type { GateJob, Worktree } from '../protocol/entities';
 import { bytes } from '../protocol/bytes';
 import { ago } from '../protocol/time';
@@ -29,7 +31,7 @@ function splitGateJobs(jobs: GateJob[]): { running: GateJob[]; queued: GateJob[]
  * for one. See DESIGN.md, "Gates chip". `markedJobId` is the job a gate
  * lozenge opened it on.
  */
-export function GatesDialog({
+function GatesDialog({
   jobs,
   markedJobId = null,
   onClose,
@@ -129,4 +131,16 @@ function JobRow({
       </div>
     </li>
   );
+}
+
+/**
+ * The one place the Gate jobs dialog draws. The chip and a gate lozenge open it
+ * through the store. Each shell mounts it, because the narrow bar has no chip.
+ */
+export function GatesOverlay() {
+  const jobs = useGateJobs().data?.gateJobs ?? [];
+  const { open, jobId } = useAppStore((s) => s.ui.gates);
+  const closeGates = useAppStore((s) => s.closeGates);
+  if (!open) return null;
+  return <GatesDialog jobs={jobs} markedJobId={jobId} onClose={closeGates} />;
 }
