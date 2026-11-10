@@ -397,6 +397,7 @@ def build_orchestrator(
         daemon,
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
+        agent_records=agent_store,
         document_store=SqliteTaskAttachmentTable(state_db),
         landings=landings,
         comms=SqliteCommStore(state_db),
