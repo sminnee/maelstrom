@@ -235,6 +235,10 @@ ends, and then delivers them in order.
 To compact a stopped agent as it comes back, open the menu on its Resume button and choose
 **Resume and compact**. The agent compacts first, and then gets "Continue."
 
+To start the task again on a clean context, choose **New session** in the same menu. The new
+session gets the task prompt and the ids of the earlier sessions, and a done task reopens. The
+task card lists each agent of the task, oldest first, each with its own Session link.
+
 ### Why the task closes at step 6, not step 7
 
 **The pull request is the completion signal.** Once it is raised, the work cannot be

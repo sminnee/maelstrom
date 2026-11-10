@@ -668,7 +668,11 @@ Once the agent has exited, the node card offers Resume beside its Dismiss. Resum
 one. It runs as a `resume` operation. Neither button waits for its operation. A refusal shows on
 the card and in the console. Resume is a split button. Its menu's **Resume and compact** sends
 `agent.resume` with `compact: true`, and the server makes `/compact` the first turn — see
-`docs/dev/orchestrator-server.md`, "The compaction hold".
+`docs/dev/orchestrator-server.md`, "The compaction hold". For a task's agent, the menu also has
+**New session**, one item per host as Launch has. It sends `agent.launch` with `newSession: true`,
+which starts the task on a new session id and may reopen a done task. The item shows only when
+the server would accept it (`startsNewSession`): no agent of the task is live, and the task is
+actionable or done with every follow done. The main segment stays Resume.
 
 A Compact button at the right of that group sends `/compact` to the agent. This is a `say`, not a
 command of maelstrom's own: a slash command reaches Claude Code as the text of a user turn. The
