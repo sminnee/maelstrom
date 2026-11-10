@@ -16,6 +16,7 @@ import ssl
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote
 
 import click
 
@@ -190,3 +191,32 @@ def tell_pr_changed(project: str | None, branch: str | None) -> None:
     """
     body = {"project": project, "branch": branch} if project and branch else None
     tell_orchestrator(REFRESH_PATH, body)
+
+
+def _merge_request_path(project: str, task_id: str) -> str:
+    return (
+        f"/api/tasks/{quote(project, safe='')}/{quote(task_id, safe='')}/merge-request"
+    )
+
+
+def submit_merge_request(
+    project: str, task_id: str, branch: str, sha: str, base: str
+) -> dict[str, Any]:
+    """Submit ``sha`` to the task's Merge request; the request as it now stands.
+
+    On the parent's server for a delegated agent: the task is there.
+    """
+    return OrchestratorClient.for_tasks().put(
+        _merge_request_path(project, task_id),
+        {"branch": branch, "sha": sha, "base": base},
+    )
+
+
+def read_merge_request(project: str, task_id: str) -> dict[str, Any]:
+    """The task's current Merge request, its status and its Builds, newest first."""
+    return OrchestratorClient.for_tasks().get(_merge_request_path(project, task_id))
+
+
+def withdraw_merge_request(project: str, task_id: str) -> dict[str, Any]:
+    """Withdraw the task's open Merge request."""
+    return OrchestratorClient.for_tasks().delete(_merge_request_path(project, task_id))
