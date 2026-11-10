@@ -10,7 +10,7 @@ import sys
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -21,7 +21,6 @@ from mael_common.shell import run_cmd, run_cmd_async
 from mael_common.util import locked_file
 
 from . import install_status
-from .base_store import BaseStore, GitConfigBaseStore
 from .config import (
     MaelstromConfig,
     load_config_or_default,
@@ -48,20 +47,16 @@ from .worktree_model import (
     ENV_SECTION_START,
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
+    ORIGIN_MAIN,
     SQUASH_MESSAGE,
-    SYNC_CLOSE_DELETE_BRANCH,
-    SYNC_CLOSE_KEEP_BRANCH,
     TRASH_PREFIX,
     WORKTREE_NAMES,
-    BaseRef,
     CollapsedCommit,
     CopyBackResult,
     EnvConflict,
     PrePushFailed,
-    RebasePlan,
     SquashResult,
     SquashScope,
-    StackTip,
     UnclosableWorktreeError,
     UncommitResult,
     WorktreeError,
@@ -72,23 +67,18 @@ from .worktree_model import (
     describe_commits,
     extract_project_name,
     extract_worktree_name_from_folder,
-    fetch_prunes,
     get_worktree_folder_name,
     history_ref,
     history_ref_prefix,
     is_worktree_closable,
     parse_env_text,
-    plan_rebase,
     plan_squash_rebase,
-    plan_sync_after_rebase,
     print_flushed,
     render_copy_back_block,
     render_managed_section,
-    resolve_stack_tip,
     resolve_template_lines,
     substitute_vars,
     trash_name,
-    validate_base,
     worktree_num,
 )
 from .worktree_steps import Scope, scope_lock
@@ -535,10 +525,6 @@ class SyncResult:
     closed: bool = False  # branch was empty: deleted + worktree closed (--close)
     deleted_remote: bool = False  # remote branch also deleted
     repaired: bool = False  # conflicts were resolved by a headless Claude session
-    base: str = MAIN_BRANCH  # the branch this one is stacked on
-    base_collapsed: bool = (
-        False  # the base's remote branch was gone; flattened onto main
-    )
 
 
 @dataclass
@@ -560,7 +546,7 @@ class TidyBranchResult:
     """Result of tidying a single branch."""
 
     branch: str
-    action: str  # "deleted", "pushed", "rebased", "skipped_conflicts", "skipped_checked_out", "skipped_base", "skipped_error"
+    action: str  # "deleted", "pushed", "rebased", "skipped_conflicts", "skipped_checked_out", "skipped_error"
     success: bool
     message: str
     deleted_local: bool = False
@@ -840,60 +826,14 @@ def _is_ancestor(worktree_path: Path, commit: str, of: str = "HEAD") -> bool:
     )
 
 
-def resolve_rebase_plan(
-    worktree_path: Path, branch: str, store: BaseStore, *, fetched: bool
-) -> tuple[BaseRef, RebasePlan]:
-    """Read ``branch``'s base and decide the rebase, guarding against data loss.
-
-    Two IO facts feed the pure :func:`plan_rebase`, and both need care:
-
-    - **Does ``origin/<base>`` still exist?** An absent ref cannot be rebased onto,
-      so the plan always falls back to main. Whether that is a *permanent* collapse
-      is a separate question: only a fetch that pruned can answer it. When the fetch
-      was skipped (``sync-all``, the autorepair second pass), the ref may just be
-      unfetched, so ``collapsed`` stays off and the store keeps its base — the
-      collapse defers to the next real sync. Flattening a live stack for good is far
-      worse than collapsing one sync later.
-    - **Is the recorded tip actually in this branch's history?**
-      ``git rebase --onto X <upstream>`` replays only ``<upstream>..HEAD``. A tip
-      that is not an ancestor of HEAD makes that range something other than this
-      branch's own work, and commits disappear with no error. Dropping to a plain
-      rebase there is degraded but safe.
-
-    Returns:
-        ``(base, plan)`` — the base as stored, and the plan to execute.
-    """
-    base = store.read(branch)
-    if base.is_default:
-        return base, plan_rebase(base, base_exists=True)
-
-    base_exists = _ref_exists(worktree_path, f"origin/{base.branch}")
-    plan = plan_rebase(base, base_exists=base_exists)
-    if plan.collapsed and not fetched:
-        plan = replace(plan, collapsed=False)
-
-    if plan.upstream is not None and not _is_ancestor(worktree_path, plan.upstream):
-        plan = replace(plan, upstream=None)
-    return base, plan
-
-
 def rebase_worktree(
     worktree_path: Path,
     max_age: float | None = None,
     squash: bool = True,
     abort_on_conflict: bool = False,
-    store: BaseStore | None = None,
 ) -> SyncResult:
-    """Fetch and rebase a worktree onto its base, optionally autosquashing
+    """Fetch and rebase a worktree onto ``origin/main``, optionally autosquashing
     ``fixup!`` commits.
-
-    The base is ``main`` unless the branch was stacked on another branch, in which
-    case the rebase targets that branch instead and cascades its new work into this
-    one. A branch with no stored base runs the identical argv it always has.
-
-    This is the single funnel every sync path reaches, so it is the one place that
-    records ``base_tip`` — including after an autorepair, whose second pass
-    re-enters here.
 
     Does NOT push — callers that need to publish the rebased branch call
     :func:`sync_worktree`, which builds on this function.
@@ -901,15 +841,12 @@ def rebase_worktree(
     Args:
         worktree_path: Path to the worktree directory.
         max_age: Passed to :func:`ensure_fetched`. ``math.inf`` skips the fetch,
-            for a caller that already fetched; a missing base ref is then
-            treated as unfetched rather than deleted. Otherwise a stacked branch
-            fetches with ``--prune`` and ``max_age=0``.
+            for a caller that already fetched.
         squash: If True, autosquash ``fixup!`` commits into their targets while
             rebasing (``git rebase --autosquash``).
         abort_on_conflict: If True, on a rebase conflict run ``git rebase --abort``
             to restore the worktree to its pre-rebase state instead of leaving the
             rebase in progress.
-        store: Where branch bases live. Defaults to the project's git config.
 
     Returns:
         SyncResult with status and message. On success ``pushed``/``push_message``
@@ -919,17 +856,10 @@ def rebase_worktree(
 
     # Get current branch
     branch = get_current_branch(worktree_path)
-    resolved_store: BaseStore = (
-        store if store is not None else GitConfigBaseStore(worktree_path)
-    )
 
-    fetched = max_age != math.inf
-    if fetched:
-        prune = fetch_prunes(resolved_store.read(branch))
+    if max_age != math.inf:
         try:
-            ensure_fetched(
-                worktree_path.parent, max_age=0 if prune else max_age, prune=prune
-            )
+            ensure_fetched(worktree_path.parent, max_age=max_age)
         except subprocess.CalledProcessError as e:
             return SyncResult(
                 success=False,
@@ -939,19 +869,13 @@ def rebase_worktree(
         except (subprocess.TimeoutExpired, TimeoutError) as e:
             return SyncResult(success=False, branch=branch, message=str(e))
 
-    base, plan = resolve_rebase_plan(
-        worktree_path, branch, resolved_store, fetched=fetched
-    )
-
-    # Get merge-base and base-tip SHA before rebasing (for conflict instructions).
-    # Both name the resolved base, so the help a conflict prints — and the prompt
-    # a headless repair session gets — describe the rebase that actually ran.
+    # Get merge-base and main's SHA before rebasing (for conflict instructions).
     merge_base: str | None = None
     upstream_head: str | None = None
     try:
-        # Get merge-base (where branch diverged from its base)
+        # Get merge-base (where branch diverged from main)
         base_result = run_git(
-            ["merge-base", "HEAD", plan.onto],
+            ["merge-base", "HEAD", ORIGIN_MAIN],
             cwd=worktree_path,
             quiet=True,
             check=False,
@@ -959,9 +883,9 @@ def rebase_worktree(
         if base_result.returncode == 0 and base_result.stdout.strip():
             merge_base = base_result.stdout.strip()[:7]  # Short SHA
 
-        # Get the base's SHA
+        # Get main's SHA
         head_result = run_git(
-            ["rev-parse", "--short", plan.onto],
+            ["rev-parse", "--short", ORIGIN_MAIN],
             cwd=worktree_path,
             quiet=True,
             check=False,
@@ -971,7 +895,7 @@ def rebase_worktree(
     except Exception:
         pass
 
-    rebase = plan_squash_rebase(plan, squash=squash)
+    rebase = plan_squash_rebase(squash=squash)
     result = run_cmd(
         rebase.argv,
         cwd=worktree_path,
@@ -987,14 +911,13 @@ def rebase_worktree(
                 success=False,
                 branch=branch,
                 message=(
-                    f"Rebase of {branch} onto {plan.label} hit conflicts; "
+                    f"Rebase of {branch} onto {ORIGIN_MAIN} hit conflicts; "
                     "aborted and restored worktree to its previous state."
                 ),
                 had_conflicts=True,
                 aborted=True,
                 merge_base=merge_base,
                 upstream_head=upstream_head,
-                base=plan.effective_base,
             )
         return SyncResult(
             success=False,
@@ -1003,62 +926,13 @@ def rebase_worktree(
             had_conflicts=True,
             merge_base=merge_base,
             upstream_head=upstream_head,
-            base=plan.effective_base,
         )
-
-    _record_base_after_rebase(worktree_path, branch, base, plan, resolved_store)
 
     return SyncResult(
         success=True,
         branch=branch,
-        message=f"Successfully rebased {branch} onto {plan.label}",
-        # The branch the rebase landed on, not the one the store holds. Under a
-        # deferred collapse those differ, and callers build origin/<base> from
-        # this — a stored name whose ref is gone would give them a ref that does
-        # not resolve.
-        base=plan.effective_base,
-        base_collapsed=plan.collapsed,
+        message=f"Successfully rebased {branch} onto {ORIGIN_MAIN}",
     )
-
-
-def _record_base_after_rebase(
-    worktree_path: Path,
-    branch: str,
-    base: BaseRef,
-    plan: RebasePlan,
-    store: BaseStore,
-) -> None:
-    """Persist the base's new tip, or clear the base if the stack collapsed.
-
-    Re-recording the tip on every successful rebase is what keeps the amended-parent
-    case working: the tip must be where *this* rebase left the base, not where an
-    earlier one did. A stale tip degrades silently into a naive rebase that then
-    conflicts on review churn — the very case the tip exists for.
-
-    A default base writes nothing at all, so an unstacked branch leaves no trace in
-    config.
-    """
-    if base.is_default:
-        return
-
-    if plan.collapsed:
-        store.clear(branch)
-        return
-
-    tip = run_git(
-        ["rev-parse", f"origin/{base.branch}"],
-        cwd=worktree_path,
-        quiet=True,
-        check=False,
-    )
-    if tip.returncode != 0:
-        # The base ref did not resolve, so this rebase landed on main and the
-        # deferred-collapse rule kept the base stored. There is no new tip to
-        # record, and the old one is now wrong — clear it rather than let a stale
-        # value silently pick the wrong replay point next time.
-        store.write(branch, replace(base, tip=None))
-        return
-    store.write(branch, replace(base, tip=tip.stdout.strip()))
 
 
 def sync_worktree(
@@ -1106,39 +980,8 @@ def sync_worktree(
     worktree_path = worktree_path.resolve()
     branch = result.branch
 
-    # Both facts cost a git call, and the planner ignores each unless the one
-    # before it holds — so each is asked only when it can change the decision.
     project_path = worktree_path.parent
-    is_empty = close_if_empty and is_branch_merged(
-        worktree_path, branch, base=f"origin/{result.base}"
-    )
-    is_a_base = is_empty and branch in base_branches(project_path)
-    decision = plan_sync_after_rebase(
-        result.base,
-        close_if_empty=close_if_empty,
-        is_empty=is_empty,
-        is_a_base=is_a_base,
-    )
-
-    if decision.action == SYNC_CLOSE_KEEP_BRANCH:
-        detach_result = detach_and_free_ports(worktree_path)
-        if not detach_result.success:
-            return SyncResult(
-                success=False, branch=branch, message=detach_result.message
-            )
-        return SyncResult(
-            success=True,
-            branch=branch,
-            message=(
-                f"{branch} is empty (merged into {decision.base_label}) and the worktree "
-                f"was closed; the branch was kept because another branch is based on it."
-            ),
-            closed=True,
-            base=result.base,
-            base_collapsed=result.base_collapsed,
-        )
-
-    if decision.action == SYNC_CLOSE_DELETE_BRANCH:
+    if close_if_empty and is_branch_merged(worktree_path, branch):
         delete_remote = branch_exists_on_remote(
             project_path, branch
         )  # compute before detach
@@ -1159,7 +1002,7 @@ def sync_worktree(
                 success=False,
                 branch=branch,
                 message=(
-                    f"{branch} is empty (merged into {decision.base_label}) and the worktree "
+                    f"{branch} is empty (merged into {ORIGIN_MAIN}) and the worktree "
                     f"was closed, but deleting the local branch failed; it may need removing "
                     f"by hand."
                 ),
@@ -1171,7 +1014,7 @@ def sync_worktree(
                 success=False,
                 branch=branch,
                 message=(
-                    f"{branch} is empty (merged into {decision.base_label}); deleted the local "
+                    f"{branch} is empty (merged into {ORIGIN_MAIN}); deleted the local "
                     f"branch and closed the worktree, but deleting origin/{branch} failed; it "
                     f"may need removing by hand."
                 ),
@@ -1181,9 +1024,7 @@ def sync_worktree(
         return SyncResult(
             success=True,
             branch=branch,
-            message=describe_branch_deletion(
-                branch, decision.base_label, remote_deleted=remote_deleted
-            ),
+            message=describe_branch_deletion(branch, remote_deleted=remote_deleted),
             closed=True,
             deleted_remote=remote_deleted,
         )
@@ -1211,8 +1052,6 @@ def sync_worktree(
                     success=False,
                     branch=branch,
                     message=f"{result.message}. {e}",
-                    base=result.base,
-                    base_collapsed=result.base_collapsed,
                 )
         # Remote branch exists - push with force-with-lease
         push_result = run_cmd(
@@ -1361,7 +1200,6 @@ def rebase_worktree_with_autorepair(
         branch=first.branch,
         message=f"Rebased {first.branch} onto origin/main",
         repaired=True,
-        base=first.base,
     )
 
 
@@ -1542,7 +1380,6 @@ def squash_branch(
     worktree_path: Path,
     *,
     scope: SquashScope = "remote",
-    store: BaseStore | None = None,
 ) -> SquashResult:
     """Collapse a branch's commits into one, and leave it committed.
 
@@ -1557,55 +1394,51 @@ def squash_branch(
 
     Args:
         worktree_path: Path to the worktree directory.
-        scope: ``"remote"`` for every commit ahead of the base fork point,
+        scope: ``"remote"`` for every commit ahead of ``origin/main``,
             ``"local"`` for only ``origin/<branch>..HEAD``.
-        store: Where branch bases live. Defaults to the project's git config.
 
     Returns:
-        SquashResult naming the base, the history ref, and what was collapsed.
+        SquashResult naming the history ref, and what was collapsed.
 
     Raises:
         WorktreeError: If the worktree refuses the command, or the rebase
             conflicts. In both cases the worktree is as it was.
     """
-    return _collapse_branch(worktree_path, scope=scope, store=store)
+    return _collapse_branch(worktree_path, scope=scope)
 
 
 def uncommit_branch(
     worktree_path: Path,
     *,
     scope: SquashScope = "remote",
-    store: BaseStore | None = None,
 ) -> UncommitResult:
-    """Return a branch to unstaged changes at its base tip.
+    """Return a branch to unstaged changes at its fork point from ``main``.
 
     The chronological commits move to a working-history ref, and the branch resets
-    to where it left its base.
+    to where it left ``main``.
 
     This is :func:`squash_branch` plus a ``git reset --mixed`` of the squashed
-    commit, so the two agree on the base, the guards and the scope by
-    construction.
+    commit, so the two agree on the guards and the scope by construction.
 
-    The rebase is not optional. Resetting to a base tip computed against a stale
-    base would silently uncommit someone else's work into this tree, so the branch
-    is brought up to date first. It is the same rebase ``mael sync --no-push
-    --abort`` runs, through :func:`rebase_worktree`, so the base is stack-aware and
-    a conflict restores the tree instead of leaving a rebase in progress.
+    The rebase is not optional. Resetting to a stale ``main`` would silently
+    uncommit someone else's work into this tree, so the branch is brought up to
+    date first. It is the same rebase ``mael sync --no-push --abort`` runs,
+    through :func:`rebase_worktree`, so a conflict restores the tree instead of
+    leaving a rebase in progress.
 
     Args:
         worktree_path: Path to the worktree directory.
-        scope: ``"remote"`` for every commit ahead of the base fork point,
+        scope: ``"remote"`` for every commit ahead of ``origin/main``,
             ``"local"`` for only ``origin/<branch>..HEAD``.
-        store: Where branch bases live. Defaults to the project's git config.
 
     Returns:
-        UncommitResult naming the base, the history ref, and what was collapsed.
+        UncommitResult naming the history ref, and what was collapsed.
 
     Raises:
         WorktreeError: If the worktree refuses the command, or the rebase
             conflicts. In both cases the worktree is as it was.
     """
-    squashed = _collapse_branch(worktree_path, scope=scope, store=store)
+    squashed = _collapse_branch(worktree_path, scope=scope)
 
     # Reset to the collapse point rather than `HEAD^`, which does not resolve
     # when the squashed commit is the branch's first. A root collapse unsets
@@ -1635,7 +1468,6 @@ def uncommit_branch(
         )
 
     return UncommitResult(
-        base=squashed.base,
         history_ref=squashed.history_ref,
         commits=squashed.commits,
         stat=squashed.stat,
@@ -1648,9 +1480,8 @@ def _collapse_branch(
     worktree_path: Path,
     *,
     scope: SquashScope,
-    store: BaseStore | None,
 ) -> SquashResult:
-    """Collapse a branch into one commit, then rebase it onto its base.
+    """Collapse a branch into one commit, then rebase it onto ``origin/main``.
 
     The order is what makes ``local`` meaningful. A rebase rewrites every commit,
     so afterwards ``origin/<branch>`` is no longer an ancestor of HEAD and
@@ -1659,7 +1490,7 @@ def _collapse_branch(
     rebase-then-squash yield the same tree.
 
     Shared by :func:`squash_branch` and :func:`uncommit_branch`, so their guards,
-    their base resolution and their history ref cannot drift apart.
+    and their history ref cannot drift apart.
     """
     worktree_path = worktree_path.resolve()
     branch = get_current_branch(worktree_path)
@@ -1676,16 +1507,12 @@ def _collapse_branch(
             f"{branch} has a rebase or merge in progress. Finish or abort it first."
         )
 
-    resolved_store: BaseStore = (
-        store if store is not None else GitConfigBaseStore(worktree_path)
-    )
-    base = resolved_store.read(branch).branch
-    if get_commits_ahead(worktree_path, f"origin/{base}") == 0:
+    if get_commits_ahead(worktree_path, ORIGIN_MAIN) == 0:
         raise WorktreeError(
-            f"{branch} has no commits ahead of origin/{base}; nothing to collapse."
+            f"{branch} has no commits ahead of {ORIGIN_MAIN}; nothing to collapse."
         )
 
-    collapse_point = _collapse_point(worktree_path, branch, base, scope)
+    collapse_point = _collapse_point(worktree_path, branch, scope)
     commits = get_commits_ahead(worktree_path, collapse_point)
     if commits == 0:
         raise WorktreeError(
@@ -1712,24 +1539,21 @@ def _collapse_branch(
         )
 
     # No `fixup!` subject survives a squash, so autosquash would be inert here.
-    rebase = rebase_worktree(
-        worktree_path, squash=False, abort_on_conflict=True, store=resolved_store
-    )
+    rebase = rebase_worktree(worktree_path, squash=False, abort_on_conflict=True)
     if not rebase.success:
         # Put the chronology back: the collapse is this function's to undo.
         run_git(["reset", "--hard", ref], cwd=worktree_path, quiet=True, check=False)
         run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
         raise WorktreeError(f"{rebase.message} Run `mael sync` and try again.")
-    base = rebase.base
 
-    if get_commits_ahead(worktree_path, f"origin/{base}") == 0:
-        # The check above read `origin/<base>` as it was before the fetch. The
+    if get_commits_ahead(worktree_path, ORIGIN_MAIN) == 0:
+        # The check above read `origin/main` as it was before the fetch. The
         # rebase can still empty the branch — git skips a squashed commit whose
         # content is already upstream as previously applied.
         run_git(["reset", "--hard", ref], cwd=worktree_path, quiet=True, check=False)
         run_git(["update-ref", "-d", ref], cwd=worktree_path, quiet=True, check=False)
         raise WorktreeError(
-            f"{branch} has no commits ahead of origin/{base} after the rebase; "
+            f"{branch} has no commits ahead of {ORIGIN_MAIN} after the rebase; "
             "nothing to collapse."
         )
 
@@ -1747,7 +1571,6 @@ def _collapse_branch(
 
     return SquashResult(
         collapse_point=rebased_point,
-        base=base,
         history_ref=ref,
         commits=commits,
         stat=stat,
@@ -1804,19 +1627,15 @@ def _squash_onto(
     return head, ""
 
 
-def _collapse_point(
-    worktree_path: Path, branch: str, base: str, scope: SquashScope
-) -> str:
+def _collapse_point(worktree_path: Path, branch: str, scope: SquashScope) -> str:
     """The commit a collapse of ``scope`` rewinds to.
 
-    ``remote`` is the base fork point — the whole branch. ``local`` is
-    ``origin/<branch>``, so already-pushed commits keep their own subjects and a
-    re-review reads only the new work.
+    ``remote`` is the fork point from ``origin/main`` — the whole branch.
+    ``local`` is ``origin/<branch>``, so already-pushed commits keep their own
+    subjects and a re-review reads only the new work.
 
     A branch with no remote has nothing pushed, so ``local`` falls back to the
-    fork point and behaves as ``remote``. :func:`get_local_only_commits` is not
-    reused for this: its own missing-remote fallback counts against
-    ``origin/main``, which on a stacked branch would sweep in the base's commits.
+    fork point and behaves as ``remote``.
     """
     if scope == "local":
         remote = run_git(
@@ -1829,7 +1648,7 @@ def _collapse_point(
             return remote.stdout.strip()
 
     return run_git(
-        ["merge-base", "HEAD", f"origin/{base}"], cwd=worktree_path, quiet=True
+        ["merge-base", "HEAD", ORIGIN_MAIN], cwd=worktree_path, quiet=True
     ).stdout.strip()
 
 
@@ -1934,10 +1753,8 @@ def close_worktree(
 ) -> CloseResult:
     """Close a worktree by syncing and resetting to origin/main.
 
-    A branch other branches are stacked on keeps its branch: only HEAD detaches.
-
     This operation:
-    1. Syncs the worktree (rebase against the branch's base)
+    1. Syncs the worktree (rebase against origin/main)
     2. Verifies no uncommitted changes
     3. Verifies no unmerged commits
     4. Resets HEAD to origin/main
@@ -2076,9 +1893,7 @@ def detach_and_free_ports(worktree_path: Path) -> CloseResult:
     )
 
 
-def recycle_worktree(
-    worktree_path: Path, branch: str, *, base: str = MAIN_BRANCH
-) -> Path:
+def recycle_worktree(worktree_path: Path, branch: str) -> Path:
     """Recycle a closed worktree for a new branch.
 
     Assumes the worktree is already on main and clean.
@@ -2086,8 +1901,6 @@ def recycle_worktree(
     Args:
         worktree_path: Path to the closed worktree.
         branch: Branch name to switch to.
-        base: Branch a brand-new branch starts from. Ignored when the branch
-            already exists locally or on origin.
 
     Returns:
         Path to the recycled worktree (same as input).
@@ -2123,15 +1936,8 @@ def recycle_worktree(
             # Switch to existing local branch
             run_git(["checkout", branch], cwd=worktree_path)
         else:
-            # Create new branch from its base (HEAD may be behind if recycled), so
-            # a stacked child starts with its parent's work already under it.
-            base_ref = (
-                _first_existing_ref(
-                    worktree_path, [f"origin/{base}", f"origin/{MAIN_BRANCH}"]
-                )
-                or f"origin/{MAIN_BRANCH}"
-            )
-            run_git(["checkout", "-b", branch, base_ref], cwd=worktree_path)
+            # Create new branch from origin/main (HEAD may be behind if recycled)
+            run_git(["checkout", "-b", branch, ORIGIN_MAIN], cwd=worktree_path)
     except subprocess.CalledProcessError as e:
         raise WorktreeSetupError(f"Failed to switch to branch {branch}: {e.stderr}")
 
@@ -2779,16 +2585,16 @@ def run_pre_push_cmd(worktree_path: Path, config: MaelstromConfig) -> None:
         raise PrePushFailed(config.pre_push_cmd, result.returncode)
 
 
-def base_moved(worktree_path: Path, base: str) -> bool:
-    """True when origin's ``base`` has a commit this branch does not hold.
+def main_moved(worktree_path: Path) -> bool:
+    """True when origin's ``main`` has a commit this branch does not hold.
 
-    Compares against ``HEAD``, not ``origin/<base>``: every worktree shares that
+    Compares against ``HEAD``, not ``origin/main``: every worktree shares that
     ref, so another worktree's fetch can move it during a long check. Asks the
     remote without fetching, so it writes no refs and needs no lock. An
     unanswered question is not a move: the caller pushes either way.
     """
     remote = run_git(
-        ["ls-remote", "origin", f"refs/heads/{base}"],
+        ["ls-remote", "origin", f"refs/heads/{MAIN_BRANCH}"],
         cwd=worktree_path,
         quiet=True,
         check=False,
@@ -2806,9 +2612,7 @@ def base_moved(worktree_path: Path, base: str) -> bool:
     return held.returncode != 0
 
 
-def create_worktree(
-    project_path: Path, branch: str, *, detached: bool = False, base: str = MAIN_BRANCH
-) -> Path:
+def create_worktree(project_path: Path, branch: str, *, detached: bool = False) -> Path:
     """Create a new worktree for the given branch.
 
     Args:
@@ -2817,9 +2621,6 @@ def create_worktree(
         detached: If True, create a detached HEAD worktree at origin/main
             instead of checking out the branch. Useful when the branch
             (e.g., main) is already checked out elsewhere.
-        base: Branch a brand-new branch starts from, so a child begins stacked
-            rather than needing an immediate re-stack. Ignored when the branch
-            already exists locally or on origin, which have their own tips.
 
     Returns:
         Path to the created worktree.
@@ -2908,13 +2709,9 @@ def create_worktree(
             # Fall back to local branch if no remote
             run_git(["worktree", "add", str(worktree_path), branch], cwd=project_path)
         else:
-            # Create new branch from its base (or origin's default branch, or HEAD if
-            # no remote). Starting from the base is what makes a stacked child begin
-            # with its parent's work already under it.
+            # Create new branch from origin's default branch, or HEAD if no remote
             base_ref = (
-                _first_existing_ref(
-                    project_path, [f"origin/{base}", "origin/main", "origin/master"]
-                )
+                _first_existing_ref(project_path, ["origin/main", "origin/master"])
                 or "HEAD"
             )
             run_git(
@@ -3191,86 +2988,6 @@ class WorktreeSetup:
         return self.action != "created" and self.name != MAIN_WORKTREE_FOLDER
 
 
-def check_base_exists(project_path: Path, base: str) -> None:
-    """Raise if ``base`` names no branch that could be rebased onto.
-
-    The single owner of "is this a real base?", shared by every path that sets one
-    — ``mael sync --base``, ``mael add --base``, and ``mael stack-tip``. Without it
-    a typo is accepted, the next sync finds ``origin/<base>`` missing, treats that
-    as a collapse, rebases onto main and clears the store: the user is told the
-    base was set and it is silently gone one sync later.
-
-    ``main`` is always acceptable — it means "not stacked", so it is never checked.
-
-    Raises:
-        ValueError: If ``base`` resolves neither on origin nor locally.
-    """
-    if base == MAIN_BRANCH:
-        return
-    if (
-        _first_existing_ref(
-            project_path, [f"refs/remotes/origin/{base}", f"refs/heads/{base}"]
-        )
-        is None
-    ):
-        raise ValueError(
-            f"No such branch to stack on: {base}. It must exist on origin or locally."
-        )
-
-
-def _branch_exists_anywhere(project_path: Path, branch: str) -> bool:
-    """True when ``branch`` already exists locally or on origin.
-
-    Such a branch is checked out at its own tip rather than created from a base,
-    so it keeps whatever base it already had.
-    """
-    return (
-        _first_existing_ref(
-            project_path, [f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"]
-        )
-        is not None
-    )
-
-
-def _resolve_new_branch_base(
-    project_path: Path,
-    branch: str,
-    base: str | None,
-    store: BaseStore,
-    *,
-    announce: Callable[[str], None] = print_flushed,
-) -> str:
-    """Decide what a brand-new ``branch`` should stack on.
-
-    An explicit ``base`` wins and is validated. Otherwise the project's stack tip
-    decides, which is ``main`` unless someone moved it with ``mael stack-tip``. A
-    moved tip self-heals to ``main`` if its branch is gone, and warns — never
-    blocks — if its branch is stale. Blocking would stall an unattended agent
-    session on a judgement call.
-
-    Raises:
-        ValueError: If an explicit ``base`` is the branch itself or closes a cycle.
-    """
-    if base is not None:
-        if base != MAIN_BRANCH:
-            check_base_exists(project_path, base)
-            validate_base(branch, base, store.all())
-        return base
-
-    tip = current_stack_tip(project_path, store)
-    if tip.stale_days is not None:
-        announce(
-            f"Warning: the stack tip {tip.branch} has had no commits for "
-            f"{tip.stale_days} days. {branch} will stack on it anyway; "
-            f"run `mael stack-tip main` to start unrelated work instead."
-        )
-    if tip.branch == branch:
-        # The tip already names this branch (a re-create after a close). Stacking
-        # it on itself is not a thing, so fall back to main.
-        return MAIN_BRANCH
-    return tip.branch
-
-
 def _rebase_reused_worktree(
     worktree_path: Path,
     *,
@@ -3315,37 +3032,27 @@ def setup_worktree_for_branch(
     *,
     no_recycle: bool = False,
     run_install: bool = True,
-    base: str | None = None,
     live: LiveSessionSet | None = None,
     token: str | None = None,
     announce: Callable[[str], None] = print_flushed,
 ) -> WorktreeSetup:
     """Ensure a fully set-up worktree exists for ``branch``; return path+name+action.
 
-    New work bases on ``main``. It stacks only when ``base`` says so, or when
-    someone has moved the project's stack tip off ``main``. This function never
-    moves the tip.
-
     Does NOT launch anything. An existing worktree for ``branch`` keeps its setup
     — no recycle/create, no install, no CLAUDE.local.md rewrite — but its branch
-    is still rebased onto its base, so a reopened worktree never starts on stale
+    is still rebased onto ``origin/main``, so a reopened worktree never starts on stale
     code. That rebase does not push. ``_main`` is the exception: it is the
     user's own checkout, so a request for its branch returns it unrebased.
 
     Args:
-        base: Branch to stack ``branch`` on. ``None`` uses the stack tip, which
-            is ``main`` unless someone moved it; ``main`` opts this one worktree
-            out of a moved tip.
         live: The live-session sweep, for the reuse rebase's occupancy check.
         token: A GitHub token for the open's push; see :func:`sync_worktree`.
             ``None`` sweeps on first use. Pass a sweep taken elsewhere to reuse
             it.
-        announce: Callable taking one line of progress text, for the stale-tip
-            warning.
+        announce: Callable taking one line of progress text.
 
     Raises:
-        ValueError: If a worktree name cannot be derived from the folder name,
-            or if ``base`` is the branch itself, or closes a cycle.
+        ValueError: If a worktree name cannot be derived from the folder name.
         WorktreeNamesExhaustedError: If all 26 worktree names are in use.
         WorktreeSetupError: If git refuses to create the worktree.
     """
@@ -3372,14 +3079,6 @@ def setup_worktree_for_branch(
     except FETCH_ERRORS:
         pass  # Continue offline; the sync reports a fetch failure.
 
-    store = GitConfigBaseStore(project_path)
-    # Decided before anything creates the branch: a pre-existing branch keeps the
-    # base it already has, because it is checked out at its own tip.
-    branch_existed = _branch_exists_anywhere(project_path, branch)
-    resolved_base = _resolve_new_branch_base(
-        project_path, branch, base, store, announce=announce
-    )
-
     worktree_path: Path | None = None
     action = "created"
 
@@ -3397,9 +3096,7 @@ def setup_worktree_for_branch(
             closed_wt = find_closed_worktree(project_path)
             if closed_wt is not None:
                 try:
-                    worktree_path = recycle_worktree(
-                        closed_wt.path, branch, base=resolved_base
-                    )
+                    worktree_path = recycle_worktree(closed_wt.path, branch)
                     action = "recycled"
                     wt_name = extract_worktree_name_from_folder(
                         project_name, closed_wt.path.name
@@ -3418,23 +3115,8 @@ def setup_worktree_for_branch(
 
     # Create a new worktree if not recycled.
     if worktree_path is None:
-        worktree_path = create_worktree(
-            project_path, branch, detached=False, base=resolved_base
-        )
+        worktree_path = create_worktree(project_path, branch, detached=False)
         action = "created"
-
-    # A branch that already existed is checked out at its own tip, not the base's —
-    # create_worktree and recycle_worktree both ignore `base` for it. Recording the
-    # base anyway would claim a relationship its history does not have, and the next
-    # sync would rebase it onto an unrelated branch. The `mael close --force` →
-    # reopen-branch path reaches here for exactly such a branch.
-    if branch_existed:
-        if base == MAIN_BRANCH:
-            store.clear(branch)
-    elif resolved_base == MAIN_BRANCH:
-        store.clear(branch)
-    else:
-        store.write(branch, BaseRef(branch=resolved_base))
 
     name = extract_worktree_name_from_folder(project_name, worktree_path.name)
     if name is None:
@@ -3660,8 +3342,6 @@ def trash_refusal(project_path: Path, branch: str) -> str | None:
         project_path, branch, base=f"origin/{target}"
     ):
         return f"{target} already exists on origin"
-    if branch in base_branches(project_path):
-        return f"Other branches are stacked on {branch}; trash them first"
     return None
 
 
@@ -3719,8 +3399,7 @@ def rename_branch(project_path: Path, old: str, new: str) -> None:
     """Rename local ``old`` to ``new``, with its working history.
 
     ``git branch -m`` moves the ``branch.<old>.*`` config too, so the upstream
-    is pointed at ``origin/new`` when that exists. The stored base is cleared: a
-    renamed branch is out of the stack.
+    is pointed at ``origin/new`` when that exists.
 
     Only the rename itself can fail. What follows it is bookkeeping, and a
     failure there must not report a renamed branch as not renamed.
@@ -3735,10 +3414,6 @@ def rename_branch(project_path: Path, old: str, new: str) -> None:
 
     if branch_exists_on_remote(project_path, new):
         tidy(["branch", f"--set-upstream-to=origin/{new}", new])
-    try:
-        GitConfigBaseStore(project_path).clear(new)
-    except RuntimeError:
-        pass
     listed = tidy(["for-each-ref", "--format=%(refname)", history_ref_prefix(old)])
     old_prefix, new_prefix = history_ref_prefix(old), history_ref_prefix(new)
     for ref in listed.stdout.split():
@@ -3784,101 +3459,11 @@ def _first_existing_ref(repo_path: Path, refs: list[str]) -> str | None:
     return None
 
 
-def remote_branch_ages(project_path: Path) -> dict[str, int]:
-    """``branch -> days since its last commit`` for every branch on ``origin``.
-
-    One local ``for-each-ref`` answers both questions the stack tip needs — does
-    the branch still exist, and has anyone touched it lately — with no network
-    call and no per-branch cost. ``refs/remotes/origin/HEAD`` is a symref rather
-    than a branch, so it is dropped: nobody can stack on it.
-    """
-    result = run_cmd(
-        [
-            "git",
-            "for-each-ref",
-            "--format=%(refname:short)%09%(committerdate:unix)",
-            "refs/remotes/origin",
-        ],
-        cwd=project_path,
-        quiet=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return {}
-
-    now = int(time.time())
-    ages: dict[str, int] = {}
-    for line in result.stdout.splitlines():
-        short, _, when = line.partition("\t")
-        if not when.strip():
-            continue
-        branch = short[len("origin/") :] if short.startswith("origin/") else short
-        if not branch or branch == "HEAD":
-            continue
-        try:
-            ages[branch] = max(0, (now - int(when.strip())) // 86400)
-        except ValueError:
-            continue
-    return ages
-
-
-def current_stack_tip(project_path: Path, store: BaseStore | None = None) -> StackTip:
-    """The branch new worktrees stack on, validated against what still exists.
-
-    A tip whose branch has been deleted self-heals to ``main`` and the heal is
-    persisted, so the next caller does not re-derive it and no ``mael add`` can
-    ever base on a dead ref. A stale-but-live tip is returned as it is, with its
-    age, for the caller to warn about.
-    """
-    resolved_store: BaseStore = (
-        store if store is not None else GitConfigBaseStore(project_path)
-    )
-    tip = resolve_stack_tip(
-        resolved_store.read_stack_tip(), remote_branch_ages(project_path)
-    )
-    if tip.healed:
-        resolved_store.write_stack_tip(MAIN_BRANCH)
-    return tip
-
-
-def base_branches(project_path: Path, store: BaseStore | None = None) -> set[str]:
-    """Every branch that some other branch is stacked on.
-
-    Deleting one of these strands its children on a ref that no longer resolves,
-    so both branch-deleting paths — ``tidy_branches`` and sync's ``close_if_empty``
-    — consult it first. One ``BaseStore.all()`` call answers it for the whole
-    project.
-    """
-    resolved: BaseStore = (
-        store if store is not None else GitConfigBaseStore(project_path)
-    )
-    return {base for base in resolved.all().values() if base != MAIN_BRANCH}
-
-
-def stacked_branches(project_path: Path, store: BaseStore | None = None) -> set[str]:
-    """Every branch involved in a stack, as either a base or a child.
-
-    ``tidy_branches`` must leave all of them alone. Its rebase is hardcoded to
-    ``origin/main``, which flattens a child off its base and strands the child's
-    recorded tip on a commit no longer in the branch — the exact state ``base_tip``
-    exists to prevent, and one no error reports. Its delete is equally wrong for a
-    base. One ``BaseStore.all()`` call answers both sides.
-    """
-    resolved: BaseStore = (
-        store if store is not None else GitConfigBaseStore(project_path)
-    )
-    bases = resolved.all()
-    stacked = set(bases)
-    stacked.update(base for base in bases.values() if base != MAIN_BRANCH)
-    return stacked
-
-
 def tidy_branch(
     project_path: Path,
     branch: str,
     temp_worktree_path: Path,
     checked_out_branches: set[str],
-    bases: set[str] | None = None,
 ) -> TidyBranchResult:
     """Tidy a single branch: rebase, then delete if merged or push if not.
 
@@ -3887,25 +3472,10 @@ def tidy_branch(
         branch: Branch name to tidy.
         temp_worktree_path: Path to temporary worktree for operations.
         checked_out_branches: Set of branches currently checked out in worktrees.
-        bases: Branches involved in a stack, on either side. These are left alone
-            entirely: rebasing one onto main would flatten the stack, and
-            deleting a base would strand its children.
 
     Returns:
         TidyBranchResult with outcome.
     """
-    # Skip a branch that is part of a stack, before anything touches it. This runs
-    # first because both of tidy's actions — the rebase onto main and the delete —
-    # are wrong here, and they are wrong on both sides of a stack link: the rebase
-    # flattens a child, the delete strands a base's children.
-    if bases and branch in bases:
-        return TidyBranchResult(
-            branch=branch,
-            action="skipped_base",
-            success=True,
-            message=f"Branch '{branch}' is part of a stack",
-        )
-
     # Skip if checked out somewhere
     if branch in checked_out_branches:
         return TidyBranchResult(
@@ -4023,7 +3593,6 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
     """Tidy all feature branches in a project.
 
     For each non-main branch:
-    0. Skip if the branch is part of a stack, on either side
     1. Skip if checked out in a worktree
     2. Pull remote changes if branch exists on origin
     3. Rebase against origin/main
@@ -4058,9 +3627,6 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
     worktrees = list_worktrees(project_path)
     checked_out_branches = {wt.branch for wt in worktrees if wt.branch}
 
-    # One store call for the whole project; tidy must not flatten a stack.
-    bases = stacked_branches(project_path)
-
     # Create temporary worktree for operations
     temp_name = "_tidy_temp"
     temp_worktree_path = project_path / temp_name
@@ -4085,7 +3651,6 @@ def tidy_branches(project_path: Path) -> list[TidyBranchResult]:
                 branch,
                 temp_worktree_path,
                 checked_out_branches,
-                bases,
             )
             results.append(result)
 

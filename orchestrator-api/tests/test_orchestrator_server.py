@@ -148,7 +148,6 @@ class Harness:
                 {
                     "id": PROJECT,
                     "name": PROJECT,
-                    "stackTip": "main",
                     "hasLinear": True,
                 }
             ],
@@ -159,7 +158,6 @@ class Harness:
                     "nato": "alpha",
                     "path": WORKTREE_PATH,
                     "branch": "feat/orders",
-                    "base": "main",
                     "isClosed": False,
                     "dirtyFiles": 0,
                     "localCommits": 0,
@@ -3261,7 +3259,7 @@ def test_projects_worktrees_and_the_desk_each_have_a_get(harness):
             )
 
     projects, worktrees, desk = run(scenario())
-    assert projects["projects"][0]["stackTip"] == "main"
+    assert projects["projects"][0]["id"] == PROJECT
     assert worktrees["worktrees"][0]["path"] == WORKTREE_PATH
     assert desk == {"desk": []}
 
@@ -9672,7 +9670,6 @@ def test_the_changes_route_lists_dirty_files_and_commits(harness, tmp_path):
 
     changes = run(scenario())
     assert changes["dirtyFiles"] == [{"path": "readme.md", "status": "M"}]
-    assert changes["base"] == "main"
     assert [(c["sha"], c["subject"]) for c in changes["commits"]] == [
         (sha, "feat: orders")
     ]

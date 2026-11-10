@@ -12,7 +12,6 @@ from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 from typing import Literal, NamedTuple
 
-from .base_store import GitConfigBaseStore
 from .git_status import read_dirty_files_async
 from .language_servers import LanguageServer, installed, reads
 from .protocol import (
@@ -27,8 +26,8 @@ from .protocol import (
     FileVersions,
     WorktreeChanges,
 )
-from .worktree import get_current_branch, run_git_async
-from .worktree_model import MAELSTROM_MANAGED_FILES, MAIN_BRANCH
+from .worktree import run_git_async
+from .worktree_model import MAELSTROM_MANAGED_FILES, ORIGIN_MAIN
 
 UNCOMMITTED = "uncommitted"
 BRANCH = "branch"
@@ -90,38 +89,11 @@ class NoSuchFile(LookupError):
     """A path the rev's new side does not hold."""
 
 
-def base_refs_for_diff(cwd: Path) -> list[str]:
-    """Refs to diff a branch against, best first.
-
-    A stacked branch diffs against its base, so a reader sees only this branch's
-    own work rather than the whole stack. ``origin/main`` follows as a fallback for
-    a base that has merged and been pruned.
-    """
-    base = resolve_base_branch(cwd)
-    refs = [f"origin/{base}"]
-    if base != MAIN_BRANCH:
-        refs.append(f"origin/{MAIN_BRANCH}")
-    return refs
-
-
-def resolve_base_branch(cwd: Path) -> str:
-    """The branch ``cwd``'s work is stacked on, or ``main`` if it is not stacked.
-
-    Never raises: a worktree whose branch or config cannot be read falls back to
-    ``main``, which is what every branch used before stacking existed.
-    """
-    try:
-        return GitConfigBaseStore(cwd).read(get_current_branch(cwd)).branch
-    except (OSError, subprocess.SubprocessError):
-        return MAIN_BRANCH
-
-
 async def list_changes(path: Path) -> WorktreeChanges:
-    """The dirty files, the base, and the commits ahead of it, oldest first."""
-    base, merge_base = await _merge_base(path)
+    """The dirty files, and the commits ahead of ``main``, oldest first."""
+    merge_base = await _merge_base(path)
     return {
         "dirtyFiles": await _dirty_files(path),
-        "base": base,
         "commits": await _commits(path, merge_base) if merge_base else [],
     }
 
@@ -362,9 +334,9 @@ class _Refs(NamedTuple):
 async def _refs(path: Path, rev: str) -> _Refs:
     if rev == UNCOMMITTED:
         return _Refs("HEAD", None)
-    _, merge_base = await _merge_base(path)
+    merge_base = await _merge_base(path)
     if rev == BRANCH:
-        # No base: the branch has no commits of its own, so both sides are HEAD.
+        # No merge-base: the branch has no commits of its own, so both sides are HEAD.
         return _Refs(merge_base or "HEAD", "HEAD")
     commits = await _commits(path, merge_base) if merge_base else []
     if not any(c["sha"] == rev for c in commits):
@@ -446,25 +418,19 @@ def _text(text: str) -> _Side:
     return _Side() if "\0" in text else _Side(text)
 
 
-async def _merge_base(path: Path) -> tuple[str, str]:
-    """The base the branch is measured against, and its merge-base with ``HEAD``.
+async def _merge_base(path: Path) -> str:
+    """The merge-base of ``HEAD`` with ``origin/main``.
 
-    The merge-base is ``""`` when no base ref resolves, as in a repo with no
-    remote; the branch then reads as having no commits of its own.
+    ``""`` when ``origin/main`` does not resolve, as in a repo with no remote;
+    the branch then reads as having no commits of its own.
     """
-    # The base lives in git config, read by a blocking store; a thread keeps
-    # it off the server's loop.
-    refs = await asyncio.to_thread(base_refs_for_diff, path)
-    for ref in refs:
-        result = await run_git_async(
-            [*_GIT_OPTIONS, "merge-base", "HEAD", ref],
-            cwd=path,
-            quiet=True,
-            check=False,
-        )
-        if result.returncode == 0:
-            return ref.removeprefix("origin/"), result.stdout.strip()
-    return refs[-1].removeprefix("origin/"), ""
+    result = await run_git_async(
+        [*_GIT_OPTIONS, "merge-base", "HEAD", ORIGIN_MAIN],
+        cwd=path,
+        quiet=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 async def _dirty_files(path: Path) -> list[ChangedFile]:

@@ -107,7 +107,7 @@ lock that cannot be taken must never be the reason an operation fails.
 
 A fetch looks worktree-local, but it is a repo-scoped write. It writes the shared object store and
 the remote refs. `update_local_main` then writes the project's shared `main`. The sharp edge is
-`fetch --prune`, which a stacked branch adds. It deletes remote refs another worktree may be
+`fetch --prune`, which `tidy_branches` adds. It deletes remote refs another worktree may be
 mid-rebase against.
 
 Every fetch except `add_project`'s first and `rename_remote_branch`'s (below) goes through
@@ -121,13 +121,12 @@ scope:
 
 The freshness stamp is the mtime of the project's own `.git/FETCH_HEAD`. The fetch runs from the
 project root, because a linked worktree has its own `FETCH_HEAD` that no other caller reads.
-`max_age` defaults to `FETCH_MAX_AGE`, 5 seconds, so an open's create and sync share one fetch. A
-stacked branch's sync still fetches again, with `--prune`.
+`max_age` defaults to `FETCH_MAX_AGE`, 5 seconds, so an open's create and sync share one fetch.
 
 | Caller | `max_age` | Why |
 |---|---|---|
-| A stacked branch's rebase, `tidy_branches` | `0`, with `prune=True` | A recent fetch without `--prune` cannot tell a deleted base from an unfetched one |
-| `create_pr`'s retry after its base moved | `0` | The first attempt's fetch is still fresh, and does not show the move |
+| `tidy_branches` | `0`, with `prune=True` | A recent fetch without `--prune` cannot tell a deleted remote branch from an unfetched one |
+| `create_pr`'s retry after `main` moved | `0` | The first attempt's fetch is still fresh, and does not show the move |
 | sync-all's worktree syncs, the autorepair second pass | `math.inf` | The fetch already ran |
 
 A fetch narrowed to named refs runs with `--no-write-fetch-head`. The stamp means every ref is
@@ -158,8 +157,8 @@ context is more machinery than the duplication costs. It is one `git_close` step
 `sync_worktree` and `create_worktree`/`recycle_worktree` are each one step for the same reason.
 
 `setup_worktree_for_branch` is not a sequence either. Its conditionals live *between* the steps it
-would have: an early return when a worktree already holds the branch, a recycle that falls back to
-create on any exception, and a three-way base recording. A flat list cannot express that. The open
+would have: an early return when a worktree already holds the branch, and a recycle that falls
+back to create on any exception. A flat list cannot express that. The open
 path takes the scopes, not the shape.
 
 ## Where a step runs

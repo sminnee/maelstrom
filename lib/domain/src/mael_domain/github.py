@@ -2,7 +2,7 @@
 
 Every function here shells out, hands the raw output to a parser in
 ``github_model``, and turns a failure into a typed ``GitHubError``. The domain
-logic — the dataclasses, the parsers, the stack walk, the errors — lives in
+logic — the dataclasses, the parsers, the errors — lives in
 ``github_model`` and needs no subprocess to exercise.
 
 Most functions shell out through ``run_cmd`` or ``run_git`` and block. The one
@@ -28,7 +28,6 @@ from typing import Callable, TypeVar
 
 from mael_common.shell import run_cmd, run_cmd_async
 
-from .base_store import GitConfigBaseStore
 from .config import load_config_or_default
 from .context import load_global_config
 from .github_model import (
@@ -59,27 +58,29 @@ from .github_model import (
     parse_pr_ref,
     parse_run_states,
     rollup_refused,
-    stack_chain,
     token_env,
 )
 from .project_scaffold import scaffold_files
 from .worktree import (
     FETCH_ERRORS,
-    SyncResult,
-    base_moved,
     ensure_fetched,
     get_current_branch,
+    main_moved,
     rebase_worktree,
     rebase_worktree_with_autorepair,
     run_git,
     run_pre_push_cmd,
 )
-from .worktree_changes import base_refs_for_diff
-from .worktree_model import REPAIRED_MESSAGE, print_flushed
+from .worktree_model import (
+    MAIN_BRANCH,
+    ORIGIN_MAIN,
+    REPAIRED_MESSAGE,
+    print_flushed,
+)
 
 log = logging.getLogger(__name__)
 
-#: How many times ``create_pr`` runs the pre-push check when the base keeps
+#: How many times ``create_pr`` runs the pre-push check when main keeps
 #: moving under it. After the last one it pushes anyway.
 PRE_PUSH_ATTEMPTS = 3
 
@@ -598,9 +599,8 @@ def create_pr(
 ) -> PushedPr:
     """Create a pull request for the current worktree branch, or push if PR exists.
 
-    Rebases onto this branch's base, runs the project's ``pre_push_cmd``, then
-    pushes once. A stacked chain is registered on GitHub with ``gh stack link``
-    once the PR exists.
+    Rebases onto ``origin/main``, runs the project's ``pre_push_cmd``, then
+    pushes once.
 
     Args:
         cwd: Current working directory (default: actual cwd).
@@ -629,12 +629,12 @@ def create_pr(
 
     config = load_config_or_default(cwd)
     check = pre_push and bool(config.pre_push_cmd)
-    # The check must see the commit that is pushed. A base that moved while it
+    # The check must see the commit that is pushed. A main that moved while it
     # ran means one more rebase, so the check runs again on the new commit.
     for attempt in range(1, PRE_PUSH_ATTEMPTS + 1):
-        # A retry fetches anew. It follows a base move, and a fetch within
+        # A retry fetches anew. It follows a move of main, and a fetch within
         # the freshness window would not see the move.
-        rebased = _rebase_before_push(
+        _rebase_before_push(
             cwd,
             squash=squash,
             autorepair=autorepair,
@@ -644,17 +644,17 @@ def create_pr(
         if not check:
             break
         run_pre_push_cmd(cwd, config)
-        if not base_moved(cwd, rebased.base):
+        if not main_moved(cwd):
             break
         if attempt == PRE_PUSH_ATTEMPTS:
             announce(
-                f"Warning: {rebased.base} moved during each of {PRE_PUSH_ATTEMPTS} "
+                f"Warning: {MAIN_BRANCH} moved during each of {PRE_PUSH_ATTEMPTS} "
                 "pre-push checks. Pushing anyway; CI may not reuse the project's "
                 "records."
             )
         else:
             announce(
-                f"{rebased.base} moved during the pre-push check; "
+                f"{MAIN_BRANCH} moved during the pre-push check; "
                 "rebasing and checking again."
             )
 
@@ -720,13 +720,10 @@ def create_pr(
     # Read after the push: a failed push raises above and leaves the draft.
     has_draft = read_pr_draft(cwd) is not None
 
-    # If PR exists, just return the URL. Registration still runs: the stack may
-    # have grown or collapsed since the PR was opened, and `link` is how GitHub
-    # learns about it.
+    # If PR exists, just return the URL.
     if pr_exists:
         if has_draft and _write_pr_body(cwd, existing_number, announce=announce):
             discard_pr_draft(cwd)
-        _register_stack(cwd, branch_name, announce=announce)
         return PushedPr(existing_url, int(existing_number), False)
 
     # Try to get the first commit message for title
@@ -764,7 +761,6 @@ def create_pr(
     new_url = result.stdout.strip()
     if has_draft:
         discard_pr_draft(cwd)
-    _register_stack(cwd, branch_name, announce=announce)
     try:
         number, _ = parse_pr_ref(new_url, None)
     except ValueError:
@@ -782,8 +778,8 @@ def _rebase_before_push(
     autorepair: bool,
     announce: Callable[[str], None],
     max_age: float | None,
-) -> SyncResult:
-    """Rebase onto the branch's base without pushing; raise if it fails."""
+) -> None:
+    """Rebase onto ``origin/main`` without pushing; raise if it fails."""
     if autorepair:
         result = rebase_worktree_with_autorepair(
             cwd, max_age=max_age, squash=squash, announce=announce
@@ -808,7 +804,6 @@ def _rebase_before_push(
     # in a PR.
     if result.repaired:
         announce(REPAIRED_MESSAGE)
-    return result
 
 
 def _write_pr_body(
@@ -820,8 +815,7 @@ def _write_pr_body(
     """Replace an open PR's body with the PR draft. True when it landed.
 
     Never fatal: the branch is already pushed, so a failed write costs the
-    description and nothing else — the same contract :func:`_register_stack`
-    has. Returning False is what keeps the draft on disk for the next attempt.
+    description and nothing else. Returning False is what keeps the draft on disk for the next attempt.
     """
     try:
         result = run_cmd(
@@ -844,39 +838,6 @@ def _write_pr_body(
         )
         return False
     return True
-
-
-def _register_stack(
-    cwd: Path, branch: str, *, announce: Callable[[str], None] = print_flushed
-) -> None:
-    """Register this branch's stack on GitHub, so its PRs show as a stack.
-
-    ``gh stack link`` is the only ``gh stack`` command used, and it runs only after
-    the branch is pushed and its PR exists. Every *local* one is unusable from a
-    maelstrom worktree; ``docs/dev/stacking.md`` has the reasoning.
-
-    Never fatal: a failed registration costs the stack view and nothing else, so it
-    warns and returns.
-    """
-    chain = stack_chain(branch, GitConfigBaseStore(cwd).all())
-    if len(chain) < 2:
-        return  # not stacked; nothing to register
-
-    try:
-        result = run_cmd(["gh", "stack", "link", *chain], cwd=cwd, check=False)
-    except FileNotFoundError:
-        announce(
-            "Warning: could not register the stack on GitHub — the gh stack "
-            "extension is not installed (gh extension install github/gh-stack). "
-            "The PR is pushed; only the stack view is missing."
-        )
-        return
-    if result.returncode != 0:
-        announce(
-            f"Warning: could not register the stack on GitHub "
-            f"({result.stderr.strip() or 'gh stack link failed'}). "
-            f"The PR is pushed; only the stack view is missing."
-        )
 
 
 def get_pr_info(cwd: Path) -> PRInfo:
@@ -1457,29 +1418,14 @@ def get_worktree_code(cwd: Path) -> tuple[str, str]:
         empty when git cannot produce it — a worktree with no commits, or one
         not on a branch, is not an error here.
     """
-    # Get commits since diverging from this branch's base. For a stacked branch
-    # that is its parent, not main: diffing against main would present the
-    # parent's commits as this PR's work, and a reviewing agent would report on
-    # code that belongs to a different PR.
+    # Get commits since diverging from main
     commits_output = ""
     try:
-        # A base that merged and was pruned no longer resolves. Falling back to
-        # main keeps the reviewer seeing this branch's work; without it the
-        # merge-base raises, the handler below swallows it, and the review is
-        # handed no code at all.
-        merge_base = ""
-        for base_ref in base_refs_for_diff(cwd):
-            try:
-                merge_base = run_git(
-                    ["merge-base", "HEAD", base_ref],
-                    cwd=cwd,
-                    quiet=True,
-                ).stdout.strip()
-                break
-            except subprocess.CalledProcessError:
-                continue
-        if not merge_base:
-            raise subprocess.CalledProcessError(1, "merge-base")
+        merge_base = run_git(
+            ["merge-base", "HEAD", ORIGIN_MAIN],
+            cwd=cwd,
+            quiet=True,
+        ).stdout.strip()
 
         # Get log of commits
         log_result = run_git(

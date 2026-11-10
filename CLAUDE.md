@@ -35,8 +35,6 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/worktree-steps.md` — the steps a worktree mutation is made of: the shared step
   vocabulary, the two ordering rules, the repo and worktree scopes, and why the git algorithms
   stay whole.
-- `docs/dev/stacking.md` — stacked branches: what a base is, why the base tip is stored, the
-  stack tip, and why only `gh stack link` is used.
 - `docs/dev/scheduled-tasks.md` — how the scheduler fires template tasks, on launchd and systemd.
 - `docs/dev/host-services.md` — `install.sh` and `mael self setup`: the setup steps, the launchd
   and systemd units, the restart mapping, why the migration comes first, and the `self` fence.

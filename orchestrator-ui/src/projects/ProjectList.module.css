@@ -46,11 +46,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tip {
-  font-family: var(--mono);
-  color: var(--fg-muted);
-  max-width: 24rem;
-}
 .count {
   font-variant-numeric: tabular-nums;
 }

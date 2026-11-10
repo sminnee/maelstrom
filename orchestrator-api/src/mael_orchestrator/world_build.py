@@ -233,7 +233,6 @@ def worktree_entity(
         "nato": nato,
         "path": row["path"],
         "branch": row.get("branch") or "",
-        "base": row.get("base") or "",
         "isClosed": bool(row.get("is_closed")),
         "dirtyFiles": int(row.get("dirty_files") or 0),
         "localCommits": int(row.get("local_commits") or 0),
@@ -262,11 +261,10 @@ def worktree_entity(
 
 
 def project_entity(data: dict[str, Any]) -> Project:
-    """The wire project for one ``list-all`` project, which carries its stack tip."""
+    """The wire project for one ``list-all`` project."""
     return {
         "id": data["name"],
         "name": data["name"],
-        "stackTip": data.get("stack_tip") or "main",
         "hasLinear": bool(data.get("has_linear")),
     }
 

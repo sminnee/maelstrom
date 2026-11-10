@@ -31,7 +31,7 @@ export interface DiffBody {
 
 const base = (worktreeId: WorktreeId) => `/api/worktrees/${encodeURIComponent(worktreeId)}`;
 
-/** A worktree's dirty files and the commits its branch has over its base. */
+/** A worktree's dirty files and the commits its branch has over `main`. */
 export function useWorktreeChanges(worktreeId: WorktreeId) {
   const api = useApi();
   return useQuery({

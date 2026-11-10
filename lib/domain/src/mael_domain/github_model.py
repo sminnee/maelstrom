@@ -3,8 +3,8 @@
 This is the model layer for the GitHub subsystem, mirroring how
 ``worktree_model.py`` is the model for the worktree subsystem (see
 ``docs/dev/architecture-patterns.md``). It holds the dataclasses that describe a
-pull request, the parsers that turn raw ``gh`` output into them, the stack walk,
-and the typed errors the transport layer raises.
+pull request, the parsers that turn raw ``gh`` output into them, and the typed
+errors the transport layer raises.
 
 Everything here is a pure function of its arguments, so it is exercised by
 calling it with a literal string. The IO adapter ``github.py`` imports from here;
@@ -17,8 +17,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
-
-from .worktree_model import MAIN_BRANCH
 
 
 def token_env(token: str | None) -> dict[str, str] | None:
@@ -103,7 +101,7 @@ PASSING_STATES = {"SUCCESS", "SKIPPED", "NEUTRAL"}
 
 
 class SyncFailed(RuntimeError):
-    """A rebase onto the branch's base could not finish.
+    """A rebase onto ``origin/main`` could not finish.
 
     Raised by ``github.create_pr``, which syncs before it pushes. Deliberately
     not a ``GitHubError``: the rebase is local git work, and calling it a GitHub
@@ -187,28 +185,6 @@ def is_missing_pr_error(stderr: str) -> bool:
     way to tell it apart from a real error.
     """
     return "no pull requests found" in stderr.lower()
-
-
-def stack_chain(branch: str, bases: dict[str, str]) -> list[str]:
-    """The branches from the bottom of ``branch``'s stack up to ``branch`` itself.
-
-    Walks the stored bases down to ``main`` and returns the result bottom-to-top,
-    which is the order ``gh stack link`` wants. A branch with no base returns just
-    itself, so callers can test the length to decide whether there is a stack at
-    all.
-
-    ``bases`` is validated against cycles when it is written, so the walk
-    terminates; the visited set is a belt-and-braces stop rather than the guard.
-    """
-    chain = [branch]
-    seen = {branch}
-    current = bases.get(branch)
-    while current and current != MAIN_BRANCH and current not in seen:
-        chain.append(current)
-        seen.add(current)
-        current = bases.get(current)
-    chain.reverse()
-    return chain
 
 
 #: How close a pull request is to merging — see **PR state** in ``CONTEXT.md``.

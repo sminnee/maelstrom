@@ -463,7 +463,6 @@ function changes(): Seed {
         { path: 'auth/tokens.py', status: 'M' },
         { path: 'auth/rotate.py', status: '?' },
       ],
-      base: 'main',
       commits: [
         {
           sha: CHANGES_SHA,

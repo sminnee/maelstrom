@@ -38,7 +38,6 @@ class TestSquashBranchCommand:
 
     def _result(self, scope: SquashScope = "remote"):
         return SquashResult(
-            base="feat/parent",
             history_ref="refs/mael/history/feat/child/20260908T121500Z",
             commits=3,
             stat=" one.txt | 1 +\n 1 file changed, 1 insertion(+)",
@@ -47,12 +46,11 @@ class TestSquashBranchCommand:
             collapse_point="0000000",
         )
 
-    def test_it_reports_the_base_the_ref_the_count_and_the_stat(self, tmp_path):
+    def test_it_reports_the_ref_the_count_and_the_stat(self, tmp_path):
         invoked, _ = self._run(tmp_path, result=self._result())
 
         assert invoked.exit_code == 0
         assert invoked.output == (
-            "Base: feat/parent\n"
             "Working history: refs/mael/history/feat/child/20260908T121500Z\n"
             "Squashed 3 commits into abc1234.\n"
             "\n"
@@ -104,7 +102,6 @@ class TestUncommitBranchCommandScope:
             patch(
                 "mael_cli.git_cli.uncommit_branch",
                 return_value=UncommitResult(
-                    base="main",
                     history_ref="refs/mael/history/feature/work/20260908T121500Z",
                     commits=1,
                     stat="",

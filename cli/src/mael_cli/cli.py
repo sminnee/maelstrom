@@ -22,7 +22,6 @@ from mael_agent.harness_model import (
 )
 from mael_cli import __version__
 from mael_common.cli_async import AsyncGroup
-from mael_domain.base_store import GitConfigBaseStore
 from mael_domain.context import (
     load_global_config,
     resolve_context,
@@ -39,11 +38,8 @@ from mael_domain.worktree import (
     FETCH_ERRORS,
     SyncResult,
     add_project,
-    check_base_exists,
     create_worktree,
-    current_stack_tip,
     ensure_fetched,
-    get_current_branch,
     get_worktree_dirty_files,
     list_worktrees,
     rebase_worktree,
@@ -63,14 +59,12 @@ from mael_domain.worktree_config import apply_worktree_config
 from mael_domain.worktree_model import (
     MAIN_BRANCH,
     MAIN_WORKTREE_FOLDER,
+    ORIGIN_MAIN,
     REPAIRED_MESSAGE,
-    BaseRef,
     WorktreeError,
     extract_project_name,
     extract_worktree_name_from_folder,
     get_worktree_folder_name,
-    order_by_stack,
-    validate_base,
 )
 from mael_domain.worktree_trash import trash_worktree_fully
 
@@ -362,13 +356,6 @@ async def cmd_create_project(ctx, name, public, description, projects_dir):
     is_flag=True,
     help="Don't recycle closed worktrees, always create new",
 )
-@click.option(
-    "--base",
-    "base",
-    default=None,
-    help="Stack the new branch on BASE (default: the project's stack tip). "
-    "Use 'main' to start unstacked.",
-)
 async def cmd_add(
     branch,
     project,
@@ -377,7 +364,6 @@ async def cmd_add(
     open,
     no_agent,
     no_recycle,
-    base,
     cli,
     daemon,
 ):
@@ -493,7 +479,6 @@ async def cmd_add(
             branch,
             no_recycle=no_recycle,
             run_install=False,
-            base=base,
             announce=click.echo,
         )
     except (RuntimeError, ValueError, WorktreeError) as e:
@@ -506,7 +491,7 @@ async def cmd_add(
         click.echo(f"Worktree created at: {worktree_path}")
         click.echo(f"  → {ctx.project}/{wt_name} (created)")
 
-    # Opening a worktree rebases its branch onto its base first. A failed sync
+    # Opening a worktree rebases its branch onto origin/main first. A failed sync
     # blocks the launch: a session must never start on unrebased code.
     _report_open_sync(result.sync)
 
@@ -694,11 +679,7 @@ def _wire_pr(wt: Worktree) -> PrStatus | None:
 
 def _worktree_row(worktree: str, wt: Worktree) -> dict:
     """One table row of ``mael list`` and ``mael list-all``."""
-    # A stacked branch reads "child ← parent", so the whole stack is
-    # visible without a new column.
     branch_display = wt["branch"] or "(detached)"
-    if wt["base"]:
-        branch_display = f"{branch_display} \u2190 {wt['base']}"
     pr_cell = pr_display(_wire_pr(wt), wt["pushedCommits"] or 0)
     if wt["prStale"] and pr_cell:
         pr_cell += " (stale)"
@@ -844,260 +825,12 @@ def cmd_ide(target):
         raise click.ClickException(str(e))
 
 
-def _base_store_for(worktree_path: Path) -> GitConfigBaseStore:
-    """The base store for ``worktree_path``'s project.
-
-    Plain ``git config`` resolves to the shared config from a linked worktree, so
-    the worktree path is as good as the project path here.
-    """
-    return GitConfigBaseStore(worktree_path)
-
-
-def _sync_target_label(worktree_path: Path) -> str:
-    """What to call the rebase target in the "Syncing …" line.
-
-    Cosmetic, so it never fails the command: a worktree whose branch cannot be
-    read still syncs, and the echo falls back to the default target rather than
-    turning a display detail into an error.
-    """
-    try:
-        base = _base_store_for(worktree_path).read(get_current_branch(worktree_path))
-    except Exception:
-        return f"origin/{MAIN_BRANCH}"
-    return f"origin/{base.branch}"
-
-
-def _apply_base_option(worktree_path: Path, base: str | None) -> None:
-    """Set, change, or clear the current branch's base from ``--base``.
-
-    ``--base main`` clears the entry rather than storing ``main`` explicitly, so an
-    opted-out branch is indistinguishable from one that never opted in. Changing an
-    existing base drops its tip: the old tip points into the old base's history, and
-    replaying from it would take the wrong range of commits.
-
-    Raises:
-        click.ClickException: If the base is the branch itself, or closes a cycle.
-    """
-    if base is None:
-        return
-
-    store = _base_store_for(worktree_path)
-    branch = get_current_branch(worktree_path)
-    if base == MAIN_BRANCH:
-        store.clear(branch)
-        click.echo(f"Base of {branch} cleared; it now stacks on {MAIN_BRANCH}.")
-        return
-
-    try:
-        check_base_exists(worktree_path, base)
-        validate_base(branch, base, store.all())
-    except ValueError as e:
-        raise click.ClickException(str(e))
-    store.write(branch, BaseRef(branch=base))
-    click.echo(f"Base of {branch} set to {base}.")
-
-
-@cli.command("base")
-@click.argument("target", required=False, default=None)
-def cmd_base(target):
-    """Show the branch this worktree's work is stacked on.
-
-    Use `mael sync --base <branch>` to change it, or `--base main` to clear it.
-    """
-    try:
-        ctx = resolve_context(target, require_project=True, require_worktree=True)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    worktree_path = ctx.worktree_path
-    if worktree_path is None or not worktree_path.exists():
-        raise click.ClickException(f"Worktree not found at {worktree_path}")
-
-    branch = get_current_branch(worktree_path)
-    base = _base_store_for(worktree_path).read(branch)
-    if base.is_default:
-        click.echo(f"{branch} is based on {MAIN_BRANCH}.")
-        return
-    click.echo(f"{branch} is based on {base.branch}.")
-
-
-@cli.command("stack-tip")
-@click.argument("branch", required=False, default=None)
-@click.option(
-    "-p", "--project", default=None, help="Project name (default: detect from cwd)"
-)
-def cmd_stack_tip(branch, project):
-    """Show or move the branch new worktrees stack on.
-
-    The tip is `main` until you move it, so new work bases on `main`. Move it to
-    stack the next worktrees on a branch; `mael stack-tip main` resets it. Only
-    this command moves the tip — `mael add` leaves it where it is.
-
-    The tip self-heals to main when its branch is deleted, so a merged or
-    abandoned branch can never become the base of new work.
-    """
-    try:
-        ctx = resolve_context(
-            project,
-            require_project=True,
-            require_worktree=False,
-            arg_is_project=True,
-        )
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    project_path = ctx.project_path
-    if project_path is None or not project_path.exists():
-        raise click.ClickException(
-            f"Project '{ctx.project}' not found at {project_path}"
-        )
-
-    store = GitConfigBaseStore(project_path)
-
-    if branch is None:
-        tip = current_stack_tip(project_path, store)
-        if tip.healed:
-            click.echo(
-                f"The stack tip's branch is gone; reset to {MAIN_BRANCH}. "
-                f"New worktrees will not be stacked."
-            )
-            return
-        if tip.stale_days is not None:
-            click.echo(
-                f"New worktrees stack on {tip.branch} "
-                f"(no commits for {tip.stale_days} days)."
-            )
-            return
-        if tip.branch == MAIN_BRANCH:
-            click.echo(f"New worktrees are not stacked (tip is {MAIN_BRANCH}).")
-            return
-        click.echo(f"New worktrees stack on {tip.branch}.")
-        return
-
-    # A tip that names no branch would be healed straight back to main at the next
-    # `mael add`, so refuse the typo here rather than accept it and undo it later.
-    try:
-        check_base_exists(project_path, branch)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    store.write_stack_tip(branch)
-    if branch == MAIN_BRANCH:
-        click.echo(
-            f"Stack tip reset to {MAIN_BRANCH}; new worktrees will not be stacked."
-        )
-        return
-    click.echo(f"Stack tip moved to {branch}; new worktrees will stack on it.")
-
-
-def _restack_onto(store: GitConfigBaseStore, branch: str, new_base: str) -> None:
-    """Point ``branch``'s base at ``new_base``, dropping any recorded tip.
-
-    The tip belongs to the old base's history, so carrying it over would make the
-    next rebase replay from a point that has nothing to do with the new base.
-    """
-    if new_base == MAIN_BRANCH:
-        store.clear(branch)
-        return
-    store.write(branch, BaseRef(branch=new_base))
-
-
-def _unstack(
-    branch: str, store: GitConfigBaseStore, *, repoint_children: bool
-) -> str | None:
-    """Pull ``branch`` out of its stack onto ``main``. Returns its old base.
-
-    ``repoint_children`` decides which of the two escape hatches this is:
-    ``promote`` re-points anything that was based on ``branch`` onto ``branch``'s
-    old base, so the rest of the stack closes up behind it; ``eject`` leaves them
-    where they are.
-    """
-    base = store.read(branch)
-    if base.is_default:
-        return None
-
-    if repoint_children:
-        for child, child_base in store.all().items():
-            if child_base == branch:
-                _restack_onto(store, child, base.branch)
-
-    store.clear(branch)
-    return base.branch
-
-
-def _resolve_stack_edit_branch(target):
-    """Shared context resolution for `mael promote` and `mael eject`."""
-    try:
-        ctx = resolve_context(target, require_project=True, require_worktree=True)
-    except ValueError as e:
-        raise click.ClickException(str(e))
-
-    worktree_path = ctx.worktree_path
-    if worktree_path is None or not worktree_path.exists():
-        raise click.ClickException(f"Worktree not found at {worktree_path}")
-    return worktree_path, get_current_branch(worktree_path)
-
-
-@cli.command("promote")
-@click.argument("target", required=False, default=None)
-def cmd_promote(target):
-    """Move this branch to the bottom of its stack, so it can merge first.
-
-    Registering a stack on GitHub means merge order is enforced bottom-up, so an
-    urgent PR stuck mid-stack needs a way to jump the queue. Promote re-points
-    this branch onto main and re-points anything that was based on it onto this
-    branch's old base, so the rest of the stack closes up behind it.
-
-    Run `mael sync` afterwards, here and in the re-pointed worktrees, to rebase
-    onto the new bases.
-    """
-    worktree_path, branch = _resolve_stack_edit_branch(target)
-    store = GitConfigBaseStore(worktree_path)
-
-    old_base = _unstack(branch, store, repoint_children=True)
-    if old_base is None:
-        click.echo(f"{branch} is already at the bottom of its stack.")
-        return
-    click.echo(
-        f"{branch} promoted to the bottom of its stack (was based on {old_base}). "
-        f"Run `mael sync` here and in any re-pointed worktree."
-    )
-
-
-@cli.command("eject")
-@click.argument("target", required=False, default=None)
-def cmd_eject(target):
-    """Pull this branch out of its stack onto main, leaving the rest alone.
-
-    The same operation as `mael promote` without the re-point: branches based on
-    this one stay where they are. Use it when this branch simply does not belong
-    in the stack, rather than when it needs to merge first.
-    """
-    worktree_path, branch = _resolve_stack_edit_branch(target)
-    store = GitConfigBaseStore(worktree_path)
-
-    old_base = _unstack(branch, store, repoint_children=False)
-    if old_base is None:
-        click.echo(f"{branch} is not stacked on anything.")
-        return
-    click.echo(
-        f"{branch} ejected from its stack (was based on {old_base}). "
-        f"Run `mael sync` to rebase it onto {MAIN_BRANCH}."
-    )
-
-
 @cli.command("sync")
 @click.argument("target", required=False, default=None)
 @click.option(
     "--squash",
     is_flag=True,
-    help="Autosquash fixup! commits while rebasing onto the base",
-)
-@click.option(
-    "--base",
-    "base",
-    default=None,
-    help="Stack this branch on BASE before rebasing. Use 'main' to unstack it.",
+    help="Autosquash fixup! commits while rebasing onto origin/main",
 )
 @click.option(
     "--abort",
@@ -1128,8 +861,8 @@ def cmd_eject(target):
     is_flag=True,
     help="Push without running the project's pre_push_cmd (emergency only)",
 )
-def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_push):
-    """Rebase worktree against its base branch (origin/main by default).
+def cmd_sync(target, squash, abort, close, no_push, autorepair, skip_pre_push):
+    """Rebase worktree against origin/main.
 
     With --autorepair, a rebase conflict starts a headless Claude session that
     resolves it and continues the rebase. This supersedes --abort: an autorepair
@@ -1161,15 +894,12 @@ def cmd_sync(target, squash, base, abort, close, no_push, autorepair, skip_pre_p
     if worktree_path is None or not worktree_path.exists():
         raise click.ClickException(f"Worktree not found at {worktree_path}")
 
-    _apply_base_option(worktree_path, base)
-
-    target_label = _sync_target_label(worktree_path)
     if squash:
         click.echo(
-            f"Syncing {ctx.worktree} with {target_label} (autosquashing fixup! commits)..."
+            f"Syncing {ctx.worktree} with {ORIGIN_MAIN} (autosquashing fixup! commits)..."
         )
     else:
-        click.echo(f"Syncing {ctx.worktree} with {target_label}...")
+        click.echo(f"Syncing {ctx.worktree} with {ORIGIN_MAIN}...")
     if no_push:
         if autorepair:
             result = rebase_worktree_with_autorepair(
@@ -1466,14 +1196,6 @@ def cmd_sync_all(project, autorepair):
         click.echo("No worktrees found to sync.")
         return
 
-    # Sync parents before their children, so a child rebases onto a parent tip
-    # the parent has already published. Convergence, not correctness: an
-    # out-of-order run leaves the child stale, and the next sync-all fixes it.
-    bases = GitConfigBaseStore(project_path).all()
-    by_branch = {wt.branch: wt for wt in worktrees}
-    order = order_by_stack([wt.branch for wt in worktrees], bases)
-    worktrees = [by_branch[b] for b in order]
-
     # Fetch once for all worktrees (they share the same repo)
     click.echo("Fetching from origin...")
     try:
@@ -1486,7 +1208,7 @@ def cmd_sync_all(project, autorepair):
     elif main_result is not None and main_result.status == "warning":
         click.echo(f"  Warning: {main_result.message}", err=True)
 
-    click.echo(f"Syncing {len(worktrees)} worktree(s) with their bases...")
+    click.echo(f"Syncing {len(worktrees)} worktree(s) with origin/main...")
     click.echo()
 
     # A refused push leaves a usable worktree, so the sweep goes on to the
@@ -1610,7 +1332,6 @@ def cmd_tidy_branches(project):
     rebased = [r for r in results if r.action == "rebased"]
     conflicts = [r for r in results if r.action == "skipped_conflicts"]
     checked_out = [r for r in results if r.action == "skipped_checked_out"]
-    stacked = [r for r in results if r.action == "skipped_base"]
     errors = [r for r in results if r.action == "skipped_error"]
 
     click.echo("Results:")
@@ -1640,11 +1361,6 @@ def cmd_tidy_branches(project):
     if checked_out:
         click.echo(f"  Skipped (checked out) ({len(checked_out)}):")
         for r in checked_out:
-            click.echo(f"    - {r.branch}")
-
-    if stacked:
-        click.echo(f"  Skipped (part of a stack) ({len(stacked)}):")
-        for r in stacked:
             click.echo(f"    - {r.branch}")
 
     if errors:

@@ -22,7 +22,7 @@ pytestmark = pytest.mark.binds_socket
 
 def serve(start_server):
     """Start the server, with the project in its world: a create names one."""
-    project = project_entity({"name": PROJECT, "stack_tip": "main"})
+    project = project_entity({"name": PROJECT})
     return start_server(InMemoryWorktreeSource(projects=[project]))
 
 

@@ -25,7 +25,6 @@ export function ProjectList() {
           <tr>
             <th>project</th>
             <th>worktrees</th>
-            <th>stack tip</th>
             <th>linear</th>
           </tr>
         </thead>
@@ -44,7 +43,6 @@ export function ProjectList() {
                 </button>
               </td>
               <td className={`${styles.count} nowrap`}>{`${row.openWorktrees} open`}</td>
-              <td className={`${styles.tip} truncate`}>{row.stackTip}</td>
               <td className={row.hasLinear ? undefined : styles.faint} data-linear={row.hasLinear}>
                 {row.hasLinear ? 'Linear' : 'none'}
               </td>
@@ -52,7 +50,7 @@ export function ProjectList() {
           ))}
           {status === 'ready' && rows.length === 0 && (
             <tr>
-              <td colSpan={4} className={styles.faint}>
+              <td colSpan={3} className={styles.faint}>
                 No projects yet.
               </td>
             </tr>

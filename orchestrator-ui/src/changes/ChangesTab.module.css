@@ -28,9 +28,6 @@
 .branch {
   color: var(--fg);
 }
-.base {
-  color: var(--fg-faint);
-}
 .prMatch {
   display: flex;
   align-items: center;

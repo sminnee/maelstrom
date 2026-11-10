@@ -114,7 +114,7 @@ async def run_sync(
     executor: Executor | None = None,
     hook: StepHook | None = None,
 ) -> SequenceResult:
-    """Rebase ``worktree`` onto its base, then push it.
+    """Rebase ``worktree`` onto ``origin/main``, then push it.
 
     ``mode`` is ``plain``, ``autorepair`` or ``squash``. ``abort_on_conflict``
     is implied on the two non-repairing modes: only autorepair wants the

@@ -280,7 +280,7 @@ async def test_a_deleted_script_carries_the_shebang_of_its_old_side(repo, script
     )
 
 
-# -- commits and the base ------------------------------------------------------
+# -- commits --------------------------------------------------------------------
 
 
 async def test_commits_ahead_of_main_list_oldest_first(repo):
@@ -294,7 +294,6 @@ async def test_commits_ahead_of_main_list_oldest_first(repo):
 
     changes = await list_changes(repo)
 
-    assert changes["base"] == "main"
     assert [
         {k: c[k] for k in ("subject", "body", "author", "filesChanged")}
         for c in changes["commits"]
@@ -314,30 +313,6 @@ async def test_commits_ahead_of_main_list_oldest_first(repo):
     [only] = await read_diff(repo, second)
     assert only["path"] == "b.txt"
     assert sorted(by_path(await read_diff(repo, "branch"))) == ["a.txt", "b.txt"]
-
-
-async def test_a_stacked_branch_lists_only_its_own_commits(repo):
-    create_commit(repo, "parent.txt", "p\n", "feat: parent")
-    run_git(repo, "update-ref", "refs/remotes/origin/feat/work", "HEAD")
-    run_git(repo, "checkout", "-b", "feat/child")
-    run_git(repo, "config", "branch.feat/child.maelBase", "feat/work")
-    create_commit(repo, "child.txt", "c\n", "feat: child")
-
-    changes = await list_changes(repo)
-
-    assert changes["base"] == "feat/work"
-    assert [c["subject"] for c in changes["commits"]] == ["feat: child"]
-    assert sorted(by_path(await read_diff(repo, "branch"))) == ["child.txt"]
-
-
-async def test_a_pruned_base_falls_back_to_main(repo):
-    run_git(repo, "config", "branch.feat/work.maelBase", "feat/gone")
-    create_commit(repo, "a.txt", "a\n", "feat: first")
-
-    changes = await list_changes(repo)
-
-    assert changes["base"] == "main"
-    assert [c["subject"] for c in changes["commits"]] == ["feat: first"]
 
 
 async def test_a_sha_outside_the_branch_is_refused(repo):

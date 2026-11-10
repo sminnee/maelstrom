@@ -22,7 +22,6 @@ anywhere, not per file. See docs/dev/dead-code.md.
 Phase  # unused variable (lib/domain/src/mael_domain/protocol.py:12)
 TaskStatus  # unused variable (lib/domain/src/mael_domain/protocol.py:13)
 AgentStateName  # unused variable (lib/domain/src/mael_domain/protocol.py:14)
-stackTip  # unused variable (lib/domain/src/mael_domain/protocol.py:27)
 hasLinear  # unused variable (lib/domain/src/mael_domain/protocol.py:29)
 isClosed  # unused variable (lib/domain/src/mael_domain/protocol.py:39)
 dirtyFiles  # unused variable (lib/domain/src/mael_domain/protocol.py:40)

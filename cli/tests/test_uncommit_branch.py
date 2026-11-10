@@ -39,11 +39,10 @@ class TestUncommitBranchCommand:
         ):
             return CliRunner().invoke(cli, ["git", "uncommit-branch"])
 
-    def test_it_reports_the_base_the_ref_the_messages_and_the_stat(self, tmp_path):
+    def test_it_reports_the_ref_the_messages_and_the_stat(self, tmp_path):
         result = self._run(
             tmp_path,
             result=UncommitResult(
-                base="feat/parent",
                 history_ref="refs/mael/history/feat/child/20260908T121500Z",
                 commits=2,
                 stat=" one.txt | 1 +\n 1 file changed, 1 insertion(+)",
@@ -56,7 +55,6 @@ class TestUncommitBranchCommand:
 
         assert result.exit_code == 0
         assert result.output == (
-            "Base: feat/parent\n"
             "Working history: refs/mael/history/feat/child/20260908T121500Z\n"
             "Uncommitted 2 commits into the working tree:\n"
             "\n"

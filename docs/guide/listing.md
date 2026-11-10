@@ -27,7 +27,7 @@ pipes it into a JSON parser fails at the parser rather than at the command.
 The JSON is the server's own wire shape, grouped by project:
 
 ```json
-{"projects": [{"id": "askastro", "name": "askastro", "stackTip": "main", "hasLinear": false,
+{"projects": [{"id": "askastro", "name": "askastro", "hasLinear": false,
   "worktrees": [{"id": "askastro-alpha", "nato": "alpha", "branch": "feat/x", "isClosed": false,
     "dirtyFiles": 0, "prNumber": 1635, "prState": "ready", "prStale": false, "...": "..."}]}]}
 ```
@@ -119,7 +119,7 @@ Closed worktrees are not rows. `mael list` names them on one line under the tabl
 | Column | What it shows | Blank means |
 |---|---|---|
 | `WORKTREE` | The NATO name — `bravo`, not `myproject-bravo` | Never blank |
-| `BRANCH` | The checked-out branch, or `(detached)`. A stacked branch reads `feat/child ← feat/parent` | Never blank |
+| `BRANCH` | The checked-out branch, or `(detached)` | Never blank |
 | `DIRTY FILES` | How many files `git status` reports as changed | No uncommitted changes |
 | `LOCAL COMMITS` | Commits that exist only on this machine | Nothing unpushed |
 | `PR (COMMITS)` | `#1766 (6)` — the open pull request and its commit count. One that asks for something says so: `#1766 failed (6)`, `running`, `conflict`. A merged one reads `#1766 merged (2)`, where the count is what has been pushed since. `(stale)` at the end means the last PR read failed, timed out or stood off. See below | No pull request and nothing pushed |
@@ -213,12 +213,11 @@ can resume.
 
 ## Where each fact comes from
 
-The orchestrator server builds each row from eight sources. Most run once for the whole
+The orchestrator server builds each row from seven sources. Most run once for the whole
 project. Only the per-worktree ones grow with the number of open worktrees.
 
 ```
 git worktree list ──────────────────► WORKTREE, BRANCH             once per project
-one git config --get-regexp ────────► BRANCH (the ← base)          once per project
 one rev-list ───────────────────────► which worktrees are closed   once per project
 gh api graphql ─────────────────────► PR (COMMITS)                 once per project, over the network, 30 s at most
 one pgrep + lsof sweep ─────────────► SESSION (live count)         once per project
@@ -227,8 +226,8 @@ git rev-list ──────────────────────�
 port allocation + port probe ───────► APP                          once per open worktree
 ```
 
-Five of those run once per project, however many worktrees it holds: the worktree list, the
-base lookup, the closed check, the pull request lookup and the session sweep. A closed
+Four of those run once per project, however many worktrees it holds: the worktree list, the
+closed check, the pull request lookup and the session sweep. A closed
 worktree still costs one
 `git status`, because the closed check must know whether the worktree is clean. It costs nothing
 else.

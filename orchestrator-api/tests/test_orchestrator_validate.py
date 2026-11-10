@@ -586,7 +586,7 @@ def test_an_exited_subagent_is_still_refused_as_a_subagent_not_as_exited():
 
 # --- task.infer, task.create and agent.start ---
 
-PROJECT = {"id": "northwind", "name": "northwind", "stackTip": "main"}
+PROJECT = {"id": "northwind", "name": "northwind"}
 
 
 def test_unknown_id_for_inference_in_a_project_the_world_does_not_hold():
@@ -959,7 +959,6 @@ def make_worktree(**over) -> dict:
         "nato": "alpha",
         "path": "/Users/dev/Projects/northwind/northwind-alpha",
         "branch": "feat/orders",
-        "base": "main",
         "isClosed": False,
         "dirtyFiles": 0,
         "localCommits": 0,

@@ -46,7 +46,7 @@ release while that section is empty, and retitles it to the version it is releas
   skills, the config directory, the version and whether the agent host answers. **Add your first
   project** opens Add project. Click the logo to open it again.
 - **A project row opens its Project dialog.** Overview shows where `_main` and the worktrees are,
-  the stack tip and the Linear link, and **Create your first task**. Worktrees holds the
+  the Linear link, and **Create your first task**. Worktrees holds the
   project's worktree table. When a clone ends, the new project's Project dialog opens. The URL
   holds it as `?detail=<project>&dtab=worktrees`, so a reload reopens it.
 - **Set up a project from the UI.** The Project dialog's **Set up** button creates and launches a
@@ -121,6 +121,14 @@ release while that section is empty, and retitles it to the version it is releas
 - **`--here`.** Use `--cli`, which now runs in your shell.
 - **`mael cmux status` and `mael env open`.** Maelstrom no longer starts cmux, lays out a
   three-pane workspace, or opens the app or a PR in a cmux browser.
+- **Branch stacking.** Every branch is now based on `main`, and each rebase targets
+  `origin/main`. `mael base`, `mael stack-tip`, `mael promote` and `mael eject` are removed. So
+  is the `--base` option of `mael add`, `mael sync`, `mael task add` and `mael task update`.
+  `mael gh create-pr` no longer runs `gh stack link`. A branch's stored `maelBase` and
+  `maelBaseTip` git config keys are ignored, and `git branch -d` removes them. The project's
+  `maelstrom.stackTip` key is ignored too. A branch that is stacked now is rebased onto
+  `origin/main` at its next sync, and keeps its parent's commits. Merge or rebase the parent
+  first. A PR that `gh stack link` registered keeps its parent branch as its GitHub base.
 
 ## [0.2.0] - 2026-11-06
 

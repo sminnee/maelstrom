@@ -636,7 +636,7 @@ function read(path: string, server: FakeServer): Reply {
       return notFound(`open worktree ${id}`);
     }
     const entry = world.changes[id] ?? {
-      changes: { dirtyFiles: [], base: 'main', commits: [] },
+      changes: { dirtyFiles: [], commits: [] },
       diffs: {},
     };
     if (wt[2] === 'changes') return ok(entry.changes);
@@ -895,7 +895,7 @@ function command(
     name: 'close_workspace',
     lines: [`Closed cmux workspace '${worktree.project}-${worktree.nato}'.`],
   });
-  const closed = { isClosed: true, branch: '', base: '' };
+  const closed = { isClosed: true, branch: '' };
 
   // The end of a worktree, as each worktree route and each Dismiss chain runs it.
   const worktreeEnds: Record<
@@ -1531,7 +1531,7 @@ function command(
           lines: [`Cloned ${gitUrl}.`],
           run: () => {
             server.change({ kind: 'project', ids: [name] }, (w) => {
-              w.projects[name] = { id: name, name, stackTip: 'main', hasLinear: false };
+              w.projects[name] = { id: name, name, hasLinear: false };
             });
             // A clone makes the main checkout, as `mael project add` does.
             const mainId = `${name}-_main`;
@@ -1788,7 +1788,7 @@ function command(
       steps: [
         {
           name: 'rebase',
-          lines: [`Rebased ${worktree.branch} onto origin/${worktree.base || 'main'}.`],
+          lines: [`Rebased ${worktree.branch} onto origin/main.`],
           // A sync moves counts the fake does not model, but it makes the PR
           // head the local head. The change still goes out, so a test can see
           // the call landed.

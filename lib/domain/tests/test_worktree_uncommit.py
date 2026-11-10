@@ -1,9 +1,9 @@
 """Tests for ``uncommit_branch``.
 
-The function returns a branch to unstaged changes at its base tip, keeping the
+The function returns a branch to unstaged changes at its fork point from main, keeping the
 chronological commits under a working-history ref. These tests drive real git
 rather than mocked argv. The collapse it shares with ``squash_branch`` — the
-refusals, the stack-aware base, the rebase and its conflict — is tested in
+refusals, the rebase and its conflict — is tested in
 ``test_worktree_squash.py``; this file tests the reset and what follows it.
 
 The repo follows the source → bare-remote → working-clone pattern the sync tests
