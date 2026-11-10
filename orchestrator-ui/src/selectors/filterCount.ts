@@ -10,11 +10,11 @@ import { LIVE_STATUSES } from './taskList';
  * a control added there is counted here too.
  */
 export function activeFilterCount(view: View, filters: Filters, listFilters: ListFilters): number {
-  const work = view === 'canvas' || view === 'list';
+  const work = view === 'desk' || view === 'list';
   return [
     filters.project !== null,
     work && filters.branch !== null,
-    view === 'canvas' && (filters.agentStatus ?? 'all') !== 'all',
+    view === 'desk' && (filters.agentStatus ?? 'all') !== 'all',
     work && searching(filters),
     work && !!filters.comm,
     view === 'list' && !sameStatuses(listFilters.statuses, LIVE_STATUSES),

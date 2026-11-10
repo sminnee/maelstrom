@@ -33,7 +33,7 @@ const MIN_MAIN_STRIP = 48;
 const clamp = (width: number) =>
   Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_MAIN_STRIP, width));
 
-const MAIN_VIEWS: View[] = ['canvas', 'list', 'comms', 'projects'];
+const MAIN_VIEWS: View[] = ['desk', 'list', 'comms', 'projects'];
 
 /**
  * The app under the top bar, in one of the three layouts of `LayoutMode`.
@@ -93,7 +93,7 @@ function SlotShell() {
         <main className={styles.body}>
           {MAIN_VIEWS.filter((view) => showing.includes(view)).map((view) => (
             <section key={view} className={styles.slot} {...slot(view)}>
-              {view === 'canvas' ? (
+              {view === 'desk' ? (
                 <Canvas />
               ) : view === 'comms' ? (
                 <CommList />

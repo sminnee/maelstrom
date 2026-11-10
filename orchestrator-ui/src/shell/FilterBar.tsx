@@ -72,7 +72,7 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
         </label>
       )}
       {/* Only for the Desk and Tasks, which name branches through their work. */}
-      {(showing.includes('canvas') || showing.includes('list')) && (
+      {(showing.includes('desk') || showing.includes('list')) && (
         <label className={styles.field}>
           <span>Branch</span>
           <select
@@ -88,7 +88,7 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
           </select>
         </label>
       )}
-      {showing.includes('canvas') && (
+      {showing.includes('desk') && (
         <label className={styles.field}>
           <span>Agent status</span>
           <select
@@ -114,10 +114,10 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
           emptyLabel="all"
         />
       )}
-      {(showing.includes('canvas') || showing.includes('list')) && (
+      {(showing.includes('desk') || showing.includes('list')) && (
         <CommField value={filters.comm} onChange={(comm) => setFilters({ comm })} />
       )}
-      {(showing.includes('canvas') || showing.includes('list')) && <SearchField />}
+      {(showing.includes('desk') || showing.includes('list')) && <SearchField />}
     </div>
   );
 }

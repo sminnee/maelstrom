@@ -60,7 +60,7 @@ describe('filterOptions', () => {
   });
 
   it('offers only the desk work on the canvas', () => {
-    expect(filterOptions(desk, noFilters(), ['canvas'])).toEqual({
+    expect(filterOptions(desk, noFilters(), ['desk'])).toEqual({
       projects: ['northwind'],
       branches: [{ key: 'northwind/feat/orders', label: 'northwind/feat/orders' }],
     });
@@ -72,7 +72,7 @@ describe('filterOptions', () => {
       agents: [makeAgent({ id: 'free-1', taskId: '', project: '', worktreeId: 'riverbend-alpha' })],
       desk: [makeDeskEntry({ id: deskIdForAgent('free-1') })],
     });
-    expect(filterOptions(free, noFilters(), ['canvas'])).toEqual({
+    expect(filterOptions(free, noFilters(), ['desk'])).toEqual({
       projects: ['riverbend'],
       branches: [{ key: 'riverbend/fix/map', label: 'riverbend/fix/map' }],
     });
@@ -82,7 +82,7 @@ describe('filterOptions', () => {
     const lane = worldWith({
       worktrees: [makeWorktree({ id: 'riverbend-alpha', project: 'riverbend', branch: 'fix/map' })],
     });
-    expect(filterOptions(lane, noFilters(), ['canvas'])).toEqual({
+    expect(filterOptions(lane, noFilters(), ['desk'])).toEqual({
       projects: ['riverbend'],
       branches: [],
     });
@@ -91,14 +91,14 @@ describe('filterOptions', () => {
   it('offers the whole Desk whatever the agent status filter hides', () => {
     // No desk agent is terminated, so this filter draws nothing.
     const filters: Filters = { ...noFilters(), agentStatus: 'terminated' };
-    expect(filterOptions(desk, filters, ['canvas'])).toEqual(
-      filterOptions(desk, noFilters(), ['canvas']),
+    expect(filterOptions(desk, filters, ['desk'])).toEqual(
+      filterOptions(desk, noFilters(), ['desk']),
     );
-    expect(filterOptions(desk, filters, ['canvas']).projects).toEqual(['northwind']);
+    expect(filterOptions(desk, filters, ['desk']).projects).toEqual(['northwind']);
   });
 
   it('offers the union when the canvas and the list are both on screen', () => {
-    expect(filterOptions(desk, noFilters(), ['canvas', 'list'])).toEqual({
+    expect(filterOptions(desk, noFilters(), ['desk', 'list'])).toEqual({
       projects: ['maelstrom', 'northwind'],
       branches: [
         { key: 'maelstrom/feat/ui', label: 'maelstrom/feat/ui' },
@@ -110,7 +110,7 @@ describe('filterOptions', () => {
   it('keeps offering a selected project and branch that the view does not hold', () => {
     // Picked on Tasks, then the user switches to the Desk: the filter stays.
     const filters = { ...noFilters(), project: 'maelstrom', branch: 'maelstrom/feat/ui' };
-    expect(filterOptions(desk, filters, ['canvas'])).toEqual({
+    expect(filterOptions(desk, filters, ['desk'])).toEqual({
       projects: ['maelstrom', 'northwind'],
       branches: [{ key: 'maelstrom/feat/ui', label: 'feat/ui' }],
     });
@@ -118,7 +118,7 @@ describe('filterOptions', () => {
 
   it('drops a selected branch that nothing in the world names', () => {
     const filters = { ...noFilters(), branch: 'northwind/feat/gone' };
-    expect(filterOptions(desk, filters, ['canvas', 'list']).branches).toEqual([
+    expect(filterOptions(desk, filters, ['desk', 'list']).branches).toEqual([
       { key: 'maelstrom/feat/ui', label: 'maelstrom/feat/ui' },
       { key: 'northwind/feat/orders', label: 'northwind/feat/orders' },
     ]);
