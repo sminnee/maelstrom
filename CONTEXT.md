@@ -166,7 +166,8 @@ _Avoid_: State, folder
 
 **Parent**:
 The grouping key that puts a task in a chain sharing one branch and one pull request — "one PR
-per parent". A task with an empty parent roots its own chain. A parent is often virtual, such
+per parent". In a `merge: local` project, the chain has one **Candidate** in place of a PR. A
+task with an empty parent roots its own chain. A parent is often virtual, such
 as `linear.NORT-123`, and is never checked against a real task.
 _Avoid_: Epic, group
 
@@ -254,6 +255,8 @@ to GitHub's data about that PR, which the orchestrator server reads on its workt
   GitHub environment that `deploy.environments` names for each step.
 - An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
   `unknown` never counts as reached.
+- In a `merge: local` project, `merged` comes from the **Build queue**'s record of the
+  **Candidate**'s merge, not from a PR.
 - A project with no `deploy:` block stops at `merged`.
 - The server records each landing step the first time a task reaches it, with the time it
   recorded it.
@@ -667,7 +670,7 @@ _Avoid_: Skill message, skill prompt
 **External event**:
 A user turn the orchestrator server writes to an agent from outside its conversation, in the
 `<external-event source=… type=…>` envelope. The source says where it came from: `orchestrator-ui`,
-`jig`, `github`, `gate` or `orchestrator`. The type says what happened, such as `document.approved` or
+`jig`, `github`, `gate`, `build`, `merge` or `orchestrator`. The type says what happened, such as `document.approved` or
 `pr.checks_failed`. The attributes are its facts, and the body is what the agent is to do. The
 transcript draws it apart from the user's words, as it does a **Loaded skill** and a **Task
 notification**. See `docs/dev/orchestrator-server.md`, "External events".
@@ -895,8 +898,16 @@ _Avoid_: pre-push hook (git's own client-side hook), pre-push gates
 
 **Pre-PR gate**:
 Maelstrom's own `tangier gate run lint test web jig --fail-fast`, run by hand on the committed tree
-before a PR. It is not a pre-push check: no command runs it for you.
+before a PR. It is not a pre-push check: no command runs it for you. When maelstrom moves to
+`merge: local`, it becomes `tangier gate run @pre-merge --direct`, the light **Gate set**, run
+before the **Steer review** and before submit.
 _Avoid_: pre-push check (for this command)
+
+**Gate set**:
+A named list of gates in `pipeline.toml`, run as `tangier gate run @<name>`. Each gate in it can
+have its own `accept` rule. `@pre-merge` is the light set the agent runs. `@merge` is the full
+set the **Build queue** runs.
+_Avoid_: gate group (a group is one gate with members), gate list, profile
 
 **Gate job**:
 One `tangier gate run` invocation that runs one or more gates on one worktree. A gate job is
@@ -914,6 +925,30 @@ The orchestrator's one `tangier gate status --watch` process. It keeps the world
 tells each agent in a gate job's worktree when the job ends, with a `gate` **External event**.
 _Avoid_: gate poll
 
+**Build queue**:
+The per-project service that runs the `@merge` **Gate set** on each **Candidate** in a **Build
+worktree**, in a `merge: local` project. It gates Candidates and never merges one or changes a
+branch. It replaces CI, not the gates. See `docs/dev/build-queue.md`.
+_Avoid_: merge queue (it does not order merges), CI, pipeline
+
+**Candidate**:
+A branch head that `mael submit` put in the **Build queue**, based on the `origin/main` tip at
+submit. Its states are `queued`, `building`, `passed`, `stale`, `failed`, `withdrawn` and
+`merged`. A `passed` Candidate draws the Merge button. The next submit replaces it.
+_Avoid_: Submission, merge request, build (the gate run on it)
+
+**Build worktree**:
+A worktree in the **Build queue**'s pool, `_build1` … `_buildN`, that checks out a **Candidate**
+to gate it. Like `_main`, it never closes. It has its own `PORT_BASE` and `.env`. `build_slots:`
+sets N.
+_Avoid_: Build slot (the count), runner, CI worktree
+
+**Chaperone**:
+The agent of a **Candidate**'s task. It gets every `build.*` and `merge.*` **External event**
+for the Candidate, and does all git work on its branch. The orchestrator resumes the task's last
+session when an event is due and the chaperone is not live.
+_Avoid_: Owner, watcher
+
 **Machine metrics**:
 The machine's CPU, memory and CPU temperature, with the usage of each running **Gate job**. The
 orchestrator server samples them every 15 s and keeps the last 15 minutes in memory. The
@@ -925,6 +960,12 @@ A point where the user approves, answers or decides something before the work co
 review, a question, a permission, a document review. A checkpoint is where a human steps in; a
 gate is automated.
 _Avoid_: Gate, approval step
+
+**Steer review**:
+A **Checkpoint** in a `merge: local` project, right after the `built` milestone. The agent
+presents the branch for a rough pass over structure and behaviour, and waits. It comes before
+`/code-review` and `/present`, so a redirect wastes few tokens.
+_Avoid_: Draft review, early review, pre-review
 
 **Security requirements**:
 A project's `docs/security/requirements.md`: its assets, roles, authentication, trust
@@ -1028,10 +1069,11 @@ Producing an agreed plan for one task. Ends at the plan-review checkpoint.
 
 **Build**:
 Building the code, running its own review, presenting it, opening the PR. Ends when the PR first
-ships.
+ships. In a `merge: local` project, it ends at the first `mael submit`.
 
 **Land**:
-Answering CI failures and review feedback on an open PR. Ends when it merges.
+Answering CI failures and review feedback on an open PR. Ends when it merges. In a `merge: local`
+project, the **Chaperone** answers `build.*` events and review feedback on its **Candidate**.
 
 **Held text**:
 What the user typed into a surface of the orchestrator UI and has not submitted, kept in the
