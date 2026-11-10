@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { agentsOfTask, deriveGraph, nodeZone, worktreeHolders } from './graph';
-import type { Operation } from '../protocol/entities';
+import { agentsOfTask, deriveGraph, nodeZone, startsNewSession, worktreeHolders } from './graph';
+import type { Operation, Task } from '../protocol/entities';
 import { cardPr } from './cardPr';
 import { noFilters } from './filters';
 import { deskIdForAgent } from '../protocol/deskId';
@@ -686,5 +686,44 @@ describe('agentsOfTask', () => {
         ['T2', ['other']],
       ]),
     );
+  });
+});
+
+describe('startsNewSession', () => {
+  const ended = makeAgent({ id: 'old', taskId: 'T1', state: 'exited', exitCode: 0 });
+  const follow = (status: Task['status']) => makeTask({ id: 'T0', status });
+  it.each([
+    ['an actionable task', makeTask({ id: 'T1', actionable: true }), [], [ended], true],
+    [
+      'a done task whose follows are done',
+      makeTask({ id: 'T1', status: 'done', actionable: false, follows: ['T0'] }),
+      [follow('done')],
+      [ended],
+      true,
+    ],
+    [
+      'a done task with an unfinished follow',
+      makeTask({ id: 'T1', status: 'done', actionable: false, follows: ['T0'] }),
+      [follow('in-progress')],
+      [ended],
+      false,
+    ],
+    [
+      'a cancelled task',
+      makeTask({ id: 'T1', status: 'cancelled', actionable: false }),
+      [],
+      [ended],
+      false,
+    ],
+    [
+      'a task with a live agent',
+      makeTask({ id: 'T1', actionable: true }),
+      [],
+      [ended, makeAgent({ id: 'new', taskId: 'T1', state: 'idle' })],
+      false,
+    ],
+  ])('%s: %s', (_name, task, others, agents, expected) => {
+    const tasks = Object.fromEntries([task, ...others].map((t) => [t.id, t]));
+    expect(startsNewSession(task, tasks, agents)).toBe(expected);
   });
 });

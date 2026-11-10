@@ -1390,7 +1390,14 @@ function command(
   if (m && method === 'POST') {
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
-    if (!task.actionable) return error(400, 'invalid', `Task ${task.id} is not actionable`);
+    // A **New session** may reopen a done task whose follows are done, as `validate.py` allows.
+    const reopens =
+      b.newSession === true &&
+      task.status === 'done' &&
+      task.follows.every((f) => world.tasks[f]?.status === 'done');
+    if (!task.actionable && !reopens) {
+      return error(400, 'invalid', `Task ${task.id} is not actionable`);
+    }
     return operate({
       kind: 'launch',
       keys: [`task:${task.id}`],

@@ -368,6 +368,30 @@ describe('App', () => {
     await waitFor(() => expect(resumeBodies(before)).toEqual([{}]));
   });
 
+  it("starts a New session from the Resume menu of a task's exited agent", async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    const card = screen.getByRole('dialog', { name: 'Migrate to Postgres 16' });
+    // A live agent offers no Resume menu, so no New session either.
+    expect(within(card).queryByRole('button', { name: 'More resume actions' })).toBeNull();
+
+    exitAgent(server, 'd9a4c7f1');
+    await user.click(await within(card).findByRole('button', { name: 'More resume actions' }));
+    // The main segment stays Resume: New session is a menu choice.
+    expect(within(card).getByRole('button', { name: 'Resume' })).toBeInTheDocument();
+    const before = server.requests.length;
+    await user.click(within(card).getByRole('menuitem', { name: /^New session/ }));
+    await waitFor(() =>
+      expect(
+        server.requests
+          .slice(before)
+          .filter((r) => r.method === 'POST' && r.path.endsWith('/launch'))
+          .map((r) => r.body),
+      ).toEqual([{ newSession: true }]),
+    );
+  });
+
   it('shows on the card why the host refused a Resume', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

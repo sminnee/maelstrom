@@ -47,10 +47,12 @@ export function useLaunch() {
     // Resolves when the server takes the launch: the board and the console
     // carry the operation from there.
     // `host` names a **Remote host**; none launches on the server's own host.
-    mutationFn: (vars: { taskId: TaskId; model?: string; host?: string }) =>
+    // `newSession` starts a **New session** in place of a resume.
+    mutationFn: (vars: { taskId: TaskId; model?: string; host?: string; newSession?: boolean }) =>
       api.post<OperationStarted>(`/api/tasks/${vars.taskId}/launch`, {
         ...(vars.model ? { model: vars.model } : {}),
         ...(vars.host ? { host: vars.host } : {}),
+        ...(vars.newSession ? { newSession: true } : {}),
       }),
     onSuccess: (_result, vars) => {
       invalidateTask(queryClient, vars.taskId);

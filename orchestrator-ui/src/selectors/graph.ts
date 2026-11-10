@@ -7,6 +7,7 @@ import type {
   Operation,
   OperationKind,
   Phase,
+  Task,
   TaskStatus,
   Worktree,
 } from '../protocol/entities';
@@ -151,6 +152,21 @@ export function agentsOfTask(world: WorldView): Map<TaskId, Agent[]> {
     agents.sort((a, b) => a.startedAt.localeCompare(b.startedAt));
   }
   return byTask;
+}
+
+/**
+ * Whether a **New session** of the task can start: no agent of it is live, and
+ * it is actionable, or done with every follow done. The server's `_reopens`
+ * in `validate.py` holds the same rule.
+ */
+export function startsNewSession(
+  task: Pick<Task, 'id' | 'status' | 'actionable' | 'follows'>,
+  tasks: Readonly<Record<TaskId, Pick<Task, 'status'>>>,
+  agents: readonly Agent[],
+): boolean {
+  if (agents.some((a) => a.taskId === task.id && !a.parent && isLive(a))) return false;
+  if (task.actionable) return true;
+  return task.status === 'done' && task.follows.every((f) => tasks[f]?.status === 'done');
 }
 
 /** The open attention items, oldest first, keyed by task id and by agent id. */
