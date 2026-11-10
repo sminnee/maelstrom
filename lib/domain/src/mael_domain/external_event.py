@@ -8,10 +8,14 @@ the user's words. The facts are attributes; the body is what to do. See
 import html
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
 
+if TYPE_CHECKING:
+    from .merge_request import Build, MergeRequest
+
+BUILD = "build"
 GATE = "gate"
 GITHUB = "github"
 JIG = "jig"
@@ -28,6 +32,10 @@ JIG_CONTROLS = "jig.controls"
 GATE_PASSED = "gate.passed"
 GATE_FAILED = "gate.failed"
 GATE_CANCELLED = "gate.cancelled"
+BUILD_QUEUED = "build.queued"
+BUILD_PASSED = "build.passed"
+BUILD_FAILED = "build.failed"
+BUILD_REBASE = "build.rebase"
 PR_WATCHING = "pr.watching"
 PR_CHECKS_FAILED = "pr.checks_failed"
 PR_CHECKS_PASSED = "pr.checks_passed"
@@ -195,6 +203,25 @@ def _gate_summary(gates: list[dict[str, Any]]) -> list[str]:
     return lines
 
 
+def gate_failure_lines(job: dict[str, Any]) -> list[str]:
+    """One ``- <gate>: <state> (exit <code>)`` line per failed gate of ``job``."""
+    lines = []
+    for gate in job.get("gates") or []:
+        if not isinstance(gate, dict) or gate.get("state") in _GATE_NOT_FAILED:
+            continue
+        gate_state = gate.get("state")
+        code = gate.get("code")
+        line = f"- {gate.get('name')}: {gate_state}"
+        if code is not None:
+            line += f" (exit {code})"
+        if gate_state == "unrecorded":
+            line += (
+                ": the worktree changed while the gate ran, so its pass wrote no record"
+            )
+        lines.append(line)
+    return lines
+
+
 def gate_event(job: dict[str, Any]) -> ExternalEvent:
     """The event a finished gate job is, as ``tangier gate status --json`` gives it.
 
@@ -212,25 +239,77 @@ def gate_event(job: dict[str, Any]) -> ExternalEvent:
         return ExternalEvent(
             GATE, GATE_PASSED, attrs, f"Gate job {number} passed: {names}."
         )
-    failed = [g for g in gates if g.get("state") not in _GATE_NOT_FAILED]
+    failed = gate_failure_lines(job)
     if state == "cancelled" and not failed:
         lines = [f"Gate job {number} was cancelled.", *_gate_summary(gates)]
         return ExternalEvent(GATE, GATE_CANCELLED, attrs, "\n".join(lines))
-    lines = [f"Gate job {number} failed at {short}:"]
-    for gate in failed:
-        gate_state = gate.get("state")
-        code = gate.get("code")
-        line = f"- {gate.get('name')}: {gate_state}"
-        if code is not None:
-            line += f" (exit {code})"
-        if gate_state == "unrecorded":
-            line += (
-                ": the worktree changed while the gate ran, so its pass wrote no record"
-            )
-        lines.append(line)
+    lines = [f"Gate job {number} failed at {short}:", *failed]
     lines += [
         *_gate_summary(gates),
         f"Log: {job.get('log')}",
         "Read the log, fix the failures, commit, and run the gates again.",
     ]
     return ExternalEvent(GATE, GATE_FAILED, attrs, "\n".join(lines))
+
+
+def build_event(mr: "MergeRequest", build: "Build") -> ExternalEvent | None:
+    """The event ``build`` of ``mr`` is for its chaperone, by the Build's state.
+
+    A ``running`` Queue build sends no event: the next state follows. The
+    queue tells a ``cancelled`` one only while it is linked: its gate job was
+    cancelled outside the queue, so nothing runs it again until a submit.
+    """
+    short = build.sha[:7]
+    attrs = {
+        "task": mr.task,
+        "merge-request": mr.id,
+        "build": build.id,
+        "sha": short,
+        "branch": mr.branch,
+    }
+    resubmit = (
+        "run the light gates, and run `mael merge submit` again. End your turn "
+        "after the submit; do not wait on the Queue build."
+    )
+    if build.state == "queued":
+        return ExternalEvent(
+            BUILD,
+            BUILD_QUEUED,
+            attrs,
+            f"The Build queue accepted {short} as Queue build {build.id} of Merge "
+            f"request {mr.id}. Maelstrom will tell you with `build.passed` or "
+            "`build.failed` when it ends. End your turn; do not wait on it.",
+        )
+    if build.state == "passed":
+        return ExternalEvent(
+            BUILD,
+            BUILD_PASSED,
+            attrs,
+            f"Queue build {build.id} passed every gate at {short}. The user reviews "
+            f"Merge request {mr.id} and merges it. No action needed.",
+        )
+    if build.state == "failed":
+        return ExternalEvent(
+            BUILD,
+            BUILD_FAILED,
+            attrs,
+            f"Queue build {build.id} failed at {short}:\n{build.detail}\n"
+            f"Read the log, fix the failures, commit, {resubmit}",
+        )
+    if build.state == "cancelled":
+        return ExternalEvent(
+            BUILD,
+            BUILD_FAILED,
+            attrs,
+            f"The gate job of Queue build {build.id} at {short} was cancelled outside "
+            f"the Build queue. Check why, then {resubmit}",
+        )
+    if build.state == "stale":
+        return ExternalEvent(
+            BUILD,
+            BUILD_REBASE,
+            attrs,
+            f"`main` moved since {short} was submitted, so Queue build {build.id} ran "
+            "no gate. Run `mael sync`, resolve any conflict, " + resubmit,
+        )
+    return None

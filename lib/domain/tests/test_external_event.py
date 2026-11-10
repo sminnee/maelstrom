@@ -3,8 +3,14 @@
 import pytest
 
 from mael_domain.external_event import (
+    BUILD,
+    BUILD_FAILED,
+    BUILD_PASSED,
+    BUILD_QUEUED,
+    BUILD_REBASE,
     ExternalEvent,
     PrLedger,
+    build_event,
     gate_event,
     ledger_without,
     parse,
@@ -12,6 +18,7 @@ from mael_domain.external_event import (
     render,
 )
 from mael_domain.github_model import PrStatus
+from mael_domain.merge_request import Build, MergeRequest
 
 
 class TestEnvelope:
@@ -278,3 +285,54 @@ class TestGateEvent:
         assert event == ExternalEvent(
             "gate", "gate.cancelled", {"job": "1100", "head": "0c72dc6"}, body
         )
+
+
+class TestBuildEvent:
+    MR = MergeRequest(
+        "mr1", "demo/k1", "demo", "k1", "feat/x", "a" * 40, "c" * 40, "open", "b2",
+        "t0", "t1",
+    )  # fmt: skip
+
+    def _build(self, state, detail=""):
+        return Build(
+            "b2", "mr1", "demo", "a" * 40, "c" * 40, state, "t0", detail=detail
+        )
+
+    @pytest.mark.parametrize(
+        ("state", "type_"),
+        [
+            ("queued", BUILD_QUEUED),
+            ("passed", BUILD_PASSED),
+            ("failed", BUILD_FAILED),
+            ("stale", BUILD_REBASE),
+        ],
+    )
+    def test_each_end_is_one_event_with_the_build_facts(self, state, type_):
+        event = build_event(self.MR, self._build(state))
+        assert (event.source, event.type) == (BUILD, type_)
+        assert event.attrs == {
+            "task": "demo/k1",
+            "merge-request": "mr1",
+            "build": "b2",
+            "sha": "aaaaaaa",
+            "branch": "feat/x",
+        }
+
+    def test_a_failure_carries_the_failed_gate_and_log(self):
+        detail = "- test: failed (exit 1)\nLog: /tmp/job7.log"
+        event = build_event(self.MR, self._build("failed", detail))
+        assert "- test: failed (exit 1)" in event.body
+        assert "Log: /tmp/job7.log" in event.body
+        assert "mael merge submit" in event.body
+
+    def test_a_rebase_says_to_sync(self):
+        assert "mael sync" in build_event(self.MR, self._build("stale")).body
+
+    def test_running_is_no_news(self):
+        assert build_event(self.MR, self._build("running")) is None
+
+    def test_a_cancel_outside_the_queue_is_a_failure_to_submit_again(self):
+        event = build_event(self.MR, self._build("cancelled"))
+        assert event.type == BUILD_FAILED
+        assert "cancelled outside" in event.body
+        assert "mael merge submit" in event.body
