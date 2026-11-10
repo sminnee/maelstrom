@@ -67,17 +67,6 @@
   color: var(--fg-faint);
   line-height: 1.4;
 }
-.close {
-  border: none;
-  background: none;
-  padding: 0 var(--u-half);
-  font-size: var(--text-lg);
-  line-height: 1;
-  color: var(--fg-faint);
-}
-.close:hover {
-  color: var(--fg);
-}
 .status {
   display: flex;
   align-items: baseline;

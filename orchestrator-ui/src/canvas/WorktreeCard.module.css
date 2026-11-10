@@ -26,17 +26,6 @@
   font-size: var(--text-sm);
   color: var(--fg-muted);
 }
-.close {
-  border: none;
-  background: none;
-  padding: 0 var(--u-half);
-  font-size: var(--text-lg);
-  line-height: 1;
-  color: var(--fg-faint);
-}
-.close:hover {
-  color: var(--fg);
-}
 .commands {
   display: flex;
   justify-content: flex-end;
