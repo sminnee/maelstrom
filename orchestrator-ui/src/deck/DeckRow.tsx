@@ -13,6 +13,7 @@ import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { GateLozenge } from '../shell/GateLozenge';
 import { PrChip } from '../shell/PrChip';
+import { MergeRequestChip } from '../shell/MergeRequestChip';
 import { useSwipeAction } from '../gesture/useSwipeAction';
 import { useUnitOperation } from '../console/useConsole';
 import { nodeUnit, unitWords } from '../selectors/operations';
@@ -132,6 +133,7 @@ export function DeckRow({
             </span>
           )}
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
+          <MergeRequestChip mr={node.worktree?.mergeRequest} interactive={false} />
           {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} interactive={false} />}
           {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
         </span>

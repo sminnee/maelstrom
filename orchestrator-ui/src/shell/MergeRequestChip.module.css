@@ -1,0 +1,7 @@
+/* The chip and, while a Build runs, its gate lozenge, side by side. */
+.mr {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u);
+  flex: none;
+}
