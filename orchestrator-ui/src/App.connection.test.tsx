@@ -1,9 +1,10 @@
 import { paneItem } from './test/appHelpers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { renderApp } from './test/renderApp';
+import { SILENT_DROP_MS, STALE_DROP_MS } from './shell/ConnectionBanner';
 
 describe('loading', () => {
   it('shows Loading, not "No task matches", before the tasks arrive', async () => {
@@ -30,21 +31,53 @@ describe('loading', () => {
 });
 
 describe('the change stream', () => {
-  it('shows the banner while the stream reconnects, and keeps the nodes', async () => {
-    const { server } = await renderApp();
-    await act(async () => {});
-    expect(screen.queryByRole('status')).toBeNull();
-    await act(async () => {
-      server.dropStream();
-    });
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Reconnecting… showing the last known state',
-    );
-    expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
-    await act(async () => {
-      server.openStreams();
-    });
-    expect(screen.queryByRole('status')).toBeNull();
+  it('shows "Connecting…" at once, before any data', async () => {
+    await renderApp({ ready: false });
+    expect(screen.getByRole('status')).toHaveTextContent(/^Connecting…$/);
+  });
+
+  it('waits out a short drop, then shows a grey and then an orange banner, and keeps the nodes', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { server } = await renderApp();
+      await act(async () => {});
+      expect(screen.queryByRole('status')).toBeNull();
+      await act(async () => {
+        server.dropStream();
+      });
+      expect(screen.queryByRole('status')).toBeNull();
+      await act(async () => {
+        vi.advanceTimersByTime(SILENT_DROP_MS);
+      });
+      expect(screen.getByRole('status')).toHaveTextContent(/^Reconnecting…$/);
+      expect(screen.getByRole('status')).toHaveAttribute('data-tone', 'quiet');
+      await act(async () => {
+        vi.advanceTimersByTime(STALE_DROP_MS - SILENT_DROP_MS);
+      });
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Reconnecting… showing the last known state',
+      );
+      expect(screen.getByRole('status')).not.toHaveAttribute('data-tone');
+      expect(screen.getAllByTestId('task-node').length).toBeGreaterThan(0);
+      await act(async () => {
+        server.openStreams();
+      });
+      expect(screen.queryByRole('status')).toBeNull();
+      // The next drop starts quiet, and a short one never shows.
+      await act(async () => {
+        server.dropStream();
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(SILENT_DROP_MS / 2);
+      });
+      expect(screen.queryByRole('status')).toBeNull();
+      await act(async () => {
+        server.openStreams();
+      });
+      expect(screen.queryByRole('status')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

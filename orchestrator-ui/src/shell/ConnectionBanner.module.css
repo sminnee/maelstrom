@@ -5,7 +5,7 @@
   background: var(--attention);
   text-align: center;
 }
-.banner[data-connection='connecting'] {
+.banner[data-tone='quiet'] {
   color: var(--fg-muted);
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);

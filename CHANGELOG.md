@@ -67,6 +67,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The reconnect banner waits before it shows.** A short change-stream drop shows no banner.
+  From 3 s a grey "Reconnecting…" shows, and from 15 s the orange "Reconnecting… showing the
+  last known state".
 - **Agents survive an agent-daemon restart, and an OOM kill takes one agent.** The agent-daemon
   unit sets `KillMode=mixed` and `OOMPolicy=continue`. Run `mael self setup` to update the unit.
   That first restart can still lose agents; they show as exited, with Resume.
