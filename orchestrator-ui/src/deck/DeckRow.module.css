@@ -132,6 +132,24 @@
 .worktree {
   flex: 0 1 auto;
 }
+/* In a narrow kanban column the names share the first line and truncate, and a chip or the
+   phase that does not fit drops to a second line rather than run past the edge. A list row
+   has no container, so this never applies there. */
+@container (max-width: 220px) {
+  .open {
+    padding-inline: var(--u);
+  }
+  .meta {
+    flex-wrap: wrap;
+    row-gap: var(--u-half);
+  }
+  .project,
+  .id,
+  .worktree {
+    flex: 1 1 0;
+    min-width: 3ch;
+  }
+}
 /* The chip is a pill, not text: `overflow: hidden` would cut its rounded
    border rather than ellipsise anything, and shrinking squashes the icon. */
 .pr {
