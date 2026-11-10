@@ -2445,6 +2445,22 @@ def test_a_host_with_no_reading_offers_no_usage(harness):
     assert (host["usage"], host["codexUsage"]) == (None, None)
 
 
+def test_the_host_names_this_server_and_its_id_prefix(store):
+    """The UI labels a worktree another host owns from these two fields."""
+    harness = Harness(store, ids=IdSpace("cobalt"), own_name="cobalt")
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                return await api.get_json("/api/host")
+
+    host = run(scenario())["host"]
+    assert (host["name"], host["idPrefix"]) == ("cobalt", "cobalt")
+
+
 def test_one_failed_poll_raises_no_host_notice(harness):
     harness.daemon.rows["ag1"] = agent_row()
 

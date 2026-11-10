@@ -720,6 +720,8 @@ body rather than the query builder.
     client: { local: true, host: '' },
     host: {
       id: 'agent-host',
+      name: 'monolith',
+      idPrefix: '',
       reachable: true,
       since: T(9),
       socket: '',

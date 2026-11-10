@@ -57,6 +57,8 @@ describe('the agent host', () => {
       server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
         world.host = {
           id: 'agent-host',
+          name: 'monolith',
+          idPrefix: '',
           reachable: false,
           since: '2026-06-11T09:05:00Z',
           socket: '/x/agent-daemon.sock',

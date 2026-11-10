@@ -676,6 +676,7 @@ class Orchestrator:
         opener: WorktreeOpener | None = None,
         ids: IdSpace | None = None,
         own_url: str = "",
+        own_name: str = "",
     ) -> None:
         self.tasks = tasks
         #: Where each agent's task work goes: see "The task seam" in
@@ -687,6 +688,8 @@ class Orchestrator:
         self.ids = ids if ids is not None else IdSpace()
         #: This server's own URL: the ``parentUrl`` of a launch it delegates.
         self.own_url = own_url
+        #: The name a user reads for this server, on the ``host`` entity.
+        self.own_name = own_name
         #: Each **Remote host** in ``hosts:``, by name: the link, the merged
         #: slices, and the session a delegated launch and a forward use.
         self.remote_hosts: Mapping[str, RemoteHost] = remote_hosts or {}
@@ -1820,6 +1823,8 @@ class Orchestrator:
             return
         entity: Host = {
             "id": HOST_ID,
+            "name": self.own_name,
+            "idPrefix": self.ids.prefix,
             "reachable": bool(next_reachable),
             "since": current["since"]
             if current is not None and was_reachable == next_reachable

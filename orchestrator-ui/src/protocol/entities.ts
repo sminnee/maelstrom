@@ -616,6 +616,10 @@ export interface HostUsage {
  */
 export interface Host {
   id: 'agent-host';
+  /** The name a reader sees for this server. */
+  name: string;
+  /** This server's **Id prefix**: `''` when its ids are bare. */
+  idPrefix: string;
   reachable: boolean;
   /** When `reachable` last changed. */
   since: string;

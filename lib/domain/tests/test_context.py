@@ -25,6 +25,21 @@ class TestGlobalConfig:
         assert config.projects_dir == Path.home() / "Projects"
         assert config.open_command == "code"
 
+    @pytest.mark.parametrize(
+        ("fields", "name"),
+        [
+            ({"host_name": "cobalt", "dev_host": "x.tail.ts.net"}, "cobalt"),
+            ({"dev_host": "monolith.tailbaef49.ts.net"}, "monolith"),
+            ({"dev_host": "100.64.0.7"}, "box"),
+            ({}, "box"),
+        ],
+    )
+    def test_server_name(self, monkeypatch, fields, name):
+        """``host_name`` wins, then the ``dev_host`` label, then the machine name."""
+        monkeypatch.setattr("socket.gethostname", lambda: "box.local")
+        config = GlobalConfig(projects_dir=Path("/tmp"), **fields)
+        assert config.server_name() == name
+
     def test_from_dict_with_projects_dir(self):
         """Test creating from dict with projects_dir."""
         config = GlobalConfig.from_dict({"projects_dir": "/custom/path"})
