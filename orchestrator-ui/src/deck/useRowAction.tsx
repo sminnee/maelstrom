@@ -20,7 +20,7 @@ export interface RowAction {
 const ENDED: readonly NodeState[] = ['done', 'cancelled', 'stopped', 'exited'];
 
 /**
- * A row's swipe action: Launch on a not-started task that can start, Dismiss
+ * A row's swipe action: Launch on a to-do task, Dismiss
  * on work that has ended, else none.
  */
 export function useRowAction(node: GraphNode): RowAction | null {
@@ -35,7 +35,7 @@ export function useRowAction(node: GraphNode): RowAction | null {
   });
   const { task } = node;
   const { state } = node.progress;
-  if (!node.agent && task?.actionable && zoneForState(state) === 'notStarted')
+  if (!node.agent && task?.actionable && zoneForState(state) === 'todo')
     return {
       kind: 'launch',
       label: 'Launch',

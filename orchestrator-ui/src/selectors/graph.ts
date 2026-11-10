@@ -368,11 +368,9 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
       groupId: op.project,
       attention: [],
       reason: '',
-      // A plan that does not launch ends as a task not yet started.
+      // A plan that does not launch ends as a to-do task.
       zone:
-        op.kind === 'plan' && !op.steps.some((s) => s.name === 'start_agent')
-          ? 'notStarted'
-          : 'running',
+        op.kind === 'plan' && !op.steps.some((s) => s.name === 'start_agent') ? 'todo' : 'running',
       operation: op,
     });
   }

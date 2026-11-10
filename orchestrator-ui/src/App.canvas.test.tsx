@@ -749,6 +749,7 @@ describe('grouping and filters', () => {
       'maelstrom/feat/orchestrator-ui',
       'maelstrom/feat/task-index',
       'northwind/feat/db-migrate',
+      'northwind/feat/order-search',
       'northwind/feat/orders',
       'northwind/feat/reporting',
       'northwind/feat/rotate-auth-tokens-for-every-service',
@@ -827,7 +828,7 @@ describe('grouping and filters', () => {
     await renderApp();
     const labels = [...document.querySelectorAll('[data-testid="zone-label"]')];
     // The desk holds no done task, so that zone collapses and draws no label.
-    expect(labels.map((el) => el.textContent)).toEqual(['Running', 'Not started']);
+    expect(labels.map((el) => el.textContent)).toEqual(['Queued', 'To do', 'Running']);
   });
 
   // The canvas has one grouping: project lanes with worktree boxes.

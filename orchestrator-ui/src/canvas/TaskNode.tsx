@@ -44,7 +44,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
       data-selected={selected || undefined}
       data-operation={op?.state}
     >
-      <Handle type="target" position={Position.Left} className={styles.handle} />
+      <Handle type="target" position={Position.Right} className={styles.handle} />
       <div className={styles.head}>
         <span className={`${styles.title} truncate`} title={title}>
           {title}
@@ -109,7 +109,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
       </div>
       {op && <StepMeter op={op} variant="edge" />}
-      <Handle type="source" position={Position.Right} className={styles.handle} />
+      <Handle type="source" position={Position.Left} className={styles.handle} />
     </div>
   );
 }

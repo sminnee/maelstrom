@@ -2,11 +2,11 @@ import type { Attention } from './attention';
 import { isOpen } from './attention';
 import type { Agent, Task, TaskStatus, WorktreeGate } from './entities';
 
-/** Where a node sits in the left-to-right progression of work. */
-export type Zone = 'done' | 'running' | 'notStarted';
+/** Where a node sits in the progression of work. See `Zone` in `CONTEXT.md`. */
+export type Zone = 'queued' | 'todo' | 'running' | 'done';
 
-/** The zones in board order, leftmost first. The index is the progress rank. */
-export const ZONES = ['done', 'running', 'notStarted'] as const;
+/** The zones in board order, leftmost first. */
+export const ZONES = ['queued', 'todo', 'running', 'done'] as const;
 
 /** How a node draws: the state axis, orthogonal to phase. */
 export type NodeState =
@@ -307,7 +307,7 @@ export function driftFixLabel(status: TaskStatus): string {
   }
 }
 
-/** Which of the three progress zones a state falls in. See `Zone` in `CONTEXT.md`. */
+/** Which of the four progress zones a state falls in. See `Zone` in `CONTEXT.md`. */
 export function zoneForState(state: NodeState): Zone {
   switch (state) {
     case 'done':
@@ -325,7 +325,8 @@ export function zoneForState(state: NodeState): Zone {
     case 'exited':
       return 'running';
     case 'ready':
+      return 'todo';
     case 'queued':
-      return 'notStarted';
+      return 'queued';
   }
 }

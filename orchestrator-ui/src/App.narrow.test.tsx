@@ -55,9 +55,9 @@ describe('the narrow layout', () => {
   it('opens on the running zone, and a task that finishes moves to the done tab', async () => {
     const { server } = await renderApp({ viewport: 'narrow' });
     expect(zoneTab(/^Running/)).toHaveAttribute('aria-selected', 'true');
-    // NORT-9.1 is a todo with no agent, so it is waiting to start.
+    // NORT-9.1 is a todo that follows unfinished work, so it is queued.
     expect(deckRows()).not.toContain('NORT-9.1');
-    await userEvent.click(zoneTab(/^Not started/));
+    await userEvent.click(zoneTab(/^Queued/));
     expect(deckRows()).toContain('NORT-9.1');
 
     // The seed keeps done work off the desk, so a zone only fills as work
@@ -89,11 +89,11 @@ describe('the narrow layout', () => {
 
   it('says a zone is empty in its own words rather than showing nothing', async () => {
     const { server } = await renderApp({ viewport: 'narrow' });
-    // Take every task off the desk, so the not-started zone draws nothing.
+    // Take every task off the desk, so the queued zone draws nothing.
     server.change({ kind: 'desk', ids: [] }, (w) => {
       w.desk = {};
     });
-    await userEvent.click(zoneTab(/^Not started/));
+    await userEvent.click(zoneTab(/^Queued/));
     await waitFor(() => expect(screen.getByTestId('deck-empty')).toHaveTextContent(/waiting/i));
   });
 
@@ -183,7 +183,7 @@ describe('the narrow layout', () => {
   it('puts the status control on the id line of the detail', async () => {
     const user = userEvent.setup();
     await renderApp({ viewport: 'narrow' });
-    await user.click(zoneTab(/not started/i));
+    await user.click(zoneTab(/^Queued/));
     await user.click(screen.getByRole('link', { name: /Watch the migration PR/ }));
     expect(
       within(screen.getByTestId('node-id-line')).getByRole('button', {
@@ -491,16 +491,18 @@ describe('the narrow layout', () => {
 
     /** NORT-9.1 follows NORT-9, so it waits, and has no swipe. Let it start. */
     async function readyToLaunch() {
-      const app = await renderApp({ viewport: 'narrow', url: '/desk?zone=notStarted' });
+      const app = await renderApp({ viewport: 'narrow', url: '/desk?zone=queued' });
       expect(row('NORT-9.1')).not.toHaveAttribute('data-swipe');
       app.server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
         w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, actionable: true };
       });
+      // An actionable task moves to the to-do zone.
+      await userEvent.click(zoneTab(/^To do/));
       await waitFor(() => expect(row('NORT-9.1')).toHaveAttribute('data-swipe', 'launch'));
       return app;
     }
 
-    it('launches a not-started row dragged past 35% of its width', async () => {
+    it('launches a to-do row dragged past 35% of its width', async () => {
       const { server } = await readyToLaunch();
       // A 400px row: the threshold is 140px.
       vi.spyOn(sliding('NORT-9.1'), 'getBoundingClientRect').mockReturnValue(
@@ -573,7 +575,7 @@ describe('the narrow layout', () => {
 
     it('dismisses a done row, even one whose task reads as actionable', async () => {
       const { server } = await renderApp({ viewport: 'narrow', url: '/desk?zone=done' });
-      // Only a not-started row launches: the zone decides, not the flag.
+      // Only a to-do row launches: the zone decides, not the flag.
       server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
         w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, status: 'done', actionable: true };
       });

@@ -6,9 +6,10 @@ export type ZonesFlowNode = Node<{ zones: ZoneBand[] }, 'zones'>;
 
 /** What each zone is called, in the operator's words. */
 const ZONE_LABELS = {
-  done: 'Done',
+  queued: 'Queued',
+  todo: 'To do',
   running: 'Running',
-  notStarted: 'Not started',
+  done: 'Done',
 } as const;
 
 /**

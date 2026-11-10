@@ -37,7 +37,7 @@ export interface Layout {
   nodeSize: { width: number; height: number };
   /** The worktree boxes of each lane, by group id. */
   worktreeBoxes: Record<string, WorktreeBox[]>;
-  /** Always three entries, in board order, even when a zone is empty. */
+  /** Always four entries, in board order, even when a zone is empty. */
   zones: ZoneBand[];
   /** Every lane is this wide, so the board is too. */
   boardWidth: number;
@@ -67,9 +67,9 @@ const LOOSE = '';
 
 /**
  * Hand-rolled swimlanes. One band per group, stacked in group order. Inside a
- * band, x is the node's progress zone plus its depth along the follows edges
- * within that zone, and y is the row of the node's track: a follower sits on
- * the row of what it follows. See `orchestrator-ui/DESIGN.md` for why the zones align.
+ * band, x is the node's progress zone, then its depth along the follows edges
+ * within that zone, counted from the zone's right edge. y is the row of the
+ * node's track: a follower sits on the row of what it follows. See `orchestrator-ui/DESIGN.md` for why the zones align.
  */
 export function layoutSwimlanes(graph: Graph): Layout {
   const groups: Record<string, Box> = {};
@@ -90,7 +90,7 @@ export function layoutSwimlanes(graph: Graph): Layout {
       assignColumns(
         group.nodeIds.map((id) => ({
           id,
-          zone: zoneOf.get(id) ?? 'notStarted',
+          zone: zoneOf.get(id) ?? 'queued',
           follows: followsOf.get(id) ?? [],
         })),
       ),
@@ -99,11 +99,11 @@ export function layoutSwimlanes(graph: Graph): Layout {
 
   // The board's zone widths, so a boundary sits at the same x in every lane.
   // A zone no lane uses takes no columns and collapses to nothing.
-  const boardWidths: Record<Zone, number> = { done: 0, running: 0, notStarted: 0 };
+  const boardWidths: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
   for (const result of columnsPerGroup.values()) {
     for (const zone of ZONES) boardWidths[zone] = Math.max(boardWidths[zone], result.widths[zone]);
   }
-  const offsets: Record<Zone, number> = { done: 0, running: 0, notStarted: 0 };
+  const offsets: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
   let boardColumns = 0;
   for (const zone of ZONES) {
     offsets[zone] = boardColumns;
@@ -128,17 +128,21 @@ export function layoutSwimlanes(graph: Graph): Layout {
     const placed = columnsPerGroup.get(group.id)!.byId;
     const columnOf = new Map(
       group.nodeIds.map((id) => {
-        const at = placed.get(id) ?? { zone: 'notStarted' as Zone, column: 0 };
-        return [id, offsets[at.zone] + at.column];
+        const at = placed.get(id) ?? { zone: 'queued' as Zone, column: 0 };
+        // Mirrored, so a follower sits left of what it follows: new work is
+        // on the left inside a zone, as it is across the zones.
+        return [id, offsets[at.zone] + boardWidths[at.zone] - 1 - at.column];
       }),
     );
     // One packing pass for the lane. A node names its worktree as its box, so
     // the nodes of one worktree pack as one block.
     const boxOf = (id: string) => worktreeOf.get(id);
+    // The rows engine reads a follower as right of what it follows, so it
+    // packs the board mirrored back.
     const rowOf = assignRows(
       group.nodeIds.map((id) => ({
         id,
-        column: columnOf.get(id)!,
+        column: width - 1 - columnOf.get(id)!,
         follows: followsOf.get(id) ?? [],
         box: boxOf(id)?.id,
       })),

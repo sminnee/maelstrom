@@ -31,7 +31,7 @@ export interface Deck {
  */
 export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   const graph = deriveGraph(world, { filters: opts.filters });
-  const zones: Record<Zone, GraphNode[]> = { done: [], running: [], notStarted: [] };
+  const zones: Record<Zone, GraphNode[]> = { queued: [], todo: [], running: [], done: [] };
   for (const node of graph.nodes) zones[nodeZone(node)].push(node);
   for (const zone of ZONES) {
     // A stable sort, so each band keeps `deriveGraph`'s order.
@@ -40,9 +40,10 @@ export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   return {
     zones,
     counts: {
-      done: zones.done.length,
+      queued: zones.queued.length,
+      todo: zones.todo.length,
       running: zones.running.length,
-      notStarted: zones.notStarted.length,
+      done: zones.done.length,
     },
   };
 }
@@ -60,8 +61,10 @@ export function zoneLabel(zone: Zone): string {
       return 'Done';
     case 'running':
       return 'Running';
-    case 'notStarted':
-      return 'Not started';
+    case 'queued':
+      return 'Queued';
+    case 'todo':
+      return 'To do';
   }
 }
 
@@ -72,7 +75,9 @@ export function emptyZoneWords(zone: Zone): string {
       return 'Nothing finished yet.';
     case 'running':
       return 'Nothing is running.';
-    case 'notStarted':
-      return 'Nothing is waiting to start.';
+    case 'queued':
+      return 'Nothing is waiting on other work.';
+    case 'todo':
+      return 'Nothing is ready to start.';
   }
 }

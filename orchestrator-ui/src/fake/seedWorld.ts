@@ -511,6 +511,15 @@ body rather than the query builder.
       branch: 'spike/graphql',
       createdMinutesAgo: 800,
     }),
+    // Follows nothing, so it is ready to launch: the one task of the to-do zone.
+    task({
+      id: 'NORT-20',
+      project: 'northwind',
+      title: 'Add a search to the orders table',
+      status: 'todo',
+      branch: 'feat/order-search',
+      createdMinutesAgo: 30,
+    }),
     task({
       id: 'NORT-15',
       project: 'northwind',

@@ -520,9 +520,9 @@ describe('operations on the board', () => {
       { 'op:op1': 'running' },
     ],
     [
-      'a plan that does not launch draws one in the not-started zone',
+      'a plan that does not launch draws one in the to-do zone',
       op({ id: 'op1', kind: 'plan', steps: steps('read_issue', 'name_task', 'write_task') }),
-      { 'op:op1': 'notStarted' },
+      { 'op:op1': 'todo' },
     ],
     [
       'a refused start the user has not seen still draws',
@@ -563,7 +563,7 @@ describe('operations on the board', () => {
         op({ id: 'op2', kind: 'create', taskId: 'naming', steps: steps('name_task') }),
       ],
     });
-    expect(zones(world)).toEqual({ launching: 'running', naming: 'notStarted' });
+    expect(zones(world)).toEqual({ launching: 'running', naming: 'todo' });
   });
 
   it('keeps drawing a free agent a running Dismiss stops, off the desk', () => {
