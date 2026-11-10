@@ -9,6 +9,7 @@ import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
+import { isActionable } from '../protocol/phase';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Attention } from '../protocol/attention';
@@ -543,6 +544,23 @@ function updateContent(world: FakeWorld, items: CommItem[]): string {
   return [...furthest]
     .map(([taskId, step]) => `- ${world.tasks[taskId]?.title ?? taskId} — ${step}`)
     .join('\n');
+}
+
+/**
+ * Re-read `actionable` on `id` and its followers, as the server reads it fresh from the
+ * notebook, and return the other ids it moved. Only these tasks: a scenario sets the flag by
+ * hand on others.
+ */
+function refreshActionable(world: FakeWorld, id: string): string[] {
+  const moved: string[] = [];
+  for (const t of Object.values(world.tasks)) {
+    if (t.id !== id && !t.follows.includes(id)) continue;
+    const actionable = isActionable(t, world.tasks);
+    if (actionable === t.actionable) continue;
+    world.tasks[t.id] = { ...t, actionable };
+    if (t.id !== id) moved.push(t.id);
+  }
+  return moved;
 }
 
 /**
@@ -1417,7 +1435,7 @@ function command(
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
     world.tasks[task.id] = { ...task, status: str('status') as TaskStatus };
-    server.change({ kind: 'task', ids: [task.id] });
+    server.change({ kind: 'task', ids: [task.id, ...refreshActionable(world, task.id)] });
     return ok({});
   }
 
@@ -1453,7 +1471,7 @@ function command(
       b.comms = [...new Set(b.comms)];
     }
     world.tasks[task.id] = { ...task, ...(b as TaskEdit & { comms?: string[] }) };
-    server.change({ kind: 'task', ids: [task.id] });
+    server.change({ kind: 'task', ids: [task.id, ...refreshActionable(world, task.id)] });
     const relinked = deriveComms(world);
     if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     return ok({});
