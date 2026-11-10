@@ -393,6 +393,26 @@
 .documentGroupHead {
   color: var(--fg-muted);
 }
+/* The task's sessions: one Session link per agent, with when, how and which. */
+.sessions {
+  display: grid;
+  gap: var(--u-half);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.session {
+  display: flex;
+  gap: var(--u);
+  align-items: baseline;
+  min-width: 0;
+}
+.sessionMeta {
+  min-width: 0;
+  color: var(--fg-muted);
+}
 .archivedToggle {
   width: fit-content;
   padding: 0;
@@ -416,6 +436,7 @@
     display: contents;
   }
   .actions,
+  .sessions,
   .documents {
     display: flex;
     flex-direction: column;

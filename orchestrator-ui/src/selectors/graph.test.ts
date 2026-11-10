@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveGraph, nodeZone, worktreeHolders } from './graph';
+import { agentsOfTask, deriveGraph, nodeZone, worktreeHolders } from './graph';
 import type { Operation } from '../protocol/entities';
 import { cardPr } from './cardPr';
 import { noFilters } from './filters';
@@ -663,5 +663,28 @@ describe('worktreeHolders', () => {
       ],
     });
     expect([...worktreeHolders(world, alpha).keys()]).toEqual(['task:T1']);
+  });
+});
+
+describe('agentsOfTask', () => {
+  it("lists each task's top-level agents oldest first, and skips subagents and free agents", () => {
+    const world = worldWith({
+      agents: [
+        makeAgent({ id: 'new', taskId: 'T1', startedAt: '2026-09-03T00:00:00Z' }),
+        makeAgent({ id: 'old', taskId: 'T1', startedAt: '2026-09-01T00:00:00Z' }),
+        makeAgent({ id: 'old.1', taskId: 'T1', parent: 'old', startedAt: '2026-09-02T00:00:00Z' }),
+        makeAgent({ id: 'other', taskId: 'T2', startedAt: '2026-09-02T00:00:00Z' }),
+        makeAgent({ id: 'free', taskId: '' }),
+      ],
+    });
+    const ids = new Map(
+      [...agentsOfTask(world)].map(([task, agents]) => [task, agents.map((a) => a.id)]),
+    );
+    expect(ids).toEqual(
+      new Map([
+        ['T1', ['old', 'new']],
+        ['T2', ['other']],
+      ]),
+    );
   });
 });
