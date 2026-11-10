@@ -18,10 +18,10 @@ export interface ColumnResult {
 /**
  * Assign every node a zone and a column within it. Pure and deterministic.
  *
- * Two rules make a column. If A follows B, A sits right of B. If A is at a
- * later progress stage than B, A sits right of B. When the two conflict,
- * progress wins: a done task that follows a running one stays in the done
- * zone, and its edge draws backwards.
+ * Two rules place a node. If A follows B in one zone, A takes a deeper column
+ * than B, and the layout draws it left of B. If A is at a later progress stage
+ * than B, A sits in a zone right of B's. The zone wins: a done task that follows
+ * a running one stays in the done zone, and its edge draws the other way.
  *
  * That ruling is what keeps this short. A zone is absolute, so a follows edge
  * that crosses zones is already satisfied by the zone placement whichever way
@@ -49,7 +49,7 @@ export function assignColumns(nodes: readonly ColumnInput[]): ColumnResult {
   );
 
   const byId = new Map<string, { zone: Zone; column: number }>();
-  const widths: Record<Zone, number> = { done: 0, running: 0, notStarted: 0 };
+  const widths: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
   for (const node of nodes) {
     const column = depth.get(node.id) ?? 0;
     byId.set(node.id, { zone: node.zone, column });

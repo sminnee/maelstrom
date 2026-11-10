@@ -10,33 +10,29 @@ describe('assignColumns', () => {
   it('gives an empty input no nodes and no width', () => {
     const result = assignColumns([]);
     expect([...result.byId]).toEqual([]);
-    expect(result.widths).toEqual({ done: 0, running: 0, notStarted: 0 });
+    expect(result.widths).toEqual({ queued: 0, todo: 0, running: 0, done: 0 });
   });
 
   it('puts one node in the first column of its own zone', () => {
-    const result = assignColumns([n('A', 'notStarted')]);
-    expect(result.byId.get('A')).toEqual({ zone: 'notStarted', column: 0 });
-    expect(result.widths).toEqual({ done: 0, running: 0, notStarted: 1 });
+    const result = assignColumns([n('A', 'todo')]);
+    expect(result.byId.get('A')).toEqual({ zone: 'todo', column: 0 });
+    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 0, done: 0 });
   });
 
   it('spreads a chain in one zone across columns', () => {
-    const result = assignColumns([
-      n('A', 'notStarted'),
-      n('B', 'notStarted', 'A'),
-      n('C', 'notStarted', 'B'),
-    ]);
+    const result = assignColumns([n('A', 'todo'), n('B', 'todo', 'A'), n('C', 'todo', 'B')]);
     expect(result.byId.get('A')?.column).toBe(0);
     expect(result.byId.get('B')?.column).toBe(1);
     expect(result.byId.get('C')?.column).toBe(2);
-    expect(result.widths.notStarted).toBe(3);
+    expect(result.widths.todo).toBe(3);
   });
 
   it('starts every zone at its own first column', () => {
-    const result = assignColumns([n('A', 'done'), n('B', 'running'), n('C', 'notStarted')]);
+    const result = assignColumns([n('A', 'done'), n('B', 'running'), n('C', 'todo')]);
     expect(result.byId.get('A')).toEqual({ zone: 'done', column: 0 });
     expect(result.byId.get('B')).toEqual({ zone: 'running', column: 0 });
-    expect(result.byId.get('C')).toEqual({ zone: 'notStarted', column: 0 });
-    expect(result.widths).toEqual({ done: 1, running: 1, notStarted: 1 });
+    expect(result.byId.get('C')).toEqual({ zone: 'todo', column: 0 });
+    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 1, done: 1 });
   });
 
   it('layers inside each zone and widens only that zone', () => {
@@ -44,10 +40,10 @@ describe('assignColumns', () => {
       n('A', 'done'),
       n('B', 'done', 'A'),
       n('C', 'running'),
-      n('D', 'notStarted'),
-      n('E', 'notStarted', 'D'),
+      n('D', 'todo'),
+      n('E', 'todo', 'D'),
     ]);
-    expect(result.widths).toEqual({ done: 2, running: 1, notStarted: 2 });
+    expect(result.widths).toEqual({ queued: 0, todo: 2, running: 1, done: 2 });
     expect(result.byId.get('A')?.column).toBe(0);
     expect(result.byId.get('B')?.column).toBe(1);
     expect(result.byId.get('C')?.column).toBe(0);
@@ -56,9 +52,9 @@ describe('assignColumns', () => {
   });
 
   it('a cross-zone edge adds no column', () => {
-    const result = assignColumns([n('A', 'done'), n('B', 'notStarted', 'A')]);
+    const result = assignColumns([n('A', 'done'), n('B', 'todo', 'A')]);
     expect(result.byId.get('B')?.column).toBe(0);
-    expect(result.widths.notStarted).toBe(1);
+    expect(result.widths.todo).toBe(1);
   });
 
   // The conflict case: a done task that follows a running one. Progress wins,
@@ -85,21 +81,21 @@ describe('assignColumns', () => {
   });
 
   it('ignores a follows id that is not in the input', () => {
-    const result = assignColumns([n('B', 'notStarted', 'ghost')]);
+    const result = assignColumns([n('B', 'todo', 'ghost')]);
     expect(result.byId.get('B')?.column).toBe(0);
-    expect(result.widths.notStarted).toBe(1);
+    expect(result.widths.todo).toBe(1);
   });
 
   it('lets two independent chains share the same columns', () => {
     const result = assignColumns([
-      n('A', 'notStarted'),
-      n('B', 'notStarted', 'A'),
-      n('C', 'notStarted'),
-      n('D', 'notStarted', 'C'),
+      n('A', 'todo'),
+      n('B', 'todo', 'A'),
+      n('C', 'todo'),
+      n('D', 'todo', 'C'),
     ]);
     expect(result.byId.get('C')?.column).toBe(0);
     expect(result.byId.get('D')?.column).toBe(1);
-    expect(result.widths.notStarted).toBe(2);
+    expect(result.widths.todo).toBe(2);
   });
 
   it('takes the longest path through a diamond', () => {
@@ -114,19 +110,14 @@ describe('assignColumns', () => {
   });
 
   it('is deterministic', () => {
-    const input = [n('A', 'done'), n('B', 'running', 'A'), n('C', 'notStarted', 'B')];
+    const input = [n('A', 'done'), n('B', 'running', 'A'), n('C', 'todo', 'B')];
     expect(assignColumns(input)).toEqual(assignColumns(input));
   });
 
   // A column is a pure function of the constraint structure. All the order
   // sensitivity of the board lives in the row packer, not here.
   it('gives the same columns whatever order the input arrives in', () => {
-    const input = [
-      n('A', 'notStarted'),
-      n('B', 'notStarted', 'A'),
-      n('C', 'notStarted', 'B'),
-      n('D', 'done'),
-    ];
+    const input = [n('A', 'todo'), n('B', 'todo', 'A'), n('C', 'todo', 'B'), n('D', 'done')];
     const forwards = assignColumns(input);
     const backwards = assignColumns([...input].reverse());
     for (const id of ['A', 'B', 'C', 'D']) {
@@ -136,16 +127,16 @@ describe('assignColumns', () => {
   });
 
   it('leaves every other column alone when a node is added', () => {
-    const input = [n('A', 'notStarted'), n('B', 'notStarted', 'A')];
+    const input = [n('A', 'todo'), n('B', 'todo', 'A')];
     const before = assignColumns(input);
-    const after = assignColumns([...input, n('C', 'notStarted', 'A')]);
+    const after = assignColumns([...input, n('C', 'todo', 'A')]);
     for (const id of ['A', 'B']) {
       expect(after.byId.get(id)).toEqual(before.byId.get(id));
     }
   });
 
   it('gives an empty zone no width', () => {
-    const result = assignColumns([n('A', 'done'), n('B', 'notStarted')]);
+    const result = assignColumns([n('A', 'done'), n('B', 'todo')]);
     expect(result.widths.running).toBe(0);
   });
 });

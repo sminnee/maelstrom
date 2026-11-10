@@ -1,6 +1,6 @@
 import { generatePath, matchRoutes, type Params } from 'react-router';
 import type { ProjectId, TaskId } from '../protocol/ids';
-import type { Zone } from '../protocol/progress';
+import { ZONES, type Zone } from '../protocol/progress';
 import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import { AGENT_STATUS_LABELS, noFilters, type Filters } from '../selectors/filters';
 import { LIVE_STATUSES, noListFilters, type ListFilters } from '../selectors/taskList';
@@ -56,7 +56,6 @@ export type LocPatch = Partial<Omit<Loc, 'filters' | 'listFilters' | 'worktreeFi
 };
 
 const DEFAULT_ZONE: Zone = 'running';
-const ZONES: readonly Zone[] = ['done', 'running', 'notStarted'];
 /** The `status` value for every status: an empty selection. */
 const EVERY_STATUS = 'all';
 
@@ -186,7 +185,13 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
   const id = screen.card === 'task' ? params['*'] : params.id;
   const q = new URLSearchParams(search);
   const agents = q.get('agents');
-  const zone = q.get('zone') as Zone | null;
+  const zoneValue = q.get('zone') ?? '';
+  const zone = (ZONES as readonly string[]).includes(zoneValue)
+    ? (zoneValue as Zone)
+    : // The retired `notStarted` zone reads as to do.
+      zoneValue === 'notStarted'
+      ? 'todo'
+      : DEFAULT_ZONE;
   const dtab = q.get('dtab') as ProjectTab | null;
   return {
     view: screen.view,
@@ -203,7 +208,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
     },
     listFilters: { statuses: parseStatuses(q.get('status')) },
     worktreeFilters: { showClosed: q.get('closed') === '1' },
-    zone: zone && ZONES.includes(zone) ? zone : DEFAULT_ZONE,
+    zone,
     edit: q.get('edit') || null,
     projectDetail: q.get('detail') || null,
     projectTab: dtab && PROJECT_TABS.includes(dtab) ? dtab : DEFAULT_PROJECT_TAB,

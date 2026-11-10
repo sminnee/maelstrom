@@ -21,7 +21,7 @@ describe('deriveDeck', () => {
       agents: [makeAgent({ taskId: 'T2', state: 'processing' })],
     });
     const deck = deriveDeck(world, opts);
-    expect(deck.zones.notStarted.map((n) => n.id)).toEqual(['T1']);
+    expect(deck.zones.todo.map((n) => n.id)).toEqual(['T1']);
     expect(deck.zones.running.map((n) => n.id)).toEqual(['T2']);
     expect(deck.zones.done.map((n) => n.id)).toEqual(['T3']);
   });
@@ -34,7 +34,7 @@ describe('deriveDeck', () => {
         makeTask({ id: 'T3', status: 'done' }),
       ],
     });
-    expect(deriveDeck(world, opts).counts).toEqual({ done: 1, running: 0, notStarted: 2 });
+    expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 2, running: 0, done: 1 });
   });
 
   it('puts the nodes needing the user first in their zone, then the unanswered ones', () => {
@@ -60,6 +60,6 @@ describe('deriveDeck', () => {
       // A task the desk does not hold is not drawn, exactly as on the canvas.
       desk: [],
     });
-    expect(deriveDeck(world, opts).counts).toEqual({ done: 0, running: 0, notStarted: 0 });
+    expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 0, running: 0, done: 0 });
   });
 });

@@ -641,8 +641,8 @@ describe('zoneForState', () => {
     // A run that stopped without the task being marked done is unfinished
     // work, not history.
     ['exited', 'running'],
-    ['ready', 'notStarted'],
-    ['queued', 'notStarted'],
+    ['ready', 'todo'],
+    ['queued', 'queued'],
   ] as const)('%s sits in the %s zone', (state, zone) => {
     expect(zoneForState(state)).toBe(zone);
   });

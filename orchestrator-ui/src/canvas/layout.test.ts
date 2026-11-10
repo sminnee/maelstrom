@@ -11,7 +11,7 @@ function graphOf(tasks: Task[], agents: Agent[] = []) {
   });
 }
 
-/** A task in each of the three zones, without an edge to argue about. */
+/** A task in each of the zones, without an edge to argue about. */
 const doneTask = (id: string, project: string, follows: string[] = []) =>
   makeTask({ id, project, follows, status: 'done', actionable: false });
 const runningTask = (id: string, project: string, follows: string[] = []) =>
@@ -54,11 +54,11 @@ describe('layoutSwimlanes', () => {
     }
   });
 
-  it('a follower sits to the right of what it follows', () => {
+  it('a follower sits to the left of what it follows', () => {
     const layout = layoutSwimlanes(graphOf(chain));
-    expect(layout.nodes['B']!.x).toBeGreaterThan(layout.nodes['A']!.x);
-    expect(layout.nodes['C']!.x).toBeGreaterThan(layout.nodes['B']!.x);
-    expect(layout.nodes['F']!.x).toBeGreaterThan(layout.nodes['E']!.x);
+    expect(layout.nodes['B']!.x).toBeLessThan(layout.nodes['A']!.x);
+    expect(layout.nodes['C']!.x).toBeLessThan(layout.nodes['B']!.x);
+    expect(layout.nodes['F']!.x).toBeLessThan(layout.nodes['E']!.x);
   });
 
   it('nodes in one group never overlap', () => {
@@ -85,13 +85,13 @@ describe('layoutSwimlanes', () => {
       makeTask({ id: 'D', project: 'p2' }),
     ];
     const layout = layoutSwimlanes(graphOf(across));
-    // C has no predecessor in its own band, so it takes the first column of
-    // the not-started zone, and the first row.
+    // C has no predecessor in its own band, so it takes the last column of
+    // the to-do zone, as A does, and the first row.
     expect(layout.nodes['C']).toEqual(layout.nodes['A']);
     expect(layout.nodes['D']!.y).toBeGreaterThan(layout.nodes['C']!.y);
   });
 
-  it('puts a not-started follower on the row of the done task it follows', () => {
+  it('puts a to-do follower on the row of the done task it follows', () => {
     const layout = layoutSwimlanes(
       graphOf([
         makeTask({ id: 'S1', project: 'p1' }),
@@ -103,7 +103,7 @@ describe('layoutSwimlanes', () => {
     );
     expect(layout.nodes['U']!.y).toBe(layout.nodes['T']!.y);
     expect(layout.nodes['U']!.x).toBe(layout.nodes['S1']!.x);
-    expect(layout.nodes['T']!.x).toBeLessThan(layout.nodes['U']!.x);
+    expect(layout.nodes['T']!.x).toBeGreaterThan(layout.nodes['U']!.x);
   });
 
   it('is deterministic', () => {
@@ -121,7 +121,7 @@ describe('layoutSwimlanes', () => {
     for (const id of ['A', 'B', 'C', 'D']) {
       expect(after.nodes[id]).toEqual(before.nodes[id]);
     }
-    expect(after.nodes['G']!.x).toBeGreaterThan(after.nodes['A']!.x);
+    expect(after.nodes['G']!.x).toBeLessThan(after.nodes['A']!.x);
   });
 
   it('lines the zone boundaries up across every lane', () => {
@@ -139,10 +139,10 @@ describe('layoutSwimlanes', () => {
     // p2 has no done history, so its running node starts where p1's does
     // rather than in p2's own first column.
     expect(layout.nodes['D']!.x).toBe(layout.nodes['C']!.x);
-    // The done zone holds two columns: it spans from A's left edge to B's right.
+    // The done zone holds two columns: it spans from B's left edge to A's right.
     const done = layout.zones.find((z) => z.zone === 'done')!;
-    expect(done.x).toBe(layout.nodes['A']!.x);
-    expect(done.x + done.width).toBe(layout.nodes['B']!.x + layout.nodeSize.width);
+    expect(done.x).toBe(layout.nodes['B']!.x);
+    expect(done.x + done.width).toBe(layout.nodes['A']!.x + layout.nodeSize.width);
   });
 
   it('leaves the done columns blank in a lane with no done task', () => {
@@ -152,14 +152,14 @@ describe('layoutSwimlanes', () => {
         [agentOn('ag-b', 'B'), agentOn('ag-c', 'C')],
       ),
     );
-    expect(layout.nodes['C']!.x).toBeGreaterThan(layout.nodes['A']!.x);
+    expect(layout.nodes['C']!.x).toBeLessThan(layout.nodes['A']!.x);
   });
 
-  it('reports all three zones in board order, with a zero-width empty zone', () => {
+  it('reports all four zones in board order, with a zero-width empty zone', () => {
     const layout = layoutSwimlanes(
       graphOf([doneTask('A', 'p1'), makeTask({ id: 'B', project: 'p1' })]),
     );
-    expect(layout.zones.map((z) => z.zone)).toEqual(['done', 'running', 'notStarted']);
+    expect(layout.zones.map((z) => z.zone)).toEqual(['queued', 'todo', 'running', 'done']);
     expect(layout.zones.map((z) => z.x)).toEqual(
       [...layout.zones.map((z) => z.x)].sort((a, b) => a - b),
     );
@@ -170,7 +170,7 @@ describe('layoutSwimlanes', () => {
     const band = (zone: string) => layout.zones.find((z) => z.zone === zone)!;
     for (const [id, zone] of [
       ['A', 'done'],
-      ['B', 'notStarted'],
+      ['B', 'todo'],
     ] as const) {
       expect(band(zone).x).toBe(layout.nodes[id]!.x);
       expect(band(zone).width).toBe(layout.nodeSize.width);
@@ -178,19 +178,19 @@ describe('layoutSwimlanes', () => {
     expect(band('running').width).toBe(0);
   });
 
-  it('puts a done task left of a running one with no edge between them', () => {
+  it('puts a done task right of a running one with no edge between them', () => {
     const layout = layoutSwimlanes(
       graphOf([doneTask('A', 'p1'), runningTask('B', 'p1')], [agentOn('ag-b', 'B')]),
     );
-    expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
+    expect(layout.nodes['A']!.x).toBeGreaterThan(layout.nodes['B']!.x);
   });
 
-  // The conflict case: progress wins, so the follower draws left of its head.
-  it('keeps a done follower left of the running task it follows', () => {
+  // The conflict case: progress wins, so the follower draws right of its head.
+  it('keeps a done follower right of the running task it follows', () => {
     const layout = layoutSwimlanes(
       graphOf([runningTask('B', 'p1'), doneTask('A', 'p1', ['B'])], [agentOn('ag-b', 'B')]),
     );
-    expect(layout.nodes['A']!.x).toBeLessThan(layout.nodes['B']!.x);
+    expect(layout.nodes['A']!.x).toBeGreaterThan(layout.nodes['B']!.x);
   });
 
   it('moves a node that starts one zone and nothing else', () => {
@@ -206,7 +206,7 @@ describe('layoutSwimlanes', () => {
       expect(after.groups[id]!.y).toBe(before.groups[id]!.y);
       expect(after.groups[id]!.height).toBe(before.groups[id]!.height);
     }
-    expect(after.nodes['A']!.x).toBeLessThan(after.nodes['B']!.x);
+    expect(after.nodes['A']!.x).toBeGreaterThan(after.nodes['B']!.x);
     expect(after.nodes['A']!.y).toBe(before.nodes['A']!.y);
     expect(after.nodes['B']!.y).toBe(before.nodes['B']!.y);
   });
@@ -218,7 +218,7 @@ describe('worktree boxes in a project lane', () => {
   // Task ids sort in creation order. bravo holds the oldest task, so it leads
   // though alpha sorts first by name. T2 is on a branch no worktree holds, and
   // is older than every task of alpha. T3 follows T4 across two worktrees, so
-  // the lane has a second not-started column that only a lane-wide count finds.
+  // the lane has a second to-do column that only a lane-wide count finds.
   const tasks = [
     doneTask('T1', 'p1'),
     makeTask({ id: 'T2', project: 'p1', branch: 'none' }),
@@ -260,7 +260,7 @@ describe('worktree boxes in a project lane', () => {
   it('puts two boxes in disjoint columns side by side, on one row', () => {
     const { cell, boxOf } = laidOut();
     const y = (id: string) => cell(id).y;
-    // bravo holds columns 0 and 1, and alpha holds column 2.
+    // alpha holds column 0, and bravo holds columns 1 and 2.
     expect(y('T4')).toBe(y('T1'));
     expect(y('T3')).toBe(y('T4'));
     expect(boxOf('alpha').y).toBe(boxOf('bravo').y);
@@ -274,7 +274,7 @@ describe('worktree boxes in a project lane', () => {
     expect(inside('bravo')).toEqual(['T1', 'T4']);
     expect(inside('alpha')).toEqual(['T3']);
     // T1 and T4 are in different columns, so the box spans both.
-    expect(cell('T4').x).toBeGreaterThan(cell('T1').x);
+    expect(cell('T4').x).toBeLessThan(cell('T1').x);
     for (const id of ['T1', 'T4']) expect(contains(boxOf('bravo'), cell(id))).toBe(true);
     expect(contains(boxOf('alpha'), cell('T3'))).toBe(true);
   });
@@ -284,19 +284,19 @@ describe('worktree boxes in a project lane', () => {
     // React Flow pads a group node by 10px, so the lane's border draws there.
     const inset = 10;
     const box = boxOf('bravo');
-    const gap = cell('T1').x - box.x;
+    const gap = cell('T4').x - box.x;
     expect(gap).toBeGreaterThan(0);
     expect(cell('T1').y - box.y).toBe(gap);
-    expect(box.x + box.width - (cell('T4').x + cell('T4').width)).toBe(gap);
+    expect(box.x + box.width - (cell('T1').x + cell('T1').width)).toBe(gap);
     expect(box.y + box.height - (cell('T1').y + cell('T1').height)).toBe(gap);
-    // bravo is the first box of the lane, so it meets the lane border on two sides.
-    expect(box.x - inset).toBe(gap);
-    expect(box.y - inset).toBe(gap);
-    // alpha is the last box, in the last column.
-    const last = boxOf('alpha');
+    // bravo is the last box of the lane, in the last column.
     const lane = layout.groups['p1']!;
-    expect(lane.width - inset - (last.x + last.width)).toBe(gap);
-    expect(last.y - inset).toBe(gap);
+    expect(lane.width - inset - (box.x + box.width)).toBe(gap);
+    expect(box.y - inset).toBe(gap);
+    // alpha is the first box, so it meets the lane border on two sides.
+    const first = boxOf('alpha');
+    expect(first.x - inset).toBe(gap);
+    expect(first.y - inset).toBe(gap);
     // T2 has no box and sits one gap below bravo.
     expect(cell('T2').y - (box.y + box.height)).toBe(gap);
     // The lane ends one gap below what is lowest: the strip here, T2 with no strip.
@@ -381,8 +381,8 @@ describe('worktree boxes in a project lane', () => {
 
   it('starts each empty box where a box that holds a node in that column starts', () => {
     const { boxes, boxOf } = laidOut();
-    // bravo starts at column 0 and alpha at column 2; one column is 276 wide.
-    const starts = [boxOf('bravo').x, boxOf('bravo').x + 276, boxOf('alpha').x];
+    // alpha starts at column 0 and bravo at column 1; one column is 276 wide.
+    const starts = [boxOf('alpha').x, boxOf('bravo').x, boxOf('bravo').x + 276];
     const strip = boxes.filter((b) => b.empty);
     expect(strip.map((b) => b.x)).toEqual([...starts, ...starts, ...starts.slice(0, 2)]);
   });
@@ -392,8 +392,8 @@ describe('worktree boxes in a project lane', () => {
     const plain = laidOut([]);
     expect(plain.boxes).toEqual([]);
     for (const id of ids) expect(boxed.cell(id).x).toBe(plain.cell(id).x);
-    // T3 follows T4 from another worktree, and still sits one column right of it.
-    expect(boxed.cell('T3').x).toBeGreaterThan(boxed.cell('T4').x);
+    // T3 follows T4 from another worktree, and still sits one column left of it.
+    expect(boxed.cell('T3').x).toBeLessThan(boxed.cell('T4').x);
     expect(boxed.layout.boardWidth).toBe(plain.layout.boardWidth);
   });
 });
