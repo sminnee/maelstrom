@@ -16,7 +16,7 @@ sweep. The status moves stay with the callers, at
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mael_agent.harness_model import resolve_model_reference
+from mael_agent.harness_model import HARNESS_CLAUDE, resolve_model_reference
 
 from . import task as model
 
@@ -66,26 +66,49 @@ def _launch_harness(task: model.Task, model_name: str | None = None) -> str:
 
 
 async def prepare_launch(
-    table: "TaskTable", project: str, task: model.Task, model_name: str | None = None
+    table: "TaskTable",
+    project: str,
+    task: model.Task,
+    model_name: str | None = None,
+    *,
+    new_session: bool = False,
 ) -> LaunchPlan:
     """Store the session id a launch of ``task`` needs, then plan the launch.
 
     The one entry for a launch: :func:`plan_launch` alone gives a never-run
     Claude task no session id, so its agent would not link to the task.
+
+    ``new_session`` starts a **New session**: a new Claude session id, or a new
+    Codex thread, in place of the task's current session.
     """
-    await model.ensure_session(table, task, _launch_harness(task, model_name))
-    return plan_launch(project, task, model_name)
+    harness = _launch_harness(task, model_name)
+    if new_session:
+        await model.new_session(table, task, harness)
+    else:
+        await model.ensure_session(table, task, harness)
+    return plan_launch(project, task, model_name, new_session=new_session)
 
 
 def plan_launch(
-    project: str, task: model.Task, model_name: str | None = None
+    project: str,
+    task: model.Task,
+    model_name: str | None = None,
+    *,
+    new_session: bool = False,
 ) -> LaunchPlan:
     """The launch plan for ``task``. Pure.
 
     ``model_name`` overrides the task's model, and its harness shapes the prompt.
+    ``new_session`` plans a **New session**: Codex gets no thread id to resume, and
+    the prompt names the task's earlier sessions.
     """
     harness = _launch_harness(task, model_name)
-    session_id = model.current_session(task, harness)
+    session_id = (
+        ""
+        if new_session and harness != HARNESS_CLAUDE
+        else model.current_session(task, harness)
+    )
+    earlier = [s.id for s in task.sessions if s.id != session_id] if new_session else []
     return LaunchPlan(
         project=project,
         task_id=task.id,
@@ -104,7 +127,7 @@ def plan_launch(
         model=_launch_model(task, model_name),
         harness=harness,
         execute_model=task.execute_model,
-        prompt=model.build_prompt(task, harness),
+        prompt=model.build_prompt(task, harness, earlier),
     )
 
 

@@ -1845,7 +1845,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/interrupt` | | `agent.interrupt` | `{}` |
 | `POST /api/agents/{id}/stop` | | `agent.stop` | `202 {operationId}` |
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
-| `POST /api/tasks/{project}/{id}/launch` | `{model?, host?}` | `agent.launch` | `202 {operationId}`. `host` names a **Remote host** to delegate to |
+| `POST /api/tasks/{project}/{id}/launch` | `{model?, host?, newSession?}` | `agent.launch` | `202 {operationId}`. `host` names a **Remote host** to delegate to. `newSession` starts a **New session**, which may reopen a done task |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
 | `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, base?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch |
 | `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |

@@ -596,6 +596,7 @@ prefers a task on the current git branch, then falls back to the global next tas
 | Option | Description |
 |---|---|
 | `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`, which runs in this shell, in the task's worktree. |
+| `--new-session` | Start a **New session**: a new session id in place of the current one. The prompt names the task's earlier sessions. A done task reopens. A cancelled, template or blocked task, or one that follows unfinished work, is refused. |
 
 **`mael task load-many`**
 

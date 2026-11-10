@@ -147,6 +147,14 @@ session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` an
 the cwd. So a task whose session has run before relaunches with
 `claude --resume <id>` instead, which reattaches the existing conversation.
 
+A **New session** (`prepare_launch(..., new_session=True)`) does not resume. For
+Claude, `new_session` appends a new `uuid4`, which then is the current session,
+so the launch passes `--session-id`. For Codex, the launch names no thread, and
+Codex starts a new one. The prompt ends with one line that names the task's
+earlier session ids. A new session may reopen a done task
+(`can_start_new_session`). The one-live-session rule still applies: a live agent
+on any of the task's sessions refuses it.
+
 The ids do not depend on the task id or the project name, so a task rename and
 `mael project mv` keep them. `mael project mv` moves each Claude transcript
 directory to its new path.

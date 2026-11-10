@@ -15,8 +15,8 @@ from mael_domain.attachments import is_bare_name
 from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
-from mael_domain.protocol import HOST_ID, Agent, RemoteHostState, Worktree, World
-from mael_domain.task import PROMOTABLE_FIELDS
+from mael_domain.protocol import HOST_ID, Agent, RemoteHostState, Task, Worktree, World
+from mael_domain.task import PROMOTABLE_FIELDS, is_done
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
 from .desk import split_desk_id
@@ -804,7 +804,10 @@ def validate_command(
         task = world["tasks"].get(task_id)
         if task is None:
             return _err("unknown_id", f"No task {task_id}")
-        if not task["actionable"]:
+        new_session = cmd.get("newSession", False)
+        if not isinstance(new_session, bool):
+            return _err("invalid", "newSession must be true or false")
+        if not (task["actionable"] or (new_session and _reopens(world, task))):
             return _err("invalid", f"Task {task_id} is not actionable")
         if host := cmd.get("host"):
             return _remote_host_refusal(world, str(host))
@@ -1145,6 +1148,19 @@ def _remote_host_state(world: World, name: str) -> RemoteHostState | None:
     host = world["host"].get(HOST_ID)
     return next(
         (h for h in (host or {}).get("remoteHosts", []) if h["name"] == name), None
+    )
+
+
+def _reopens(world: World, task: Task) -> bool:
+    """Whether a **New session** may reopen ``task``.
+
+    The world's form of ``can_start_new_session`` in ``mael_domain.task``: a done
+    task whose follows are all done. ``actionable`` already says no for it,
+    because a done task is terminal.
+    """
+    tasks = world["tasks"]
+    return is_done(task["status"]) and all(
+        f in tasks and is_done(tasks[f]["status"]) for f in task["follows"]
     )
 
 

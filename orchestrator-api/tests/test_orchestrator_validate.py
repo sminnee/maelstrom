@@ -240,6 +240,37 @@ def test_invalid_for_launching_a_task_that_is_not_actionable():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+@pytest.mark.parametrize(
+    ("status", "follow_status", "new_session", "accepted"),
+    [
+        ("done", "done", True, True),
+        ("done", None, True, True),
+        ("done", "in-progress", True, False),
+        ("done", "missing", True, False),
+        ("cancelled", None, True, False),
+        ("done", None, False, False),
+        ("done", None, "yes", False),
+    ],
+)
+def test_a_new_session_may_reopen_a_done_task_whose_follows_are_done(
+    status, follow_status, new_session, accepted
+):
+    follows = [] if follow_status is None else ["northwind/NORT-6"]
+    task = make_task(
+        id="northwind/NORT-7", status=status, follows=follows, actionable=False
+    )
+    tasks = [task]
+    if follow_status not in (None, "missing"):
+        tasks.append(make_task(id="northwind/NORT-6", status=follow_status))
+    cmd = {
+        "type": "agent.launch",
+        "taskId": "northwind/NORT-7",
+        "newSession": new_session,
+    }
+    reply = validate_command(world_with(tasks=tasks), cmd)
+    assert (reply is None) is accepted, reply
+
+
 def test_unknown_id_for_launching_a_task_not_in_the_world():
     cmd = {"type": "agent.launch", "taskId": "northwind/NORT-7"}
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"

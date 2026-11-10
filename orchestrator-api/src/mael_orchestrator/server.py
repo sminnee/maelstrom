@@ -508,6 +508,8 @@ class _Launching:
     #: A remote host took the start, so the claim stays even if no agent id
     #: comes back: the host may still start the agent.
     handed_off: bool = False
+    #: The launch starts a **New session**, not the task's current one.
+    new_session: bool = False
 
 
 def _opened(setup: WorktreeSetup) -> str:
@@ -651,9 +653,9 @@ class Orchestrator:
         *,
         desk: DeskStore | None = None,
         milestones: MilestoneStore | None = None,
+        agent_records: AgentStore | None = None,
         document_store: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
-        agent_records: AgentStore | None = None,
         comms: CommStore | None = None,
         comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
@@ -709,11 +711,11 @@ class Orchestrator:
         self.milestones = (
             milestones if milestones is not None else InMemoryMilestoneStore()
         )
-        #: The Task documents — see ``CONTEXT.md``, "Task document". The world
-        #: reads them once, at start.
         #: Every Agent record. The world reads the ended ones once, at start,
         #: so a task keeps its earlier agents through a restart.
         self.agent_records = agent_records
+        #: The Task documents — see ``CONTEXT.md``, "Task document". The world
+        #: reads them once, at start.
         self.document_store = (
             document_store
             if document_store is not None
@@ -880,9 +882,9 @@ class Orchestrator:
         if self.worktrees.prs is not None:
             self.worktrees.prs.on_change = self._pr_changed
         await self.refresh_worktrees()
+        await self._restore_ended_agents()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
-        await self._restore_ended_agents()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self.loop_watch.run()),
@@ -1505,8 +1507,6 @@ class Orchestrator:
         stored = await self._run(self.desk.load)
         await self._set_desk(self._pruned(stored))
 
-    async def _drop_dead_agent_entries(self) -> None:
-        """Drop a stored ``agent:`` entry for an agent the host no longer has.
     async def _restore_ended_agents(self) -> None:
         """Put each ended agent of a task back in the world, as ``exited``.
 
@@ -1545,6 +1545,8 @@ class Orchestrator:
             [{"type": "upsert", "kind": "agent", "entity": e} for e in entities]
         )
 
+    async def _drop_dead_agent_entries(self) -> None:
+        """Drop a stored ``agent:`` entry for an agent the host no longer has.
 
         The world's agents are rebuilt from the host on every start, so such
         an entry would draw nothing and could never be dismissed. This runs
@@ -3950,7 +3952,11 @@ class Orchestrator:
             )
         try:
             launching.claim = await self._run(
-                self.tasks.claim_launch, launching.task_id, model_name
+                functools.partial(
+                    self.tasks.claim_launch, new_session=launching.new_session
+                ),
+                launching.task_id,
+                model_name,
             )
         except KeyError:
             return StepOutcome(blocked=f"No task {launching.task_id}")
@@ -4182,7 +4188,11 @@ class Orchestrator:
     def _launch_plan(self, command: dict[str, Any]) -> OperationPlan:
         """Launch a task: its worktree opens, its ``.env`` is written, its agent starts."""
         task_id = command["taskId"]
-        launching = _Launching(project=split_task_key(task_id)[0], task_id=task_id)
+        launching = _Launching(
+            project=split_task_key(task_id)[0],
+            task_id=task_id,
+            new_session=bool(command.get("newSession")),
+        )
         host = str(command.get("host") or "")
         steps = REMOTE_LAUNCH_STEPS if host else LAUNCH_STEPS
 

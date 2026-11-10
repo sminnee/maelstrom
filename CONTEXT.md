@@ -352,6 +352,12 @@ by any of its ids, and an agent row reports one. Use the task session id to answ
 is this?".
 _Avoid_: Session id (for this concept)
 
+**New session**:
+A launch of a task on a new **Task session id**, in place of a resume of the current one. The
+prompt names the earlier session ids, oldest first. A new session can reopen a done task. The
+Resume menu of a task's agent offers it, and `mael task run --new-session` starts one.
+_Avoid_: Fresh session, restart
+
 **Session id**:
 The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
 `/clear` starts a new conversation and moves the session id, so it is not stable and cannot key

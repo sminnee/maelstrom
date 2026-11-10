@@ -762,6 +762,30 @@ class TestActionable:
         assert not await model.is_actionable(await model.load(store, "p", a.id), store)
 
 
+class TestCanStartNewSession:
+    """A New session may reopen a done task, and nothing else that is shut."""
+
+    async def test_a_done_task_takes_a_new_session(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.move(store, "p", a.id, "done", now=NOW)
+        loaded = await model.load(store, "p", a.id)
+        assert await model.can_start_new_session(loaded, store)
+        assert loaded.status == "done"
+
+    async def test_a_cancelled_task_does_not(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.move(store, "p", a.id, "cancelled", now=NOW)
+        loaded = await model.load(store, "p", a.id)
+        assert not await model.can_start_new_session(loaded, store)
+
+    async def test_a_done_task_that_follows_unfinished_work_does_not(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        await model.move(store, "p", b.id, "done", now=NOW)
+        loaded = await model.load(store, "p", b.id)
+        assert not await model.can_start_new_session(loaded, store)
+
+
 # --- status moves ---
 
 
