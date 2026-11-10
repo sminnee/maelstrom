@@ -496,6 +496,15 @@ def _seconds_since(stamp: str, now: str) -> float:
     return elapsed.total_seconds()
 
 
+def ended_agent_row(agent: dict[str, Any]) -> dict[str, Any]:
+    """The ``exited`` row of an ended Agent record, as a ``list`` would give it.
+
+    The server restores these at start, so a task keeps its ended agents after
+    a restart. The router does not list them: see :meth:`DaemonRouter._restore`.
+    """
+    return _stored_agent_row(agent, None, retiring=True)
+
+
 def _stored_agent_row(
     agent: dict[str, Any],
     live: dict[str, Any] | None,

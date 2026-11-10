@@ -1069,7 +1069,13 @@ content and marks the update sent. A sent update refuses either field with `inva
 
 ### Agents
 
-On start the server lists the host's agents and attaches to every one. A new id in a later `list`
+On start the server first reads the `agents` table and puts each ended agent of a task in the
+world as `exited`. The host lists live agents only, so without this a task whose agent ended
+before the restart has no Session link and no Resume. A record links to its task by its session,
+as a live row does. A record with no task stays out. The restored agents are not in the router's
+live set, so `list` does not report them. When the host lists one live again, it is revived.
+
+Then the server lists the host's agents and attaches to every one. A new id in a later `list`
 is adopted and attached. An id that is gone has exited: the host drops a stopped agent, so
 `exited(0)` is the state it left in. A row reporting `exited(N)` that the stream never showed is
 applied as-is.

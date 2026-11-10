@@ -44,7 +44,7 @@ from mael_domain import comms as comms_model
 from mael_domain import operations as operations_model
 from mael_domain import task as model
 from mael_domain import task_documents
-from mael_domain.agent_store import SqliteAgentStore
+from mael_domain.agent_store import SqliteAgentStore, new_agent_record
 from mael_domain.comm_store import (
     CommItem,
     CommUpdate,
@@ -2582,6 +2582,52 @@ def test_a_free_agent_entry_whose_agent_is_live_survives_the_load(store):
             return await api.get_json("/api/desk")
 
     assert [e["id"] for e in run(scenario())["desk"]] == ["agent:ag1"]
+
+
+def test_a_restart_keeps_each_ended_agent_of_a_task(harness_factory, tmp_path):
+    """The host lists live agents only: the record is what keeps a task's last agent.
+
+    Without it, a task whose agent ended has no Session link and no Resume
+    after a restart. A record with no task has nothing to draw it, so it stays
+    out. One the host lists live again is the same agent, revived.
+    """
+    db = open_state_db(tmp_path / "state.db")
+    run(db.migrate())
+    records = SqliteAgentStore(db)
+    harness = harness_factory(agent_records=records)
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+
+    def ended(agent_id: str, session: str) -> dict:
+        return {
+            **new_agent_record(
+                agent_id,
+                harness="claude",
+                task_session_id=session,
+                task_id="",
+                cwd=WORKTREE_PATH,
+                model="",
+                mode="normal",
+                started_at="2026-08-30T00:00:00Z",
+            ),
+            "status": "ended",
+            "ended_at": "2026-08-31T00:00:00Z",
+        }
+
+    async def scenario():
+        await records.save(ended("old", session_of("NORT-7")))
+        await records.save(ended("loose", "session-of-nothing"))
+        async with harness.client() as api:
+            restored = await api.get_json("/api/agents/old")
+            loose = await api.get("/api/agents/loose")
+            harness.daemon.rows["old"] = agent_row("old", session=session_of("NORT-7"))
+            await wait_until(lambda: "old" in harness.daemon.attached)
+            return restored, loose.status, await api.get_json("/api/agents/old")
+
+    restored, loose, revived = run(scenario())
+    assert (restored["state"], restored["taskId"]) == ("exited", "northwind/NORT-7")
+    assert restored["startedAt"] == "2026-08-30T00:00:00Z"
+    assert loose == 404
+    assert revived["state"] == "idle"
 
 
 def test_the_desk_survives_a_restart(store):

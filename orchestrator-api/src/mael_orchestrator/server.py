@@ -41,7 +41,12 @@ from mael_common.shell import run_cmd_async
 from mael_common.util import now_iso
 from mael_domain import comms as comms_model
 from mael_domain import sarif, task_documents
-from mael_domain.agent_store import InMemoryMilestoneStore, MilestoneStore
+from mael_domain.agent_store import (
+    AGENT_ENDED,
+    AgentStore,
+    InMemoryMilestoneStore,
+    MilestoneStore,
+)
 from mael_domain.attachments import attachment_urls
 from mael_domain.cmux.mael_layout import remote_workspace_name, workspace_name
 from mael_domain.comm_store import Comm as DomainComm
@@ -167,7 +172,7 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 from . import desk as desk_model
 from . import linear_source
 from .clients import normal_ip
-from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient
+from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient, ended_agent_row
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
 from .gate_table import GateTable
@@ -648,6 +653,7 @@ class Orchestrator:
         milestones: MilestoneStore | None = None,
         document_store: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
+        agent_records: AgentStore | None = None,
         comms: CommStore | None = None,
         comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
@@ -705,6 +711,9 @@ class Orchestrator:
         )
         #: The Task documents — see ``CONTEXT.md``, "Task document". The world
         #: reads them once, at start.
+        #: Every Agent record. The world reads the ended ones once, at start,
+        #: so a task keeps its earlier agents through a restart.
+        self.agent_records = agent_records
         self.document_store = (
             document_store
             if document_store is not None
@@ -873,6 +882,7 @@ class Orchestrator:
         await self.refresh_worktrees()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
+        await self._restore_ended_agents()
         self._started.set()
         self._pollers = [
             asyncio.create_task(self.loop_watch.run()),
@@ -1497,6 +1507,44 @@ class Orchestrator:
 
     async def _drop_dead_agent_entries(self) -> None:
         """Drop a stored ``agent:`` entry for an agent the host no longer has.
+    async def _restore_ended_agents(self) -> None:
+        """Put each ended agent of a task back in the world, as ``exited``.
+
+        A record has no subagents, so none come back. See
+        ``docs/dev/orchestrator-server.md``, "Agents".
+        """
+        if self.agent_records is None:
+            return
+        sessions = {
+            entry["id"]
+            for task in self.world["tasks"].values()
+            for entry in task["sessions"]
+        }
+        entities: list[Agent] = []
+        for record in await self.agent_records.list():
+            if record.get("status") != AGENT_ENDED or not record.get("id"):
+                continue
+            if record["id"] in self.world["agents"]:
+                continue
+            row = ended_agent_row(record)
+            # Most records have no task. The set skips them before the scan.
+            if row["session"] not in sessions and not row.get(PARENT_URL):
+                continue
+            link = self._link(row)
+            if not link.task_id:
+                continue
+            entities.append(
+                agent_entity(
+                    row,
+                    task_id=link.task_id,
+                    project=link.project,
+                    worktree_id=link.worktree_id,
+                )
+            )
+        self._apply(
+            [{"type": "upsert", "kind": "agent", "entity": e} for e in entities]
+        )
+
 
         The world's agents are rebuilt from the host on every start, so such
         an entry would draw nothing and could never be dismissed. This runs
