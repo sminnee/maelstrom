@@ -916,7 +916,8 @@ Six writes, and the order is the design:
 6. the handover naming the plan file, last, or the clear would discard it.
 
 An agent whose spawn record names an execute model takes a seventh write, between the mode and the
-handover: `/model <alias>`. It travels the same ordinary-user-turn path `/clear` takes, because
+handover: `/model <id>`, where `<id>` is the reference's `model_id`: the alias, or the full id
+`resolve_model_reference` maps it to. It travels the same ordinary-user-turn path `/clear` takes, because
 there is no control subtype for it. The child answers with a fresh `system/init` naming the new
 model, so `AgentState.model` updates through the reducer's existing `init` case.
 
