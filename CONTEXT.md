@@ -1502,7 +1502,7 @@ _Avoid_: Inbox, outbox, notifications tab
 
 **Task editor**:
 The form that edits one task's fields: title, status, content and branch, with the planning level
-shown above Advanced, and command, mode, base, priority, model and follows folded away there.
+shown above Advanced, and command, mode, priority, model and follows folded away there.
 Below the fields, a Comms section links and unlinks comms at once, not through Save. It
 opens from the task list or a task's node on the desk, and writes through `task.update`, except
 status, which writes through its own route since it is folder-derived. New work composes the same

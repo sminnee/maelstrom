@@ -248,6 +248,27 @@ class TestTheShippedLadders:
         finally:
             db.close()
 
+    async def test_an_older_database_drops_the_base_and_keeps_its_rows(self, tmp_path):
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:9]  # up to the rung before the drop
+            await db.migrate()
+            await db.write_all(
+                [Write("tasks", "p/t", {"title": "T", "base": "feat/parent"})]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            row = await db.read("tasks", "p/t")
+            assert row is not None
+            assert "base" not in row.keys()
+            task = await SqliteTaskTable(db).load("p", "t")
+            assert task is not None and task.title == "T"
+        finally:
+            db.close()
+
     async def test_the_sessions_rung_runs_without_an_agents_table(self, tmp_path):
         """On a fresh database the tasks ladder can run before the agents ladder."""
         db = open_state_db(tmp_path / "state.db")

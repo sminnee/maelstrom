@@ -265,7 +265,6 @@ function seed(task: Task): TaskDraft {
     priority: task.priority,
     model: task.model,
     executeModel: task.executeModel,
-    base: task.base,
     follows: task.follows,
   };
 }

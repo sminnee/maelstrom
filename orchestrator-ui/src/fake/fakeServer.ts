@@ -2256,7 +2256,6 @@ function makeNewTask(
     prWithdrawn: false,
     parent: '',
     follows: [],
-    base: '',
     actionable: true,
     startedAt: '',
     landing: null,

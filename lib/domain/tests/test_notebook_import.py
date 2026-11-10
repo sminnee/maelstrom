@@ -33,7 +33,6 @@ A_TASK = Task(
     last_run="2026-06-10T09:00:00+00:00",
     priority="high",
     model="opus",
-    base="main",
     content="The prose the row carries.",
     log="- started",
     status="todo",

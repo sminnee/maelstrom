@@ -861,12 +861,13 @@ def test_a_delegated_start_naming_its_task_session_and_env_is_allowed():
     assert validate_command(world, cmd) is None
     # A never-run Codex task has no session yet.
     assert validate_command(world, {**cmd, "session": ""}) is None
+    # A parent on older code still sends the removed task base.
+    assert validate_command(world, {**cmd, "base": "feat/x"}) is None
 
 
 @pytest.mark.parametrize(
     ("over", "message"),
     [
-        ({"base": 7}, "base must be a string"),
         ({**DELEGATED, "session": 7}, "session must be a string"),
         ({**DELEGATED, "taskId": 7}, "taskId must be a string"),
         ({"parentUrl": 7}, "parentUrl must be a string"),

@@ -37,14 +37,14 @@ A delegated launch has two parts:
 
 1. **The parent claims the task.** `TaskSource.claim_launch` stores a Claude session id when the
    task has none, plans the launch, checks the execute model and moves the task to in-progress. It returns a `LaunchClaim`: the project, the task id,
-   the previous status, the `LaunchPlan` and the task's `base`.
+   the previous status and the `LaunchPlan`.
 2. **The remote host starts the agent.** The parent's `start_on_host` step posts a start spec to
    the remote host's `POST /api/agents`. It waits for the remote host's operation to end, and
    takes the agent id and the worktree id from it. Then the parent calls `TaskSource.started`
    with that agent id, so a Codex task stores its thread id. A never-run Codex task sends an
    empty `session`.
 
-The start spec holds `project`, `branch`, `base`, `prompt`, `mode`, `model`, `executeModel`,
+The start spec holds `project`, `branch`, `prompt`, `mode`, `model`, `executeModel`,
 `session`, `env`, `taskId` and `parentUrl`. A free agent posts the same route with fewer fields.
 A free agent's start has no `parentUrl`, so it cannot name a `session`, `env` or `taskId`. Only a
 delegated start can: without a parent, a `session` would resume a task's agent past the claim.

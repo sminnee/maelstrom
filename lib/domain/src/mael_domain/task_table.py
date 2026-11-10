@@ -52,7 +52,6 @@ _SCALARS = (
     "last_run",
     "priority",
     "model",
-    "base",
     "execute_model",
     "pr_number",
     "pr_url",

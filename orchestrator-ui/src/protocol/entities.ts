@@ -331,7 +331,6 @@ export interface Task {
   follows: TaskId[];
   priority: string;
   model: string;
-  base: string;
   /** The model the session switches to when its plan is approved; '' = no switch. */
   executeModel: string;
   /** The Registered PR: its number, 0 for none, and its URL. */

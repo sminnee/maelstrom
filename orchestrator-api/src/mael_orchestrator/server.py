@@ -483,7 +483,6 @@ REMOTE_LAUNCH_STEPS = ("start_on_host",)
 START_SPEC_KEYS = (
     "project",
     "branch",
-    "base",
     "prompt",
     "mode",
     "model",
@@ -3971,7 +3970,6 @@ class Orchestrator:
         return {
             "project": claim.project,
             "branch": plan.branch,
-            "base": claim.base,
             "prompt": plan.prompt,
             "mode": plan.permission_mode or "",
             "model": plan.model,
@@ -4056,7 +4054,6 @@ class Orchestrator:
                 setup = await self.opener.open(
                     spec["project"],
                     launching.branch or str(spec.get("branch") or ""),
-                    str(spec.get("base") or ""),
                 )
                 # A never-run Codex task has no session yet, so the task id,
                 # not the session, marks a task launch.

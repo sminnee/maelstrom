@@ -428,7 +428,6 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
 | `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: `opus`, applied when the task launches. |
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
-| `--base TEXT` | Branch to stack this task's branch on. Default: the project's stack tip. Not the same as `--parent`: `--parent` shares one branch and one PR, `--base` stacks a different branch as its own PR. |
 | `--follow TEXT` | Id this task follows. Repeatable. |
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
 | `--content-file TEXT` | File whose contents become the task's Content section. `-` reads stdin. |
@@ -511,13 +510,12 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--priority [critical\|high\|medium\|low]` | Task priority. |
 | `--model TEXT` | LLM model for the session. |
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. |
-| `--base TEXT` | Branch this task's branch stacks on. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks. |
 | `--trigger TEXT` | Build trigger, `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. |
 | `--comm TEXT` | Replace the comms this task feeds. Repeatable. An id that names no comm is refused. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
-Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`, `--base`,
+Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`,
 `--schedule`, `--trigger` or `--comm` to clear the field.
 
 **`mael task list`**

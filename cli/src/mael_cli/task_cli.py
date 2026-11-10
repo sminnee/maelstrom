@@ -333,21 +333,18 @@ async def _run_task(
             )
         branch = plan.branch
         # ``run_install=False``: each launch below starts the installer in the background.
-        # ``task.base`` seeds the branch's stored base the first time the worktree is
-        # set up. Empty falls through to the stack tip.
         try:
             result = setup_worktree_for_branch(
                 project_path,
                 project,
                 branch,
                 run_install=False,
-                base=task.base or None,
                 live=live,
                 announce=click.echo,
             )
         except (ValueError, WorktreeError) as e:
             raise click.ClickException(str(e))
-        # Opening the worktree rebased its branch onto its base. If that failed,
+        # Opening the worktree rebased its branch onto origin/main. If that failed,
         # block: an unattended session must not run against stale code. The failure
         # lands before the in-progress write below, so the task never leaves TODO.
         try:
@@ -607,12 +604,6 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
             "(pass '' to unset it, which launches on the default)."
         ),
     ),
-    "base": _Opt(
-        "Branch to stack this task's branch on (default: the project's stack tip). "
-        "Not the same as --parent: --parent shares one branch and one PR, "
-        "--base stacks a different branch as its own PR.",
-        update_help="Set the branch this task's branch stacks on (pass '' to clear).",
-    ),
     "execute-model": _Opt(
         "LLM model to switch to when the session's plan is approved "
         "(default: none, which keeps the session on --model throughout). "
@@ -818,7 +809,6 @@ async def task_add(
     # NB: shadows the `task as model` module alias for this function's body — it
     # is the --model flag's value here, and the body never needs the module.
     model: str,
-    base: str,
     execute_model: str,
     priority: str | None,
     branch: str,
@@ -847,7 +837,6 @@ async def task_add(
         command=command,
         mode=mode,
         model=model,
-        base=base,
         execute_model=execute_model,
         priority=priority,
         branch=branch,
@@ -876,7 +865,6 @@ async def add_task(
     command: str = "",
     mode: str = "",
     model: str = "",
-    base: str = "",
     execute_model: str = "",
     priority: str | None = None,
     branch: str = "",
@@ -915,7 +903,6 @@ async def add_task(
         "command": command,
         "mode": mode,
         "model": model,
-        "base": base,
         "executeModel": execute_model,
         "priority": priority,
         "branch": branch,
@@ -1015,7 +1002,6 @@ def task_draft(
     command: str,
     mode: str,
     model: str,  # the --model flag; shadows the module alias (see add_task)
-    base: str,
     execute_model: str,
     priority: str | None,
     branch: str,
@@ -1043,7 +1029,6 @@ def task_draft(
             command=command,
             mode=mode,
             model=model,
-            base=base,
             execute_model=execute_model,
             priority=priority or "",
             branch=branch,
@@ -1070,7 +1055,6 @@ async def task_promote(
     command: str | None,
     mode: str | None,
     model: str | None,  # the --model flag; shadows the module alias (see add_task)
-    base: str | None,
     execute_model: str | None,
     priority: str | None,
     branch: str | None,
@@ -1106,7 +1090,6 @@ async def task_promote(
         "mode": mode,
         "model": model,
         "executeModel": execute_model,
-        "base": base,
         "priority": priority,
         "branch": branch,
         "parent": parent,
@@ -1856,7 +1839,6 @@ async def task_update(
     # Shadows the `task as model` module alias for this body, which therefore
     # reaches the model layer via the `task_model` binding (see the imports).
     model: str | None,
-    base: str | None,
     execute_model: str | None,
     priority: str | None,
     pre_action: str | None,
@@ -1866,7 +1848,7 @@ async def task_update(
     comms: tuple[str, ...],
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, base, command, mode, model, actions, schedule, trigger, comms, content).
+    """Update a task's fields (title, branch, command, mode, model, actions, schedule, trigger, comms, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1927,7 +1909,6 @@ async def task_update(
             command=command,
             mode=mode,
             model=model,
-            base=base,
             execute_model=execute_model,
             priority=priority,
             pre_action=pre_action,

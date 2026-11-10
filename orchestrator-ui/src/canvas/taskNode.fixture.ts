@@ -32,7 +32,6 @@ function task(over: Partial<Task> = {}): Task {
     follows: [],
     priority: 'medium',
     model: '',
-    base: '',
     executeModel: '',
     prNumber: 0,
     prUrl: '',

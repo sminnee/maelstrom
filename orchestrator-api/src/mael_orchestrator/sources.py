@@ -77,11 +77,10 @@ from .world_build import (
 
 log = logging.getLogger(__name__)
 
-#: Opens a worktree on a branch: ``(project, branch, base) -> WorktreeSetup``.
-#: ``base`` is what seeds the branch's stored base the first time; ``""`` leaves
-#: it to the launcher. Named without a task, so work that has none — a free
-#: agent — opens a worktree through the same injected collaborator.
-OpenWorktree = Callable[[str, str, str], WorktreeSetup]
+#: Opens a worktree on a branch: ``(project, branch) -> WorktreeSetup``.
+#: Named without a task, so work that has none — a free agent — opens a
+#: worktree through the same injected collaborator.
+OpenWorktree = Callable[[str, str], WorktreeSetup]
 
 #: Rebuilds an opened worktree's ``.env``, and says what it did:
 #: ``(project, setup) -> lines``. Blocking: it reads and writes files.
@@ -242,8 +241,6 @@ class LaunchClaim:
     #: The status the task had before the claim moved it, for the rollback.
     previous_status: str
     plan: LaunchPlan
-    #: The task's stored base, which seeds the branch's base on its first open.
-    base: str = ""
     #: The session id a **New session** saved, which the rollback removes.
     new_session_id: str = ""
 
@@ -702,7 +699,6 @@ class NotebookTaskSource:
             task.id,
             task.status,
             plan,
-            task.base or "",
             new_session_id=plan.session_id if new_session else "",
         )
 
@@ -1081,7 +1077,7 @@ class WorktreeOpener:
         self.live_sessions = live_sessions
         self.has_transcript = has_transcript
 
-    async def open(self, project: str, branch: str, base: str) -> WorktreeSetup:
+    async def open(self, project: str, branch: str) -> WorktreeSetup:
         """Open a worktree on the worktree pool, one open per project at a time.
 
         Off the loop, because the fetch and rebase take seconds. One at a time,
@@ -1095,7 +1091,7 @@ class WorktreeOpener:
             raise LaunchBlocked("This server cannot open worktrees")
         async with self._opening.setdefault(project, asyncio.Lock()):
             return await asyncio.get_running_loop().run_in_executor(
-                self.worktree_executor, self.open_worktree, project, branch, base
+                self.worktree_executor, self.open_worktree, project, branch
             )
 
     async def write_env(self, project: str, setup: WorktreeSetup) -> list[str]:

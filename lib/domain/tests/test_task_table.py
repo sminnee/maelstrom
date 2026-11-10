@@ -39,7 +39,6 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         last_run="2026-06-10T09:00:00+00:00",
         priority="high",
         model="opus",
-        base="main",
         execute_model="sonnet",
         pr_number=118,
         pr_url="https://github.com/o/r/pull/118",

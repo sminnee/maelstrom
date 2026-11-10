@@ -177,4 +177,6 @@ TASKS: tuple[Rung, ...] = (
         run=_store_sessions,
         description="store each task's sessions on the task",
     ),
+    # Branch stacking is gone, and the task base with it. See ADR 0004.
+    Migration(("ALTER TABLE tasks DROP COLUMN base",)),
 )
