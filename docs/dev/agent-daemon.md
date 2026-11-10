@@ -528,10 +528,19 @@ stdin step and goes straight to the signals. Signalling the group rather than th
 takes the child's hooks, MCP servers and tool shells with it: a `proc.kill()` reached the child
 alone and left the rest running on a dead pipe.
 
-The daemon's own shutdown, whether from `mael env stop`'s SIGTERM or a foreground `serve`'s
-Ctrl-C, stops every child this way. Because the children are outside the
-daemon's group, a signal to the daemon never reaches them directly; the daemon's handler is the
-one path, and it leaves every record `running` so the next daemon resumes them.
+The daemon's own shutdown, whether from `mael env stop`'s SIGTERM, a `systemctl --user restart`
+or a foreground `serve`'s Ctrl-C, stops every child this way. It leaves every record `running`,
+so the next daemon resumes them. It also ends each attach stream with no `mael_agent_exited`
+marker: the agent did not exit, so a follower reads a lost stream and attaches to the next daemon.
+
+The children are outside the daemon's process group, so a signal to the group does not reach
+them. Under systemd they are in the daemon's cgroup. The agent-daemon unit therefore sets
+`KillMode=mixed`: a stop sends SIGTERM to the daemon only, and the daemon's handler stops each
+child. systemd sends SIGKILL to what is left in the cgroup after the daemon exits. With the
+default, `control-group`, the children get SIGTERM at the same time as the daemon, and a child
+that exits before the handler runs is recorded as an exit. The unit also sets
+`OOMPolicy=continue`: when the OOM killer kills one `claude`, the unit and the other agents keep
+running. The killed agent shows as exited, with Resume.
 
 ## Running it
 

@@ -1401,11 +1401,22 @@ def test_a_daemon_shutdown_leaves_its_records_resumable():
         ):
             await daemon.handle({"cmd": "start", "cwd": "/tmp/x", "prompt": "go"})
         assert specs.list()[0].status == "running"
+        (agent_id,) = daemon.agents
+        attached = asyncio.create_task(daemon._attach(agent_id, writer))
+        await asyncio.sleep(0)
         stream_open.set()  # the child's stream ends, as `stop` would end it
         await daemon.shutdown()
+        # The watcher's stream ends, so a follower does not hang on it.
+        await asyncio.wait_for(attached, timeout=2)
 
+    writer = _recording_writer()
     asyncio.run(scenario())
 
+    # The agent did not exit: the daemon stopped it, and the next one resumes
+    # it. An exit marker would raise an exit on the canvas.
+    kinds = [json.loads(line).get("type") for line in writer.lines]
+    assert kinds[-1] == BACKLOG_END
+    assert AGENT_EXITED not in kinds
     (spec,) = specs.list()
     assert spec.status == "running"
     # The pid stays: a child the kill missed is the next daemon's stray, and

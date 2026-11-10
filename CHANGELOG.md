@@ -67,6 +67,9 @@ release while that section is empty, and retitles it to the version it is releas
   `uv tool install "tangier>=0.3.5"`. With an older tangier, usage moves as before.
 - **The skills ship as two Claude Code plugins.** `maelstrom` holds the skills maelstrom needs,
   and each session maelstrom launches loads it from the code that launched it. `minnstack`
+- **Agents survive an agent-daemon restart, and an OOM kill takes one agent.** The agent-daemon
+  unit sets `KillMode=mixed` and `OOMPolicy=continue`. Run `mael self setup` to update the unit.
+  That first restart can still lose agents; they show as exited, with Resume.
   holds the optional development practices, which you install with
   `claude plugin install minnstack@maelstrom --scope user`. `mael self setup` removes the old
   `~/.claude/skills` links, and installs `minnstack` on a host that had them. Codex gets both

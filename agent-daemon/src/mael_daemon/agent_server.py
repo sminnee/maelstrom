@@ -258,6 +258,10 @@ def _offer(queue: "asyncio.Queue[dict[str, Any]]", event: dict[str, Any]) -> Non
         queue.put_nowait(event)
 
 
+#: Ends an attach stream with no frame, at daemon shutdown. Never sent to a client.
+_STREAM_END: dict[str, Any] = {"type": "_stream_end"}
+
+
 def _exit_marker(exit_code: int | None) -> dict[str, Any]:
     """The last event of an attach stream: the agent's process has gone."""
     return {"type": AGENT_EXITED, "exit_code": exit_code}
@@ -431,6 +435,9 @@ class Agent:
         # daemon uses it to record the exit, so a crash observed by a daemon
         # that then dies itself is still known to the next one.
         self.on_exit = on_exit
+        #: Set by the daemon's shutdown. The child goes because the daemon
+        #: stops it, so a watcher is not told the agent exited.
+        self.stopping_for_shutdown = False
         # Called with the new status whenever it changes, so the spawn record
         # survives a daemon that never gets to shut down.
         self.on_status = on_status
@@ -689,8 +696,9 @@ class Agent:
         # Tell every watcher the stream ended because the agent did, so an
         # attach can return rather than wait on a queue nothing will fill.
         # A subagent's watchers too: its events came from this process.
+        end = _STREAM_END if self.stopping_for_shutdown else _exit_marker(exit_code)
         for watcher in list(self.watchers):
-            _offer(watcher.queue, _exit_marker(exit_code))
+            _offer(watcher.queue, end)
 
     async def stop(self) -> None:
         """End the agent: close its stdin, then kill it if it does not exit.
@@ -1811,6 +1819,7 @@ class AgentDaemon:
         """
         for agent in self.agents.values():
             agent.on_exit = None
+            agent.stopping_for_shutdown = True
             spec = self.specs.read(agent.state.agent_id)
             if spec is not None and spec.status == SPEC_RUNNING:
                 self.specs.write(
@@ -1907,7 +1916,9 @@ class AgentDaemon:
 
         The stream ends with an :data:`~mael_agent.agent_wire.AGENT_EXITED`
         marker when the agent's process goes — at once, for an agent that has
-        already gone — so a follower returns instead of waiting forever.
+        already gone — so a follower returns instead of waiting forever. When
+        the daemon shuts down, the stream ends with no marker: the agent did
+        not exit, and the next daemon resumes it.
 
         A dotted id attaches to a subagent: the same stream, cut from that
         subagent's ring, with its own seq and its own detail frame. Its epoch
@@ -1952,6 +1963,8 @@ class AgentDaemon:
                 return
             while True:
                 event = await queue.get()
+                if event is _STREAM_END:
+                    return
                 seq = event.get(SEQ_KEY)
                 if isinstance(seq, int):
                     if seq <= last:
