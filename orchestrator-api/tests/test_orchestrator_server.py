@@ -3326,13 +3326,17 @@ def test_the_document_routes_and_the_stubs_answer(harness):
 # --- change notices ----------------------------------------------------------
 
 
-def test_the_notice_stream_opens_with_a_reset_carrying_the_epoch(harness):
+def test_the_notice_stream_opens_with_a_short_retry_and_a_reset_carrying_the_epoch(
+    harness,
+):
     async def scenario():
         async with harness.client() as api:
             async with api.events() as stream:
-                return await stream.next()
+                first = await stream.response.content.readline()
+                return first, await stream.next()
 
-    reset = run(scenario())
+    first, reset = run(scenario())
+    assert first == b"retry: 500\n"
     assert reset["event"] == "reset"
     assert reset["data"] == {"epoch": harness.orch.epoch, "idPrefix": ""}
     assert len(harness.orch.epoch) == 8

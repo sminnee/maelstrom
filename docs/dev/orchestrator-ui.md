@@ -112,8 +112,9 @@ forever. That fetch clears the invalidation when it succeeds, so a notice that c
 would be lost. A key that was fetching therefore gets one follow-up refetch when the fetch
 settles. The connection state lives in the
 store, and `shell/ConnectionBanner.tsx` shows "Connecting…" before any data. With data on
-screen, a drop shows no banner for 3 s, because a short reconnect is normal. From 3 s the banner
-is a grey "Reconnecting…". From 15 s it is the orange "Reconnecting… showing the
+screen, a drop shows no banner for 3 s, because a short reconnect is normal. The stream's
+`retry:` (orchestrator-server.md, "Change notices") keeps a return to the iOS app under that. From
+3 s the banner is a grey "Reconnecting…". From 15 s it is the orange "Reconnecting… showing the
 last known state", because the screen is then stale. `shell/HostBanner.tsx` is its twin for the far
 end: `api/host.ts` reads `GET /api/host`, and when the server says the agent host has stopped
 answering the banner says since when, that the agents on screen are the last known ones, and

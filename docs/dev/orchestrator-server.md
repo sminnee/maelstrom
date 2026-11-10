@@ -1652,10 +1652,13 @@ UI keeps its controls, and the button shows the refusal.
 
 ## Change notices
 
-`GET /api/events` is a `text/event-stream`. It opens with a `reset`, then sends one `change` per
-kind that changed, and a `: ping` comment every 15 s:
+`GET /api/events` is a `text/event-stream`. It opens with `retry: 500` and a `reset`, then sends
+one `change` per kind that changed, and a `: ping` comment every 15 s. `retry: 500` makes the
+browser redial a dropped stream after 0.5 s, not after WebKit's own 3 s. iOS cuts the stream of a
+Home Screen app in the background, so each return to the app is a drop:
 
 ```
+retry: 500
 event: reset
 data: {"epoch": "5f1c2a9e", "idPrefix": "cobalt"}
 
