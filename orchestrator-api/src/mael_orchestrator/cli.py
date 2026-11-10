@@ -420,6 +420,7 @@ def build_orchestrator(
         opener=opener,
         ids=ids,
         own_url=config.orchestrator_url or "",
+        own_name=config.server_name(),
     )
 
 

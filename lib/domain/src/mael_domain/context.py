@@ -8,6 +8,7 @@ This module handles resolving project and worktree context from:
 
 import os
 import re
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -135,6 +136,19 @@ class GlobalConfig:
     def derived_orchestrator_url(self) -> str:
         """The installed orchestrator's URL: the dev host and scheme, on its port."""
         return f"{self.dev_scheme}://{self.url_host}:{PRODUCTION_ORCHESTRATOR_PORT}"
+
+    def server_name(self) -> str:
+        """The name a user reads for this server.
+
+        ``host_name`` when set. Else the first DNS label of ``dev_host``, when
+        it is a name and not an IP address. Else the machine's host name, up to
+        the first ``.``. See "Names the UI shows" in ``docs/dev/remote-hosts.md``.
+        """
+        if self.host_name:
+            return self.host_name
+        dev_host = self.dev_host or ""
+        named = dev_host and not dev_host.replace(".", "").isdigit()
+        return (dev_host if named else socket.gethostname()).split(".")[0]
 
     @classmethod
     def default(cls) -> "GlobalConfig":

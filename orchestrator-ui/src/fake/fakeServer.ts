@@ -169,6 +169,8 @@ export function emptyFakeWorld(): FakeWorld {
     client: { local: true, host: '' },
     host: {
       id: 'agent-host',
+      name: 'monolith',
+      idPrefix: '',
       reachable: true,
       since: '2026-06-11T09:00:00Z',
       socket: '',

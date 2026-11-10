@@ -109,6 +109,7 @@ moreReferences  # unused variable (lib/domain/src/mael_domain/protocol.py Defini
 codexUsage  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
 parentUrl  # unused variable (lib/domain/src/mael_domain/protocol.py Agent)
 remoteHosts  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
+idPrefix  # unused variable (lib/domain/src/mael_domain/protocol.py Host)
 
 # Fields on dataclasses and TypedDicts that something outside Python reads, or
 # that a constructor fills and only a caller reads back.

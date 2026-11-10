@@ -810,6 +810,10 @@ class Host(TypedDict):
     """
 
     id: str
+    #: The name a user reads for this server: see ``GlobalConfig.server_name``.
+    name: str
+    #: This server's **Id prefix**: ``host_name``, or ``""`` for bare ids.
+    idPrefix: str
     reachable: bool
     #: When ``reachable`` last changed.
     since: str
