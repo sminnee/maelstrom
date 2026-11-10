@@ -1,8 +1,9 @@
-/* Four columns side by side, each scrolling on its own. */
+/* Four columns side by side, each scrolling on its own. The columns share the slot, so all
+   four fit down to a narrow slot; only below 4 × 128px does the board scroll sideways. */
 .board {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(128px, 1fr));
   gap: var(--u);
   height: 100%;
   min-height: 0;
@@ -41,7 +42,9 @@
 .cards {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden auto;
+  /* A narrow column lets its rows wrap their identity line: see `DeckRow.module.css`. */
+  container-type: inline-size;
 }
 /* Over the board: the card it refers to stayed in its column. */
 .dropError {

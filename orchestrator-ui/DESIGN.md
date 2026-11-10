@@ -554,7 +554,9 @@ List. Each is a **Desk mode** at its own path. Links, not buttons, so a mode ope
 window, as the top bar's view items do.
 
 Kanban is four columns, one per zone, in board order. Each column holds deck rows, with its count
-in the head. A drag of a row to another column sets the status that puts it there; `dropStatus`
+in the head. The four columns share the slot's width, down to 128px each, so the board scrolls
+sideways only in a slot under about 540px. In a column under 220px a row's identity line
+truncates its names, and a chip or the phase that does not fit drops to a second line. A drag of a row to another column sets the status that puts it there; `dropStatus`
 in `selectors/deck.ts` holds the rule. A column that refuses the dragged card draws no drop
 highlight. The status picker on the card stays the keyboard path.
 
