@@ -71,6 +71,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **`claude:fable` runs as `claude-fable-5-2`.** Claude Code's own alias `fable` still selects
+  Fable 5.1. Maelstrom now gives `claude` the full id: in a daemon launch, in a `--cli` launch,
+  and in an execute-model switch.
+
 - **The reconnect banner waits before it shows.** A short change-stream drop shows no banner.
   From 3 s a grey "Reconnecting…" shows, and from 15 s the orange "Reconnecting… showing the
   last known state". The browser redials a dropped stream after 0.5 s, so a return to the iOS

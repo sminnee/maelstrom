@@ -188,7 +188,7 @@ class CodexDaemonClient(AsyncDaemonClient):
         reference = _codex_reference(str(payload.get("model") or "codex:luna"), mode)
         params: dict[str, Any] = {
             "cwd": str(payload["cwd"]),
-            "model": reference.cli_args[1],
+            "model": reference.model_id,
             **codex_thread_start_options(mode),
             **_thread_settings(payload),
         }
