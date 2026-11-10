@@ -1419,17 +1419,19 @@ permission rule backs it.
 _Avoid_: Research agent, read-only agent
 
 **Canvas**:
-The view that draws the desk as one lane per project, with a **Worktree box** round the nodes of
+The desk in its graph **Desk mode**: one lane per project, with a **Worktree box** round the nodes of
 each worktree. It draws one node per task and one per free agent. A node is drawn when it is on
 the desk, or it has a live agent, so running work is always visible.
-_Avoid_: Graph view, board
+_Avoid_: board
 
 **Zone**:
-One of the three stages of progress the canvas lays out left to right: done, running, not
-started. A node's zone comes from its state, not from its task status: the running zone means an
-agent has been launched and the task is not finished, so an agent that ran and stopped is still
-running work rather than history. Zone boundaries line up across every lane, so the board reads
-as three vertical stripes. A zone is a stage of progress; a lane is one project's strip.
+One of the four stages of progress the desk lays out left to right: queued, to do, running,
+done. New work is on the left. Queued work waits on other work: it follows unfinished work, or
+it is blocked. To-do work is **Actionable** and waits on the operator. A node's zone comes from
+its state, not from its task status: the running zone means an agent has been launched and the
+task is not finished, so an agent that ran and stopped is still running work rather than
+history. Zone boundaries line up across every lane, so the canvas reads as four vertical
+stripes. A zone is a stage of progress; a lane is one project's strip.
 _Avoid_: Band, column group, stage, phase
 
 **Worktree box**:
@@ -1449,14 +1451,22 @@ one card at a time, a node's or a worktree's.
 _Avoid_: Worktree popover, box card, worktree panel
 
 **Deck list**:
-The narrow layout's main view: the desk as one row per node, tabbed by zone and opening on
-running. It draws what the canvas draws — a node per task and per free agent — laid out down the
-screen instead of across it, because a phone has no room for a board. The deck list replaces the
-canvas on the narrow layout, and never appears on the medium or wide layout.
+The desk in its list **Desk mode**: one row per node, tabbed by zone and opening on running. It
+draws what the canvas draws — a node per task and per free agent — laid out down the screen
+instead of across it. The narrow layout has no room for a board, so it draws the desk only as
+the deck list.
 _Avoid_: Mobile canvas, card list, feed
 
+**Desk mode**:
+How the desk draws its nodes: graph (the **Canvas**), kanban, or list (the **Deck list**). Each
+mode has its own path, such as `/desk/kanban`, and all three use the same zones. Kanban draws
+one column of cards per zone, with no lanes, boxes or follows wires. A drag of a card to another
+column sets the task status that puts the card in that column: Queued sets `blocked`, To do sets
+`todo`, Done sets `done`. A drop never launches, so the Running column takes no drop.
+_Avoid_: Desk view, layout (a layout is narrow, medium or wide)
+
 **Swipe action**:
-A deck row's left swipe. A not-started row that can start swipes to Launch. A row in the done,
+A deck row's left swipe. A to-do row swipes to Launch. A row in the done,
 cancelled, stopped or exited state swipes to **Dismiss**, which runs the same chain as the node
 card's Dismiss. Other rows have no swipe action. `orchestrator-ui/DESIGN.md`, "The Swipe Reveal
 Rule", gives the threshold.

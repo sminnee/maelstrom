@@ -53,8 +53,8 @@ The ordinary run through them, in order:
 
 | Node reads | Task status | Agent | Zone |
 |---|---|---|---|
-| Queued | `todo` | none | not started |
-| Ready to launch | `todo`, actionable | none | not started |
+| Queued | `todo` | none | queued |
+| Ready to launch | `todo`, actionable | none | to do |
 | Working | `in-progress` | processing | running |
 | Subagents working | `in-progress` | delegating | running |
 | Background tasks working | `in-progress` | background | running |
@@ -987,7 +987,7 @@ Operations also change what the board draws, in `deriveGraph`:
 |---|---|---|
 | Mid-delete | A running `dismiss` | The node it names keeps drawing after its agent stops and its desk entry goes, until the operation ends. Its zone does not move: a stopped agent stays in running. |
 | Mid-create | A running `launch`, `create` or `plan` with a `start_agent` step | The task node draws in the running zone, its final cell, before its agent exists. |
-| Opening node | A `start` or `plan`, running or **Unseen** | A node `op:<operationId>` in the operation's project lane, until its `agentId` or `taskId` names a node that draws. Its zone is running, or not started for a plan that does not launch. |
+| Opening node | A `start` or `plan`, running or **Unseen** | A node `op:<operationId>` in the operation's project lane, until its `agentId` or `taskId` names a node that draws. Its zone is running, or to do for a plan that does not launch. |
 
 The opening node's card shows the operation's words, its step meter and a Log link to the
 **Console**.
@@ -1019,8 +1019,8 @@ why.
 
 `canvas/CanvasCard.tsx` is the shell both cards share: the viewport portal, the grow animation,
 the pan into view and the Esc handler. The canvas shows one card at a time: the location's card,
-`/desk/task/<id>` or `/desk/worktree/<id>`. Esc, or a click on the canvas outside the card,
-moves to `/desk`. That is the pane, a wire, or a node that is not a task: a lane, a zone or a box.
+`/desk/graph/task/<id>` or `/desk/graph/worktree/<id>`. Esc, or a click on the canvas outside the
+card, moves to `/desk/graph`. That is the pane, a wire, or a node that is not a task: a lane, a zone or a box.
 A box label stops its click, because it opens a card. A card whose node or box no longer draws
 collapses with a replace, once the world has loaded.
 
@@ -1366,8 +1366,8 @@ A node resolves its worktree from its agent first, then from the open worktree o
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
 steps.
 
-The canvas draws one hairline lane per project. The board runs left to right in three progress
-zones — done, running, not started — whose boundaries line up across every lane. One strip of labels names
+The canvas draws one hairline lane per project. The board runs left to right in four progress
+zones — queued, to do, running, done — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time. `canvas/rows.ts` packs the rows, also pure and one lane at a time, and
 `canvas/layout.ts` aligns the zones, sets the row gaps and derives the boxes.
@@ -1736,6 +1736,12 @@ derives it from `deriveGraph`, so the list and the canvas draw the same nodes in
 `deck/DeckRow.tsx` carries the canvas node's `data-state` and `data-phase`, so the state
 vocabulary is one.
 
+**The kanban** (`deck/DeskKanban.tsx`) draws the deck's four zones as columns of `DeckRow`s, with
+native HTML5 drag and no library. `dataTransfer` cannot be read during a drag over, so the
+component holds the dragged node itself. `dropStatus` in `selectors/deck.ts` decides each drop.
+`shell/Desk.tsx` draws the `DeskModeSwitch`, then the mode. In kanban and list,
+`deck/SlotCard.tsx` draws the open card at the slot's right edge, round `NodeCardBody`.
+
 **One screen at a time.** The location gives the stack: its panel tab over its card's detail over
 its view. A row links to a node's card, and the detail's links add a session or a document as the
 panel tab. The strip's Close goes to the view; see "The URL". `shell/PanelLink.tsx` is the only control
@@ -1799,19 +1805,22 @@ as its detail screen and the panel tab as a screen over it.
 
 | URL | What it opens |
 | --- | --- |
-| `/desk`, `/tasks`, `/comms`, `/projects` | The main view. `/` and any unknown path redirect to `/desk` |
-| `/desk/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
-| `/desk/agent/<agent id>`, `/desk/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
+| `/desk/<mode>`, `/tasks`, `/comms`, `/projects` | The main view. `<mode>` is the **Desk mode**: `graph`, `kanban` or `list`. `/` and any unknown path redirect to `/desk/graph` |
+| `/desk/<mode>/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
+| `/desk/<mode>/agent/<agent id>`, `/desk/<mode>/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
 | `?project= &branch= &agents= &status= &q= &comm= &closed=1` | The filters. `status=all` is every status |
-| `?zone=done` | The narrow deck's zone |
+| `?zone=done` | The deck list's zone tab. The old `notStarted` reads as `todo` |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |
 | `?detail=<project id>&dtab=worktrees` | The Project dialog, on its Worktrees tab. No `dtab` is Overview. `project` is the project filter |
 | `?welcome=1`, `?add=1` | The Welcome dialog, the Add project dialog |
 
 `SCREENS` in `nav/location.ts` holds the path patterns, one route each. `nav/routes.tsx` declares
 them under one layout route that draws the shell, so a move between screens keeps the shell
-mounted. A catch-all route's loader redirects any other path. `useLoc` reads the matched screen,
+mounted. A catch-all route's loader redirects any other path. `/desk` and the card paths from
+before the desk had modes, such as `/desk/task/<id>`, redirect to the same card in graph mode, so
+an old link still opens its card. The narrow layout draws only the list: `MobileShell` replaces a
+graph or kanban path with the list path. `useLoc` reads the matched screen,
 its params and the search into a `Loc`. `toHref` fills the same patterns with `generatePath` and
 leaves every default out. `nav/location.test.ts` round-trips each row above.
 
@@ -1838,7 +1847,7 @@ entry records the href it was pushed from. These moves replace the entry instead
 - Dropping a branch filter that left the world: the user did not pick it.
 - The attention chip's zone move, on the entry under the detail, so Close lands on a list that
   holds the node.
-- A redirect, such as `/` to `/desk`.
+- A redirect, such as `/` to `/desk/graph`, or a narrow graph path to its list path.
 
 A close goes back: closing the editor, the new-work form, a card or the active tab. When the
 entry was pushed from the location the close leads to, the close is the browser's Back, so a
