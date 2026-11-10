@@ -36,6 +36,11 @@ MAELSTROM_YAML = """\
 
 # start_cmd: "npm run dev"
 
+# How work merges: "github" (a PR) or "local" (the Build queue).
+# merge: github
+# How many Build worktrees the Build queue runs at once, for merge: local.
+# build_slots: 2
+
 # linear:
 #   team_id: "TEAM"
 #   product_label: "product"
