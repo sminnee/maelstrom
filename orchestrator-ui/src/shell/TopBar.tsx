@@ -16,7 +16,7 @@ import { AppButton } from '../ui/AppButton';
 import styles from './TopBar.module.css';
 
 const PANES: { pane: Pane; label: string }[] = [
-  { pane: 'canvas', label: 'Desk' },
+  { pane: 'desk', label: 'Desk' },
   { pane: 'list', label: 'Tasks' },
   { pane: 'comms', label: 'Comms' },
   { pane: 'projects', label: 'Projects' },

@@ -9,23 +9,23 @@ const count = (view: View, filters: Partial<Filters> = {}, list: Partial<ListFil
 
 describe('activeFilterCount', () => {
   it('counts nothing at the defaults', () => {
-    for (const view of ['canvas', 'list', 'comms'] as const) expect(count(view)).toBe(0);
+    for (const view of ['desk', 'list', 'comms'] as const) expect(count(view)).toBe(0);
   });
 
   // One row per control: the views that draw it count it, the others do not.
   it.each<[string, Partial<Filters>, Partial<ListFilters>, View[]]>([
-    ['project', { project: 'northwind' }, {}, ['canvas', 'list', 'comms']],
-    ['branch', { branch: 'northwind/feat/db' }, {}, ['canvas', 'list']],
-    ['agent status', { agentStatus: 'planned' }, {}, ['canvas']],
-    ['search', { text: 'order' }, {}, ['canvas', 'list']],
+    ['project', { project: 'northwind' }, {}, ['desk', 'list', 'comms']],
+    ['branch', { branch: 'northwind/feat/db' }, {}, ['desk', 'list']],
+    ['agent status', { agentStatus: 'planned' }, {}, ['desk']],
+    ['search', { text: 'order' }, {}, ['desk', 'list']],
     ['status', {}, { statuses: ['done'] }, ['list']],
   ])('counts %s only where it is drawn', (_, filters, list, counted) => {
-    for (const view of ['canvas', 'list', 'comms'] as const)
+    for (const view of ['desk', 'list', 'comms'] as const)
       expect(count(view, filters, list)).toBe(counted.includes(view) ? 1 : 0);
   });
 
   it('counts no search for text that is only spaces', () => {
-    expect(count('canvas', { text: '   ' })).toBe(0);
+    expect(count('desk', { text: '   ' })).toBe(0);
   });
 
   it('counts the live statuses in any order as the default', () => {

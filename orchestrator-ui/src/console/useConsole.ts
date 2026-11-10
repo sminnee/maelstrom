@@ -126,7 +126,7 @@ export function useGoToTarget() {
         go({ card: null, panel: null, projectDetail: op.project, projectTab: 'worktrees' });
         return;
       }
-      showPane('canvas');
+      showPane('desk');
       const { card } = operationTarget(op);
       if (card) go({ card });
     },

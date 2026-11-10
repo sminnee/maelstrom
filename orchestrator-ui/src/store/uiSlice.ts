@@ -11,7 +11,7 @@ export type PanelTab =
   | { key: string; kind: 'devenv'; worktreeId: WorktreeId; service: string };
 
 /** One item of the top bar's menu: a main view, or the panel, labelled `Tabs`. */
-export type Pane = 'canvas' | 'list' | 'comms' | 'projects' | 'tabs';
+export type Pane = 'desk' | 'list' | 'comms' | 'projects' | 'tabs';
 
 /** One of the two slots the body draws a pane in. */
 export type Side = 'left' | 'right';
@@ -97,15 +97,15 @@ export interface ConsoleState {
 export function initialUiState(): UiState {
   return {
     anchors: {
-      canvas: 'left',
+      desk: 'left',
       list: 'left',
       comms: 'left',
       projects: 'left',
       tabs: 'right',
     },
-    slots: { left: 'canvas', right: 'tabs' },
+    slots: { left: 'desk', right: 'tabs' },
     // Every pane, so the left slot can reopen on one that was never selected.
-    paneRecency: ['canvas', 'tabs', 'list', 'comms', 'projects'],
+    paneRecency: ['desk', 'tabs', 'list', 'comms', 'projects'],
     tabs: [],
     tabRecency: [],
     splitTabs: {},

@@ -38,7 +38,7 @@ export function AgentsChip() {
   const { world } = useWorld();
   const agentStatus = useLoc().filters.agentStatus ?? 'all';
   const go = useGo();
-  const deskShowing = useShowing().includes('canvas');
+  const deskShowing = useShowing().includes('desk');
   const { open, working } = agentCounts(world.agents);
   // An empty desk has nothing to say. `0/0` would be a reading about nothing.
   if (open === 0) return null;

@@ -70,7 +70,7 @@ function WideChip() {
   const tabs = useAppStore((s) => s.ui.tabs);
   const activeTabKey = useLoc().panel?.key ?? null;
   const { expandedNodeId, open } = useCard();
-  const canvasShowing = useShowing().includes('canvas');
+  const deskShowing = useShowing().includes('desk');
   const showPane = useAppStore((s) => s.showPane);
   const { fitView } = useReactFlow();
 
@@ -80,7 +80,7 @@ function WideChip() {
     if (!next) return;
     // The canvas has to be showing before it can be fitted, so the fit waits
     // for the frame that draws it.
-    if (!canvasShowing) showPane('canvas');
+    if (!deskShowing) showPane('desk');
     open(cardOf(next), false);
     requestAnimationFrame(() => {
       void fitView({ nodes: [{ id: next.id }], duration: VIEW_MOVE_MS, maxZoom: 1.2 });

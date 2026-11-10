@@ -18,7 +18,7 @@ interface Origin {
 /** What each view draws, as the projects and branches the filters can match. */
 function originsOf(world: WorldView, view: View): Origin[] {
   switch (view) {
-    case 'canvas': {
+    case 'desk': {
       // The graph decides what the Desk draws, so the options cannot disagree
       // with it. The agent status filter does not narrow them.
       const graph = deriveGraph(world, { filters: noFilters() });
@@ -72,7 +72,7 @@ export function filterOptions(
   if (
     kept &&
     !branches.has(kept) &&
-    (['canvas', 'list'] as const).flatMap(of).some((o) => keyOf(o) === kept)
+    (['desk', 'list'] as const).flatMap(of).some((o) => keyOf(o) === kept)
   ) {
     branches.add(kept);
   }

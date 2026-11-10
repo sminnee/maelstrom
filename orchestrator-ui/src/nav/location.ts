@@ -71,10 +71,10 @@ export interface Screen {
  * `toHref` fills them. A task id can hold `/`, so the task path ends in a splat.
  */
 export const SCREENS: readonly Screen[] = [
-  { path: '/desk', view: 'canvas', card: null },
-  { path: '/desk/task/*', view: 'canvas', card: 'task' },
-  { path: '/desk/agent/:id', view: 'canvas', card: 'agent' },
-  { path: '/desk/worktree/:id', view: 'canvas', card: 'worktree' },
+  { path: '/desk', view: 'desk', card: null },
+  { path: '/desk/task/*', view: 'desk', card: 'task' },
+  { path: '/desk/agent/:id', view: 'desk', card: 'agent' },
+  { path: '/desk/worktree/:id', view: 'desk', card: 'worktree' },
   { path: '/tasks', view: 'list', card: null },
   { path: '/comms', view: 'comms', card: null },
   { path: '/projects', view: 'projects', card: null },
@@ -83,7 +83,7 @@ export const SCREENS: readonly Screen[] = [
 /** The location the app opens on: the desk, with nothing open and no filter. */
 export function defaultLoc(): Loc {
   return {
-    view: 'canvas',
+    view: 'desk',
     card: null,
     panel: null,
     filters: noFilters(),
@@ -108,8 +108,8 @@ export function withLoc(loc: Loc, patch: LocPatch): Loc {
     listFilters: { ...loc.listFilters, ...patch.listFilters },
     worktreeFilters: { ...loc.worktreeFilters, ...patch.worktreeFilters },
   };
-  if (patch.card) next.view = 'canvas';
-  if (next.view !== 'canvas') next.card = null;
+  if (patch.card) next.view = 'desk';
+  if (next.view !== 'desk') next.card = null;
   return next;
 }
 
@@ -226,7 +226,7 @@ export function parseLocation(pathname: string, search: string): Loc | null {
 
 /** The URL of a location: its path and search, every default left out. */
 export function toHref(loc: Loc): string {
-  const card = loc.view === 'canvas' ? loc.card : null;
+  const card = loc.view === 'desk' ? loc.card : null;
   const screen = SCREENS.find((s) => s.view === loc.view && s.card === (card?.kind ?? null))!;
   // `generatePath` encodes a param but not the splat, so the task id's segments are encoded here.
   const path = generatePath(screen.path, {

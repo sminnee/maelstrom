@@ -99,7 +99,7 @@ export function MobileShell() {
           )}
           {top ? (
             <Screen screen={top} onClose={onClose} />
-          ) : view === 'canvas' ? (
+          ) : view === 'desk' ? (
             <DeckList />
           ) : view === 'comms' ? (
             <CommList />

@@ -100,7 +100,7 @@ describe('withLoc', () => {
   it('moves to the desk to open a card, and drops the card on leaving it', () => {
     const list = withLoc(defaultLoc(), { view: 'list' });
     const card = withLoc(list, { card: { kind: 'task', id: 'NORT-12' } });
-    expect(card.view).toBe('canvas');
+    expect(card.view).toBe('desk');
     expect(withLoc(card, { view: 'comms' }).card).toBeNull();
   });
 
