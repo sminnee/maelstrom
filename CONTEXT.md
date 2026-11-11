@@ -668,7 +668,8 @@ _Avoid_: Bash command (that is the agent's own tool call), local command, bang c
 **Spawn record**:
 What one driven agent takes to start again: its working directory, its session id, its permission
 mode, its model, and the environment it was given. Claude keeps the conversation itself, so the
-spawn record holds only the things Claude does not.
+spawn record holds only the things Claude does not. Its session id follows the agent across a
+`/clear`, so a resume continues the conversation the agent is in.
 _Avoid_: Agent state, checkpoint, snapshot
 
 **Teleport**:

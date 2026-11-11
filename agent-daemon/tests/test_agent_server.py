@@ -9,6 +9,7 @@ import shutil
 import signal
 import stat
 import tempfile
+import uuid
 from contextlib import suppress
 from dataclasses import replace
 from pathlib import Path
@@ -879,6 +880,22 @@ def test_the_stopped_scope_subtracts_what_the_process_table_shows_live():
     )
     rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
     assert [row["session"] for row in rows] == ["s3", "s4"]
+
+
+def test_a_live_agent_is_not_listed_as_stopped_after_a_clear():
+    """The child's argv names the session before the clear, and the record
+    names the one after. Both are live."""
+    before, after = str(uuid.uuid4()), str(uuid.uuid4())
+    daemon, specs = _stopped_daemon(
+        [_meta(after)],
+        processes=[ProcessInfo(1, 1, f"claude --resume {before}")],
+        records=False,
+    )
+    specs.write(
+        AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=after, argv_session_id=before)
+    )
+    rows = asyncio.run(_handle(daemon, {"cmd": "list", "scope": "stopped"}))["agents"]
+    assert rows == []
 
 
 def test_a_closed_process_table_lists_every_stopped_session():
@@ -2173,17 +2190,87 @@ def test_approving_a_plan_with_no_file_sends_it_back():
     assert len(sent) == 1
 
 
-def test_a_listed_agent_reports_the_session_it_was_spawned_on():
-    """The task link joins on the pinned id, which a ``/clear`` would move."""
-    daemon = AgentDaemon(specs=InMemoryAgentSpecStore())
-    daemon.specs.write(AgentSpec(agent_id="a1", cwd="/tmp/x", session_id="pinned"))
-    agent, _ = _sending_agent()
-    agent.state = replace(agent.state, agent_id="a1", session_id="moved-by-clear")
-    daemon.agents["a1"] = agent
+#: The two session ids in `plan-approved.jsonl`: the launch, then the clear.
+_BEFORE_CLEAR = "48826b04-79d0-47fa-9105-3f8c21d81011"
+_AFTER_CLEAR = "48712844-22f9-4f33-8c9b-c80c2a016f1f"
 
-    reply = asyncio.run(_handle(daemon, {"cmd": "list"}))
 
-    assert reply["agents"][0]["session"] == "pinned"
+def _run_plan_approved(daemon) -> None:
+    """Start an agent on the launch session and stream the recorded approval."""
+    lines = [
+        line.encode() + b"\n"
+        for line in (FIXTURES / "plan-approved.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(side_effect=[*lines, b""])
+
+    async def scenario():
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            await daemon.handle(
+                {
+                    "cmd": "start",
+                    "cwd": "/tmp/x",
+                    "prompt": "go",
+                    "session": _BEFORE_CLEAR,
+                }
+            )
+        (agent,) = daemon.agents.values()
+        assert agent.pump_task is not None
+        listed = (await daemon.handle({"cmd": "list"}))["agents"][0]["session"]
+        await agent.pump_task
+        return listed, (await daemon.handle({"cmd": "list"}))["agents"][0]["session"]
+
+    return asyncio.run(asyncio.wait_for(scenario(), timeout=5))
+
+
+def test_the_spawn_record_follows_the_session_across_a_clear():
+    """A plan approval sends a `/clear`, and Claude Code moves to a new session id.
+
+    The record is what a resume reads, so it must name the build
+    conversation, not the plan one. The argv id stays: the gc knows the live
+    child by it.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+
+    before, after = _run_plan_approved(daemon)
+
+    # The row has an id before the first `system/init`, then follows the child.
+    assert (before, after) == (_BEFORE_CLEAR, _AFTER_CLEAR)
+    (spec,) = specs.list()
+    assert spec.session_id == _AFTER_CLEAR
+    assert spec.argv_session_id == _BEFORE_CLEAR
+
+
+def test_a_restart_resumes_the_session_after_the_clear_and_keeps_the_plan_file():
+    """The restart of a plan-approved agent: the build conversation, not the plan one.
+
+    `plan_file` goes across the respawn too. A later recovery builds the
+    Handover from it; without it the recovery sends the launch prompt.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _run_plan_approved(daemon)
+    (spec,) = specs.list()
+    specs.write(replace(spec, plan_file="/plans/p.md"))
+    _daemon_dies(specs)
+
+    fresh, _ = _daemon_with_specs(has_transcript=True)
+    fresh.specs = specs
+    with patch.object(
+        agent_server.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_spawn_stub()),
+    ) as spawn:
+        asyncio.run(fresh.restore())
+
+    argv = list(spawn.call_args.args)
+    assert argv[argv.index("--resume") + 1] == _AFTER_CLEAR
+    (spec,) = specs.list()
+    assert spec.plan_file == "/plans/p.md"
+    # The new child's argv names the session it resumed.
+    assert spec.argv_session_id == _AFTER_CLEAR
 
 
 def test_an_agent_with_no_spawn_record_still_reports_a_session():
