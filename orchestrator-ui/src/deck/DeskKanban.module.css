@@ -63,3 +63,51 @@
   color: var(--attention);
   font-size: var(--text-sm);
 }
+/* Round the laned board, which scrolls: it holds the drop error in view. */
+.frame {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+.laned {
+  grid-auto-rows: auto;
+  align-content: start;
+  overflow: auto;
+}
+.zoneHead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  /* Fills the board's padding and the column gaps round the stuck heads, so no card shows
+     through above them. */
+  box-shadow: 0 calc(-1 * var(--u-half)) 0 var(--u) var(--bg);
+}
+.zoneHead .head {
+  border-bottom: none;
+}
+.lane {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  row-gap: var(--u-half);
+  margin-top: var(--u);
+}
+.laneHead {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+  margin: 0;
+  padding: 0 var(--u-half);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
+/* A cell is never shorter than one card's height, so an empty one still takes a drop. */
+.cell {
+  min-height: calc(var(--u) * 6);
+  container-type: inline-size;
+}
