@@ -2387,25 +2387,42 @@ def test_the_host_is_reported_unreachable_after_two_failed_polls_and_no_agent_ex
     One failed poll is the dropped connection a restart costs, so it raises
     nothing. The second does. The agents stay as they were, and the first
     successful poll after marks the host reachable again with the same ids.
+
+    The host is read through the router, as production reads it. The router
+    once dropped the daemon's error, so the banner never showed.
     """
-    harness.daemon.rows["ag1"] = agent_row()
+    claude = ScriptedAsyncDaemonClient()
+    claude.rows["ag1"] = agent_row()
     unreachable = {"error": "agent daemon not reachable at /x.sock: gone"}
 
     async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                before = await api.get_json("/api/host")
-                # Enough errors to hold the host down past the notice coalesce
-                # window; otherwise "down" and "up" land in one notice.
-                harness.daemon.replies["list"] = [unreachable] * 500
-                await stream.change("host", "agent-host")
-                down = await api.get_json("/api/host")
-                agent_while_down = await api.get_json("/api/agents/ag1")
-                harness.daemon.replies["list"].clear()  # the host answers again
-                await stream.change("host", "agent-host")
-                up = await api.get_json("/api/host")
-                return before, down, agent_while_down, up, host_calls(harness)
+        db = open_state_db(":memory:")
+        await db.migrate()
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), SqliteAgentStore(db))
+        harness = Harness(store, daemon=router)
+        try:
+            async with harness.client() as api:
+                async with api.events() as stream:
+                    await stream.next("reset")
+                    before = await api.get_json("/api/host")
+                    # Enough errors to hold the host down past the notice
+                    # coalesce window; otherwise "down" and "up" land in one
+                    # notice.
+                    claude.replies["list"] = [unreachable] * 500
+                    await stream.change("host", "agent-host")
+                    down = await api.get_json("/api/host")
+                    agent_while_down = await api.get_json("/api/agents/ag1")
+                    claude.replies["list"].clear()  # the host answers again
+                    await stream.change("host", "agent-host")
+                    up = await api.get_json("/api/host")
+                    calls = [
+                        c["cmd"]
+                        for c in claude.calls
+                        if c["cmd"] not in ("list", "attach")
+                    ]
+                    return before, down, agent_while_down, up, calls
+        finally:
+            db.close()
 
     before, down, agent_while_down, up, calls = run(scenario())
     assert before["host"]["reachable"] is True
