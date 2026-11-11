@@ -6,6 +6,7 @@ import { ApiProvider } from '../api/ApiProvider';
 import type { ApiClient } from '../api/http';
 import type { Attachment } from '../api/attachments';
 import { AttachField } from './AttachField';
+import { Dialog } from './Dialog';
 
 const PNG = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
   type: 'image/png',
@@ -34,7 +35,11 @@ function storedFile(name = 'spec.json'): Attachment {
 }
 
 /** The field over a fake API, with the caller's state held as a test double. */
-function setup(attached: Attachment[] = [], props: { disabled?: boolean } = {}) {
+function setup(
+  attached: Attachment[] = [],
+  props: { disabled?: boolean } = {},
+  wrap: (field: React.ReactNode) => React.ReactNode = (field) => field,
+) {
   const post = vi.fn().mockResolvedValue({
     markdown: stored().markdown,
     url: stored().url,
@@ -48,16 +53,18 @@ function setup(attached: Attachment[] = [], props: { disabled?: boolean } = {}) 
       api={api}
       queryClient={new QueryClient({ defaultOptions: { mutations: { retry: false } } })}
     >
-      <AttachField
-        project="northwind"
-        bucket="t1"
-        attached={attached}
-        onAttach={onAttach}
-        onRemove={onRemove}
-        {...props}
-      >
-        <textarea aria-label="What needs doing?" />
-      </AttachField>
+      {wrap(
+        <AttachField
+          project="northwind"
+          bucket="t1"
+          attached={attached}
+          onAttach={onAttach}
+          onRemove={onRemove}
+          {...props}
+        >
+          <textarea aria-label="What needs doing?" />
+        </AttachField>,
+      )}
     </ApiProvider>,
   );
   return { post, onAttach, onRemove };
@@ -156,6 +163,114 @@ describe('AttachField', () => {
     await user.click(screen.getByRole('button', { name: 'Remove spec.json' }));
 
     expect(onRemove).toHaveBeenCalledWith(storedFile());
+  });
+
+  describe('a text note', () => {
+    const open = async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'Attach text note' }));
+      return screen.getByRole('dialog', { name: 'Attach text note' });
+    };
+
+    it('uploads the typed text under the typed name, and closes', async () => {
+      const user = userEvent.setup();
+      const { post, onAttach } = setup();
+      post.mockResolvedValue({
+        markdown: storedFile('log.txt').markdown,
+        url: storedFile('log.txt').url,
+        kind: 'file',
+      });
+
+      const dialog = await open(user);
+      expect(within(dialog).getByLabelText('File name')).toHaveValue('note.txt');
+      await user.type(within(dialog).getByLabelText('Content'), 'line one');
+      await user.clear(within(dialog).getByLabelText('File name'));
+      await user.type(within(dialog).getByLabelText('File name'), 'log');
+      await user.click(within(dialog).getByRole('button', { name: 'Attach' }));
+
+      await waitFor(() => expect(onAttach).toHaveBeenCalledTimes(1));
+      const [, body] = post.mock.calls[0] as [string, FormData];
+      const file = body.get('file') as File;
+      // A name with no extension gets `.txt`.
+      expect(file.name).toBe('log.txt');
+      expect(file.type).toBe('text/plain');
+      expect(await file.text()).toBe('line one');
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+
+    it('gives a name with no kept extension `.txt`', async () => {
+      const user = userEvent.setup();
+      const { post } = setup();
+
+      const dialog = await open(user);
+      await user.type(within(dialog).getByLabelText('Content'), 'x');
+      await user.clear(within(dialog).getByLabelText('File name'));
+      await user.type(within(dialog).getByLabelText('File name'), 'v1.2 notes');
+      await user.click(within(dialog).getByRole('button', { name: 'Attach' }));
+
+      await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+      const [, body] = post.mock.calls[0] as [string, FormData];
+      expect((body.get('file') as File).name).toBe('v1.2 notes.txt');
+    });
+
+    it('attaches on Enter in the name, and does not submit the form the field is in', async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((e: React.FormEvent) => e.preventDefault());
+      // A submit button, as New work has: Enter in a form's field presses it.
+      const { onAttach } = setup([], {}, (field) => (
+        <form onSubmit={onSubmit}>
+          {field}
+          <button type="submit">Save</button>
+        </form>
+      ));
+
+      const dialog = await open(user);
+      await user.type(within(dialog).getByLabelText('Content'), 'x');
+      await user.type(within(dialog).getByLabelText('File name'), '{Enter}');
+
+      await waitFor(() => expect(onAttach).toHaveBeenCalledTimes(1));
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it('closes alone on Escape, not the dialog the field is in', async () => {
+      const user = userEvent.setup();
+      const onOuterClose = vi.fn();
+      setup([], {}, (field) => (
+        <Dialog label="New work" onClose={onOuterClose}>
+          {field}
+        </Dialog>
+      ));
+
+      const dialog = await open(user);
+      // Escape on a modal dialog arrives as its `cancel` event.
+      fireEvent(dialog, new Event('cancel', { cancelable: true }));
+
+      expect(screen.queryByRole('dialog', { name: 'Attach text note' })).not.toBeInTheDocument();
+      expect(onOuterClose).not.toHaveBeenCalled();
+    });
+
+    it('cannot be attached with no content', async () => {
+      const user = userEvent.setup();
+      setup();
+
+      const dialog = await open(user);
+
+      expect(within(dialog).getByRole('button', { name: 'Attach' })).toBeDisabled();
+    });
+
+    it('stays open and says why when the upload fails', async () => {
+      const user = userEvent.setup();
+      const { post, onAttach } = setup();
+      post.mockRejectedValue(new Error('attachment is too large'));
+
+      const dialog = await open(user);
+      await user.type(within(dialog).getByLabelText('Content'), 'x');
+      await user.click(within(dialog).getByRole('button', { name: 'Attach' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'note.txt: attachment is too large',
+      );
+      expect(onAttach).not.toHaveBeenCalled();
+    });
   });
 
   it('ignores a paste when the field is disabled', async () => {
