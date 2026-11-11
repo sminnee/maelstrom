@@ -35,13 +35,17 @@ export function PanelLink({
   children,
   className,
   icon = true,
+  role,
   'aria-label': ariaLabel,
+  'aria-current': ariaCurrent,
 }: Target & {
   children: ReactNode;
   className?: string;
   /** False for a badge that carries its own glyph. */
   icon?: boolean;
+  role?: 'menuitem';
   'aria-label'?: string;
+  'aria-current'?: boolean;
 }) {
   const openTab = useAppStore((s) => s.openTab);
   const narrow = useLayoutMode() === 'narrow';
@@ -59,7 +63,9 @@ export function PanelLink({
       to={to}
       state={linkState}
       className={[styles.link, className].filter(Boolean).join(' ')}
+      role={role}
       aria-label={ariaLabel}
+      aria-current={ariaCurrent || undefined}
       onClick={(e) => {
         e.stopPropagation();
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.button !== 0) return;

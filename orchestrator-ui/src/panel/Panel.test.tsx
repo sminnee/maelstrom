@@ -116,3 +116,65 @@ describe('the open tabs across a refresh', () => {
     expect(within(tabStrip()).getByRole('tab', { selected: true })).toHaveAccessibleName(/NORT-9/);
   });
 });
+
+describe('the tab picker and the task link', () => {
+  const bar = () => within(screen.getByTestId('worktree-bar'));
+  const picker = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(screen.getByRole('button', { name: 'Open a tab' }));
+    return within(screen.getByRole('menu', { name: 'Open a tab' }));
+  };
+  const selected = () => within(tabStrip()).getByRole('tab', { selected: true });
+
+  // northwind alpha holds NORT-7, whose agent runs there, and NORT-7.1 on its branch.
+  it('opens a tab that is not open, and activates one that is', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await openSession(user, 'NORT-7');
+
+    let menu = await picker(user);
+    const session = menu.getByRole('menuitem', { name: /Live/ });
+    expect(session).toHaveAttribute('aria-current', 'true');
+    await user.click(menu.getByRole('menuitem', { name: /Plan v1/ }));
+    expect(screen.getByRole('button', { name: 'Open a tab' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+    expect(stripKeys()).toEqual(['session:a1f3c9e2', 'document:doc-nort7-plan']);
+    expect(selected()).toHaveAttribute('data-tab-key', 'document:doc-nort7-plan');
+
+    menu = await picker(user);
+    await user.click(menu.getByRole('menuitem', { name: /Live/ }));
+    expect(stripKeys()).toEqual(['session:a1f3c9e2', 'document:doc-nort7-plan']);
+    expect(selected()).toHaveAttribute('data-tab-key', 'session:a1f3c9e2');
+  });
+
+  it('offers Changes in the menu and not in the worktree bar', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await openSession(user, 'NORT-7');
+    expect(bar().queryByRole('link', { name: 'Changes' })).toBeNull();
+
+    const menu = await picker(user);
+    await user.click(menu.getByRole('menuitem', { name: 'Changes' }));
+    expect(selected()).toHaveAttribute('data-tab-key', 'changes:northwind-alpha');
+  });
+
+  it('opens the task dialog from the one task in the bar', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    // northwind delta holds NORT-12 alone.
+    await openSession(user, 'NORT-12');
+    await user.click(bar().getByRole('button', { name: /NORT-12/ }));
+    expect(router.state.location.search).toContain('edit=NORT-12');
+  });
+
+  it('opens the chosen task from the menu of several', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp();
+    await openSession(user, 'NORT-7');
+    await user.click(bar().getByRole('button', { name: '2 tasks' }));
+    const menu = within(screen.getByRole('menu', { name: '2 tasks' }));
+    await user.click(menu.getByRole('menuitem', { name: /Build the order export/ }));
+    expect(router.state.location.search).toContain('edit=NORT-7.1');
+  });
+});

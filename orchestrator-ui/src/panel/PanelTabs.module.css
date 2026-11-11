@@ -1,24 +1,40 @@
 /* Active rank is structural, not decorative — see DESIGN.md, "Panel Tabs". */
-.strip {
+/* The tabs, then the **Tab picker**'s `+` just past the last of them. */
+.band {
   display: flex;
-  overflow-x: auto;
-  /* The strip is the one tinted surface here. The tab in view leaves it for
+  /* The band is the one tinted surface here. The tab in view leaves it for
      the body's own ground — see DESIGN.md, "Panel Tabs". */
   background: var(--bg-raised);
   min-height: 32px;
   /* Room above the tabs, so the tab in view is a shape standing in the band
      rather than a block filling it to the edge. */
   padding-top: var(--u-half);
+  min-width: 0;
 }
-/* The line's tail, past the last tab. Each tab draws its own segment, and the
-   tabs are sized to their contents, so without this the line stops wherever
-   the last one ends rather than at the panel's edge. */
-.strip::after {
+/* The line's tail, past the `+`. Each tab draws its own segment, and the tabs
+   are sized to their contents, so without this the line stops wherever the
+   last one ends rather than at the panel's edge. */
+.band::after {
   content: '';
   /* Grows into the room left over and shrinks away when there is none, so the
      tail never adds to the width the tabs themselves need to scroll. */
   flex: 1 1 auto;
   min-width: 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+/* Sized to its tabs, and scrolls them when they outgrow the band: the `+`
+   stays in view at the end. */
+.strip {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+}
+/* The `+` draws its own segment of the line, as a tab does. */
+.picker {
+  flex: none;
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--border-strong);
 }
 .tab {

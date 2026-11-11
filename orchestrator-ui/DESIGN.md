@@ -1095,9 +1095,19 @@ tab idiom: rounded where it leaves the strip, square where it joins the body. It
 
 The line under the strip is drawn per tab, not across the strip and then masked. Each tab owns
 its own segment as a `border-bottom`, the tab in view sets that segment transparent, and a
-`::after` on the strip carries the line past the last tab to the panel's edge. Masking is not
+`::after` on the band carries the line past the `+` to the panel's edge. Masking is not
 available: `.strip` has `overflow-x: auto`, which clips on both axes, so no tab can escape the
 strip's box to paint over a line below it.
+
+The **Tab picker**'s `+` follows the last tab, outside the scrolling strip, so it stays in view
+when the tabs scroll. It is a bare glyph in `--fg-faint` with a pill ring on hover, as the
+close cross is. Its menu takes the shared popover menu: a Micro head per section, `Sessions` and
+`Documents`, and a check before each tab already open. A row's task id is mono, by the Mono
+Means Literal Rule.
+
+The worktree bar reads branch, task link, then the controls. The task link is quiet text in
+`--fg-muted`: the mono id, then the title, which takes the ellipsis. The controls keep the
+weight.
 
 Phase runs down that tab's leading edge at 4px, the Left Edge Rule's own width, as a node card
 and a desk row draw it. `data-phase` is set on the tab and inherited, so the edge reads
