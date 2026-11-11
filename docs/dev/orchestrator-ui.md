@@ -879,7 +879,29 @@ actions only call them:
 A shift-click on a top bar item keeps its own meaning: it moves the item's anchor.
 
 `panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls from
-`worktrees/WorktreeControls.tsx`, as the worktree area does.
+`worktrees/WorktreeControls.tsx`, as the worktree area does. It leaves out the `Changes` link,
+because the **Tab picker** offers it. After the branch, `panel/TaskLink.tsx` opens the task
+dialog: one task shows its id and title, and several show `N tasks ▾` with a menu of them.
+
+**The tab picker.** `panel/TabPicker.tsx` is the `+` after the last tab. It sits outside the
+`tablist`, so the arrow keys pass over it. Its menu lists `Changes`, then a `Sessions` heading,
+then a `Documents` heading. `worktreeWork` and `worktreeTabOffers` in `selectors/worktreeTabs.ts`
+hold the rules. The task link reads the same `worktreeWork`:
+
+- The worktree's work is its desk entries: each task and free agent on the desk whose node card
+  has a session or a document that opens in this worktree, and each desk **Holder** of it.
+- A session or document opens here when `worktreeForTab` places its tab here. That is the rule
+  the sidebar groups by, so the menu lists what the card would open in this worktree. A task's
+  run in another worktree is that worktree's.
+- The card's sessions and documents come from `agentsOfTask` and `cardDocuments`, the card's own
+  rules. An owned document comes before a linked one, and each shows once. An archived document
+  is left out.
+- Sessions are newest first.
+- A row starts with its task id or agent id only when the worktree has more than one desk entry.
+- A closed worktree offers no `Changes`. A "no worktree" group gets no `+`.
+
+An open tab stays in the menu with a check and `aria-current`, so the menu keeps its shape. Each
+item is a panel link, so Back and a modifier-click behave as they do for any panel link.
 
 The same links row carries external links, which open a new browser tab instead of a panel
 tab. `shell/ExternalLink.tsx` is the control, and its arrow-leaving-a-box icon is the whole
@@ -1050,8 +1072,8 @@ with a dev env tab and draws an external link there.
 
 ### The Changes tab
 
-`changes/ChangesTab.tsx` draws the **Changes tab**. The expanded node's `Changes` link opens it
-while the worktree is open. The tab chip names the
+`changes/ChangesTab.tsx` draws the **Changes tab**. The expanded node's `Changes` link and the
+**Tab picker** open it while the worktree is open. The tab chip names the
 worktree by its id, `<project>-<nato> changes`, because every project has a `delta`. It draws
 no phase, because a worktree has no task of its own.
 
