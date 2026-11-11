@@ -8,13 +8,17 @@ import { toHref, withLoc } from '../nav/location';
 import { useGo, useLoc } from '../nav/useNav';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
+import type { GraphNode } from '../selectors/graph';
 import { DeckRow } from './DeckRow';
 import styles from './DeckList.module.css';
 
 /** The rows the zone tabs control, so a screen reader can follow the pair. */
 const DECK_PANEL_ID = 'deck-rows';
 
-/** The narrow layout's main view: the desk as a list, tabbed by zone. */
+/**
+ * The narrow layout's main view: the desk as a list, tabbed by zone. With the
+ * deck's lanes, a subheading names each project above its rows.
+ */
 export function DeckList() {
   const { status, errors, retry } = useWorld();
   const deck = useDeck();
@@ -42,6 +46,14 @@ export function DeckList() {
   }
 
   const rows = deck.zones[zone];
+  const row = (node: GraphNode, named: boolean) => (
+    <DeckRow
+      key={node.id}
+      node={node}
+      showProject={named}
+      to={toHref(withLoc(loc, { card: cardOf(node) }))}
+    />
+  );
   return (
     <div className={styles.deck} data-testid="deck-list">
       <div className={styles.tabs} role="tablist" aria-label="Progress">
@@ -67,15 +79,23 @@ export function DeckList() {
           <p className={styles.empty} data-testid="deck-empty">
             {emptyZoneWords(zone)}
           </p>
+        ) : deck.lanes.length > 0 ? (
+          deck.lanes.map((lane) => {
+            const laneRows = lane.zones[zone];
+            if (laneRows.length === 0) return null;
+            return (
+              <section key={lane.id} aria-label={lane.label} data-lane={lane.id}>
+                <h3 className={styles.laneHead}>
+                  <span className="nowrap">{lane.label}</span>
+                  <span className={styles.count}>{laneRows.length}</span>
+                </h3>
+                {/* A row under a subheading does not name its project: the subheading does. */}
+                {laneRows.map((node) => row(node, false))}
+              </section>
+            );
+          })
         ) : (
-          rows.map((node) => (
-            <DeckRow
-              key={node.id}
-              node={node}
-              showProject={showProject}
-              to={toHref(withLoc(loc, { card: cardOf(node) }))}
-            />
-          ))
+          rows.map((node) => row(node, showProject))
         )}
       </div>
     </div>

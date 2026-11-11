@@ -155,4 +155,30 @@ describe('the desk modes', () => {
     expect(router.state.location.pathname).toBe('/desk/kanban');
     expect(screen.queryByTestId('slot-card')).not.toBeInTheDocument();
   });
+
+  it('heads each project’s rows in the list, with work of two projects', async () => {
+    await renderApp({ url: '/desk/list' });
+    const list = screen.getByTestId('deck-list');
+    // The list opens on Running, where both projects have work.
+    const sections = within(list)
+      .getAllByRole('region')
+      .map((section) => [
+        within(section).getByRole('heading', { level: 3 }).textContent,
+        within(section)
+          .getAllByTestId('deck-row')
+          .map((row) => row.getAttribute('data-task-id')),
+      ]);
+    // A subheading counts its project's rows in the open tab. f2c6a9d4 is a free agent.
+    expect(sections).toEqual([
+      ['maelstrom3', ['MAEL-52', 'MAEL-40.1', 'f2c6a9d4']],
+      ['northwind3', ['NORT-12', 'NORT-7', 'NORT-9']],
+    ]);
+  });
+
+  it('draws no subheading in the list with work of one project', async () => {
+    await renderApp({ url: '/desk/list?project=northwind' });
+    const list = screen.getByTestId('deck-list');
+    expect(within(list).getAllByTestId('deck-row').length).toBeGreaterThan(0);
+    expect(within(list).queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
+  });
 });
