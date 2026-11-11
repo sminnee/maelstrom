@@ -29,15 +29,18 @@ export function WorktreeLinks({
   worktree,
   pr = worktreePr(worktree),
   chipClassName,
+  changes = true,
 }: {
   worktree: Worktree | undefined;
   pr?: PrReading | null;
   /** For the PR chip: the narrow detail screen gives it a row. */
   chipClassName?: string;
+  /** False where the **Tab picker** offers the changes instead: the panel's worktree bar. */
+  changes?: boolean;
 }) {
   return (
     <>
-      {worktree && !worktree.isClosed && (
+      {changes && worktree && !worktree.isClosed && (
         <PanelLink tab={changesTab(worktree.id)}>Changes</PanelLink>
       )}
       <PrChip pr={pr ?? undefined} size="large" className={chipClassName} />

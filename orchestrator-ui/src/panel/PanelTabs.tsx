@@ -3,6 +3,7 @@ import { useWorld } from '../api/useWorld';
 import { useAppStore } from '../store/store';
 import { actionIcon } from '../ui/actionIcons';
 import { TabChip } from './TabChip';
+import { TabPicker } from './TabPicker';
 import { usePanelNav } from './usePanelNav';
 import type { TabGroup } from '../selectors/tabs';
 import styles from './PanelTabs.module.css';
@@ -69,52 +70,60 @@ export function PanelTabs({
   };
 
   return (
-    <div className={styles.strip} role="tablist" aria-label="Open tabs">
-      {tabs.map((tab, index) => {
-        const attribution = tabAttribution(world, tab);
-        const active = tab.key === activeTabKey;
-        const split = tab.key === splitKey;
-        return (
-          <div
-            key={tab.key}
-            role="tab"
-            // Both tabs in view are selected: the body shows them side by side.
-            aria-selected={active || split}
-            aria-controls={PANEL_BODY_ID}
-            tabIndex={active ? 0 : -1}
-            className={`${styles.tab} nowrap`}
-            data-active={active || undefined}
-            data-split={split || undefined}
-            data-tab-key={tab.key}
-            data-phase={attribution.phase ?? undefined}
-            // The name is pinned rather than computed. A tab's contents win
-            // over its `title`, and the close button's own label joins them,
-            // so the computed name reads "NORT-7 Close NORT-7".
-            aria-label={[attribution.id, attribution.label].filter(Boolean).join(' ')}
-            // The strip has no room for the task's title, so the tooltip carries it.
-            title={attribution.title || undefined}
-            onClick={(e) => choose(tab.key, e.shiftKey)}
-            onKeyDown={(e) => onKeyDown(e, index)}
-          >
-            <TabChip attribution={attribution} />
-            {split && <SplitMark />}
-            {attribution.label && (
-              <span className={`${styles.label} truncate`}>{attribution.label}</span>
-            )}
-            <button
-              type="button"
-              className={styles.close}
-              aria-label={['Close', attribution.label, attribution.id].filter(Boolean).join(' ')}
-              onClick={(e) => {
-                e.stopPropagation();
-                onClose([tab.key]);
-              }}
+    <div className={styles.band}>
+      <div className={styles.strip} role="tablist" aria-label="Open tabs">
+        {tabs.map((tab, index) => {
+          const attribution = tabAttribution(world, tab);
+          const active = tab.key === activeTabKey;
+          const split = tab.key === splitKey;
+          return (
+            <div
+              key={tab.key}
+              role="tab"
+              // Both tabs in view are selected: the body shows them side by side.
+              aria-selected={active || split}
+              aria-controls={PANEL_BODY_ID}
+              tabIndex={active ? 0 : -1}
+              className={`${styles.tab} nowrap`}
+              data-active={active || undefined}
+              data-split={split || undefined}
+              data-tab-key={tab.key}
+              data-phase={attribution.phase ?? undefined}
+              // The name is pinned rather than computed. A tab's contents win
+              // over its `title`, and the close button's own label joins them,
+              // so the computed name reads "NORT-7 Close NORT-7".
+              aria-label={[attribution.id, attribution.label].filter(Boolean).join(' ')}
+              // The strip has no room for the task's title, so the tooltip carries it.
+              title={attribution.title || undefined}
+              onClick={(e) => choose(tab.key, e.shiftKey)}
+              onKeyDown={(e) => onKeyDown(e, index)}
             >
-              {actionIcon('close')}
-            </button>
-          </div>
-        );
-      })}
+              <TabChip attribution={attribution} />
+              {split && <SplitMark />}
+              {attribution.label && (
+                <span className={`${styles.label} truncate`}>{attribution.label}</span>
+              )}
+              <button
+                type="button"
+                className={styles.close}
+                aria-label={['Close', attribution.label, attribution.id].filter(Boolean).join(' ')}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose([tab.key]);
+                }}
+              >
+                {actionIcon('close')}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* Outside the tablist: the `+` is not a tab, and the arrows pass over it. */}
+      {group?.worktree && (
+        <span className={styles.picker}>
+          <TabPicker worktree={group.worktree} openKeys={tabs.map((t) => t.key)} />
+        </span>
+      )}
     </div>
   );
 }

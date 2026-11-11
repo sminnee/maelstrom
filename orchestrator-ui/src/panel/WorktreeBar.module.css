@@ -9,10 +9,20 @@
 }
 /* The branch gives way first: the controls are what the bar is for. */
 .branch {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   font-family: var(--mono);
   font-size: var(--text-sm);
   color: var(--fg-faint);
+}
+/* The task link takes the room left over, and truncates its title in it. */
+.task {
+  flex: 1 1 auto;
+  display: flex;
+  min-width: 0;
+  /* At the panel's minimum the id alone overflows: it clips here rather than
+     run under the controls. */
+  overflow: hidden;
 }
 .controls {
   flex: none;

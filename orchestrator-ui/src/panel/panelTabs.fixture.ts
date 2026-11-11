@@ -1,4 +1,5 @@
 import type { PanelTab } from '../store/uiSlice';
+import { deskIdForTask } from '../protocol/deskId';
 import { defaultLoc, toHref, withLoc } from '../nav/location';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../fake/fixtures';
@@ -191,4 +192,67 @@ export const sidebar: Strip = {
     sessionTab(free.id),
   ],
   activeTabKey: `document:${dated.document.id}`,
+};
+
+/**
+ * One worktree for the **Tab picker** and the worktree bar's task link. The
+ * title runs past the bar's room, so the link's ellipsis is checked.
+ */
+const pickerTree = makeWorktree({ id: 'northwind-alpha', branch: 'feat/orders' });
+const pickerTask = makeTask({
+  id: 'NORT-7',
+  notebookId: 'NORT-7',
+  title: 'Export each order as CSV from the orders table, with one column per field',
+});
+const pickerAgents = [
+  makeAgent({ id: 'a1b2c3d4', session: 'a1b2c3d4e5', startedAt: '2026-11-11T09:00:00Z' }),
+  makeAgent({
+    id: 'e5f6a7b8',
+    session: 'e5f6a7b8c9',
+    state: 'exited',
+    exitCode: 0,
+    startedAt: '2026-11-10T15:00:00Z',
+  }),
+];
+const pickerDocuments = [
+  makeDocument({ id: 'doc-plan', agentId: 'a1b2c3d4', title: 'Plan', version: 3 }),
+  makeDocument({
+    id: 'doc-verify',
+    agentId: 'a1b2c3d4',
+    kind: 'verification',
+    title: 'Verification',
+  }),
+];
+
+/** One task: the bar names it, and the menu rows carry no prefix. */
+export const pickerOneTask = worldWith({
+  worktrees: [pickerTree],
+  tasks: [pickerTask],
+  agents: pickerAgents,
+  documents: pickerDocuments,
+  desk: [{ id: deskIdForTask('NORT-7'), addedAt: '2026-11-11T08:00:00Z' }],
+});
+
+/** Two tasks on one branch: the bar reads `2 tasks`, and each menu row names its task. */
+export const pickerTwoTasks = worldWith({
+  worktrees: [pickerTree],
+  tasks: [
+    pickerTask,
+    makeTask({ id: 'NORT-7.1', notebookId: 'NORT-7.1', title: 'Build the order export' }),
+  ],
+  agents: [
+    ...pickerAgents,
+    makeAgent({ id: 'c9d0e1f2', taskId: 'NORT-7.1', startedAt: '2026-11-11T10:00:00Z' }),
+  ],
+  documents: pickerDocuments,
+  desk: [
+    { id: deskIdForTask('NORT-7'), addedAt: '2026-11-11T08:00:00Z' },
+    { id: deskIdForTask('NORT-7.1'), addedAt: '2026-11-11T08:00:00Z' },
+  ],
+});
+
+/** The picker's strip: the newest session and the plan open. */
+export const picker: Strip = {
+  tabs: [sessionTab('a1b2c3d4'), documentTab('doc-plan')],
+  activeTabKey: 'document:doc-plan',
 };

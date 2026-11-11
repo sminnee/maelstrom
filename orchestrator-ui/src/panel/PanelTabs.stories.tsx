@@ -1,16 +1,20 @@
 import type { Story } from '@ladle/react';
 import { QueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
 import { MemoryNav } from '../nav/MemoryNav';
 import { useAppStore } from '../store/store';
 import { createFakeServer } from '../fake/fakeServer';
 import { PanelTabs } from './PanelTabs';
+import { WorktreeBar } from './WorktreeBar';
 import { usePanelGroups } from './usePanelGroups';
 import {
   type Strip,
   freeAgent,
   fourPhases,
+  picker,
+  pickerOneTask,
+  pickerTwoTasks,
   gone,
   longTitle,
   realWidths,
@@ -33,9 +37,9 @@ export default { title: 'Panel / Tabs' };
 /** The suite's own fake server, not a stub — see `TaskNode.stories.tsx`. */
 const { api } = createFakeServer({ world });
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const newClient = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+const queryClient = newClient();
 
 /**
  * The strip over the ground it heads, at the width the story is asked for.
@@ -44,14 +48,28 @@ const queryClient = new QueryClient({
  * before it draws — which is why one story draws one strip. The strip shows
  * the tabs of one worktree group. Ladle's width control drives the rest.
  */
-function Strip({ strip, width }: { strip: Strip; width?: number }) {
+function Strip({
+  strip,
+  width,
+  serverApi = api,
+  bar = false,
+}: {
+  strip: Strip;
+  width?: number;
+  /** A server of another world, for a story the shared one cannot draw. */
+  serverApi?: typeof api;
+  /** Draw the worktree bar above the strip, as `Panel` does. */
+  bar?: boolean;
+}) {
+  // A world of its own needs a cache of its own: the queries share their keys.
+  const [client] = useState(() => (serverApi === api ? queryClient : newClient()));
   useState(() => {
     useAppStore.setState((s) => ({
       ui: { ...s.ui, tabs: strip.tabs, tabRecency: [] },
     }));
   });
   return (
-    <ApiProvider api={api} queryClient={queryClient}>
+    <ApiProvider api={serverApi} queryClient={client}>
       <MemoryNav url={urlOf(strip)}>
         <div
           style={{
@@ -64,7 +82,7 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
             maxWidth: '100%',
           }}
         >
-          <GroupTabs />
+          <GroupTabs bar={bar} />
           {/*
           The shape `Panel.tsx` builds: a scrolling box holding a status row
           and the reading under it. Keep the nesting, or the story stops
@@ -103,10 +121,52 @@ function Strip({ strip, width }: { strip: Strip; width?: number }) {
 }
 
 /** The strip as `Panel` feeds it: the active tab's group. Under the provider, which the hook reads. */
-function GroupTabs() {
+function GroupTabs({ bar }: { bar: boolean }) {
   const { activeGroup, close } = usePanelGroups();
-  return <PanelTabs group={activeGroup} onClose={close} />;
+  return (
+    <>
+      {bar && <WorktreeBar group={activeGroup} />}
+      <PanelTabs group={activeGroup} onClose={close} />
+    </>
+  );
 }
+
+/** Press the **Tab picker**'s `+` once the world has drawn it, so the story opens on the menu. */
+function useOpenPicker() {
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const plus = document.querySelector<HTMLButtonElement>('[aria-label="Open a tab"]');
+      if (!plus) return;
+      clearInterval(timer);
+      plus.click();
+    }, 100);
+    return () => clearInterval(timer);
+  }, []);
+}
+
+const oneTaskServer = createFakeServer({ world: pickerOneTask });
+const twoTasksServer = createFakeServer({ world: pickerTwoTasks });
+
+/**
+ * The **Tab picker** open, for a worktree of one task: the bar names the task,
+ * and the menu rows carry no prefix. The open tabs carry the check. Check the
+ * `+` sits just past the last tab, and the long title's ellipsis in the bar.
+ */
+export const PickerOneTask: Story = () => {
+  useOpenPicker();
+  return <Strip strip={picker} serverApi={oneTaskServer.api} bar />;
+};
+
+/** The picker for two tasks: the bar reads `2 tasks`, and each row names its task. */
+export const PickerTwoTasks: Story = () => {
+  useOpenPicker();
+  return <Strip strip={picker} serverApi={twoTasksServer.api} bar />;
+};
+
+/** The picker in 320px: the `+` stays in view as the tabs scroll. */
+export const PickerNarrow: Story = () => (
+  <Strip strip={picker} serverApi={oneTaskServer.api} bar width={320} />
+);
 
 /** One tab. Nothing to rank against, so the active state has to stand alone. */
 export const OneTab: Story = () => <Strip strip={single} />;

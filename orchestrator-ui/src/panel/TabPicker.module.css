@@ -1,0 +1,72 @@
+/* The `+` at the end of the strip: quiet until hovered, as the tabs are. */
+.trigger {
+  /* The trigger half of the anchor pair — see `useAnchorName`. */
+  anchor-name: var(--anchor-name);
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 var(--u-half);
+  padding: var(--u-half);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--fg-faint);
+  cursor: pointer;
+}
+.trigger:hover,
+.trigger:focus-visible,
+.trigger[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.trigger > svg {
+  width: 14px;
+  height: 14px;
+}
+/* Long enough for a session row, short of the panel's width. */
+.menu {
+  max-height: min(70vh, 480px);
+  overflow-y: auto;
+  max-width: min(480px, calc(100vw - 2 * var(--u)));
+}
+.group {
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--u-half);
+}
+/* Micro, as a section head is — see DESIGN.md § Hierarchy. */
+.heading {
+  padding: var(--u-half) var(--u);
+  color: var(--fg-faint);
+  font-size: var(--text-sm);
+  text-transform: uppercase;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+}
+/* An item is a link, so it drops the link's own colour and underline. */
+.item {
+  gap: var(--u);
+  align-items: center;
+  min-width: 0;
+  color: var(--fg);
+  text-decoration: none;
+}
+/* Held for the check, so open and closed rows line up. */
+.mark {
+  flex: none;
+  display: inline-flex;
+  width: 12px;
+}
+.mark > svg {
+  width: 12px;
+  height: 12px;
+}
+/* Mono Means Literal: the id is a literal. */
+.prefix {
+  flex: none;
+  font-family: var(--mono);
+  color: var(--fg-muted);
+}

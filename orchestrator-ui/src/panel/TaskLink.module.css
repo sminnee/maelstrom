@@ -1,0 +1,45 @@
+/* Quiet text, as the branch beside it: the bar's controls keep the weight. */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.link:hover {
+  color: var(--fg);
+}
+.link:hover .title {
+  text-decoration: underline;
+}
+/* The trigger half of the anchor pair — see `useAnchorName`. */
+.trigger {
+  anchor-name: var(--anchor-name);
+  flex: none;
+}
+.link > svg {
+  width: 12px;
+  height: 12px;
+}
+/* Mono Means Literal: the id is a literal, and it never truncates. */
+.id {
+  flex: none;
+  font-family: var(--mono);
+}
+.menu {
+  max-width: min(480px, calc(100vw - 2 * var(--u)));
+}
+.item {
+  gap: var(--u);
+  min-width: 0;
+  color: var(--fg);
+}
+.title {
+  min-width: 0;
+}
