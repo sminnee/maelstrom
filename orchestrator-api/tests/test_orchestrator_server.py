@@ -6611,6 +6611,30 @@ def test_a_failed_job_tells_its_worktree_once(gates):
     assert told.attrs == {"job": "898", "head": "a2fc5ee"}
 
 
+def test_a_gate_event_the_host_refused_is_sent_again_once(gates):
+    """A refused tell leaves the job due, not told, and the next answered poll
+    sends it once.
+    """
+    watch, harness = gates
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.replies["say"] = [{"error": "agent daemon not reachable"}]
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/agents/ag1", lambda b: b["worktreeId"])
+            watch.lines.put_nowait(gate_status())
+            watch.lines.put_nowait(
+                job_line(gate_job(898, "passed", WORKTREE_PATH), None)
+            )
+            await wait_until(lambda: len(said(harness)) == 2)
+            # More polls: an event that an agent took is not sent again.
+            await asyncio.sleep(0.1)
+
+    run(scenario())
+    # The refused tell, then the one the agent took.
+    assert events_said(harness) == ["gate.passed", "gate.passed"]
+
+
 def test_a_job_in_an_unknown_worktree_tells_nobody(gates):
     watch, harness = gates
     harness.daemon.rows["ag1"] = agent_row()
@@ -8377,6 +8401,44 @@ def test_a_moving_pr_tells_the_agent_on_its_task(harness):
     failed = parse_external_event(said(harness)[-1]["text"])
     assert failed is not None
     assert failed.attrs == {"pr": "118", "head": "aaa1111"}
+
+
+def test_a_pr_event_the_host_refused_is_sent_again_once(harness):
+    """A refused tell leaves the PR due, and the next answered poll sends the
+    news once.
+    """
+    prs = a_watched_pr(harness)
+    harness.daemon.replies["say"] = [{"error": "agent daemon not reachable"}]
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(said(harness)) == 2)
+            # More polls: an event that an agent took is not sent again.
+            await asyncio.sleep(0.1)
+            prs.answer = {"feat/orders": a_pr("ci-failed")}
+            await wait_until(lambda: len(said(harness)) == 3)
+
+    run(scenario())
+    # The refused tell, the one the agent took, then the next news.
+    assert events_said(harness) == ["pr.watching", "pr.watching", "pr.checks_failed"]
+
+
+def test_a_refused_pr_event_does_not_send_the_event_before_it_again(harness):
+    """One read can be two events. The ledger moves past the one an agent took."""
+    a_watched_pr(harness, "ci-failed")
+    harness.daemon.replies["say"] = [{"ok": True}, {"error": "not reachable"}]
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(said(harness)) == 3)
+            await asyncio.sleep(0.1)
+
+    run(scenario())
+    assert events_said(harness) == [
+        "pr.watching",
+        "pr.checks_failed",
+        "pr.checks_failed",
+    ]
 
 
 def test_a_free_agent_and_another_tasks_agent_hear_nothing(harness):

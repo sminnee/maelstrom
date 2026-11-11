@@ -197,6 +197,14 @@ commands that reach every agent in a worktree. Each call site keeps its own refu
 A jig instruction is the one turn that stays a plain message, because the agent prompt keys on its
 "From the jig for" opening.
 
+**Redelivery.** A PR event or a gate event that no agent took stays due. The usual cause is an
+agent daemon restart: the tell is refused, and the agents are back a few seconds later.
+`_redeliver` sends each due event again at each agent poll that the host answers, until an agent
+takes it. One watch runs at a time for each due PR, on what the cache holds then. A PR's ledger
+and a job's told mark move only after an agent took the event, so an event is told once. A PR or a
+job whose agents have all exited has no recipient, and is dropped. A repeated refusal is logged
+once.
+
 **The transcript.** The normaliser tests a user turn with `parse` before it tests for a task
 notification. A match is one `external_event` item carrying `source`, `eventType`, `attrs` and the
 body as `markdown`, and it starts the turn. `parse` takes only a turn that is one envelope and
@@ -233,9 +241,11 @@ news about the old head is noise. The ledger still moves, so nothing replays whe
 registers the PR again.
 
 **The ledger** is the `pr_events` table in the state database, keyed by PR URL, behind
-`PrLedgerStore`. It moves before the tell, whether or not an agent takes the event, so a resumed
-agent is not flooded with old news. The cost: a tell that is refused, or cut off by a stop, is not
-retried. A restart repeats nothing, and still tells a change made while it was down: the cache
+`PrLedgerStore`. It moves after an agent took each event of the read. A tell that no agent took
+stops the read there: `ledger_without` moves the ledger past the events before it only, and the
+PR is due: see "Redelivery". The cost: a server that stops
+between the tell and the write tells the same news once more at its next start. A restart
+repeats nothing else, and still tells a change made while it was down: the cache
 starts empty, so the first read reports every branch as new, and the ledger decides what is news.
 
 **The poll stops for a PR that is done.** A merged PR has no more news. The read asks for open
@@ -305,6 +315,7 @@ A free agent hears it too, because a gate job belongs to a worktree, not to a PR
 worktree the server does not know tells nobody. A set of told job ids makes a repeated end tell
 once. Each `status` line drops the ids that are not in its `recent` list. The tell runs off the
 watch, so a slow `say` never holds the next line. Two tells are not ordered. A refusal is logged.
+A job whose event no agent took is not told: it is due, as "Redelivery" says.
 
 **A failed watch** keeps the last jobs, and logs on the first failure only. It starts again after
 5 s, then 10 s, up to 60 s. A `job`, `gate` or `usage` line resets the wait, but a `status` line does

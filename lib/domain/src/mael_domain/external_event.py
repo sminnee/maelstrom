@@ -157,6 +157,24 @@ def pr_events(
     return events, PrLedger(pr.state, pr.conflicting, failed_oid, green_oid)
 
 
+def ledger_without(
+    told: PrLedger | None, ledger: PrLedger, undelivered: list[ExternalEvent]
+) -> PrLedger:
+    """``ledger`` with the news of the ``undelivered`` events left as ``told`` had it.
+
+    For a batch that was sent in part: the events an agent took are not news
+    again, and each other event is.
+    """
+    base = told or PrLedger("", False, "", "")
+    due = {event.type for event in undelivered}
+    return PrLedger(
+        base.state if PR_MERGED in due else ledger.state,
+        base.conflicting if PR_CONFLICT in due else ledger.conflicting,
+        base.told_failed_oid if PR_CHECKS_FAILED in due else ledger.told_failed_oid,
+        base.told_green_oid if PR_CHECKS_PASSED in due else ledger.told_green_oid,
+    )
+
+
 #: The gate states tangier counts as a pass.
 _GATE_OK = frozenset({"passed", "not-needed", "verified"})
 #: The gate states that did not run: not started, cut off, or cancelled.

@@ -79,6 +79,7 @@ from mael_domain.external_event import (
     SESSION_NOT_COMPACTED,
     ExternalEvent,
     gate_event,
+    ledger_without,
     pr_events,
 )
 from mael_domain.external_event import render as render_event
@@ -835,8 +836,19 @@ class Orchestrator:
         self.metrics = MetricsHub(queue_limit=metrics_queue_limit)
         #: The unfinished jobs the watch holds. See ``CONTEXT.md``, "Gate watch".
         self._gate_table = GateTable()
-        #: The jobs whose end was told, so a repeated end tells once.
+        #: The jobs whose end was told, or is being told, so a repeated end
+        #: tells once.
         self._gate_told: set[str] = set()
+        #: The ended jobs whose event no agent took, by job id. The next
+        #: agent poll that the host answers sends each again.
+        self._gates_due: dict[str, dict[str, Any]] = {}
+        #: The PRs whose events no agent took, by URL. Sent again likewise.
+        self._prs_due: set[str] = set()
+        #: The due PRs with a redelivery in flight.
+        self._prs_again: set[str] = set()
+        #: The agents that asked to end the session, until the turn ends. On
+        #: the server, not on the watch: a lost stream must not drop it.
+        self._pending_ends: set[str] = set()
         #: Whether the last watch failed, so a lasting failure logs once.
         self._gate_watch_failed = False
         #: The gate tells in flight, kept so a stop can cancel them.
@@ -3714,31 +3726,44 @@ class Orchestrator:
     async def _pr_watch(self, pr: PrStatus) -> None:
         """Tell ``pr``'s agents what is news in it, and write the ledger.
 
-        The ledger moves whether or not an agent took the event, so a resumed
-        agent is not flooded with old news. A PR with no recipient moves
-        nothing: :meth:`_watch_new_prs` checks it when one arrives.
+        The ledger moves past each event an agent took. An event that no
+        agent took stays due, with each event after it: the host was down,
+        and :meth:`_redeliver` sends that news again. A PR with no recipient
+        moves nothing: :meth:`_watch_new_prs` checks it when one arrives.
         """
         try:
             async with self._pr_watch_lock:
                 found = self._pr_recipients().get(pr.url)
                 if found is None:
+                    self._prs_due.discard(pr.url)
                     return
                 agent_ids, withdrawn = found
                 told = await self.pr_ledger.read(pr.url)
                 events, ledger = pr_events(pr, told, withdrawn)
+                again = pr.url in self._prs_due
+                for sent, event in enumerate(events):
+                    if not await self._tell_logged(agent_ids, event, quiet=again):
+                        self._prs_due.add(pr.url)
+                        if sent:
+                            ledger = ledger_without(told, ledger, events[sent:])
+                            await self.pr_ledger.save(pr.url, ledger)
+                        return
+                self._prs_due.discard(pr.url)
                 if ledger != told:
                     await self.pr_ledger.save(pr.url, ledger)
-                for event in events:
-                    _, refusals = await self._tell(agent_ids, event)
-                    for agent_id, refused in refusals:
-                        log.warning(
-                            "agent %s: %s not delivered: %s",
-                            agent_id,
-                            event.type,
-                            refused["error"]["message"],
-                        )
         except Exception:  # noqa: BLE001 — nothing awaits this task
             log.exception("the PR watch failed for %s", pr.url)
+
+    async def _pr_watch_again(self, url: str) -> None:
+        """Run the watch for a due PR on what the cache holds now."""
+        try:
+            pr = next((pr for pr in self._cached_prs() if pr.url == url), None)
+            if pr is None:
+                self._prs_due.discard(url)
+            else:
+                await self._pr_watch(pr)
+        finally:
+            self._prs_again.discard(url)
 
     # -- machine metrics --
 
@@ -3865,29 +3890,67 @@ class Orchestrator:
             return
         self._gate_told.add(job_id)
         worktree_id = self._gate_worktree_ids().get(str(job.get("worktree") or ""))
-        if worktree_id is None:
-            return
-        agent_ids = [a["id"] for a in agents_in_worktree(self.world, worktree_id)]
+        agent_ids = (
+            [a["id"] for a in agents_in_worktree(self.world, worktree_id)]
+            if worktree_id is not None
+            else []
+        )
         if not agent_ids:
+            # Nobody to tell, now or again.
+            self._gates_due.pop(job_id, None)
             return
-        task = asyncio.create_task(self._gate_tell(agent_ids, gate_event(job)))
+        task = asyncio.create_task(self._gate_tell(agent_ids, job))
         self._gate_tells.add(task)
         task.add_done_callback(self._gate_tells.discard)
 
-    async def _gate_tell(self, agent_ids: list[str], event: ExternalEvent) -> None:
+    async def _gate_tell(self, agent_ids: list[str], job: dict[str, Any]) -> None:
         """Tell the agents of a job's worktree that it ended. Off the watch, so
-        a slow ``say`` never holds the next line."""
+        a slow ``say`` never holds the next line.
+
+        An event that no agent took leaves the job due, not told.
+        """
+        job_id = str(job["id"])
         try:
-            _, refusals = await self._tell(agent_ids, event)
-            for agent_id, refused in refusals:
-                log.warning(
-                    "agent %s: %s not delivered: %s",
-                    agent_id,
-                    event.type,
-                    refused["error"]["message"],
-                )
+            again = job_id in self._gates_due
+            if await self._tell_logged(agent_ids, gate_event(job), quiet=again):
+                self._gates_due.pop(job_id, None)
+            else:
+                self._gate_told.discard(job_id)
+                self._gates_due[job_id] = job
         except Exception:  # noqa: BLE001 — nothing awaits this task
-            log.exception("the gate tell failed for job %s", event.attrs.get("job"))
+            log.exception("the gate tell failed for job %s", job_id)
+
+    async def _tell_logged(
+        self, agent_ids: list[str], event: ExternalEvent, *, quiet: bool = False
+    ) -> bool:
+        """Tell ``event`` and log each refusal. Whether one agent or more took it.
+
+        ``quiet`` is for a tell sent again: its first refusal is in the log.
+        """
+        delivered, refusals = await self._tell(agent_ids, event)
+        for agent_id, refused in () if quiet else refusals:
+            log.warning(
+                "agent %s: %s not delivered: %s",
+                agent_id,
+                event.type,
+                refused["error"]["message"],
+            )
+        return bool(delivered)
+
+    def _redeliver(self) -> None:
+        """Send again each External event that no agent took.
+
+        Called at each poll the host answers. See "Redelivery" in
+        ``docs/dev/orchestrator-server.md``.
+        """
+        for job in list(self._gates_due.values()):
+            self._schedule_gate_tell(job)
+        # One watch at a time for each PR: a `say` can outlast a poll.
+        for url in self._prs_due - self._prs_again:
+            self._prs_again.add(url)
+            task = asyncio.create_task(self._pr_watch_again(url))
+            self._pr_watches.add(task)
+            task.add_done_callback(self._pr_watches.discard)
 
     async def _settle_group(self, members: list[Document], status: str) -> None:
         """Move every member, and retire the items that asked for the review.
