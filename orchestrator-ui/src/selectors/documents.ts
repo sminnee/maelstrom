@@ -96,6 +96,23 @@ export function documentsByKind(
     .filter((section) => section.groups.length + section.archived.length > 0);
 }
 
+/**
+ * The documents a node card lists: those its task owns, then those its task
+ * links. A free agent has no task, so its card lists the documents of that
+ * agent alone. The card and the **Tab picker** both read this.
+ */
+export function cardDocuments(
+  world: WorldView,
+  taskId: string | null,
+  agentId: string | null,
+): { owned: DocumentRow[]; linked: CardGroup[] } {
+  const all = Object.values(world.documents);
+  return {
+    owned: all.filter((d) => (taskId ? d.taskId === taskId : !!agentId && d.agentId === agentId)),
+    linked: taskId ? linkedEntries(all, taskId) : [],
+  };
+}
+
 /** The current members of `doc`'s review group, in tag order. */
 export function groupOf(world: WorldView, doc: DocumentRow): DocumentRow[] {
   return groupMembers(Object.values(world.documents), doc.group.id);
