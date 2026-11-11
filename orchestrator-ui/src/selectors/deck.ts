@@ -4,7 +4,7 @@ import { isActionable } from '../protocol/phase';
 import { ZONES, progressOf, zoneForState } from '../protocol/progress';
 import type { WorldView } from './world';
 import type { Filters } from './filters';
-import { deriveGraph, nodeZone, type GraphNode } from './graph';
+import { deriveGraph, nodeZone, type GraphGroup, type GraphNode } from './graph';
 
 export interface DeckOptions {
   filters: Filters;
@@ -15,6 +15,22 @@ export interface Deck {
   zones: Record<Zone, GraphNode[]>;
   /** How many nodes each zone holds, for its tab. */
   counts: Record<Zone, number>;
+  /**
+   * One lane per project with a drawn node, in project id order. Empty when
+   * the nodes come from fewer than two projects: a view then draws no lanes.
+   */
+  lanes: DeckLane[];
+}
+
+/** One project's share of the deck: its nodes, bucketed by zone. */
+export interface DeckLane {
+  /** The project id: the nodes' `groupId`. */
+  id: string;
+  label: string;
+  /** The lane's nodes, in each zone's deck order. */
+  zones: Record<Zone, GraphNode[]>;
+  /** How many nodes the lane holds over all zones. */
+  count: number;
 }
 
 /**
@@ -22,9 +38,11 @@ export interface Deck {
  * laid out left to right.
  *
  * It calls `deriveGraph` rather than re-reading the world, so the list and the
- * canvas cannot disagree about what is drawn or what state it is in. The lanes
- * are not read: a lane is a horizontal idea, and the narrow layout has no room
- * for one.
+ * canvas cannot disagree about what is drawn or what state it is in.
+ *
+ * The lanes reuse `deriveGraph`'s groups, so the canvas and the deck agree on
+ * lane order and label. A project with only empty worktrees has no node, so
+ * it gets no lane.
  *
  * Inside a zone the nodes needing the user come first, then the unanswered
  * ones. The canvas shows the whole board, so a glow or a border carries that;
@@ -41,6 +59,7 @@ export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   }
   return {
     zones,
+    lanes: deriveLanes(graph.groups, zones),
     counts: {
       queued: zones.queued.length,
       todo: zones.todo.length,
@@ -48,6 +67,24 @@ export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
       done: zones.done.length,
     },
   };
+}
+
+/** The deck's lanes: each zone split by project, a stable split of the sorted zone lists. */
+function deriveLanes(groups: GraphGroup[], zones: Record<Zone, GraphNode[]>): DeckLane[] {
+  const lanes = groups
+    .filter((g) => g.nodeIds.length > 0)
+    .map((g): DeckLane => ({
+      id: g.id,
+      label: g.label,
+      zones: { queued: [], todo: [], running: [], done: [] },
+      count: g.nodeIds.length,
+    }));
+  if (lanes.length < 2) return [];
+  const byId = new Map(lanes.map((lane) => [lane.id, lane]));
+  for (const zone of ZONES) {
+    for (const node of zones[zone]) byId.get(node.groupId)?.zones[zone].push(node);
+  }
+  return lanes;
 }
 
 /** How strongly a node calls for the user: an ask, then an unread message, then the rest. */
