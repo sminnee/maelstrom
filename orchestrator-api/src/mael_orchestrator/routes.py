@@ -1012,15 +1012,23 @@ async def _agent_command(request: web.Request) -> web.StreamResponse:
 
 
 async def _upload_attachment(request: web.Request) -> web.Response:
-    """Take one image and put it in the task repo.
+    """Take one file and put it in its Bucket.
 
     Multipart, because the payload is bytes rather than JSON. The reply carries
     two refs and they are not interchangeable: ``markdown`` holds the portable
     ``{{MAEL_TASK_DIR}}`` token, which is what a task stores and what the agent
     later reads from disk, while ``url`` points at this server and is the only
-    one a browser can fetch.
+    one a browser can fetch. ``kind`` says which ``markdown`` is: an image ref
+    for an image, a link with the size in its label for any other file.
     """
-    from mael_domain.attachments import attachment_url, markdown_ref, save_attachment
+    from mael_domain.attachments import (
+        MAX_MEDIA_BYTES,
+        attachment_url,
+        file_label,
+        markdown_link,
+        markdown_ref,
+        save_file,
+    )
 
     try:
         reader = await request.multipart()
@@ -1041,7 +1049,16 @@ async def _upload_attachment(request: web.Request) -> web.Response:
         name = part.name
         if name == "file":
             filename = part.filename or ""
-            data = await part.read(decode=False)
+            # Read in chunks and stop past the cap: a multi-GB drop must not
+            # be held in memory only to be refused.
+            chunks = bytearray()
+            while chunk := await part.read_chunk():
+                chunks += chunk
+                if len(chunks) > MAX_MEDIA_BYTES:
+                    return error_response(
+                        "invalid", f"attachment is too large: limit {MAX_MEDIA_BYTES}"
+                    )
+            data = bytes(chunks)
         elif name in ("project", "bucket"):
             raw = await part.read(decode=False)
             fields[name] = raw.decode("utf-8", "replace")
@@ -1054,24 +1071,36 @@ async def _upload_attachment(request: web.Request) -> web.Response:
         return error_response("invalid", "An upload needs a file")
 
     try:
-        token = save_attachment(project, bucket, data, name=filename)
+        kind, token = await asyncio.to_thread(
+            save_file, project, bucket, data, name=filename
+        )
     except ValueError as exc:
-        # The size cap and the format sniff both land here: the client sent
+        # The size caps and the name checks land here: the client sent
         # something this server will not store, and the message says which.
         return error_response("invalid", str(exc))
 
     name = token.rsplit("/", 1)[-1]
+    markdown = (
+        markdown_ref(filename or name, token)
+        if kind == "image"
+        else markdown_link(file_label(filename or name, len(data)), token)
+    )
     return web.json_response(
         {
-            "markdown": markdown_ref(filename or name, token),
+            "markdown": markdown,
             "url": attachment_url(project, bucket, name),
+            "kind": kind,
         }
     )
 
 
 async def _serve_attachment(request: web.Request) -> web.StreamResponse:
-    """Serve one stored attachment back, so the browser can show it."""
-    from mael_domain.attachments import resolve_attachment
+    """Serve one stored attachment back, so the browser can show it.
+
+    :func:`~mael_domain.attachments.inline_media_type` decides inline or
+    download. ``nosniff`` stops the browser from guessing a type.
+    """
+    from mael_domain.attachments import inline_media_type, resolve_attachment
 
     try:
         found = resolve_attachment(
@@ -1085,7 +1114,15 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
         return error_response("invalid", str(exc))
     except KeyError as exc:
         return error_response("unknown_id", str(exc))
-    return web.FileResponse(found)
+    headers = {"X-Content-Type-Options": "nosniff"}
+    media_type = inline_media_type(found)
+    if media_type is None:
+        headers["Content-Type"] = "application/octet-stream"
+        quoted = found.name.replace("\\", "_").replace('"', "_")
+        headers["Content-Disposition"] = f'attachment; filename="{quoted}"'
+    else:
+        headers["Content-Type"] = media_type
+    return web.FileResponse(found, headers=headers)
 
 
 async def _serve_file(request: web.Request) -> web.StreamResponse:
