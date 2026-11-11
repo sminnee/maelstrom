@@ -416,9 +416,9 @@ describe('free agents', () => {
       desk: [],
     });
     const graph = deriveGraph(world, unfiltered);
-    expect(graph.groups.map((g) => [g.id, g.nodeIds])).toEqual([
-      ['', ['lost']],
-      ['maelstrom', ['held']],
+    expect(graph.groups.map((g) => [g.id, g.label, g.nodeIds])).toEqual([
+      ['', 'No project', ['lost']],
+      ['maelstrom', 'maelstrom', ['held']],
     ]);
   });
 
