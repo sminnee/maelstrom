@@ -76,8 +76,13 @@
 }
 .zoneHead {
   position: sticky;
-  z-index: 1;
+  z-index: 2;
   top: 0;
+  /* A fixed height, so each lane head knows where to stick below it. */
+  box-sizing: border-box;
+  height: var(--control);
+  display: flex;
+  align-items: center;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-sunken);
@@ -86,6 +91,8 @@
   box-shadow: 0 calc(-1 * var(--u-half)) 0 var(--u) var(--bg);
 }
 .zoneHead .head {
+  flex: 1;
+  padding-block: 0;
   border-bottom: none;
 }
 .lane {
@@ -95,13 +102,19 @@
   row-gap: var(--u-half);
   margin-top: var(--u);
 }
+/* A lane's head sticks under the zone row while its cards scroll, and the next lane's head
+   pushes it out: the lane is its containing block. */
 .laneHead {
+  position: sticky;
+  z-index: 1;
+  top: var(--control);
   grid-column: 1 / -1;
   display: flex;
   align-items: baseline;
   gap: var(--u);
   margin: 0;
-  padding: 0 var(--u-half);
+  padding: var(--u-half);
+  background: var(--bg);
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--fg);
