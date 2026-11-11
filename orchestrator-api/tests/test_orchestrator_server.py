@@ -5413,6 +5413,8 @@ def images(tmp_path, monkeypatch):
     """Point the attachments directory at a temp dir, so uploads write nowhere real."""
     root = tmp_path / "attachments"
     monkeypatch.setattr("mael_domain.state_db.paths.attachments_root", lambda: root)
+    # `task` binds the root at import, for the token expansion.
+    monkeypatch.setattr("mael_domain.task.attachments_root", lambda: root)
     return root
 
 
@@ -5672,6 +5674,66 @@ def test_a_say_names_an_attachment_by_its_stored_path(harness, images):
     said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
     stored = images / PROJECT / "images" / "t1" / "shot.png"
     assert said["attachments"] == [{"path": str(stored)}]
+
+
+def test_a_say_expands_the_token_to_the_agents_attachments_directory(harness, images):
+    """A file link holds the portable token. The agent needs a path it can read."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents/ag1/say",
+                {"text": "see [File: a.json, 8 B]({{MAEL_TASK_DIR}}/images/t1/a.json)"},
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    assert (
+        said["text"] == f"see [File: a.json, 8 B]({images}/{PROJECT}/images/t1/a.json)"
+    )
+
+
+def test_a_say_to_an_agent_in_no_project_keeps_the_token(harness, images):
+    """With no project, there is no directory to expand to: the text still goes."""
+    harness.daemon.rows["ag1"] = agent_row(cwd="/tmp/not-a-worktree")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                "/api/agents/ag1/say",
+                {"text": "see {{MAEL_TASK_DIR}}/images/t1/a.json"},
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    assert said["text"] == "see {{MAEL_TASK_DIR}}/images/t1/a.json"
+
+
+def test_a_say_does_not_send_a_non_image_file_as_an_image(harness, images):
+    """The host refuses a turn with a non-image file in its attachments."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            form = _upload(
+                name="spec.json", data=b'{"a": 1}', content_type="application/json"
+            )
+            async with api.session.post("/api/attachments", data=form) as raw:
+                url = (await raw.json())["url"]
+            return await api.post(
+                "/api/agents/ag1/say", {"text": "look", "attachments": [{"url": url}]}
+            )
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    said = [c for c in harness.daemon.calls if c["cmd"] == "say"][0]
+    assert "attachments" not in said
 
 
 def test_a_say_of_an_image_with_no_words_reaches_the_host(harness, images):

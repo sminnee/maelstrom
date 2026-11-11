@@ -147,6 +147,7 @@ from mael_domain.task import (
     CODEX_PLAN_FILE,
     STATUS_DONE,
     default_branch,
+    expand_task_dir,
     mode_for_command,
 )
 from mael_domain.task import permission_mode_for as model_permission_mode
@@ -3086,13 +3087,15 @@ class Orchestrator:
         Paths, not bytes: the host is local to the files, so sending base64
         here would carry each image twice over.
         """
-        payload: dict[str, Any] = {
-            "cmd": "say",
-            "id": command["agentId"],
-            # Defaulted, not indexed: an image-only turn is valid, and the
-            # route omits `text` when the body carries none.
-            "text": command.get("text", ""),
-        }
+        # Defaulted, not indexed: an image-only turn is valid, and the
+        # route omits `text` when the body carries none.
+        text = command.get("text", "")
+        agent = self.world["agents"].get(command["agentId"])
+        if agent and agent.get("project"):
+            # An attachment ref holds the portable token. The agent needs a
+            # path it can read, as a task's content gets at launch.
+            text = expand_task_dir(text, agent["project"])
+        payload: dict[str, Any] = {"cmd": "say", "id": command["agentId"], "text": text}
         attachments = _attachment_paths(command.get("attachments"))
         if attachments:
             payload["attachments"] = attachments
@@ -5480,6 +5483,15 @@ def _attachment_paths(attachments: Any) -> list[dict[str, str]]:
         try:
             found = resolve_attachment(parts[2], parts[3], parts[4])
         except (ValueError, KeyError):
+            continue
+        # The host sends each path as an image block and refuses a turn with
+        # any other file in it. A file belongs in the text as a link.
+        try:
+            with found.open("rb") as handle:
+                head = handle.read(16)
+        except OSError:
+            continue
+        if not is_image(head):
             continue
         resolved.append({"path": str(found)})
     return resolved
