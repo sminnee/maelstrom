@@ -23,9 +23,9 @@ describe('the message input', () => {
 
   const noop = { onSend: vi.fn(), onRun: vi.fn() };
   const send = () => screen.getByRole('button', { name: 'Send' });
-  const attach = () => screen.getByRole('button', { name: 'Attach image' });
+  const attach = () => screen.getByRole('button', { name: 'Attach file' });
 
-  it('puts Send in the row under the field, with Attach image', () => {
+  it('puts Send in the row under the field, with Attach file', () => {
     renderInput(noop);
     expect(attach().parentElement).toContainElement(send());
     const field = screen.getByLabelText('Message to agent');

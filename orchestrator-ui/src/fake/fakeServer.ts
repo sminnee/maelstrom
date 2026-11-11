@@ -1740,7 +1740,7 @@ function command(
   }
 
   if (pathname === '/api/attachments' && method === 'POST') {
-    const file = b.file as { name?: string } | undefined;
+    const file = b.file as { name?: string; type?: string; size?: number } | undefined;
     const name = file?.name ?? 'image.png';
     const bucket = String(b.bucket ?? '');
     // The real route refuses an upload with no bucket -- see `routes.py`,
@@ -1749,10 +1749,14 @@ function command(
     if (!bucket) {
       return error(400, 'invalid', 'An upload needs a project and a bucket');
     }
-    return ok({
-      markdown: `![${name}]({{MAEL_TASK_DIR}}/images/${bucket}/${name})`,
-      url: `/api/attachments/${String(b.project ?? '')}/${bucket}/${name}`,
-    });
+    const url = `/api/attachments/${String(b.project ?? '')}/${bucket}/${name}`;
+    const token = `{{MAEL_TASK_DIR}}/images/${bucket}/${name}`;
+    // The real route sniffs the bytes. The fake takes the browser's type: the
+    // tests' files are both.
+    if (!file?.type || file.type.startsWith('image/')) {
+      return ok({ markdown: `![${name}](${token})`, url, kind: 'image' });
+    }
+    return ok({ markdown: `[File: ${name}, ${file.size ?? 0} B](${token})`, url, kind: 'file' });
   }
 
   // Before every `{id}` route below, or the id pattern swallows `refresh`.

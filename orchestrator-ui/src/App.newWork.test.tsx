@@ -561,7 +561,7 @@ describe('new work', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
       type: 'image/png',
     });
-    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    await user.upload(within(form).getByLabelText('Attach file', { selector: 'input' }), png);
     const draft = within(form).getByLabelText('What needs doing?') as HTMLTextAreaElement;
     await waitFor(() => expect(draft.value).toContain('![shot.png]('));
 
@@ -828,7 +828,7 @@ describe('new work', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
       type: 'image/png',
     });
-    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    await user.upload(within(form).getByLabelText('Attach file', { selector: 'input' }), png);
     const draft = within(form).getByLabelText('What needs doing?');
     await waitFor(() => expect((draft as HTMLTextAreaElement).value).toContain('![shot.png]('));
     await user.type(draft, 'why does this look wrong?');
@@ -857,7 +857,7 @@ describe('new work', () => {
     });
     // One attach control on this surface: the prose field *is* the task's
     // content, so there is no second field to ask for the same text twice.
-    await user.upload(within(form).getByLabelText('Attach image', { selector: 'input' }), png);
+    await user.upload(within(form).getByLabelText('Attach file', { selector: 'input' }), png);
     const prose = within(form).getByLabelText('What needs doing?');
     await waitFor(() => expect((prose as HTMLTextAreaElement).value).toContain('![shot.png]('));
     await user.click(within(form).getByRole('button', { name: 'Save' }));
