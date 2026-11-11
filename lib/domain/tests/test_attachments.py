@@ -6,6 +6,8 @@ what the shared mechanism does, those pin that ``mael linear plan`` still gets
 it.
 """
 
+from pathlib import Path
+
 import pytest
 
 from mael_common.image import MAX_BYTES
@@ -60,6 +62,105 @@ class TestSaveAttachment:
         # Same filename, different bucket: no collision, no de-dupe suffix.
         assert one == "{{MAEL_TASK_DIR}}/images/t1/shot.png"
         assert two == "{{MAEL_TASK_DIR}}/images/agent-ab12/shot.png"
+
+
+class TestSaveFile:
+    def test_an_image_goes_the_image_path(self, tasks):
+        kind, token = attachments.save_file("proj", "t1", PNG, name="shot.png")
+
+        assert (kind, token) == ("image", "{{MAEL_TASK_DIR}}/images/t1/shot.png")
+
+    def test_a_json_file_keeps_its_name_and_extension(self, tasks):
+        kind, token = attachments.save_file("proj", "t1", b'{"a": 1}', name="spec.JSON")
+
+        assert (kind, token) == ("file", "{{MAEL_TASK_DIR}}/images/t1/spec.json")
+        assert (tasks / "proj" / "images" / "t1" / "spec.json").read_bytes() == (
+            b'{"a": 1}'
+        )
+
+    def test_an_odd_extension_becomes_bin(self, tasks):
+        _, token = attachments.save_file("proj", "t1", NOT_AN_IMAGE, name="dump.x$y")
+
+        assert token == "{{MAEL_TASK_DIR}}/images/t1/dump.bin"
+
+    def test_a_stem_that_would_end_a_link_target_is_made_plain(self, tasks):
+        _, token = attachments.save_file(
+            "proj", "t1", NOT_AN_IMAGE, name="my (big) log.txt"
+        )
+
+        assert token == "{{MAEL_TASK_DIR}}/images/t1/my-big-log.txt"
+
+    @pytest.mark.parametrize(
+        ("name", "stored"),
+        [
+            # A path keeps its last segment only.
+            ("../../x.txt", "x.txt"),
+            ("..", "file.bin"),
+            ("README", "README.bin"),
+            ("$$$.txt", "file.txt"),
+            ("a" * 300 + ".log", "a" * 100 + ".log"),
+        ],
+    )
+    def test_a_name_that_cannot_be_kept_falls_back(self, tasks, name, stored):
+        _, token = attachments.save_file("proj", "t1", NOT_AN_IMAGE, name=name)
+
+        assert token == f"{{{{MAEL_TASK_DIR}}}}/images/t1/{stored}"
+
+    def test_a_picked_screenshot_name_is_made_plain_too(self, tasks):
+        """An image goes through the same stem rule: a space would end its ref."""
+        _, token = attachments.save_file("proj", "t1", PNG, name="Screen Shot 1.png")
+
+        assert token == "{{MAEL_TASK_DIR}}/images/t1/Screen-Shot-1.png"
+
+    def test_a_second_file_of_one_name_is_de_duped(self, tasks):
+        attachments.save_file("proj", "t1", b"one", name="note.txt")
+        _, token = attachments.save_file("proj", "t1", b"two", name="note.txt")
+
+        assert token == "{{MAEL_TASK_DIR}}/images/t1/note-1.txt"
+        assert (tasks / "proj" / "images" / "t1" / "note.txt").read_bytes() == b"one"
+
+    def test_refuses_a_file_over_the_media_cap_and_writes_nothing(self, tasks):
+        big = b"x" * (attachments.MAX_MEDIA_BYTES + 1)
+
+        with pytest.raises(ValueError, match="too large"):
+            attachments.save_file("proj", "t1", big, name="big.log")
+        assert not (tasks / "proj").exists()
+
+    def test_a_file_over_the_image_cap_is_kept(self, tasks):
+        """5 MB is the cap for an image only: the agent never sees a file's bytes."""
+        kind, _ = attachments.save_file(
+            "proj", "t1", b"x" * (MAX_BYTES + 1), name="a.log"
+        )
+
+        assert kind == "file"
+
+
+class TestFileLink:
+    def test_the_label_gives_the_name_and_a_human_size(self):
+        assert attachments.file_label("spec.json", 412 * 1024) == (
+            "File: spec.json, 412 KB"
+        )
+        assert attachments.file_label("a.txt", 12) == "File: a.txt, 12 B"
+        assert attachments.file_label("b.log", 3 * 1024 * 1024) == "File: b.log, 3.0 MB"
+
+    def test_a_bracket_in_the_label_cannot_close_the_link(self):
+        link = attachments.markdown_link("File: a](x).txt, 1 B", "T")
+
+        assert link == "[File: a\\]\\(x\\).txt, 1 B](T)"
+
+
+class TestInlineMediaType:
+    @pytest.mark.parametrize("name", ["page.html", "logo.svg", "tool.exe", "noext"])
+    def test_a_type_that_can_run_script_or_is_unknown_is_a_download(self, name):
+        assert attachments.inline_media_type(Path(name)) is None
+
+    def test_a_json_file_is_inline_as_plain_text(self):
+        assert attachments.inline_media_type(Path("spec.json")) == (
+            "text/plain; charset=utf-8"
+        )
+
+    def test_an_image_is_inline_as_itself(self):
+        assert attachments.inline_media_type(Path("shot.PNG")) == "image/png"
 
 
 class TestMarkdownRef:
