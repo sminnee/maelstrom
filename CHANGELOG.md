@@ -25,6 +25,9 @@ release while that section is empty, and retitles it to the version it is releas
   into a file. An image is embedded as before. Any other file is linked, with its size, and the
   agent reads it from disk, so a long log does not fill its context. See
   [Attachments](docs/dev/orchestrator-server.md#attachments).
+- **The panel's worktree view has a Tab picker.** A `+` after the last tab opens a menu of the
+  worktree's Changes, sessions and documents. The worktree bar no longer has a Changes link. It
+  now names the worktree's task, which opens the task dialog.
 - **The desk draws as a graph, a kanban or a list.** A switch at the top of the desk picks the
   mode, and each mode has its own path, such as `/desk/kanban`. In kanban, drag a card to another
   column to set its task status. The desk now has four zones, Queued | To do | Running | Done,

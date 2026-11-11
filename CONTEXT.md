@@ -1610,9 +1610,16 @@ derived from the open tabs and holds no state of its own: it shows while one of 
 and closing it closes all its tabs. Tabs that no worktree holds form a "no worktree" group for
 their project.
 
+**Tab picker**:
+The `+` at the end of the panel's tab strip, and its menu of each tab the worktree in view can
+show: its **Changes tab**, and each session and document that a node card on the desk would open
+in this worktree. A tab already open stays in the menu, marked as open.
+_Avoid_: Tab menu, add-tab button
+
 **Changes tab**:
 A panel tab that shows one worktree's changes: its **Dirty files**, each commit its branch has
-over `main`, or the whole branch as one diff. The expanded node's `Changes` link opens it.
+over `main`, or the whole branch as one diff. The expanded node's `Changes` link and the
+**Tab picker** open it.
 The user answers the changes there with a **Change comment**.
 _Avoid_: Diff view, diff browser, code tab
 
