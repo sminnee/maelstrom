@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { TaskStatus } from '../protocol/entities';
 import { ZONES, type Zone } from '../protocol/progress';
-import { deriveDeck, dropStatus } from './deck';
+import { deriveDeck, dropStatus, type DeckLane } from './deck';
 import { noFilters } from './filters';
-import { makeAgent, makeAttention, makeTask, onDesk, worldWith } from '../fake/fixtures';
+import { deriveGraph } from './graph';
+import {
+  makeAgent,
+  makeAttention,
+  makeTask,
+  makeWorktree,
+  onDesk,
+  worldWith,
+} from '../fake/fixtures';
 
 /** A world whose every task is on the desk: what the deck list draws. */
 function drawnWorld(parts: Parameters<typeof worldWith>[0]) {
@@ -63,6 +71,78 @@ describe('deriveDeck', () => {
       desk: [],
     });
     expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 0, running: 0, done: 0 });
+  });
+});
+
+describe('deriveDeck lanes', () => {
+  /** A lane with its nodes as ids, so a test reads its whole shape. */
+  const laneIds = (lane: DeckLane) => ({
+    id: lane.id,
+    label: lane.label,
+    count: lane.count,
+    zones: Object.fromEntries(ZONES.map((z) => [z, lane.zones[z].map((n) => n.id)])),
+  });
+
+  it('splits the zones into one lane per project, in id order, with work of two projects', () => {
+    const world = drawnWorld({
+      projects: [
+        { id: 'northwind', name: 'Northwind', hasLinear: false },
+        { id: 'aurora', name: 'Aurora', hasLinear: false },
+      ],
+      tasks: [
+        makeTask({ id: 'N1', project: 'northwind', status: 'todo', actionable: true }),
+        makeTask({ id: 'N2', project: 'northwind', status: 'done' }),
+        makeTask({ id: 'A1', project: 'aurora', status: 'done' }),
+      ],
+    });
+    expect(deriveDeck(world, opts).lanes.map(laneIds)).toEqual([
+      {
+        id: 'aurora',
+        label: 'Aurora',
+        count: 1,
+        zones: { queued: [], todo: [], running: [], done: ['A1'] },
+      },
+      {
+        id: 'northwind',
+        label: 'Northwind',
+        count: 2,
+        zones: { queued: [], todo: ['N1'], running: [], done: ['N2'] },
+      },
+    ]);
+  });
+
+  it('draws no lanes with work of one project', () => {
+    const world = drawnWorld({
+      tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', status: 'done' })],
+    });
+    expect(deriveDeck(world, opts).lanes).toEqual([]);
+  });
+
+  it('does not count a project whose only worktree is empty', () => {
+    const world = drawnWorld({
+      tasks: [makeTask({ id: 'T1', project: 'northwind' })],
+      worktrees: [makeWorktree({ id: 'aurora-alpha', project: 'aurora', branch: 'feat/idea' })],
+    });
+    // The canvas draws the empty worktree in its own lane; the deck has no node for it.
+    expect(deriveGraph(world, opts).groups.map((g) => g.id)).toEqual(['aurora', 'northwind']);
+    expect(deriveDeck(world, opts).lanes).toEqual([]);
+  });
+
+  it('keeps the node needing the user first inside its lane', () => {
+    const world = drawnWorld({
+      tasks: [
+        makeTask({ id: 'N1', project: 'northwind', status: 'in-progress' }),
+        makeTask({ id: 'N2', project: 'northwind', status: 'in-progress' }),
+        makeTask({ id: 'A1', project: 'aurora', status: 'done' }),
+      ],
+      agents: [
+        makeAgent({ id: 'a1', taskId: 'N1', state: 'processing' }),
+        makeAgent({ id: 'a2', taskId: 'N2', state: 'awaiting-question' }),
+      ],
+      attention: [makeAttention({ taskId: 'N2', agentId: 'a2' })],
+    });
+    const northwind = deriveDeck(world, opts).lanes.find((l) => l.id === 'northwind')!;
+    expect(northwind.zones.running.map((n) => n.id)).toEqual(['N2', 'N1']);
   });
 });
 
