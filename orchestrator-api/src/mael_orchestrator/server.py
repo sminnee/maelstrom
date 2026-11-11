@@ -614,9 +614,6 @@ class AgentWatch:
         #: milestone waits: the turn's last occupancy reading, and an idle
         #: agent to send ``/compact`` to.
         self.pending_compact: CompactRequest | None = None
-        #: An end-session request waiting for its turn to end: the agent may
-        #: still be writing that turn.
-        self.pending_end = False
 
 
 class CompactHold:
@@ -2321,7 +2318,7 @@ class Orchestrator:
                 self._apply_feedback_params(agent["worktreeId"], out.feedback_params)
         if out.end_session:
             # Parked even in replay, as a compaction request is.
-            watch.pending_end = True
+            self._pending_ends.add(watch.agent_id)
         await self._follow_compact(watch, out)
         if out.turn_end and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
@@ -2339,9 +2336,9 @@ class Orchestrator:
 
         See ``docs/dev/orchestrator-server.md``, "An end-session request".
         """
-        if not out.turn_end or not watch.pending_end:
+        if not out.turn_end or watch.agent_id not in self._pending_ends:
             return
-        watch.pending_end = False
+        self._pending_ends.discard(watch.agent_id)
         if not watch.caught_up.is_set():
             # A replayed turn end was acted on by the run that read it live.
             return
@@ -2403,7 +2400,7 @@ class Orchestrator:
             )
         elif out.turn_end and watch.pending_compact is not None:
             request, watch.pending_compact = watch.pending_compact, None
-            if watch.pending_end:
+            if agent_id in self._pending_ends:
                 # The end wins: no `/compact` goes to an agent that is stopping.
                 # Released, not dropped: the stop can fail. A stop drops it.
                 self._release_hold(agent_id)

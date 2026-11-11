@@ -573,8 +573,9 @@ An end-session request rides out on `Normalised.end_session`:
 <end-session>
 ```
 
-`AgentWatch.pending_end` holds it until the turn's `result`, because the agent may still be
-writing that turn. `server._follow_end` then sends `agent.stop` through `handle_command`, as the
+`Orchestrator._pending_ends` holds the agent's id until the turn's `result`, because the agent may
+still be writing that turn. The server holds it, not the watch: an agent daemon restart ends the
+stream, and the next watch must still act on the request. `server._follow_end` then sends `agent.stop` through `handle_command`, as the
 UI's button does. The stop is an ordinary **Terminate**, so the UI shows its operation. A refusal
 is logged.
 
@@ -582,7 +583,7 @@ is logged.
 recorded first.
 
 The request wins over a compaction request in the same turn. `_follow_compact` sends no `/compact`
-while `pending_end` is set.
+while the agent is in `_pending_ends`.
 
 A request is parked in replay too, and a turn end in replay clears it, as for a compaction
 request. The run that read it live terminated the agent, so a resumed agent is not stopped again.
