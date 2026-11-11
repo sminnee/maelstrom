@@ -74,3 +74,19 @@
   color: var(--fg-muted);
   text-align: center;
 }
+/* A project's subheading stays at the top while its rows scroll under it. */
+.laneHead {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+  margin: 0;
+  padding: var(--u-half) var(--u-2);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
