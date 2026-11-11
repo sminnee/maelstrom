@@ -1560,10 +1560,10 @@ form stays open holding what was typed — the one place besides the task list's
 where a view keeps an error of its own, because a dialog outlives the button's three-second
 window.
 
-## Attaching an image
+## Attaching a file
 
-`ui/AttachField.tsx` wraps a text field and adds a file picker, a clipboard paste handler and a
-strip of thumbnails. It wraps rather than replaces, so each surface keeps its own textarea, its
+`ui/AttachField.tsx` wraps a text field and adds a file picker (**Attach file**), a text note
+dialog (**Attach text note**), a clipboard paste handler and a strip of what is attached. It wraps rather than replaces, so each surface keeps its own textarea, its
 own value and its own submit — and the four cannot drift on how attaching works. A surface may
 pass `actions` to draw its own buttons at the far end of the Attach row; the session composer
 puts Send there on a phone.
@@ -1571,7 +1571,12 @@ puts Send there on a phone.
 Four surfaces use it: the chat box (`session/MessageInput.tsx`), the new-work prose field, and
 task create and task edit, which are one component (`tasklist/TaskFields.tsx`).
 
-The upload runs as the image arrives, not at submit. So the caller gets a markdown ref to append
+The picker takes any file. The server's reply says its kind: an `image` gets an image ref and a
+thumbnail, and a `file` gets a link and a chip with its name and size. The text note dialog wraps
+its text in a `File` of type `text/plain`, named `note.txt` by default, and uploads it as any other
+file. It is portalled to the body, because the field may sit in a `<form>` or another dialog.
+
+The upload runs as the file arrives, not at submit. So the caller gets a markdown ref to append
 to its text, and a refusal shows while the user is still looking at the field. A failed upload
 names the file: a screenshot that never arrived is otherwise invisible, and the words would go
 believing it went. A paste is intercepted only when it carries an image, so pasted prose still
@@ -1581,13 +1586,15 @@ The ref is appended to the text rather than held beside it. For a task the conte
 notebook stores and what `build_prompt` sends, so a ref kept outside it would never reach the
 agent. It also keeps `TaskEditor`'s `changed()` diffing strings.
 
-The chat box sends the bytes as well, as an image block on the user turn, so the model sees the
-picture on the turn rather than after choosing to read a file. A task cannot: its prompt is a
-plain string. Either way the ref in the text is what renders in the transcript.
+The chat box sends an image's URL as well, and the agent host sends the bytes as an image block on
+the user turn, so the model sees the picture on the turn rather than after choosing to read a
+file. A task cannot do this: its prompt is a plain string. A non-image file never goes as a
+block, because the host refuses the turn; it travels as its link alone. Either way the ref in
+the text is what renders in the transcript.
 
-New work has no id to group its images under, so the dialog mints a bucket once and holds it for
-the dialog's whole life. Every image the form attaches lands in that one directory, and the task's
-own commit sweeps them in.
+New work has no id to group its attachments under, so the dialog mints a bucket once and holds it
+for the dialog's whole life. Every file the form attaches lands in that one **Bucket**, and the
+task's content holds the refs.
 
 Each label uses an explicit `htmlFor`. `AttachField` sits between the label and the field, so a
 wrapping label would leave the field with no accessible name.

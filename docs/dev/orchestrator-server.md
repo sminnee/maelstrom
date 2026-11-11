@@ -819,7 +819,8 @@ The UI refuses a verdict on any `plan` document. A plan with a wait is answered 
 stored plan has no wait, and its review is over.
 
 `GET /api/attachments/{project}/{bucket}/{name}` returns a `web.FileResponse`, which answers a
-range request with `206`, so a browser can seek a video.
+range request with `206`, so a browser can seek a video. The **Attachments** section below says
+which files it serves inline.
 
 The 50 MB cap limits one file and not the total, and a superseded version's media stay in the
 bucket, so video grows the **Attachments directory**.
@@ -1925,17 +1926,27 @@ check being missing, both answer 400 `invalid`.
 
 ## Attachments
 
-An image reaches an agent as a file in the task notebook, whatever brought it in. `mael linear
-plan` already worked this way; the orchestrator UI uses the same mechanism through
-`mael_domain.attachments`, so a pasted screenshot is not a second way to put an image in the
-notebook.
+An attachment reaches an agent as a file in the **Attachments directory**, whatever brought it
+in. `mael linear plan` and the orchestrator UI both use `mael_domain.attachments`, so a pasted
+screenshot is not a second way to put an image in the directory.
+
+The UI's **Attach file** takes any file, and **Attach text note** uploads a text block as a file.
+The server treats the two kinds differently:
+
+| Kind | Sniffed as | Cap | `markdown` | Reaches the agent as |
+|---|---|---|---|---|
+| `image` | PNG, JPEG, GIF or WebP bytes | 5 MB | `![name](token)` | an image block, and its path |
+| `file` | anything else | 50 MB | `[File: name, 412 KB](token)` | its path only |
+
+A file is linked, not embedded, so a long log or JSON dump does not fill the agent's context.
+The size in the link's label lets the agent choose to `grep` a large file rather than read it all.
 
 Two routes carry the bytes. Neither is a command: nothing about the world changes.
 
 | Route | Body | Returns |
 |---|---|---|
-| `POST /api/attachments` | multipart: `project`, `bucket`, `file` | `{markdown, url}` |
-| `GET /api/attachments/{project}/{bucket}/{name}` | | the image or video bytes |
+| `POST /api/attachments` | multipart: `project`, `bucket`, `file` | `{markdown, url, kind}` |
+| `GET /api/attachments/{project}/{bucket}/{name}` | | the file's bytes, inline or as a download |
 
 Multipart, because the payload is bytes. Base64 in a JSON body would inflate it by a third for
 nothing.
@@ -1947,19 +1958,35 @@ The reply carries two refs, and they are not interchangeable:
 - `url` points at this server. A browser can fetch only this one, so it is what the thumbnail
   and the transcript show.
 
+**The `GET` route serves inline only the types that run no script.** It answers on the UI's
+origin, so an inline HTML or SVG file would run its script with the UI's rights.
+`attachments.inline_media_type` holds the rule:
+
+- An image or a video is served inline as its own type.
+- A plain text file (`.txt .md .json .jsonl .csv .tsv .log .yaml .yml .toml`) is served inline as
+  `text/plain; charset=utf-8`.
+- Any other file, `.html` and `.svg` included, is served with `Content-Disposition: attachment`.
+
+Every reply carries `X-Content-Type-Options: nosniff`, so the browser does not guess a type.
+
 **The reply never names a filesystem path.** A client that knew one could send it back on a
 `say`, and the agent host would read whatever file it named. So a `say` carries attachment
 URLs, and the server resolves each one to a stored file itself. A URL that does not resolve to
-an attachment this server serves is dropped rather than forwarded.
+an attachment this server serves is dropped rather than forwarded. So is a file that is not an
+image: the agent host sends each path as an image block, and refuses a turn with any other
+file.
+
+A `say` expands the `{{MAEL_TASK_DIR}}` token in its text to the agent's project directory, as
+`build_prompt` does for task content. `task.expand_task_dir` does both. Without it, a file's link
+reaches the agent as the raw token, and the agent cannot find the file.
 
 A stored ref is not fetchable, so the server rewrites it before a browser sees it.
 `attachments.attachment_urls` changes the prefix of each ref's target to
 `/api/attachments/<project>/`. It maps two forms:
 
-- The token, which names the project the caller passes. Task content and a message typed in
-  the UI hold this form.
-- The absolute path under `attachments_root()`, which names its project itself. A task's first prompt
-  holds this form, because `build_prompt` expanded the token.
+- The token, which names the project the caller passes. Task content holds this form.
+- The absolute path under `attachments_root()`, which names its project itself. A task's first
+  prompt and a message sent to an agent hold this form, because the server expanded the token.
 
 Two readers use it:
 
