@@ -5416,12 +5416,17 @@ def images(tmp_path, monkeypatch):
     return root
 
 
-def _upload(name: str = "shot.png", data: bytes = PNG_BYTES) -> aiohttp.FormData:
-    """The multipart body the browser sends for one pasted or picked image."""
+def _upload(
+    name: str = "shot.png",
+    data: bytes = PNG_BYTES,
+    content_type: str = "image/png",
+    bucket: str = "t1",
+) -> aiohttp.FormData:
+    """The multipart body the browser sends for one pasted or picked file."""
     form = aiohttp.FormData()
     form.add_field("project", PROJECT)
-    form.add_field("bucket", "t1")
-    form.add_field("file", data, filename=name, content_type="image/png")
+    form.add_field("bucket", bucket)
+    form.add_field("file", data, filename=name, content_type=content_type)
     return form
 
 
@@ -5434,10 +5439,13 @@ def test_an_upload_writes_the_file_and_returns_both_refs(harness, images):
     reply = run(scenario())
 
     assert reply.status == 200, reply.body
-    # The token is what a task stores: portable across a re-clone.
-    assert reply.body["markdown"] == "![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)"
-    # The URL is what the browser shows: the token is not fetchable.
-    assert reply.body["url"] == f"/api/attachments/{PROJECT}/t1/shot.png"
+    assert reply.body == {
+        # The token is what a task stores: portable across a re-clone.
+        "markdown": "![shot.png]({{MAEL_TASK_DIR}}/images/t1/shot.png)",
+        # The URL is what the browser shows: the token is not fetchable.
+        "url": f"/api/attachments/{PROJECT}/t1/shot.png",
+        "kind": "image",
+    }
     assert (images / PROJECT / "images" / "t1" / "shot.png").read_bytes() == PNG_BYTES
 
 
@@ -5456,7 +5464,6 @@ def test_an_upload_reply_names_no_filesystem_path(harness, images):
     reply = run(scenario())
 
     assert reply.status == 200, reply.body
-    assert set(reply.body) == {"markdown", "url"}
     assert str(images) not in json.dumps(reply.body)
 
 
@@ -5525,10 +5532,74 @@ def test_a_task_detail_names_its_attachments_by_a_fetchable_url(harness, images)
     assert body == PNG_BYTES
 
 
-def test_a_non_image_upload_is_refused(harness, images):
+def test_a_non_image_upload_is_linked_with_its_size(harness, images):
     async def scenario():
         async with harness.client() as api:
-            form = _upload(name="notes.txt", data=b"just text, no image here")
+            form = _upload(
+                name="spec.json", data=b'{"a": 1}', content_type="application/json"
+            )
+            async with api.session.post("/api/attachments", data=form) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    assert reply.body == {
+        "markdown": "[File: spec.json, 8 B]({{MAEL_TASK_DIR}}/images/t1/spec.json)",
+        "url": f"/api/attachments/{PROJECT}/t1/spec.json",
+        "kind": "file",
+    }
+    assert (images / PROJECT / "images" / "t1" / "spec.json").read_bytes() == (
+        b'{"a": 1}'
+    )
+
+
+def test_an_uploaded_html_file_is_served_as_a_download(harness, images):
+    """The route answers on the UI's origin: inline HTML would run script there."""
+
+    async def scenario():
+        async with harness.client() as api:
+            form = _upload(
+                name="page.html",
+                data=b"<script>alert(1)</script>",
+                content_type="text/html",
+            )
+            async with api.session.post("/api/attachments", data=form) as raw:
+                url = (await raw.json())["url"]
+            async with api.session.get(url) as got:
+                return got.status, got.headers
+
+    status, headers = run(scenario())
+
+    assert status == 200
+    assert headers["Content-Disposition"] == 'attachment; filename="page.html"'
+    assert headers["X-Content-Type-Options"] == "nosniff"
+    assert headers["Content-Type"] == "application/octet-stream"
+
+
+def test_an_uploaded_json_file_is_served_inline_as_plain_text(harness, images):
+    async def scenario():
+        async with harness.client() as api:
+            form = _upload(
+                name="spec.json", data=b'{"a": 1}', content_type="application/json"
+            )
+            async with api.session.post("/api/attachments", data=form) as raw:
+                url = (await raw.json())["url"]
+            async with api.session.get(url) as got:
+                return got.headers
+
+    headers = run(scenario())
+
+    assert headers["Content-Type"] == "text/plain; charset=utf-8"
+    assert "Content-Disposition" not in headers
+
+
+def test_an_upload_the_store_refuses_is_a_named_refusal(harness, images):
+    """A refusal from the store is a 400 that says why, not a 500."""
+
+    async def scenario():
+        async with harness.client() as api:
+            form = _upload(bucket="..")
             async with api.session.post("/api/attachments", data=form) as raw:
                 return await _reply(raw)
 
@@ -5536,7 +5607,7 @@ def test_a_non_image_upload_is_refused(harness, images):
 
     assert reply.status == 400
     assert reply.body["error"]["code"] == "invalid"
-    assert not (images / PROJECT / "images" / "t1").exists()
+    assert not images.exists()
 
 
 def test_serving_an_attachment_that_escapes_the_bucket_is_refused(harness, images):
