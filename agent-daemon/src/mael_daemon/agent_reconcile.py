@@ -18,7 +18,13 @@ from dataclasses import dataclass, replace
 
 from mael_common.process_table import ProcessInfo, is_driven, session_id_in
 
-from .agent_model import SPEC_EXITED, SPEC_RUNNING, SPEC_STOPPED, AgentSpec
+from .agent_model import (
+    SPEC_EXITED,
+    SPEC_RUNNING,
+    SPEC_STOPPED,
+    UNCLEAN_RESUME_LIMIT,
+    AgentSpec,
+)
 
 #: A record's child, alive and held by this daemon. Nothing to do.
 OWNED = "owned"
@@ -28,11 +34,11 @@ DUPLICATE = "duplicate"
 #: A record's child that outlived the daemon that held it. Killed, and the
 #: record resumed once the daemon is starting.
 STRAY = "stray"
-#: A record whose child the last daemon stopped at its own shutdown. Nothing
-#: to kill; resumed once the daemon is starting.
+#: A running record whose child is gone with its daemon. Nothing to kill;
+#: resumed once the daemon is starting.
 RESUMABLE = "resumable"
-#: A running record whose child is gone with no shutdown recorded. Rewritten
-#: ``exited``.
+#: A running record resumed too many times with no clean shutdown between.
+#: Rewritten ``exited``.
 CRASHED = "crashed"
 #: The older of two running records on one session. Rewritten ``stopped``; its
 #: child, if alive, killed.
@@ -93,15 +99,15 @@ def reconcile(
 
     1. One running record per session. Where a session has several, the
        newest ``started_at`` wins and the rest are SUPERSEDED.
-    2. A surviving record whose pid is a driven ``claude`` naming its session
-       is OWNED when held, else STRAY.
-    3. Any other driven process naming a surviving record's session is a
-       DUPLICATE.
-    4. A surviving record with no such process, and not held, is RESUMABLE
-       when the last daemon stopped it on its way out
-       (``stopped_at_shutdown``) or never recorded a pid at all; otherwise
-       CRASHED. A held record with a dead pid gets no verdict: its pump owns
-       it.
+    2. A surviving record whose pid is a driven ``claude`` naming its argv
+       session is OWNED when held, else STRAY.
+    3. Any other driven process naming a surviving record's session, or its
+       argv session, is a DUPLICATE.
+    4. A surviving record with no such process, and not held, is RESUMABLE:
+       a ``running`` record means nobody stopped the agent, however the last
+       daemon died. At ``UNCLEAN_RESUME_LIMIT`` resumes with no clean shutdown
+       between them it is CRASHED. A held record with a dead pid gets no
+       verdict: its pump owns it.
     5. A driven process matching no surviving record's session is UNKNOWN.
     """
     driven = [p for p in processes if is_driven(p.command)]
@@ -168,7 +174,7 @@ def reconcile(
                 if resume_strays:
                     resume.append(spec)
         elif spec.agent_id not in held:
-            if spec.stopped_at_shutdown or spec.pid is None:
+            if spec.unclean_resumes < UNCLEAN_RESUME_LIMIT:
                 verdicts.append(
                     Verdict(
                         RESUMABLE,
@@ -178,7 +184,7 @@ def reconcile(
                         None,
                         "stopped by the last daemon's shutdown"
                         if spec.stopped_at_shutdown
-                        else "no pid recorded",
+                        else "its daemon died",
                     )
                 )
                 if resume_strays:
@@ -191,7 +197,7 @@ def reconcile(
                         spec.agent_id,
                         spec.pid,
                         None,
-                        f"pid {spec.pid} is not this session's claude",
+                        f"resumed {spec.unclean_resumes} times with no clean shutdown",
                     )
                 )
                 rewrite.append(

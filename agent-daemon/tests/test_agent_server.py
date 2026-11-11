@@ -1532,6 +1532,16 @@ def _run_a_turn_to_idle(daemon) -> MagicMock:
     return proc
 
 
+def _daemon_dies(specs) -> None:
+    """Leave ``specs`` as a SIGKILLed daemon leaves them: still ``running``.
+
+    The stub's stream ends, so the pump records an exit. A killed daemon
+    records nothing: its child dies with it, after the last write.
+    """
+    for spec in specs.list():
+        specs.write(replace(spec, status="running", exit_code=None, pid=4242))
+
+
 @pytest.mark.parametrize(
     "tool_name, expected",
     [
@@ -1587,9 +1597,45 @@ def test_an_idle_agent_stays_silent_when_its_daemon_died_without_shutting_down()
     daemon, specs = _daemon_with_specs(has_transcript=True)
     _run_a_turn_to_idle(daemon)
     # No `shutdown()`: this daemon is simply gone, as a SIGKILLed one is.
+    _daemon_dies(specs)
     assert specs.list()[0].last_status == "idle"
 
-    assert _nudge_sent(_resume_holding(specs)) is None
+    proc = _resume_holding(specs)
+    # The resume ran, or silence would prove nothing.
+    assert specs.list()[0].unclean_resumes == 1
+    assert _nudge_sent(proc) is None
+
+
+def test_restore_counts_a_resume_after_an_unclean_death_and_shutdown_resets_it():
+    """The count is what stops a daemon that dies at each start.
+
+    A killed daemon writes no shutdown flag, so the next one counts its
+    resume. A clean shutdown proves the daemon can stop, so it clears the
+    count.
+    """
+    daemon, specs = _daemon_with_specs(has_transcript=True)
+    _run_a_turn_to_idle(daemon)
+    _daemon_dies(specs)
+
+    fresh, _ = _daemon_with_specs(has_transcript=True)
+    fresh.specs = specs
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(side_effect=asyncio.Event().wait)
+
+    async def restart_then_stop():
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            await fresh.restore()
+        counted = specs.list()[0].unclean_resumes
+        with _short_waits():
+            await fresh.shutdown()
+        return counted
+
+    assert asyncio.run(asyncio.wait_for(restart_then_stop(), timeout=5)) == 1
+    (spec,) = specs.list()
+    assert spec.unclean_resumes == 0
+    assert spec.stopped_at_shutdown is True
 
 
 # --- gc: the process table against the records, before anything is resumed ---
@@ -1648,6 +1694,7 @@ def test_restore_kills_the_strays_and_then_resumes_each_session_once():
         cwd="/tmp/x",
         session_id="22222222-2222-2222-2222-222222222222",
         pid=300,
+        unclean_resumes=3,
     )
     daemon, specs, signals = _gc_daemon([record, crashed], [_driven(100), _driven(200)])
     proc = _spawn_stub()
@@ -1665,14 +1712,23 @@ def test_restore_kills_the_strays_and_then_resumes_each_session_once():
     assert daemon.agents["a2"].state.status == EXITED
 
 
-def test_restore_without_a_process_table_resumes_as_before(caplog):
-    """Where `ps` cannot look, the daemon must not write every record off."""
+def test_restore_without_a_process_table_resumes_each_record_below_the_limit(caplog):
+    """Where `ps` cannot look, the daemon must not write every record off.
+
+    The resume limit still holds: no gc runs here to apply it.
+    """
 
     def unreadable():
         raise ProcessTableUnavailable("pgrep exited 3")
 
     record = AgentSpec(agent_id="a1", cwd="/tmp/x", session_id=S1, pid=100)
-    daemon, specs, signals = _gc_daemon([record], unreadable)
+    at_limit = AgentSpec(
+        agent_id="a2",
+        cwd="/tmp/x",
+        session_id="22222222-2222-2222-2222-222222222222",
+        unclean_resumes=3,
+    )
+    daemon, specs, signals = _gc_daemon([record, at_limit], unreadable)
     with (
         caplog.at_level(logging.WARNING),
         patch.object(
@@ -1707,6 +1763,7 @@ def test_the_gc_command_kills_and_rewrites_but_never_resumes():
         cwd="/tmp/x",
         session_id="22222222-2222-2222-2222-222222222222",
         pid=300,
+        unclean_resumes=3,
     )
     daemon, specs, signals = _gc_daemon([stray, crashed], [_driven(100), _driven(200)])
     with patch.object(

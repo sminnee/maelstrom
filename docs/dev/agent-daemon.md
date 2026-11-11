@@ -567,7 +567,7 @@ mael agent stop a1b2c3d4
 uv run mael-agent-daemon status                       # which daemon is answering, and whose code
 uv run mael-agent-daemon list                         # every record: pid, alive, held, mismatch
 uv run mael-agent-daemon reconcile                    # what gc would do
-uv run mael-agent-daemon gc                           # kill strays and duplicates, write off crashes
+uv run mael-agent-daemon gc                           # kill strays and duplicates, write off records at the resume limit
 ```
 
 `mael-agent-daemon` is not part of `mael`; see
@@ -1349,6 +1349,9 @@ writes one record per agent to `<root>/agents/<agent-id>.json`, holding exactly 
 | `pid` | The child, while the record is `running`; `None` once it is known to be gone, so a dead record never names a pid the system has reused. How the next daemon tells a live child from a dead one |
 | `started_at` | When the child was spawned. Orders two `running` records on one session, so the newer wins |
 | `last_status` | What the agent is doing. Written whenever the status changes, so it survives a daemon that never shuts down. Decides which nudge the resume sends. Reset to `""` on every spawn |
+| `stopped_at_shutdown` | Set when a daemon stops the child on its way out. Cleared on every spawn |
+| `unclean_resumes` | How many resumes in a row the record got with no clean shutdown before them. A shutdown writes 0 |
+| `plan_file` | The plan file of the last approved plan. Kept across a respawn, so a recovery sends the handover |
 
 The directory is the root's `agents/`, so a daemon on its own root has its own records and
 cannot resume the real daemon's agents.
@@ -1398,7 +1401,7 @@ tightens a record it finds loose.
   or crashes never shuts down. A status written only at shutdown comes back empty, and the resume
   then nudges every agent — including the idle ones, which pick up work nobody asked for. Whether
   a daemon stopped the child is a separate flag, `stopped_at_shutdown`: the status says what the
-  agent was doing, never how its child ended.
+  agent was doing, never how its child ended. The flag decides only whether the resume is counted.
 - **A daemon shutdown does not record an exit.** Stopping a child ends its stream, which would
   otherwise mark the record `exited` and stop the next daemon resuming it.
 
@@ -1420,9 +1423,9 @@ cmux carries a long `--settings {…}` JSON before its `--session-id`.
 |---|---|---|
 | `owned` | The record's pid is its child, and this daemon holds it | Nothing |
 | `stray` | The record's pid is its child, and no daemon holds it | Killed. Resumed on a daemon start; left `running` by `gc` |
-| `duplicate` | Another driven `claude` names a running record's session | Killed |
-| `resumable` | The child is gone and the record says why: `stopped_at_shutdown` is set, or no pid was ever recorded | Resumed on a daemon start |
-| `crashed` | The record's pid is dead or reused, and no shutdown was recorded | Rewritten `exited` |
+| `duplicate` | Another driven `claude` names a running record's session, or its argv session | Killed |
+| `resumable` | The child is gone, and the record is below the resume limit | Resumed on a daemon start |
+| `crashed` | The child is gone, and `unclean_resumes` is 3 | Rewritten `exited` |
 | `superseded` | The older of two `running` records on one session | Rewritten `stopped`; its child, if alive, killed |
 | `unknown` | A driven `claude` no running record here names | Reported. Killed only under `--all-roots`, when no root names it |
 

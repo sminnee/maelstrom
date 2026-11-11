@@ -285,8 +285,10 @@ class AgentSpec:
     last doing, rewritten on every status change so it survives a daemon that
     never shuts down; it decides which turn the resume sends.
     ``stopped_at_shutdown`` says a daemon stopped this child on its way out, so
-    a dead pid is that shutdown's own work rather than a crash. All are set by
-    the daemon, never by a client.
+    a dead pid is that shutdown's own work rather than a crash.
+    ``unclean_resumes`` counts the resumes made with no such shutdown before
+    them; a shutdown writes it back to 0. All are set by the daemon, never by
+    a client.
     """
 
     agent_id: str
@@ -318,6 +320,19 @@ class AgentSpec:
     started_at: str = ""
     last_status: str = ""
     stopped_at_shutdown: bool = False
+    unclean_resumes: int = 0
+    argv_session_id: str = ""
+
+    @property
+    def child_session_id(self) -> str:
+        """The session id the child's argv names."""
+        return self.argv_session_id or self.session_id
+
+
+#: How many resumes in a row a record may get with no clean shutdown between
+#: them. A daemon that dies at each start would otherwise respawn every agent
+#: for ever.
+UNCLEAN_RESUME_LIMIT = 3
 
 
 def spec_to_dict(spec: AgentSpec) -> dict[str, Any]:

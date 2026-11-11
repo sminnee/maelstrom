@@ -780,7 +780,7 @@ installs it, and runs it as the `agent-daemon` host service. In a maelstrom chec
 | `mael-agent-daemon status` | Print which daemon serves this environment's root: its root, socket, pid, version, spawn-record directory, start time, agent count, and the worktree its code came from. |
 | `mael-agent-daemon list` | Every spawn record with its pid, whether that pid is alive, whether the daemon holds it, what it was doing at the last shutdown, and a `mismatch` column naming a stray, a crash, a retired record or a duplicate. A driven `claude` no record names is a row of its own. `--all-roots`, `--json`. |
 | `mael-agent-daemon reconcile` | Say what `gc` would do, doing nothing: one verdict per record and per unplaced process. Asks the daemon when one answers, else reads the records and the process table itself. `--all-roots`, `--json`. |
-| `mael-agent-daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off the crashed. Never resumes: a stray's record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
+| `mael-agent-daemon gc` | Kill the strays and duplicates, retire the older of two running records on one session, and write off a record resumed 3 times with no clean shutdown. Never resumes: a `running` record stays `running` for the next daemon start. Under `--all-roots` a process no root claims is killed too. `--all-roots`, `--json`. |
 
 ```bash
 uv run mael-agent-daemon status                 # which daemon is serving, running whose code
