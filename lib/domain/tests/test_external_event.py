@@ -6,6 +6,7 @@ from mael_domain.external_event import (
     ExternalEvent,
     PrLedger,
     gate_event,
+    ledger_without,
     parse,
     pr_events,
     render,
@@ -82,6 +83,15 @@ def _told(seen: PrStatus, withdrawn=False):
 
 
 class TestPrEvents:
+    def test_an_undelivered_event_stays_news_and_a_delivered_one_does_not(self):
+        seen = _seen("ci-failed", conflicting=True)
+        events, ledger = pr_events(seen, None, False)
+        assert _types(events) == ["pr.watching", "pr.checks_failed", "pr.conflict"]
+
+        partial = ledger_without(None, ledger, events[2:])
+
+        assert _types(pr_events(seen, partial, False)[0]) == ["pr.conflict"]
+
     def test_first_sight_of_a_fresh_pr_says_it_is_watched_and_nothing_else(self):
         events, _ = pr_events(_seen("ready", checks_seen=False), None, False)
         assert events == [
