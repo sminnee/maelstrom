@@ -139,6 +139,10 @@ PARTIAL_BACKLOG = 32
 #: socket: the connection serving it answers nothing until `handle` returns.
 REQUEST_TIMEOUT = 10.0
 
+#: How long a stopping daemon waits for its client connections to close, once
+#: every agent is stopped. A client that never closes must not hold the stop.
+CLIENT_CLOSE_TIMEOUT = 2.0
+
 #: How long the pump waits for the child's exit code once its stream has ended.
 #: Bounded because a pump that stops for any other reason leaves the child alive,
 #: and an unbounded wait there never settles the agent's state.
@@ -1197,6 +1201,11 @@ class AgentDaemon:
         """Run one CLI command and return its reply."""
         command = payload.get("cmd")
 
+        if command in ("start", "resume") and self.stopping.is_set():
+            # A connection that was open at the stop can still send a command.
+            # A child started now would outlive `shutdown` with no record of it.
+            return {"error": "the daemon is stopping"}
+
         if command == "start":
             try:
                 agent_id = await self.start_agent(
@@ -1790,11 +1799,20 @@ class AgentDaemon:
             flush=True,
         )
         try:
-            async with server:
-                # Whichever comes first: a `shutdown` command or cancellation.
-                await self.stopping.wait()
+            # Whichever comes first: a `shutdown` command or cancellation.
+            await self.stopping.wait()
         finally:
+            # Stop the agents before `wait_closed`: an `attach` connection
+            # ends only when its agent stops.
+            server.close()
             await self.shutdown()
+            # A client that holds a connection open with no stream. Python
+            # 3.13 can close it; an older one is left to the bounded wait.
+            close_clients = getattr(server, "close_clients", None)
+            if close_clients is not None:
+                close_clients()
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(server.wait_closed(), CLIENT_CLOSE_TIMEOUT)
             path.unlink(missing_ok=True)
             self.paths.pid_file.unlink(missing_ok=True)
             if self._lock is not None:

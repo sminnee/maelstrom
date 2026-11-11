@@ -109,6 +109,16 @@ async def _handle(daemon: AgentDaemon, payload: dict) -> dict:
     return await daemon.handle(payload)
 
 
+def test_a_stopping_daemon_starts_no_agent():
+    """A child started after `shutdown` stopped the agents would outlive it."""
+    daemon = AgentDaemon()
+    daemon.stopping.set()
+    with patch.object(agent_server.asyncio, "create_subprocess_exec") as spawn:
+        reply = asyncio.run(_handle(daemon, {"cmd": "start", "cwd": "/tmp/x"}))
+    assert "stopping" in reply["error"]
+    assert spawn.call_count == 0
+
+
 def test_handle_rejects_an_unknown_agent():
     reply = asyncio.run(_handle(AgentDaemon(), {"cmd": "say", "id": "nope"}))
     assert "no such agent" in reply["error"]
@@ -3693,6 +3703,57 @@ def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
         # The pid file goes with the socket: a stale one would send `kill -9
         # $(cat agent-daemon.pid)` after a pid the system may have reused.
         assert not paths.pid_file.exists()
+    finally:
+        shutil.rmtree(paths.root, ignore_errors=True)
+
+
+def test_the_daemon_stops_while_a_client_is_attached():
+    """A stop must not wait for a client that waits for the stop.
+
+    An `attach` connection ends when its agent stops, and only `shutdown`
+    stops agents. The test drives `serve` with a real connection, because
+    the order is in `serve`.
+    """
+    paths = DaemonPaths(Path(tempfile.mkdtemp(prefix="mael-stop-")))
+    specs = InMemoryAgentSpecStore()
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(side_effect=asyncio.Event().wait)
+
+    async def no_processes():
+        return []
+
+    async def serve_attach_stop():
+        daemon = AgentDaemon(paths.root, specs, processes=no_processes)
+        task = asyncio.create_task(daemon.serve())
+        for _ in range(100):
+            await asyncio.sleep(0.01)
+            if paths.socket.exists():
+                break
+        else:
+            task.cancel()
+            pytest.fail("the daemon never bound its socket")
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            agent_id = await daemon.start_agent("/tmp/x", "go")
+        reader, writer = await asyncio.open_unix_connection(str(paths.socket))
+        writer.write((json.dumps({"cmd": "attach", "id": agent_id}) + "\n").encode())
+        await writer.drain()
+        while json.loads(await reader.readline()).get("type") != BACKLOG_END:
+            pass
+        daemon.stopping.set()
+        with _short_waits():
+            await asyncio.wait_for(task, timeout=5)
+        # The stream ends with no exit marker: the agent did not exit.
+        assert await reader.read() == b""
+        writer.close()
+
+    try:
+        asyncio.run(serve_attach_stop())
+        (spec,) = specs.list()
+        assert spec.status == "running"
+        assert spec.stopped_at_shutdown is True
+        assert not paths.socket.exists()
     finally:
         shutil.rmtree(paths.root, ignore_errors=True)
 

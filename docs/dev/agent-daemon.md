@@ -1378,6 +1378,9 @@ tightens a record it finds loose.
   transcript for what it was doing. `mael agent resume` reads the record.
 - **A daemon shutdown stops every child but leaves the records `running`.** So the next daemon
   start resumes them. Restarting the daemon to pick up new code costs nothing.
+- **The stop does not wait for a client.** `serve()` closes the listener, stops the agents, and
+  only then waits for the client connections, for 2 seconds at most. An `attach` connection ends
+  when its agent stops, so a wait for connections before the stop never returns.
 - **What a resumed agent is told follows what it was doing.** A print-mode session sits idle
   until a user turn arrives, so a resumed agent needs a turn of its own. Which turn depends on
   the record's `last_status`:
