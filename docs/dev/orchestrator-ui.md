@@ -1765,9 +1765,17 @@ derives it from `deriveGraph`, so the list and the canvas draw the same nodes in
 `deck/DeckRow.tsx` carries the canvas node's `data-state` and `data-phase`, so the state
 vocabulary is one.
 
+With nodes from two or more projects, `deriveDeck` also returns `lanes`: each zone split by
+project, in the order and with the labels of `deriveGraph`'s groups. With fewer, `lanes` is empty.
+The selector holds that rule; the list and the kanban only read `lanes`. The list draws a sticky
+project subheading above each lane's rows in the open tab.
+
 **The kanban** (`deck/DeskKanban.tsx`) draws the deck's four zones as columns of `DeckRow`s, with
 native HTML5 drag and no library. `dataTransfer` cannot be read during a drag over, so the
 component holds the dragged node itself. `dropStatus` in `selectors/deck.ts` decides each drop.
+With lanes, the board is one grid: the zone heads in a sticky row, then per lane a header and
+four cells. Each cell is a drop target, and it takes only a card of its own lane. The laned board
+scrolls as a whole, so a frame round it holds the drop error in view.
 `shell/Desk.tsx` draws the `DeskModeSwitch`, then the mode. In kanban and list,
 `deck/SlotCard.tsx` draws the open card at the slot's right edge, round `NodeCardBody`.
 
