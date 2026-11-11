@@ -282,7 +282,8 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
   const laneOf = (project: string) => {
     let lane = groups.get(project);
     if (!lane) {
-      const label = world.projects[project]?.name ?? project;
+      // A free agent whose project is unknown draws in the '' lane.
+      const label = project === '' ? 'No project' : (world.projects[project]?.name ?? project);
       lane = { id: project, label, nodeIds: [], emptyWorktrees: [] };
       groups.set(project, lane);
     }
