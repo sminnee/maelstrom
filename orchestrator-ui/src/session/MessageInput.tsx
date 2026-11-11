@@ -89,7 +89,12 @@ export function MessageInput({
       release();
       return;
     }
-    await onSend(trimmed, attached);
+    // Only an image goes to the agent as an image block: the host refuses a
+    // turn with any other file. A file travels as its link in the text.
+    await onSend(
+      trimmed,
+      attached.filter((a) => a.kind === 'image'),
+    );
     // Sent, so the held copy is spent. One call, because resetting the value
     // and dropping the stored one have to happen together.
     release();
@@ -115,7 +120,8 @@ export function MessageInput({
         onAttach={(a) => {
           setAttached((was) => [...was, a]);
           // The ref goes in the text so the reader sees the image in the
-          // transcript; the bytes travel separately, so the model sees it now.
+          // transcript; an image's bytes travel separately, so the model sees
+          // it now. A file's link names its path, which the agent reads.
           setText((was) => (was ? `${was}\n\n${a.markdown}` : a.markdown));
         }}
         onRemove={(image) => {

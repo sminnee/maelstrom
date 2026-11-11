@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient } from '@tanstack/react-query';
 import { ApiProvider } from '../api/ApiProvider';
@@ -14,7 +14,21 @@ const PNG = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
 function stored(name = 'shot.png'): Attachment {
   return {
     name,
+    size: 4,
+    kind: 'image',
     markdown: `![${name}]({{MAEL_TASK_DIR}}/images/t1/${name})`,
+    url: `/api/attachments/northwind/t1/${name}`,
+  };
+}
+
+const JSON_FILE = new File(['{"a": 1}'], 'spec.json', { type: 'application/json' });
+
+function storedFile(name = 'spec.json'): Attachment {
+  return {
+    name,
+    size: 8,
+    kind: 'file',
+    markdown: `[File: ${name}, 8 B]({{MAEL_TASK_DIR}}/images/t1/${name})`,
     url: `/api/attachments/northwind/t1/${name}`,
   };
 }
@@ -24,6 +38,7 @@ function setup(attached: Attachment[] = [], props: { disabled?: boolean } = {}) 
   const post = vi.fn().mockResolvedValue({
     markdown: stored().markdown,
     url: stored().url,
+    kind: 'image',
   });
   const api = { post } as unknown as ApiClient;
   const onAttach = vi.fn();
@@ -53,7 +68,7 @@ describe('AttachField', () => {
     const user = userEvent.setup();
     const { post, onAttach } = setup();
 
-    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), PNG);
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), PNG);
 
     await waitFor(() => expect(onAttach).toHaveBeenCalledTimes(1));
     // The markdown ref carries the portable token, never the fetch URL: a task
@@ -107,11 +122,40 @@ describe('AttachField', () => {
       .mockRejectedValueOnce(new Error('not an image'));
     const second = new File([new Uint8Array([0x89])], 'other.png', { type: 'image/png' });
 
-    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), [PNG, second]);
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), [PNG, second]);
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('shot.png: too large');
     expect(alert).toHaveTextContent('other.png: not an image');
+  });
+
+  it('uploads a picked file that is not an image', async () => {
+    const user = userEvent.setup();
+    const { post, onAttach } = setup();
+    post.mockResolvedValue({
+      markdown: storedFile().markdown,
+      url: storedFile().url,
+      kind: 'file',
+    });
+
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), JSON_FILE);
+
+    await waitFor(() => expect(onAttach).toHaveBeenCalledWith(storedFile()));
+    const [, body] = post.mock.calls[0] as [string, FormData];
+    expect((body.get('file') as File).name).toBe('spec.json');
+  });
+
+  it('shows an attached file by its name and size, and offers it for removal', async () => {
+    const user = userEvent.setup();
+    const { onRemove } = setup([storedFile()]);
+
+    // A file has no thumbnail to draw.
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.getByText('spec.json')).toBeInTheDocument();
+    expect(screen.getByText('8 B')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Remove spec.json' }));
+
+    expect(onRemove).toHaveBeenCalledWith(storedFile());
   });
 
   it('ignores a paste when the field is disabled', async () => {
@@ -132,7 +176,7 @@ describe('AttachField', () => {
     const { post, onAttach } = setup();
     post.mockRejectedValue(new Error('Attachment is too large'));
 
-    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), PNG);
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), PNG);
 
     expect(await screen.findByRole('alert')).toHaveTextContent('shot.png: Attachment is too large');
     expect(onAttach).not.toHaveBeenCalled();

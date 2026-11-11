@@ -2,14 +2,20 @@ import { useMutation } from '@tanstack/react-query';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 
-/** One image, once the server has stored it. */
+/** An `image` is embedded; a `file` is linked. See docs/dev/orchestrator-server.md. */
+export type AttachmentKind = 'image' | 'file';
+
+/** One file, once the server has stored it. */
 export interface Attachment {
-  /** The name the user's file had, for the alt text and the thumbnail label. */
+  /** The name the user's file had, for the alt text and the strip's label. */
   name: string;
+  /** The file's size in bytes, for the strip's label. */
+  size: number;
+  kind: AttachmentKind;
   /**
-   * The markdown ref to append to the text. It holds the portable
-   * `{{MAEL_TASK_DIR}}` token for a task, which the agent later reads from
-   * disk — never the URL, which only this server can serve.
+   * The markdown to append to the text: an image ref, or a link for a file.
+   * It holds the portable `{{MAEL_TASK_DIR}}` token, which the agent later
+   * reads from disk — never the URL, which only this server can serve.
    */
   markdown: string;
   /** Where the browser fetches the bytes: the thumbnail and the transcript. */
@@ -19,10 +25,11 @@ export interface Attachment {
 interface UploadReply {
   markdown: string;
   url: string;
+  kind: AttachmentKind;
 }
 
 /**
- * Put one image in the task repo.
+ * Put one file in its Bucket.
  *
  * See `docs/dev/orchestrator-server.md` for why this is multipart, and why
  * uploading is separate from sending.
@@ -42,7 +49,7 @@ export function useUploadAttachment() {
       const reply = await api.post<UploadReply>('/api/attachments', form, {
         timeoutMs: SLOW_CALL_TIMEOUT_MS,
       });
-      return { name: vars.file.name, ...reply };
+      return { name: vars.file.name, size: vars.file.size, ...reply };
     },
   });
 }
@@ -50,13 +57,12 @@ export function useUploadAttachment() {
 /**
  * The text with one attachment's markdown ref taken out.
  *
- * Removing a thumbnail has to remove the ref too. Left behind, it goes to the
- * agent as a link to an image that was never sent, and shows in the transcript
- * as a broken image.
+ * Removing an item from the strip has to remove its ref too. Left behind, the
+ * ref still reaches the agent and the transcript after the user took it off.
  */
-export function withoutRef(text: string, image: Attachment): string {
+export function withoutRef(text: string, attachment: Attachment): string {
   return text
-    .split(image.markdown)
+    .split(attachment.markdown)
     .join('')
     .replace(/\n{3,}/g, '\n\n')
     .trim();

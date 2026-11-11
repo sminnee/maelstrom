@@ -46,3 +46,16 @@
   color: var(--danger, #c00);
   font-size: 0.85em;
 }
+/* A non-image file's stand-in for a thumbnail. */
+.doc {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  color: var(--fg-muted);
+}
+.size {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}

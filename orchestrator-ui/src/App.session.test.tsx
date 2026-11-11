@@ -94,7 +94,7 @@ describe('the session tab', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
       type: 'image/png',
     });
-    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), png);
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), png);
 
     const input = screen.getByRole('textbox', { name: 'Message to agent' });
     // The ref lands in the text the user is still editing, so they can see and
@@ -115,6 +115,34 @@ describe('the session tab', () => {
     expect(body.attachments[0]!.url).toMatch(/^\/api\/attachments\/.*shot\.png$/);
   });
 
+  it('sends an attached file as a link in the text, and only the image as an attachment', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+
+    const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
+      type: 'image/png',
+    });
+    const spec = new File(['{"a": 1}'], 'spec.json', { type: 'application/json' });
+    const picker = screen.getByLabelText('Attach file', { selector: 'input' });
+    await user.upload(picker, [png, spec]);
+
+    const input = screen.getByRole('textbox', { name: 'Message to agent' });
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toContain('[File: spec.json'));
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+
+    const say = await waitFor(() => {
+      const found = server.requests.find((r) => r.path.endsWith('/say'));
+      expect(found).toBeDefined();
+      return found!;
+    });
+    const body = say.body as { text: string; attachments: { url: string }[] };
+    expect(body.text).toContain('[File: spec.json, 8 B]({{MAEL_TASK_DIR}}/images/');
+    // The host sends each attachment as an image block, and refuses any other file.
+    expect(body.attachments.map((a) => a.url)).toEqual([expect.stringMatching(/shot\.png$/)]);
+  });
+
   it('removing an attached image takes its ref out of the message too', async () => {
     const user = userEvent.setup();
     await renderApp();
@@ -124,7 +152,7 @@ describe('the session tab', () => {
     const png = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'shot.png', {
       type: 'image/png',
     });
-    await user.upload(screen.getByLabelText('Attach image', { selector: 'input' }), png);
+    await user.upload(screen.getByLabelText('Attach file', { selector: 'input' }), png);
     const input = screen.getByRole('textbox', { name: 'Message to agent' });
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toContain('![shot.png]('));
 
