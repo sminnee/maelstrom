@@ -5,7 +5,15 @@ import { act } from 'react';
 import { commandsSince } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
+/** The seed holds work of two projects, so its board draws lanes. One project draws none. */
+const ONE_PROJECT = '/desk/kanban?project=northwind';
+
 const column = (name: string) => screen.getByRole('region', { name });
+const board = () => within(screen.getByTestId('desk-kanban'));
+const lane = (name: string) => board().getByRole('group', { name });
+/** The cell of zone `name` in the lane of project `project`. */
+const cell = (project: string, name: string) =>
+  within(lane(project)).getByRole('region', { name: `${name}, ${project}` });
 const card = (id: string) =>
   document.querySelector<HTMLElement>(`[data-testid="deck-row"][data-task-id="${id}"]`)!;
 
@@ -18,15 +26,6 @@ function dataTransfer() {
     dropEffect: 'none',
     effectAllowed: 'all',
   };
-}
-
-/** Drag `id`'s card onto the column `name`, as a pointer would. */
-function dragTo(id: string, name: string) {
-  const transfer = dataTransfer();
-  fireEvent.dragStart(card(id), { dataTransfer: transfer });
-  fireEvent.dragOver(column(name), { dataTransfer: transfer });
-  fireEvent.drop(column(name), { dataTransfer: transfer });
-  fireEvent.dragEnd(card(id), { dataTransfer: transfer });
 }
 
 describe('the desk modes', () => {
@@ -57,18 +56,56 @@ describe('the desk modes', () => {
   });
 
   it('draws one column per zone in board order, each with its count', async () => {
-    await renderApp({ url: '/desk/kanban' });
+    await renderApp({ url: ONE_PROJECT });
     const heads = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
     expect(heads).toEqual(['Queued', 'To do', 'Running', 'Done']);
     // NORT-20 follows nothing, so it is the one task ready to start.
     expect(within(column('To do')).getByTestId('zone-count')).toHaveTextContent('1');
     expect(within(column('To do')).getAllByTestId('deck-row')).toHaveLength(1);
+    expect(board().queryByRole('group')).not.toBeInTheDocument();
+  });
+
+  it('draws a lane per project across the zone columns, with work of two projects', async () => {
+    await renderApp({ url: '/desk/kanban' });
+    const lanes = board()
+      .getAllByRole('group')
+      .map((g) => g.getAttribute('aria-label'));
+    expect(lanes).toEqual(['maelstrom', 'northwind']);
+    // The zone heads draw once, over all the lanes.
+    expect(
+      board()
+        .getAllByRole('heading', { level: 2 })
+        .map((h) => h.textContent),
+    ).toEqual([
+      expect.stringMatching(/^Queued/),
+      expect.stringMatching(/^To do/),
+      expect.stringMatching(/^Running/),
+      expect.stringMatching(/^Done/),
+    ]);
+    for (const name of lanes) {
+      const zones = within(lane(name!)).getAllByRole('region');
+      expect(zones.map((r) => r.getAttribute('aria-label'))).toEqual(
+        ['Queued', 'To do', 'Running', 'Done'].map((zone) => `${zone}, ${name}`),
+      );
+    }
+    expect(within(cell('northwind', 'To do')).getAllByTestId('deck-row')).toHaveLength(1);
   });
 
   it('sets the status a drop on Queued puts the card in', async () => {
     const { server } = await renderApp({ url: '/desk/kanban' });
     const before = server.requests.length;
-    dragTo('NORT-20', 'Queued');
+    const transfer = dataTransfer();
+    fireEvent.dragStart(card('NORT-20'), { dataTransfer: transfer });
+    fireEvent.dragOver(cell('northwind', 'Queued'), { dataTransfer: transfer });
+    // Only the cell the drop would land in lights.
+    expect(cell('northwind', 'Queued')).toHaveAttribute('data-drop');
+    expect(
+      board()
+        .getAllByRole('region')
+        .filter((r) => r.hasAttribute('data-drop')),
+    ).toHaveLength(1);
+    fireEvent.drop(cell('northwind', 'Queued'), { dataTransfer: transfer });
+    fireEvent.dragEnd(card('NORT-20'), { dataTransfer: transfer });
     await waitFor(() =>
       expect(commandsSince(server, before)).toEqual(['POST /api/tasks/NORT-20/status']),
     );
@@ -76,12 +113,25 @@ describe('the desk modes', () => {
     expect(write?.body).toEqual({ status: 'blocked' });
     // The fake reads `actionable` fresh, as the server does, so the card lands where it was dropped.
     await waitFor(() =>
-      expect(within(column('Queued')).getByText(/Add a search/)).toBeInTheDocument(),
+      expect(within(cell('northwind', 'Queued')).getByText(/Add a search/)).toBeInTheDocument(),
     );
   });
 
-  it('refuses a drop on Running: a drop never launches', async () => {
+  it('refuses a drop in another project’s lane: a drop cannot move a task', async () => {
     const { server } = await renderApp({ url: '/desk/kanban' });
+    const before = server.requests.length;
+    const transfer = dataTransfer();
+    fireEvent.dragStart(card('NORT-20'), { dataTransfer: transfer });
+    fireEvent.dragOver(cell('maelstrom', 'Queued'), { dataTransfer: transfer });
+    expect(cell('maelstrom', 'Queued')).not.toHaveAttribute('data-drop');
+    fireEvent.drop(cell('maelstrom', 'Queued'), { dataTransfer: transfer });
+    fireEvent.dragEnd(card('NORT-20'), { dataTransfer: transfer });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(commandsSince(server, before)).toEqual([]);
+  });
+
+  it('refuses a drop on Running: a drop never launches', async () => {
+    const { server } = await renderApp({ url: ONE_PROJECT });
     const before = server.requests.length;
     const transfer = dataTransfer();
     fireEvent.dragStart(card('NORT-20'), { dataTransfer: transfer });
