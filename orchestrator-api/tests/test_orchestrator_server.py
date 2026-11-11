@@ -9045,6 +9045,31 @@ def test_an_end_session_request_whose_turn_ends_after_a_restart_terminates(harne
     run(scenario())
 
 
+def test_an_end_session_request_outlives_a_lost_stream(harness):
+    """A daemon restart ends the stream between the marker and the turn end.
+
+    The server holds the request, so the next watch still terminates the
+    agent at the turn end.
+    """
+    harness.daemon.rows["ag1"] = agent_row()
+
+    def attaches() -> int:
+        return len([c for c in harness.daemon.calls if c["cmd"] == "attach"])
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                harness.daemon.push("ag1", tag_event("Done.\n\n<end-session>"))
+                await after_message(harness, "Still in the turn.")
+                harness.daemon.end_stream("ag1")
+                await wait_until(lambda: attaches() == 2)
+                harness.daemon.push("ag1", end_turn())
+                await wait_until(lambda: stopped(harness))
+
+    run(scenario())
+
+
 def test_a_replayed_end_session_request_does_nothing(harness):
     """The run that first read it terminated the agent; a resumed agent stays."""
     harness.daemon.rows["ag1"] = agent_row()
