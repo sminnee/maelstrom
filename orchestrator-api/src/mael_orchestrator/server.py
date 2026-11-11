@@ -1694,13 +1694,20 @@ class Orchestrator:
         }
         reply = await self.daemon.request({"cmd": "list"})
         if "error" in reply:
-            log.warning("agent host: %s", reply["error"])
+            if self._host_failures == 0:
+                log.warning("agent host: %s", reply["error"])
             self._host_failures += 1
             if self._host_failures >= HOST_UNREACHABLE_AFTER:
                 self._set_host_reachable(False)
-            return
-        self._host_failures = 0
-        self._set_host_reachable(True)
+            if "agents" not in reply:
+                return
+            # The router answers with its stored rows beside the error, each
+            # in its last seen state. They are read as any rows are, so the
+            # other harness's agents stay current through the outage.
+        else:
+            self._host_failures = 0
+            self._set_host_reachable(True)
+            self._redeliver()
         self._set_host_usage(
             host_usage(reply.get("usage")), host_usage(reply.get("codex_usage"))
         )

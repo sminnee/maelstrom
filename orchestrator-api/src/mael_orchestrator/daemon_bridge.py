@@ -209,6 +209,9 @@ class DaemonRouter:
                 "agents": rows,
                 "usage": claude.get("usage"),
                 "codex_usage": codex.get("usage"),
+                # The agent daemon's failure, beside the stored rows: the
+                # server shows the outage and keeps each agent as last seen.
+                **({"error": claude["error"]} if claude.get("error") else {}),
             }
         await self._restore()
         try:
