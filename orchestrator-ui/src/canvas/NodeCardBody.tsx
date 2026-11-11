@@ -9,16 +9,17 @@ import { DecisionCard } from '../decisions/DecisionCard';
 import { Markdown } from '../markdown/Markdown';
 import { deskIdForTask } from '../protocol/deskId';
 import { modelLabel } from '../protocol/models';
-import { driftFixLabel, driftSentence, progressOf } from '../protocol/progress';
+import { driftFixLabel, driftSentence } from '../protocol/progress';
 import { isTerminal, type Agent, type DeskEntry } from '../protocol/entities';
 import type { TaskRow } from '../api/types';
 import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
-import { agentsOfTask, isLive, nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
-import { type CardGroup, documentsByKind, linkedEntries } from '../selectors/documents';
+import { agentsOfTask, nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
+import { type CardGroup, cardDocuments, documentsByKind } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
+import { sessionMeta } from '../selectors/agents';
 import { documentTab, sessionTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
 import { MessageInput } from '../session/MessageInput';
@@ -144,13 +145,8 @@ function WorkCardBody({
     bodyProps: briefProps,
   } = useExpandableClamp([brief]);
 
-  // A task's documents are the ones it owns, then the ones it links. A free
-  // agent has no task, so a document it tagged is found by its agent alone.
-  const allDocuments = Object.values(world.documents);
-  const documents = documentsByKind(
-    allDocuments.filter((d) => (task ? d.taskId === task.id : !!agent && d.agentId === agent.id)),
-    task ? linkedEntries(allDocuments, task.id) : [],
-  );
+  const { owned, linked } = cardDocuments(world, task?.id ?? null, agent?.id ?? null);
+  const documents = documentsByKind(owned, linked);
   // The worktree is where the agent runs, so its branch beats the frontmatter.
   const where = nodeWorktree(world, node);
   const byTask = useMemo(() => agentsOfTask(world), [world]);
@@ -611,17 +607,7 @@ function TaskSessions({ agents, clock }: { agents: Agent[]; clock: number }) {
       {shown.map((agent) => (
         <li key={agent.id} className={styles.session}>
           <PanelLink tab={sessionTab(agent.id)}>Session</PanelLink>
-          <span className={`${styles.sessionMeta} truncate`}>
-            {[
-              clockTime(agent.startedAt, clock),
-              // The card's head reads a live agent's state, with its
-              // attention and gate. An ended one's state needs neither.
-              isLive(agent) ? 'Live' : progressOf(undefined, agent, [], null).words,
-              agent.session.slice(0, 8),
-            ]
-              .filter(Boolean)
-              .join(' · ')}
-          </span>
+          <span className={`${styles.sessionMeta} truncate`}>{sessionMeta(agent, clock)}</span>
         </li>
       ))}
     </ul>

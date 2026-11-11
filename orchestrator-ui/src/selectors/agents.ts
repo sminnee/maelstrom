@@ -1,5 +1,7 @@
 import type { Agent } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
+import { progressOf } from '../protocol/progress';
+import { clockTime } from '../protocol/time';
 import { isLive } from './graph';
 import type { WorldView } from './world';
 
@@ -42,4 +44,19 @@ export function subagentsOf(world: WorldView, agentId: AgentId): Agent[] {
 /** The finished subagents of `agentId`, in the same order. */
 export function finishedSubagentsOf(world: WorldView, agentId: AgentId): Agent[] {
   return childrenOf(world, agentId, false);
+}
+
+/**
+ * A session row's words: start time · `Live` or end state · session id. The
+ * node card and the **Tab picker** read the same.
+ */
+export function sessionMeta(agent: Agent, now: number): string {
+  return [
+    clockTime(agent.startedAt, now),
+    // A live agent's state needs its attention and gate. An ended one's does not.
+    isLive(agent) ? 'Live' : progressOf(undefined, agent, [], null).words,
+    agent.session.slice(0, 8),
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
