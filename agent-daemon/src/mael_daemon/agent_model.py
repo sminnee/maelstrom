@@ -268,7 +268,10 @@ class AgentSpec:
 
     ``session_id`` is always set, because the daemon mints one when the caller
     gives none. A child that died before its ``system/init`` is resumable all
-    the same.
+    the same. It follows the child across a ``/clear``: see "Session
+    identity" in ``docs/dev/agent-daemon.md``. ``argv_session_id`` is the id
+    in the child's argv, and the gc knows the child by it. Empty on a record
+    from an older daemon, where ``session_id`` is the argv id.
 
     ``prompt`` is kept so a child that died before its first turn can be started
     again with the prompt it never got. Whether a resume replays instead is
@@ -1342,10 +1345,10 @@ def build_agent_row(state: AgentState, spawn_session: str = "") -> AgentRow:
     parent, and its prompt is not a description. :func:`build_subagent_rows`
     fills both.
 
-    ``spawn_session`` is the id the spawn record pinned, and the row prefers
-    it: the task link joins on the pinned id, and a ``/clear`` moves the one
-    the agent reports. See ``docs/reference/environment.md``. It falls back to
-    the reported id, because only the daemon writes a record and a row is worth
+    ``spawn_session`` is the spawn record's session id, and the row prefers
+    it: the record has an id before the child's first ``system/init``, and it
+    follows each id the child reports after that. It falls back to the
+    reported id, because only the daemon writes a record and a row is worth
     serving without one.
     """
     # An exited agent answers nothing, whoever was waiting under it: a reply

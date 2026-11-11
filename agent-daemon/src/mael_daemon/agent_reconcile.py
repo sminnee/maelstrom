@@ -9,7 +9,7 @@ does that with the result.
 The question it answers is the one the spawn record used to leave open: is my
 predecessor's child still alive? Identity is the session id in the process's
 argv, nothing else. A pid the record names that is a driven ``claude`` naming
-the record's session is the child; a pid that is anything else has been
+the record's argv session is the child; a pid that is anything else has been
 reused, and reads as the child having died. See "Strays and gc" in
 ``docs/dev/agent-daemon.md``.
 """
@@ -205,7 +205,10 @@ def reconcile(
                 )
         # Rule 3: every other driven process on this session.
         for process in driven:
-            if process.pid in claimed or session_id_in(process.command) != session_id:
+            if process.pid in claimed or session_id_in(process.command) not in (
+                session_id,
+                spec.child_session_id,
+            ):
                 continue
             claimed.add(process.pid)
             verdicts.append(
@@ -345,6 +348,6 @@ def _child_of(spec: AgentSpec, by_pid: dict[int, ProcessInfo]) -> ProcessInfo | 
     process = by_pid.get(spec.pid)
     if process is None or not is_driven(process.command):
         return None
-    if session_id_in(process.command) != spec.session_id:
+    if session_id_in(process.command) != spec.child_session_id:
         return None
     return process

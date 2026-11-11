@@ -1339,7 +1339,8 @@ writes one record per agent to `<root>/agents/<agent-id>.json`, holding exactly 
 | Field | Why |
 |---|---|
 | `agent_id`, `cwd` | The id the orchestrator and the user already know; where to spawn |
-| `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable |
+| `session_id` | Always set — the daemon mints one when the caller gives none. A child that dies before its `system/init` stays resumable. It follows the child: see "Session identity" |
+| `argv_session_id` | The session id in the child's argv. A `/clear` does not change it. The gc knows the child by it |
 | `permission_mode`, `model`, `env` | The argv and environment to rebuild. `env` is the caller's own extra vars only. `set-mode` rewrites `permission_mode`, so a resume keeps the mode the agent was moved to |
 | `prompt` | A child that died before its first turn is started again with the prompt it never got |
 | `system_prompt_file` | The marker prompt the client named. A restore respawns with it, and no client is there to name it again |
@@ -1363,19 +1364,60 @@ Records are written owner-only (`0600`, in a `0700` directory). `env` holds what
 passed to `start`, and that has no allowlist, so a record can hold a secret. `mael self check-host`
 tightens a record it finds loose.
 
+### Session identity
+
+Six steps tie a task to the transcript file of its conversation. A `/clear` moves the session id,
+and the Agent record and the task follow it.
+
+| Step | Id | Kept in | Moves? |
+|---|---|---|---|
+| Task | task key `<project>/<id>` | `tasks` table | No |
+| Task to session | **Task session id** | `tasks.sessions`, a list | No. A **New session** or a `/clear` appends one |
+| Orchestrator to agent | agent id, with the **Id prefix** | **Agent record**, field `task_session_id`; `earlier_sessions` keeps the ids it left | The agent id: no. `task_session_id`: yes, at the next agent poll |
+| Daemon to process | agent id, and the argv session id | **Spawn record**, `argv_session_id` | No, for the life of the process |
+| Process to conversation | **Session id**, reported on `system/init` and `result` | **Spawn record**, `session_id` | Yes, at each `/clear` |
+| Conversation to file | `~/.claude/projects/<cwd slug>/<session id>.jsonl` | Disk | One file per session id |
+
+Claude Code moves to a new session id at each `/clear`, and a plan approval sends one. The daemon
+writes each id the child reports into the spawn record, so a resume continues the conversation the
+agent is in. `claude --resume X` keeps the id `X` and writes to `X.jsonl`.
+
+The daemon knows sessions and no tasks. The orchestrator ties the sessions of one agent together:
+it appends the new id to the task. See [orchestrator-server.md](orchestrator-server.md), "A
+session that moves". In this example, `T` is a plan-mode task and `a1b2` is its agent.
+
+| Moment | Spawn record `a1b2` | Task `T` and the Agent record | Transcript |
+|---|---|---|---|
+| Launch | `session_id: S1`, argv `--session-id S1` | `T.sessions: [S1]`; record on `S1` | `S1.jsonl` |
+| Plan approved: `/clear`, then the handover | The child reports `S2`. `session_id: S2`; the argv still names `S1` | No change yet | `S2.jsonl` starts |
+| Next agent poll | The row reports `S2` | `T.sessions: [S1, S2]`; record on `S2` | |
+| Daemon restart | `--resume S2`. The argv now names `S2` | No change | `S2.jsonl` goes on |
+| The agent ended; the user launches `T` again | A new agent id on `S2`, with `resume` | The newest entry is `S2` | `S2.jsonl` goes on |
+| **New session** | A new agent on `S3` | `T.sessions` gains `S3` | `S3.jsonl` |
+
+The agent id does not change at a clear, so the session tab, the stream and the cursors stay.
+
 ### The resume rules
 
-- **A crashed child does not restart itself.** The agent shows `exited(N)`, and
-  `mael agent resume <id>` brings it back. The id is kept, which is what makes a resume invisible
-  to the orchestrator and to the user.
+- **A child that dies under a live daemon does not restart itself.** Its pump records the exit.
+  The agent shows `exited(N)`, and `mael agent resume <id>` brings it back. The id is kept, which
+  is what makes a resume invisible to the orchestrator and to the user.
+- **A `running` record is resumed, however the last daemon died.** A `running` record means that
+  nobody stopped the agent. A clean shutdown, a SIGKILL and a crash all leave the record
+  `running`, and the next daemon start resumes it.
+- **A counter guards a daemon that dies at each start.** `unclean_resumes` counts the resumes
+  with no clean shutdown before them. At 3, the gc writes the record off as `crashed`. Only a
+  clean shutdown writes 0, so 3 unclean deaths with any time between them also write an agent off.
 - **A daemon start runs the gc first, then resumes each session once.** The gc kills every stray
-  and duplicate on a record's session, writes off a record whose child is gone with no shutdown
-  recorded, and retires the older of two `running` records on one session. Only then is each
+  and duplicate on a record's session, writes off a record at the resume limit, and retires the
+  older of two `running` records on one session. Only then is each
   surviving `running` record resumed, one per session. A record marked `exited` — including one
   the gc just wrote — is loaded as an exited agent instead, so `list`, `show` and `resume` all
   answer for it, but nothing respawns it. That is also the loop guard: a resumed child that dies
   again is recorded `exited`, so the next daemon start leaves it alone. Where the process table
-  cannot be read, the gc is skipped and every `running` record is resumed as before.
+  cannot be read, the gc is skipped and every `running` record below the resume limit is resumed.
+- **A stopping daemon starts no agent.** It refuses `start` and `resume` from the moment the stop
+  begins: a child started then would outlive the stop with no shutdown flag.
 - **A `stopped` record is neither respawned nor loaded.** A stop is deliberate, so the agent stays
   out of `list` entirely. `mael agent list --stopped` finds it through its record, and reads its
   transcript for what it was doing. `mael agent resume` reads the record.
@@ -1415,8 +1457,8 @@ again. One evening that made twenty-one duplicates.
 
 The reconcile (`agent_reconcile.py`, pure) matches every `running` record against the process
 table. Identity is the session id in the process's argv, nothing else: a pid the record names that
-is a driven `claude` naming the record's session is the child; a pid that is anything else has
-been reused and reads as the child having died. Read with `ps -ww`, because a child launched from
+is a driven `claude` naming the record's `argv_session_id` is the child; a pid that is anything
+else has been reused and reads as the child having died. Read with `ps -ww`, because a child launched from
 cmux carries a long `--settings {…}` JSON before its `--session-id`.
 
 | Verdict | When | What happens |

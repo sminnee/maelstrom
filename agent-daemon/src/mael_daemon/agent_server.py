@@ -425,6 +425,7 @@ class Agent:
         proc: asyncio.subprocess.Process,
         on_exit: "Callable[[int | None], None] | None" = None,
         on_status: "Callable[[str], None] | None" = None,
+        on_session: "Callable[[str], None] | None" = None,
         clock: "Callable[[], str]" = now_iso,
     ):
         self.state = AgentState(agent_id=agent_id, cwd=cwd)
@@ -446,6 +447,9 @@ class Agent:
         # Called with the new status whenever it changes, so the spawn record
         # survives a daemon that never gets to shut down.
         self.on_status = on_status
+        # Called with the session id whenever the child reports a new one: a
+        # `/clear` moves it, and the spawn record must follow.
+        self.on_session = on_session
         self.watchers: list[Watcher] = []
         #: True from the turn's first chunk to its ``result``. The status reads
         #: `idle` for part of that window, and an interrupt must still be taken.
@@ -499,6 +503,8 @@ class Agent:
         self.state = apply_event(self.state, message, now=self.clock())
         if self.on_status is not None and self.state.status != before.status:
             self.on_status(self.state.status)
+        if self.on_session is not None and self.state.session_id != before.session_id:
+            self.on_session(self.state.session_id)
         self._settle(message)
         # The stamped copy, off the ring the event went to, so a watcher sees
         # the seq that ring holds.
@@ -870,8 +876,12 @@ class AgentDaemon:
         """
         cwds = [Path(cwd)] if cwd else None
         metas = self.transcripts.list(cwds)
-        specs = _specs_by_session(self.specs.list())
+        records = self.specs.list()
+        specs = _specs_by_session(records)
         live_ids, id_free_cwds = await self._live_sessions()
+        # A live child's argv names the session it started on. After a
+        # `/clear` its record names another, which is as live.
+        live_ids |= {r.session_id for r in records if r.child_session_id in live_ids}
         return build_stopped_rows(metas, specs, live_ids, id_free_cwds, now=time.time())
 
     async def _live_sessions(self) -> tuple[set[str], set[Path]]:
@@ -957,6 +967,7 @@ class AgentDaemon:
             agent_id=agent_id,
             cwd=cwd,
             session_id=session_id,
+            argv_session_id=session_id,
             permission_mode=permission_mode,
             model=ref.alias,
             execute_model=execute_model or None,
@@ -1023,6 +1034,7 @@ class AgentDaemon:
             proc,
             on_exit=self._record_exit(agent_id),
             on_status=self._record_status(agent_id),
+            on_session=self._record_session(agent_id),
             clock=self.clock,
         )
         agent.state = replace(agent.state, pid=proc.pid)
@@ -1077,6 +1089,27 @@ class AgentDaemon:
                 # Letting it out of `record` would reach the pump, which reads
                 # any exception as the child dying and kills a healthy agent.
                 log.warning("agent %s: could not record status", agent_id)
+
+        return record
+
+    def _record_session(self, agent_id: str) -> Callable[[str], None]:
+        """A callback that makes ``agent_id``'s record follow its session id.
+
+        A ``/clear`` moves the child to a new session id, and a plan approval
+        sends one. The record is what a resume reads, so an id kept only in
+        memory resumes the conversation before the clear.
+        """
+
+        def record(session_id: str) -> None:
+            spec = self.specs.read(agent_id)
+            if spec is None or spec.session_id == session_id:
+                return
+            try:
+                self.specs.write(replace(spec, session_id=session_id))
+            except OSError:
+                # As `_record_status`: an exception here would reach the pump
+                # and kill a healthy agent.
+                log.warning("agent %s: could not record its session", agent_id)
 
         return record
 
@@ -1287,10 +1320,10 @@ class AgentDaemon:
             if scope in (SCOPE_RUNNING, SCOPE_ALL):
                 # One read for the listing, not one per agent: a store read is
                 # a file open, and the orchestrator polls `list` every 2s.
-                pinned = {s.agent_id: s.session_id for s in self.specs.list()}
+                recorded = {s.agent_id: s.session_id for s in self.specs.list()}
                 for a in self.agents.values():
                     rows.append(
-                        build_agent_row(a.state, pinned.get(a.state.agent_id, ""))
+                        build_agent_row(a.state, recorded.get(a.state.agent_id, ""))
                     )
                     rows += build_subagent_rows(a.state)
             if scope in (SCOPE_STOPPED, SCOPE_ALL):
@@ -1359,7 +1392,9 @@ class AgentDaemon:
             return {"error": f"agent {agent.state.agent_id} has exited"}
 
         if command == "show":
-            return {"agent": build_agent_detail(agent.state, self._pinned(agent))}
+            return {
+                "agent": build_agent_detail(agent.state, self._recorded_session(agent))
+            }
 
         if command == "say":
             try:
@@ -1708,11 +1743,11 @@ class AgentDaemon:
             self.specs.write(replace(spec, permission_mode=mode))
         return None
 
-    def _pinned(self, agent: Agent) -> str:
+    def _recorded_session(self, agent: Agent) -> str:
         """The session id ``agent``'s spawn record holds, else ``""``.
 
-        What a row and a detail report, rather than the id the agent reports:
-        a ``/clear`` moves that one, and the task link joins on the pinned one.
+        What a row and a detail report. The record follows the id the agent
+        reports, and it has an id before the agent reports one.
         """
         spec = self.specs.read(agent.state.agent_id)
         return spec.session_id if spec else ""
@@ -1979,7 +2014,7 @@ class AgentDaemon:
         agent.watchers.append(watcher)
         try:
             detail, ring, seq, ended, exit_code = _stream_of(
-                agent.state, dotted, self._pinned(agent)
+                agent.state, dotted, self._recorded_session(agent)
             )
             frame = {"type": AGENT_DETAIL, "agent": detail}
             writer.write((json.dumps(frame) + "\n").encode())
