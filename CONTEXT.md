@@ -1456,16 +1456,19 @@ _Avoid_: Worktree popover, box card, worktree panel
 **Deck list**:
 The desk in its list **Desk mode**: one row per node, tabbed by zone and opening on running. It
 draws what the canvas draws — a node per task and per free agent — laid out down the screen
-instead of across it. The narrow layout has no room for a board, so it draws the desk only as
-the deck list.
+instead of across it. When the drawn nodes come from two or more projects, a subheading names
+each project above its rows in the open tab. The narrow layout has no room for a board, so it
+draws the desk only as the deck list.
 _Avoid_: Mobile canvas, card list, feed
 
 **Desk mode**:
 How the desk draws its nodes: graph (the **Canvas**), kanban, or list (the **Deck list**). Each
 mode has its own path, such as `/desk/kanban`, and all three use the same zones. Kanban draws
-one column of cards per zone, with no lanes, boxes or follows wires. A drag of a card to another
+one column of cards per zone, with no boxes or follows wires. When the drawn nodes come from two
+or more projects, one lane per project crosses the four columns. A drag of a card to another
 column sets the task status that puts the card in that column: Queued sets `blocked`, To do sets
-`todo`, Done sets `done`. A drop never launches, so the Running column takes no drop.
+`todo`, Done sets `done`. A drop never launches, so the Running column takes no drop. A drop
+stays in the card's own lane: it cannot move a task to another project.
 _Avoid_: Desk view, layout (a layout is narrow, medium or wide)
 
 **Swipe action**:
