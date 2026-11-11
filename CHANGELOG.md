@@ -20,6 +20,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Attach any file, or a text note, to a task or an agent message.** **Attach image** is now
+  **Attach file**, and it takes any file up to 50 MB. **Attach text note** turns a block of text
+  into a file. An image is embedded as before. Any other file is linked, with its size, and the
+  agent reads it from disk, so a long log does not fill its context. See
+  [Attachments](docs/dev/orchestrator-server.md#attachments).
 - **The desk draws as a graph, a kanban or a list.** A switch at the top of the desk picks the
   mode, and each mode has its own path, such as `/desk/kanban`. In kanban, drag a card to another
   column to set its task status. The desk now has four zones, Queued | To do | Running | Done,

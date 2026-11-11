@@ -1854,12 +1854,15 @@ and a repo's own `docs/` both leave open.
 
 **Attachment**:
 Something the task notebook stores for one task. There are two kinds. A media attachment is an
-image or a video in the **Attachments directory**, under `<project>/images/<bucket>/`. A
-**Task document** is rows in the **State database**. Task content and the body of a task document
-reference a media
-attachment by a `{{MAEL_TASK_DIR}}` token, which expands to an absolute path at launch. A brief
-from Linear and a screenshot pasted into the orchestrator UI are both media attachments.
-_Avoid_: Upload, file, asset
+image, a video, or any other file the user attaches, in the **Attachments directory**, under
+`<project>/images/<bucket>/`. A **Task document** is rows in the **State database**. Task content,
+the body of a task document, and a message to an agent reference a media attachment by a
+`{{MAEL_TASK_DIR}}` token, which expands to an absolute path when the agent gets it. An image is
+embedded and any other file is linked; see "Attachments" in `docs/dev/orchestrator-server.md`. A
+brief from Linear, a screenshot pasted into the orchestrator UI and a text note are all media
+attachments.
+_Avoid_: Upload, asset; "file" for an attachment in general (a `file` attachment is the non-image
+kind)
 
 **Attachments directory**:
 The plain directory `<notebook root>/attachments/` that holds every media attachment. The
