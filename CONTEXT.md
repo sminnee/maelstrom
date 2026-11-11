@@ -324,7 +324,8 @@ _Avoid_: Closed session (a closed worktree is a different thing), ended session,
 **Task session id**:
 The id of one of a task's agent sessions. A task stores a list of them, oldest first, and each
 entry names its harness. For Claude, maelstrom makes the id at the first launch and passes it as
-`--session-id`. For Codex, the id is the thread id that Codex returns. The newest entry for a
+`--session-id`. Each `/clear` of the task's driven agent appends the id that Claude Code moves to. For
+Codex, the id is the thread id that Codex returns. The newest entry for a
 harness is the current one, and a launch on that harness resumes it. The task table finds a task
 by any of its ids, and an agent row reports one. Use the task session id to answer "which task
 is this?".
@@ -338,9 +339,9 @@ _Avoid_: Fresh session, restart
 
 **Session id**:
 The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
-`/clear` starts a new conversation and moves the session id, so it is not stable and cannot key
-a task. Use the session id to answer "which conversation am I in now?". A Claude session starts
-with its task session id as its session id, so the two agree until the first `/clear`.
+`/clear` starts a new conversation and moves the session id, so it cannot key a task. For a driven
+agent, the spawn record follows it, and the orchestrator appends it to the task at its next agent
+poll. Use the session id to answer "which conversation am I in now?".
 
 **Workspace**:
 A cmux workspace named `<project>-<worktree>`. The orchestrator makes it when you open a

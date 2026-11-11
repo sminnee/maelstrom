@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack, asynccontextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -104,6 +105,8 @@ from mael_orchestrator.sources import (
     InMemoryWorktreeSource,
     NotebookTaskSource,
     PrStateCache,
+    RemoteTaskSource,
+    TaskSourceRemote,
     WorktreeOpener,
 )
 from mael_orchestrator.world_build import project_entity, split_task_key
@@ -127,6 +130,21 @@ read_fixture = read_stamped_fixture
 def session_of(task_id: str) -> str:
     """The Claude session a test stores on ``task_id``."""
     return f"session-{task_id}"
+
+
+def _count_calls(monkeypatch, cls, name, *, first_raises=None) -> list[tuple]:
+    """Record each call of ``cls.name``. The first one raises ``first_raises``."""
+    calls: list[tuple] = []
+    real = getattr(cls, name)
+
+    async def counted(self, *args):
+        calls.append(args)
+        if first_raises is not None and len(calls) == 1:
+            raise first_raises
+        return await real(self, *args)
+
+    monkeypatch.setattr(cls, name, counted)
+    return calls
 
 
 class Harness:
@@ -2319,8 +2337,50 @@ def test_the_desk_entry_outlives_the_agent(harness):
     assert [e["id"] for e in desk] == ["agent:ag1"]
 
 
+def test_a_clear_gives_the_task_a_second_session_and_the_agent_keeps_its_task(
+    store, monkeypatch
+):
+    """A plan approval sends a `/clear`, and the agent moves to a new session id.
+
+    The task gets the new id as a second session, once, and its newest entry
+    is then the conversation a later launch resumes. The agent stays linked
+    to the task: the card must not lose its agent at each approval.
+    """
+    first, second = session_of("NORT-7"), str(uuid.uuid4())
+    claude = ScriptedAsyncDaemonClient()
+    claude.rows["ag1"] = agent_row(session=first)
+    appends = _count_calls(monkeypatch, NotebookTaskSource, "add_session")
+
+    async def scenario():
+        db = open_state_db(":memory:")
+        await db.migrate()
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), SqliteAgentStore(db))
+        harness = Harness(store, daemon=router)
+        await harness.add_task_async("NORT-7", session=first)
+        try:
+            async with harness.client() as api:
+                await until(
+                    api, "/api/agents/ag1", lambda a: a["taskId"] == "northwind/NORT-7"
+                )
+                claude.rows["ag1"]["session"] = second
+                agent = await until(
+                    api, "/api/agents/ag1", lambda a: a["session"] == second
+                )
+                # More polls: the append must not repeat.
+                await asyncio.sleep(0.1)
+                task = await api.get_json("/api/tasks/northwind/NORT-7")
+                return agent, task, await api.get_json("/api/agents/ag1")
+        finally:
+            db.close()
+
+    agent, task, later = run(scenario())
+    assert agent["taskId"] == later["taskId"] == "northwind/NORT-7"
+    assert [s["id"] for s in task["sessions"]] == [first, second]
+    assert len(appends) == 1
+
+
 def test_the_host_is_reported_unreachable_after_two_failed_polls_and_no_agent_exits(
-    harness,
+    store,
 ):
     """A daemon restart must show as a banner, not as every agent exiting.
 
@@ -14056,9 +14116,16 @@ def merged(api, agent_id: str, predicate=lambda a: True):
 
 
 def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_parent(
-    store, tmp_path
+    store, tmp_path, monkeypatch
 ):
     """Delegation end to end: launch, merge, stream, drive, files, tasks, PRs."""
+    after_clear = str(uuid.uuid4())
+    sends = _count_calls(
+        monkeypatch,
+        RemoteTaskSource,
+        "add_session",
+        first_raises=TaskSourceRemote("the parent is down"),
+    )
     (tmp_path / "note.md").write_text("Read this.\n")
     (tmp_path / "draft-one.md").write_text(model.draft_markdown(title="First step"))
     backlog, _rest = split_at_control_response(read_fixture("permission-request.jsonl"))
@@ -14123,6 +14190,17 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
             )
             seen["say"] = await api.post("/api/agents/cobalt:new1/say", {"text": "hi"})
 
+            # A `/clear` on the child gives the parent's task a second session.
+            # The first send fails, as with the parent down: the next poll
+            # sends it again, and no poll after that does.
+            child.claude.rows["new1"]["session"] = after_clear
+            seen["cleared"] = await until(
+                api,
+                "/api/tasks/northwind/NORT-7",
+                lambda t: len(t["sessions"]) > 1,
+            )
+            await asyncio.sleep(0.1)
+
             # A direct agent on cobalt works on cobalt's own tasks.
             child.claude.next_start_id = "own1"
             async with aiohttp.ClientSession(
@@ -14162,6 +14240,12 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
     assert seen["opening"]["type"] == "transcript.snapshot"
     assert seen["frame"]["event"]["item"]
 
+    # (4) The session after the clear is on the parent's task, once.
+    assert [s["id"] for s in seen["cleared"]["sessions"]] == [
+        session_of("NORT-7"),
+        after_clear,
+    ]
+    assert len(sends) == 2
     # (5) A remote file is the child's file.
     assert seen["file"].status == 200
     assert seen["file"].body == "Read this.\n"

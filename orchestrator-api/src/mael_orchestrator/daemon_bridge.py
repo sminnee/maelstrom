@@ -50,6 +50,8 @@ START_GRACE_SECONDS = 60.0
 PARENT_URL = "parentUrl"
 #: The start-payload key that names a delegated agent's task, by wire id.
 TASK_ID = "taskId"
+#: The row key for the session ids an agent left at each `/clear`, oldest first.
+EARLIER_SESSIONS = "earlier_sessions"
 
 
 @dataclass
@@ -163,6 +165,8 @@ class DaemonRouter:
             for agent_id, row in live_rows.items():
                 if not row.get("parent") and agent_id not in self._agents:
                     await self._adopt(agent_id, row)
+            for agent_id, agent in self._agents.items():
+                await self._follow_session(agent, live_rows.get(agent_id))
             # Count the misses before the rows are built, so a row that says
             # `exited` is the same decision that retires the record rather
             # than one list behind it. A reply that errored carries no agents,
@@ -354,6 +358,33 @@ class DaemonRouter:
             started_at=self.clock(),
         )
 
+    async def _follow_session(
+        self, agent: dict[str, Any], row: dict[str, Any] | None
+    ) -> None:
+        """Make ``agent``'s record follow the session id its live row reports.
+
+        A ``/clear`` moves a Claude agent to a new session id. The record
+        keeps each id it left in ``earlier_sessions``: until the new id is on
+        the task, an earlier one is how the server finds the task.
+        """
+        if row is None or agent.get("harness") == HARNESS_CODEX:
+            # A Codex thread is its own session, and its id does not move.
+            return
+        session = str(row.get("session") or "")
+        held = str(agent.get("task_session_id") or "")
+        if not session or session == held:
+            return
+        if str(row.get("state", "")).startswith("exited"):
+            return
+        if held:
+            left = agent.get("earlier_sessions", [])
+            agent["earlier_sessions"] = [
+                *(s for s in left if s not in (held, session)),
+                held,
+            ]
+        agent["task_session_id"] = session
+        await self.agents.save(agent)
+
     async def _adopt(self, agent_id: str, row: dict[str, Any]) -> None:
         """Take a live agent into the live set, writing a record if it has none.
 
@@ -537,6 +568,12 @@ def _stored_agent_row(
         # Set once, when the record is written. The daemon's own start moves
         # on a resume.
         "started_at": agent.get("started_at") or "",
+        # The sessions a `/clear` left. Present only after a clear.
+        **(
+            {EARLIER_SESSIONS: list(agent["earlier_sessions"])}
+            if agent.get("earlier_sessions")
+            else {}
+        ),
         # A delegated agent's task is on its parent, so the session join
         # cannot find it: the record names it.
         **(

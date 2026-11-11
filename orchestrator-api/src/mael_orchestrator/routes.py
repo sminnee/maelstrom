@@ -177,6 +177,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_delete("/api/tasks/{project}/{id}", _delete_task)
     app.router.add_put("/api/tasks/{project}/{id}/pr", _register_pr)
     app.router.add_delete("/api/tasks/{project}/{id}/pr", _withdraw_pr)
+    app.router.add_post("/api/tasks/{project}/{id}/sessions", _add_session)
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
@@ -1164,6 +1165,19 @@ async def _register_pr(request: web.Request) -> web.StreamResponse:
             "taskId": task_id,
             "number": body.get("number"),
             "url": body.get("url"),
+        },
+    )
+
+
+async def _add_session(request: web.Request) -> web.StreamResponse:
+    """Append ``{sessionId}`` to the task: a delegated agent's session after a ``/clear``."""
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "task.addSession",
+            "taskId": task_id,
+            "sessionId": body.get("sessionId"),
         },
     )
 

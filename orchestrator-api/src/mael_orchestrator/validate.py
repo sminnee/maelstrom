@@ -7,6 +7,7 @@ the web tests, so a rule added here belongs there too.
 """
 
 from typing import Any
+from uuid import UUID
 
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
@@ -902,6 +903,15 @@ def validate_command(
                 return _err("invalid", "url is the PR's URL")
         return None
 
+    if kind == "task.addSession":
+        task_id = cmd.get("taskId", "")
+        if task_id not in world["tasks"]:
+            return _err("unknown_id", f"No task {task_id}")
+        # The id becomes a `--resume` argument and a transcript file name.
+        if not _is_uuid(cmd.get("sessionId")):
+            return _err("invalid", "sessionId is a session id: a UUID")
+        return None
+
     if kind == "task.update":
         task_id = cmd.get("taskId", "")
         if task_id not in world["tasks"]:
@@ -1198,3 +1208,13 @@ def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
     if not parent_url and (cmd.get("session") or cmd.get("taskId") or env):
         return _err("invalid", "Only a delegated start names a session, env or task")
     return None
+
+
+def _is_uuid(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        UUID(value)
+    except ValueError:
+        return False
+    return True

@@ -1086,7 +1086,26 @@ between starting the agent and adopting it. A second watch replays the same back
 same transcript under fresh ids, so every item draws twice. An attach returns early for an
 agent a watch already holds. A revive drops its watch first, so it still re-attaches.
 
-The host being away is not an exit. A `list` the host does not answer changes no agent: the
+**A session that moves.** A `/clear` moves a Claude agent to a new session id, and a plan
+approval sends one. The agent daemon's row then reports the new id. Three steps follow, all in
+one agent poll:
+
+1. `DaemonRouter` moves the Agent record's `task_session_id` to the new id, and keeps the id it
+   left in `earlier_sessions`. The row carries both.
+2. `link_agent` finds no task that stores the new id, so it finds the task through an earlier
+   session, and sets `session_due`. The agent keeps its task.
+3. `_follow_session` appends the new id to the task with `add_session`, and reads the tasks
+   again. The link is then direct.
+
+The rule holds at each poll, not only at the clear. A server that was down at the clear appends
+at its first poll. The append changes nothing when the task holds the id already. A **Delegated
+agent**'s task is on its **Parent server**, so the server sends the append to the **Task home**:
+once for each session, and again after a failure. A free agent has no task, and only its record
+follows. The chain of ids is in [agent-daemon.md](agent-daemon.md), "Session identity".
+
+The host being away is not an exit. `DaemonRouter` passes the agent daemon's error through beside
+its stored rows, each in its last seen state. A Codex failure is not the agent daemon's, and it
+raises no banner. A `list` the host does not answer changes no agent: the
 second consecutive failed poll upserts the `agent-host` entity as unreachable, with when, and the
 first successful poll after upserts it reachable again. One failed poll raises nothing, because a
 daemon restart costs exactly one dropped connection. So a restart shows in the UI as a banner for
@@ -1866,6 +1885,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/task-documents/unarchive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
 | `PUT /api/tasks/{project}/{id}/pr` | `{number, url}` | `task.registerPr` | `{}`. A delegated agent's `gh-pr` link, from its remote host |
 | `DELETE /api/tasks/{project}/{id}/pr` | | `task.withdrawPr` | `{}` |
+| `POST /api/tasks/{project}/{id}/sessions` | `{sessionId}` | `task.addSession` | `{}`. A delegated agent's session after a `/clear`, from its remote host |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
 | `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |
