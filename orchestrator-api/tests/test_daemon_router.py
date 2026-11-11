@@ -885,6 +885,87 @@ def test_a_daemon_that_answers_with_an_error_retires_nothing() -> None:
     assert asyncio.run(scenario())["ag1"]["status"] == "running"
 
 
+def test_a_record_follows_the_session_its_live_row_reports() -> None:
+    """A `/clear` moves the agent to a new session id, and the record follows.
+
+    The record keeps the id it left: until the new one is on the task, the
+    old one is how the server finds the task. A second list changes nothing.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", session="s2")
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        await router.request({"cmd": "list"})
+        listed = await router.request({"cmd": "list"})
+        return agents.rows["ag1"], listed["agents"][0]
+
+    record, row = asyncio.run(scenario())
+
+    assert (record["task_session_id"], record["earlier_sessions"]) == ("s2", ["s1"])
+    assert (row["session"], row["earlier_sessions"]) == ("s2", ["s1"])
+
+
+def test_an_exited_row_does_not_move_the_record() -> None:
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.rows["ag1"] = live_row("ag1", session="s2", state="exited")
+        agents = Agents(rows={"ag1": stored_agent()})
+        router = DaemonRouter(claude, ScriptedAsyncDaemonClient(), agents)
+        await router.request({"cmd": "list"})
+        return agents.rows["ag1"]
+
+    record = asyncio.run(scenario())
+    assert record["task_session_id"] == "s1"
+    assert "earlier_sessions" not in record
+
+
+def test_a_codex_record_keeps_its_thread_as_its_session() -> None:
+    """A Codex thread is its own session: a row's session never moves it."""
+
+    async def scenario():
+        codex = ScriptedAsyncDaemonClient()
+        codex.rows["thread-1"] = live_row("thread-1", session="other")
+        agents = Agents(
+            rows={
+                "thread-1": stored_agent(
+                    id="thread-1", harness="codex", task_session_id="thread-1"
+                )
+            }
+        )
+        router = DaemonRouter(ScriptedAsyncDaemonClient(), codex, agents)
+        await router.request({"cmd": "list"})
+        return agents.rows["thread-1"]
+
+    assert asyncio.run(scenario())["task_session_id"] == "thread-1"
+
+
+def test_a_list_says_the_agent_daemon_did_not_answer() -> None:
+    """The error goes through beside the stored rows, so the server can show it.
+
+    Dropped, the outage is invisible: the rows look like a healthy listing,
+    no banner shows, and each send fails with no reason on the screen. A
+    Codex failure is not the agent daemon's, and raises nothing.
+    """
+
+    async def scenario():
+        claude = ScriptedAsyncDaemonClient()
+        claude.replies["list"] = [{"error": "daemon unreachable"}]
+        codex = ScriptedAsyncDaemonClient()
+        codex.replies["list"] = [{"agents": []}, {"error": "no codex"}]
+        router = DaemonRouter(claude, codex, Agents(rows={"ag1": stored_agent()}))
+        return await router.request({"cmd": "list"}), await router.request(
+            {"cmd": "list"}
+        )
+
+    down, codex_down = asyncio.run(scenario())
+
+    assert down["error"] == "daemon unreachable"
+    assert [row["id"] for row in down["agents"]] == ["ag1"]
+    assert "error" not in codex_down
+
+
 def test_a_record_younger_than_the_grace_period_is_never_retired() -> None:
     """A just-started agent is the case the bug was reported for.
 

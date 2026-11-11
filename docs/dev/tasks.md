@@ -126,6 +126,12 @@ session transcript at `~/.claude/projects/<sanitised-cwd>/<session-id>.jsonl` an
 the cwd. So a task whose session has run before relaunches with
 `claude --resume <id>` instead, which reattaches the existing conversation.
 
+A `/clear` gives the task one more session. Claude Code moves the agent to a new
+session id, and a plan approval sends a `/clear`. The orchestrator appends that id
+to `sessions` at its next agent poll, so the newest entry is the conversation the
+agent is in, and a later launch resumes it. See "A session that moves" in
+[orchestrator-server.md](orchestrator-server.md).
+
 A **New session** (`prepare_launch(..., new_session=True)`) does not resume. For
 Claude, `new_session` appends a new `uuid4`, which then is the current session,
 so the launch passes `--session-id`. For Codex, the launch names no thread, and

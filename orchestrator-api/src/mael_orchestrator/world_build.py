@@ -373,6 +373,9 @@ class AgentLink:
     task_id: str
     project: str
     worktree_id: str
+    #: True when the task was found by a session the agent left at a
+    #: ``/clear``: the task does not hold the agent's session yet.
+    session_due: bool = False
 
 
 def link_agent(
@@ -382,8 +385,13 @@ def link_agent(
 
     The worktree is the one whose path is the agent's ``cwd``, and the project
     follows from it. The task is the one that stores the session the agent
-    reports: a launch pins the task's stored session id on the agent, so the
+    reports: a launch gives the agent the task's stored session id, so the
     reverse lookup is exact. No match leaves the ids empty.
+
+    A ``/clear`` moves the agent to a session no task stores yet. The row
+    names the sessions the agent left, and the task that stores the newest of
+    those is the agent's task. ``session_due`` says the link was made this
+    way, so the caller appends the session to the task.
 
     A **Delegated agent**'s task is on its **Parent server**, so no task here matches
     its session: its row names the task, and the project comes from the task id.
@@ -399,20 +407,35 @@ def link_agent(
             project=project or (split_task_key(task_id)[0] if task_id else ""),
             worktree_id=worktree["id"] if worktree else "",
         )
-    task = next(
-        (
-            t
-            for t in tasks.values()
-            if session and any(entry["id"] == session for entry in t["sessions"])
-        ),
-        None,
-    )
+    task = _task_with_session(tasks, session)
+    session_due = False
+    if task is None and session:
+        for earlier in reversed(row.get("earlier_sessions") or []):
+            task = _task_with_session(tasks, earlier)
+            if task is not None:
+                session_due = True
+                break
     if task is not None:
         project = project or task["project"]
     return AgentLink(
         task_id=task["id"] if task else "",
         project=project,
         worktree_id=worktree["id"] if worktree else "",
+        session_due=session_due,
+    )
+
+
+def _task_with_session(tasks: dict[str, Task], session: str) -> Task | None:
+    """The task that stores ``session``, or ``None``."""
+    if not session:
+        return None
+    return next(
+        (
+            t
+            for t in tasks.values()
+            if any(entry["id"] == session for entry in t["sessions"])
+        ),
+        None,
     )
 
 

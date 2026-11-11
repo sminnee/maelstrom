@@ -97,6 +97,7 @@ The calls the server makes for one agent go through a narrow `TaskHome` protocol
 | `promote` | the task-set approve | `POST /api/tasks/promote` |
 | `register_pr` | the `gh-pr` link | `PUT /api/tasks/{project}/{id}/pr` |
 | `withdraw_pr` | the `gh-pr` link | `DELETE /api/tasks/{project}/{id}/pr` |
+| `add_session` | `_follow_session`, after a `/clear` | `POST /api/tasks/{project}/{id}/sessions` |
 | `create` | the reopen task of a Shelve | `POST /api/tasks` |
 
 `NotebookTaskSource` and `RemoteTaskSource` both satisfy `TaskHome`.

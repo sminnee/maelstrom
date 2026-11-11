@@ -23,6 +23,7 @@ from typing import Any, Protocol, cast
 import aiohttp
 
 from mael_agent.harness_model import (
+    HARNESS_CLAUDE,
     HARNESS_CODEX,
     resolve_execute_model,
 )
@@ -356,6 +357,14 @@ class TaskSource(Protocol):
 
     async def register_pr(self, task_id: str, number: int, url: str) -> None:
         """Record a task's Registered PR.
+
+        Raises:
+            KeyError: If no task has ``task_id``.
+        """
+        ...
+
+    async def add_session(self, task_id: str, session_id: str) -> None:
+        """Append a Claude session to a task, unless the task holds it already.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -767,6 +776,12 @@ class NotebookTaskSource:
         project, notebook_id = split_task_key(task_id)
         await model.register_pr(self.table, project, notebook_id, number, url)
 
+    async def add_session(self, task_id: str, session_id: str) -> None:
+        project, notebook_id = split_task_key(task_id)
+        await model.add_session(
+            self.table, project, notebook_id, session_id, HARNESS_CLAUDE
+        )
+
     async def withdraw_pr(self, task_id: str) -> None:
         project, notebook_id = split_task_key(task_id)
         await model.withdraw_pr(self.table, project, notebook_id)
@@ -918,6 +933,8 @@ class TaskHome(Protocol):
 
     async def register_pr(self, task_id: str, number: int, url: str) -> None: ...
 
+    async def add_session(self, task_id: str, session_id: str) -> None: ...
+
     async def withdraw_pr(self, task_id: str) -> None: ...
 
     async def create(self, project: str, fields: dict[str, Any]) -> str: ...
@@ -1017,6 +1034,12 @@ class RemoteTaskSource:
 
     async def withdraw_pr(self, task_id: str) -> None:
         if await self._call("DELETE", _pr_path(task_id)) is None:
+            raise KeyError(task_id)
+
+    async def add_session(self, task_id: str, session_id: str) -> None:
+        project, notebook_id = split_task_key(task_id)
+        path = f"/api/tasks/{project}/{notebook_id}/sessions"
+        if await self._call("POST", path, {"sessionId": session_id}) is None:
             raise KeyError(task_id)
 
 

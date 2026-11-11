@@ -172,7 +172,13 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 from . import desk as desk_model
 from . import linear_source
 from .clients import normal_ip
-from .daemon_bridge import PARENT_URL, TASK_ID, AsyncDaemonClient, ended_agent_row
+from .daemon_bridge import (
+    EARLIER_SESSIONS,
+    PARENT_URL,
+    TASK_ID,
+    AsyncDaemonClient,
+    ended_agent_row,
+)
 from .desk import DeskTable, desk_id_for_agent, desk_id_for_task, split_desk_id
 from .gate_source import GateSourceError
 from .gate_table import GateTable
@@ -866,6 +872,11 @@ class Orchestrator:
         #: is reported unreachable on the second, so one dropped connection
         #: during a daemon restart does not raise the banner.
         self._host_failures = 0
+        #: Per **Delegated agent**, the session last sent to its **Task home**.
+        self._sessions_sent: dict[str, str] = {}
+        #: Per agent, the session whose append failed last, so one outage is
+        #: logged once.
+        self._sessions_refused: dict[str, str] = {}
         #: The loop-stall watchdog, started with the pollers.
         self.loop_watch = LoopWatch(now=clock)
 
@@ -1714,6 +1725,8 @@ class Orchestrator:
                 continue
             if agent_id not in self._watches and not is_child:
                 await self._attach(agent_id)
+            if not is_child:
+                await self._follow_session(row)
             await self._relink(row)
             await self._close_wait_the_host_no_longer_holds(
                 agent_id, state, held_before.get(agent_id, set())
@@ -1724,6 +1737,47 @@ class Orchestrator:
                 continue
             if agent_id not in rows and agent["state"] != "exited":
                 await self._exit(agent_id, 0)
+
+    async def _follow_session(self, row: dict[str, Any]) -> None:
+        """Append the session ``row`` reports to its task, when the task lacks it.
+
+        A **Delegated agent**'s task is on its **Parent server**, so the append
+        goes to its **Task home**, once for each session. See "A session that
+        moves" in ``docs/dev/orchestrator-server.md``.
+        """
+        agent_id, session = row["id"], str(row.get("session") or "")
+        if not session or not row.get(EARLIER_SESSIONS):
+            return
+        link = self._link(row)
+        if not link.task_id:
+            return
+        if row.get("parentUrl"):
+            if self._sessions_sent.get(agent_id) == session:
+                return
+            home = self.homes.for_parent(str(row["parentUrl"]))
+        elif link.session_due:
+            home = self.homes.for_parent("")
+        else:
+            return
+        try:
+            await self._run(home.add_session, link.task_id, session)
+        except (KeyError, ValueError, TaskSourceRemote) as exc:
+            # Tried again at each poll, and logged at the first failure.
+            if self._sessions_refused.get(agent_id) != session:
+                self._sessions_refused[agent_id] = session
+                log.warning(
+                    "agent %s: its session %s is not on task %s: %s",
+                    agent_id,
+                    session,
+                    link.task_id,
+                    exc,
+                )
+            return
+        self._sessions_refused.pop(agent_id, None)
+        if row.get("parentUrl"):
+            self._sessions_sent[agent_id] = session
+        else:
+            await self.refresh_tasks(force=True)
 
     def _set_host_reachable(self, reachable: bool) -> None:
         """Record whether the host answers, publishing only a change.
@@ -2088,6 +2142,8 @@ class Orchestrator:
             "worktreeId": link.worktree_id,
             # The launch's own row names no parent: the router's record does.
             "parentUrl": row.get("parentUrl") or "",
+            # A `/clear` moves it. A launch's own row may name none.
+            "session": row.get("session") or agent["session"],
             # Spend and size only ever climb within one agent, so the larger
             # reading wins. A poll can carry a row the host stamped before a
             # turn this server has already seen on the stream, and taking it
@@ -2820,6 +2876,9 @@ class Orchestrator:
             watch.ctx = out.ctx
         self._apply(out.events)
         self._drop_hold(agent_id)
+        self._pending_ends.discard(agent_id)
+        self._sessions_sent.pop(agent_id, None)
+        self._sessions_refused.pop(agent_id, None)
         # A param left on with no agent to hear it could not be turned off:
         # every change needs an agent.
         worktree_id = agent["worktreeId"]
@@ -2868,6 +2927,7 @@ class Orchestrator:
             "task.delete": self._delete_task,
             "task.registerPr": self._register_task_pr,
             "task.withdrawPr": self._withdraw_task_pr,
+            "task.addSession": self._add_task_session,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "task.promote": self._promote,
@@ -5099,6 +5159,12 @@ class Orchestrator:
             self.tasks.register_pr, task_id, command["number"], command["url"]
         )
         return self._with_task(reply, task_id)
+
+    async def _add_task_session(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Append a session to a task: what a delegated agent's ``/clear`` sends."""
+        return await self._write_task(
+            self.tasks.add_session, command["taskId"], command["sessionId"]
+        )
 
     async def _withdraw_task_pr(self, command: dict[str, Any]) -> dict[str, Any]:
         task_id = command["taskId"]

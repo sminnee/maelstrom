@@ -408,9 +408,9 @@ def normalise_stream_event(
                     "model": model,
                 }
             )
-            # The session is deliberately not adopted: the task link joins on
-            # the pinned id, which a `/clear` would move. The item above keeps
-            # the live id, because it names the conversation it belongs to.
+            # The session is not adopted here: the agent poll moves it, in
+            # the pass that appends it to the task. The item above keeps the
+            # live id, because it names the conversation it belongs to.
             out.agent(
                 {
                     "model": model or agent["model"],

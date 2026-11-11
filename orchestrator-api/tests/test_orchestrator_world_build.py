@@ -478,6 +478,40 @@ def test_link_agent_finds_the_worktree_by_cwd_and_the_task_by_session():
     assert link.worktree_id == "northwind-alpha"
 
 
+def test_an_agent_after_a_clear_links_its_task_by_the_session_it_left():
+    """A `/clear` moves the agent to a session no task stores yet.
+
+    The link must not blank in that gap: the session the agent left names
+    the task, and the link says the append is due.
+    """
+    task = task_entity(
+        model.Task(
+            id="NORT-7",
+            title="x",
+            project="northwind",
+            command="plan-task",
+            sessions=[model.TaskSession(id="session-1", harness="claude")],
+        ),
+        actionable=True,
+    )
+    tasks = {"northwind/NORT-7": task}
+    row = {"cwd": "/elsewhere", "session": "session-2"}
+
+    assert link_agent(row, worktrees={}, tasks=tasks).task_id == ""
+    link = link_agent(
+        {**row, "earlier_sessions": ["session-1"]}, worktrees={}, tasks=tasks
+    )
+    assert (link.task_id, link.session_due) == ("northwind/NORT-7", True)
+
+    # Once the task stores the session, the link is direct and nothing is due.
+    appended = link_agent(
+        {"cwd": "/elsewhere", "session": "session-1", "earlier_sessions": ["s0"]},
+        worktrees={},
+        tasks=tasks,
+    )
+    assert (appended.task_id, appended.session_due) == ("northwind/NORT-7", False)
+
+
 def test_a_delegated_agent_links_the_task_its_record_names():
     """Its task is on its parent, so no task here holds its session."""
     link = link_agent(
