@@ -124,9 +124,37 @@ def test_a_superseded_record_whose_pid_is_dead_kills_nothing():
     assert result.kill == ()
 
 
-def test_a_running_record_with_a_dead_pid_and_no_shutdown_is_crashed():
-    """Nothing is alive and nothing says the daemon stopped it: the child died."""
-    result = reconcile([running("a1", S1, 100)], [], set(), resume_strays=True)
+def test_a_running_record_with_a_dead_pid_and_no_shutdown_is_resumable():
+    """A daemon that was killed wrote no shutdown flag, and its agents still come back.
+
+    A ``running`` record means nobody stopped the agent. A child that dies
+    under a live daemon is recorded ``exited`` by its pump, so it never
+    reaches this branch.
+    """
+    result = reconcile(
+        [running("a1", S1, 100, last_status="processing")],
+        [],
+        set(),
+        resume_strays=True,
+    )
+    assert kinds(result) == {"a1": RESUMABLE}
+    assert result.rewrite == ()
+    assert [s.agent_id for s in result.resume] == ["a1"]
+
+
+def test_a_record_resumed_three_times_with_no_clean_shutdown_is_crashed():
+    """The guard for a daemon that dies at each start.
+
+    Without it, each start would respawn every agent for ever.
+    """
+    below = reconcile(
+        [running("a1", S1, 100, unclean_resumes=2)], [], set(), resume_strays=True
+    )
+    assert kinds(below) == {"a1": RESUMABLE}
+
+    result = reconcile(
+        [running("a1", S1, 100, unclean_resumes=3)], [], set(), resume_strays=True
+    )
     assert kinds(result) == {"a1": CRASHED}
     (spec,) = result.rewrite
     assert spec.status == SPEC_EXITED
@@ -135,25 +163,7 @@ def test_a_running_record_with_a_dead_pid_and_no_shutdown_is_crashed():
     assert result.resume == ()
 
 
-def test_a_crashed_child_is_written_off_even_though_it_was_running():
-    """A crashed child does not restart itself, whatever it was last doing.
-
-    The record carries a ``last_status`` for every agent that ever ran, so the
-    status cannot say whether the daemon stopped this child or it died. Only
-    ``stopped_at_shutdown`` says that. Without the distinction a crash loop
-    respawns itself: the night that made twenty-one duplicates.
-    """
-    result = reconcile(
-        [running("a1", S1, 100, last_status="processing")],
-        [],
-        set(),
-        resume_strays=True,
-    )
-    assert kinds(result) == {"a1": CRASHED}
-    assert result.resume == ()
-
-
-def test_a_reused_pid_that_is_not_this_sessions_claude_reads_as_crashed():
+def test_a_reused_pid_that_is_not_this_sessions_claude_is_not_the_child():
     """Identity is the session id in argv, so a reused number cannot pass as the child."""
     result = reconcile(
         [running("a1", S1, 100)],
@@ -161,43 +171,35 @@ def test_a_reused_pid_that_is_not_this_sessions_claude_reads_as_crashed():
         set(),
         resume_strays=True,
     )
-    assert kinds(result)["a1"] == CRASHED
-
-
-def test_a_record_the_last_daemon_stopped_at_shutdown_is_resumable():
-    """The everyday restart: shutdown killed the children and wrote what they were doing.
-
-    A dead pid here is the shutdown's own work, not a crash, so the record
-    comes back rather than being written off. This is what keeps "restart the
-    daemon to pick up new code" free.
-    """
-    result = reconcile(
-        [running("a1", S1, 100, last_status="idle", stopped_at_shutdown=True)],
-        [],
-        set(),
-        resume_strays=True,
-    )
-    assert kinds(result) == {"a1": RESUMABLE}
+    assert kinds(result)["a1"] == RESUMABLE
     assert result.kill == ()
-    assert result.rewrite == ()
-    assert [s.agent_id for s in result.resume] == ["a1"]
 
 
-def test_a_record_with_no_pid_is_resumed_not_written_off():
-    """A record from before pids were recorded, or from the pre-spawn write.
+def test_a_child_is_known_by_its_argv_session_after_a_clear():
+    """A `/clear` moves the record's session; the live child's argv keeps the old id.
 
-    Neither says the child died. Resuming is the old behaviour, and a child
-    that does exist is found through its argv as a stray anyway.
+    Matched on the record's session, the child would read as gone: the gc
+    would leave it alive and the restore would start a second `claude`.
     """
-    result = reconcile([running("a1", S1, None)], [], set(), resume_strays=True)
-    assert kinds(result) == {"a1": RESUMABLE}
+    cleared = running("a1", S2, 100, argv_session_id=S1)
+    held = reconcile([cleared], [driven(100, S1)], {"a1"}, resume_strays=True)
+    assert kinds(held) == {"a1": OWNED}
+
+    result = reconcile(
+        [cleared], [driven(100, S1), driven(200, S2)], set(), resume_strays=True
+    )
+    assert kinds(result) == {"a1": STRAY, "200": DUPLICATE}
+    assert set(result.kill) == {100, 200}
     assert [s.agent_id for s in result.resume] == ["a1"]
 
-    with_child = reconcile(
+
+def test_a_child_of_a_record_with_no_pid_is_a_duplicate():
+    """A record with no pid has no child to own, so a child on its session dies."""
+    result = reconcile(
         [running("a1", S1, None)], [driven(100, S1)], set(), resume_strays=True
     )
-    assert kinds(with_child) == {"a1": RESUMABLE, "100": DUPLICATE}
-    assert with_child.kill == (100,)
+    assert kinds(result) == {"a1": RESUMABLE, "100": DUPLICATE}
+    assert result.kill == (100,)
 
 
 def test_a_held_record_with_a_dead_pid_gets_no_verdict():

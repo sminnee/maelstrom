@@ -484,7 +484,7 @@ and reports nothing.
 **Agent daemon**:
 The process that holds driven agents and serves the control socket `mael agent` talks to. A
 driven agent's live state dies with the daemon, but its spawn record does not, so a later daemon
-can start the agent again.
+starts the agent again, however the earlier daemon died.
 
 One daemon per daemon root, and one root per machine by default — so normally one daemon holds
 every driven agent. An environment can declare its own on its own root, which is how a worktree
@@ -521,8 +521,9 @@ _Avoid_: API wrapper, REST client
 
 **Stray**:
 A driven agent's `claude` process that outlived the daemon that held it. Left by a daemon that
-died uncleanly; found by the next daemon start or by `mael-agent-daemon gc` through the pid in its
-spawn record, killed with its process group, and its record resumed once. Not an orphan: that
+died uncleanly; found by the next daemon start or by `mael-agent-daemon gc` through the pid and
+the argv session id in its spawn record, killed with its process group, and its record resumed
+once. Not an orphan: that
 word belongs to the Free agent's `_Avoid_` list and to `mael task reconcile`.
 _Avoid_: Orphan, zombie, leftover
 

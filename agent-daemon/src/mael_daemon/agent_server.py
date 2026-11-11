@@ -99,6 +99,7 @@ from .agent_model import (
     SPEC_STOPPED,
     SUB_COMPLETED,
     SUB_RUNNING,
+    UNCLEAN_RESUME_LIMIT,
     AgentSpec,
     AgentState,
     DaemonIdentity,
@@ -911,6 +912,8 @@ class AgentDaemon:
         record_prompt: str | None = None,
         system_prompt_file: str = "",
         plugin_dirs: Sequence[str] = (),
+        plan_file: str = "",
+        unclean_resumes: int = 0,
     ) -> str:
         """Spawn an agent in ``cwd`` and return its id.
 
@@ -939,6 +942,9 @@ class AgentDaemon:
 
         ``plugin_dirs`` is the client's too, kept and filtered the same way: a
         missing dir costs its skills.
+
+        ``plan_file`` and ``unclean_resumes`` are a respawn's: what the last
+        record held, which the new record must keep.
         """
         agent_id = agent_id or uuid.uuid4().hex[:8]
         session_id = session_id or str(uuid.uuid4())
@@ -958,6 +964,8 @@ class AgentDaemon:
             prompt=prompt if record_prompt is None else record_prompt,
             system_prompt_file=system_prompt_file,
             plugin_dirs=list(plugin_dirs),
+            plan_file=plan_file,
+            unclean_resumes=unclean_resumes,
             status=SPEC_RUNNING,
         )
         # Written before the spawn, not after: a daemon killed between the two
@@ -1078,6 +1086,7 @@ class AgentDaemon:
         text: str | None,
         system_prompt_file: str = "",
         plugin_dirs: Sequence[str] = (),
+        unclean_resumes: int = 0,
     ) -> str:
         """Start ``spec``'s agent again, under its own id.
 
@@ -1125,6 +1134,8 @@ class AgentDaemon:
             record_prompt=spec.prompt,
             system_prompt_file=recorded or system_prompt_file,
             plugin_dirs=plugin_dirs or spec.plugin_dirs,
+            plan_file=spec.plan_file,
+            unclean_resumes=unclean_resumes,
         )
 
     async def _gc(self, *, resume_strays: bool) -> Reconciliation:
@@ -1160,8 +1171,8 @@ class AgentDaemon:
         """Bring back the agents the last daemon held, exactly once each.
 
         First the gc: every stray and duplicate on a record's session dies, a
-        record whose child is gone with no shutdown recorded is written off,
-        and the older of two running records on one session is retired. Then
+        record resumed too often with no clean shutdown is written off, and
+        the older of two running records on one session is retired. Then
         one resume per session over what the gc says to resume. Then every
         ``exited`` record — including the ones the gc just wrote — is loaded
         as an exited agent, so ``list``, ``show`` and ``resume`` all answer for
@@ -1170,8 +1181,8 @@ class AgentDaemon:
         leaves it alone.
 
         Where the process table cannot be read, the gc is skipped and every
-        ``running`` record is resumed as it always was: better a duplicate the
-        next gc can clear than every agent written off.
+        ``running`` record below the resume limit is resumed: better a
+        duplicate the next gc can clear than every agent written off.
         """
         try:
             to_resume: list[AgentSpec] = list(
@@ -1179,10 +1190,17 @@ class AgentDaemon:
             )
         except ProcessTableUnavailable as exc:
             log.warning("gc skipped, the process table is unavailable: %s", exc)
-            to_resume = [s for s in self.specs.list() if s.status == SPEC_RUNNING]
+            to_resume = [
+                s
+                for s in self.specs.list()
+                if s.status == SPEC_RUNNING and s.unclean_resumes < UNCLEAN_RESUME_LIMIT
+            ]
         for spec in to_resume:
+            # A resume the last daemon did not prepare with a clean shutdown
+            # is counted. The gc stops resuming a record at the limit.
+            unclean = 0 if spec.stopped_at_shutdown else spec.unclean_resumes + 1
             try:
-                await self._resume(spec, None)
+                await self._resume(spec, None, unclean_resumes=unclean)
             except Exception:  # noqa: BLE001
                 # `restore` runs before the socket binds, so an exception
                 # escaping here loses every agent rather than the one whose
@@ -1845,6 +1863,7 @@ class AgentDaemon:
                         spec,
                         last_status=agent.state.status,
                         stopped_at_shutdown=True,
+                        unclean_resumes=0,
                     )
                 )
         await asyncio.gather(
