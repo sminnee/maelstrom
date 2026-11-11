@@ -1677,16 +1677,21 @@ def default_branch(
 MAEL_TASK_DIR_TOKEN = "{{MAEL_TASK_DIR}}"
 
 
-def _expand_task_dir(task: Task) -> str:
-    """Expand ``{{MAEL_TASK_DIR}}`` in the task content to its absolute path.
+def expand_task_dir(text: str, project: str) -> str:
+    """Expand ``{{MAEL_TASK_DIR}}`` in ``text`` to ``project``'s attachments directory.
 
-    The token resolves to the task's per-project attachments directory
+    The token resolves to the per-project attachments directory
     (``<notebook root>/attachments/<project>``). Pure string substitution — no
-    filesystem access — so stored content stays portable while a launched
-    session sees a concrete path it can ``Read``.
+    filesystem access — so stored text stays portable while an agent sees a
+    concrete path it can ``Read``. A task's content at launch and a message
+    sent to a running agent both go through here.
     """
-    task_dir = str(attachments_root() / task.project)
-    return task.content.replace(MAEL_TASK_DIR_TOKEN, task_dir)
+    return text.replace(MAEL_TASK_DIR_TOKEN, str(attachments_root() / project))
+
+
+def _expand_task_dir(task: Task) -> str:
+    """The task content with ``{{MAEL_TASK_DIR}}`` expanded, as :func:`expand_task_dir`."""
+    return expand_task_dir(task.content, task.project)
 
 
 #: The file a Codex plan-mode session writes its plan to. Its approval ends
