@@ -47,6 +47,12 @@ class MergeRequest:
     build: str
     opened: str
     updated: str
+    #: The text of ``.drafts/pr.md`` at the last submit that sent one.
+    description: str = ""
+    #: When the Merge pushed it to ``main``, or ``""``.
+    merged: str = ""
+    #: ``"merged"`` once the chaperone was told of the merge, or ``""``.
+    told: str = ""
 
 
 @dataclass(frozen=True)
@@ -96,12 +102,14 @@ def submit(
     base: str,
     build_id: str,
     now: str,
+    description: str | None = None,
 ) -> tuple[MergeRequest, Build]:
     """The request after a submit, and its new linked Build.
 
     ``existing`` is the task's current request. An ``open`` or ``withdrawn``
     one is updated and reopened, keeping its id; with none, or a ``merged``
-    one, a new request opens as ``request_id``.
+    one, a new request opens as ``request_id``. A ``description`` of ``None``
+    keeps the existing text.
     """
     if existing is None or existing.state == "merged":
         mr = MergeRequest(
@@ -116,6 +124,7 @@ def submit(
             build=build_id,
             opened=now,
             updated=now,
+            description=description or "",
         )
     else:
         mr = replace(
@@ -126,6 +135,7 @@ def submit(
             state="open",
             build=build_id,
             updated=now,
+            description=(existing.description if description is None else description),
         )
     return mr, _queued(mr, build_id, now)
 
@@ -149,13 +159,25 @@ def withdraw(mr: MergeRequest, now: str) -> MergeRequest:
     return replace(mr, state="withdrawn", updated=now)
 
 
+def merged(mr: MergeRequest, now: str) -> MergeRequest:
+    """``mr`` merged: its SHA is in ``main`` on origin."""
+    if mr.state != "open":
+        raise MergeRequestError(f"Merge request {mr.id} is {mr.state}, not open")
+    return replace(mr, state="merged", merged=now, updated=now)
+
+
+def mark_merge_told(mr: MergeRequest) -> MergeRequest:
+    """``mr`` with its merge recorded as told."""
+    return replace(mr, told="merged")
+
+
 def requeue(
     mr: MergeRequest, build: Build, build_id: str, now: str
 ) -> tuple[MergeRequest, Build]:
     """A new queued Build of ``build``'s SHA, linked to ``mr``.
 
-    Restart recovery: the server stopped during ``build``, which the caller
-    has cancelled.
+    Restart recovery, where the server stopped during ``build`` and the
+    caller has cancelled it, and a Rebuild of a ``failed`` request.
     """
     queued = replace(_queued(mr, build_id, now), sha=build.sha, base=build.base)
     return replace(mr, build=build_id, updated=now), queued
@@ -227,8 +249,13 @@ def mark_told(build: Build) -> Build:
     return replace(build, told=build.state)
 
 
-def status(mr: MergeRequest, linked: Build | None) -> Status:
-    """The status a reader sees, from the request and its linked Build."""
+def status(mr: MergeRequest, linked: Build | None, tip: str = "") -> Status:
+    """The status a reader sees, from the request and its linked Build.
+
+    ``tip`` is the last ``origin/main`` SHA the queue saw, or ``""`` when it
+    has seen none. A ``passed`` request whose base is no longer the tip is
+    ``stale``: the Merge would not be a fast-forward. Nothing stores that.
+    """
     if mr.state in ("withdrawn", "merged"):
         return mr.state  # type: ignore[return-value]
     if linked is None or linked.state == "queued":
@@ -238,7 +265,37 @@ def status(mr: MergeRequest, linked: Build | None) -> Status:
     if linked.state == "cancelled":
         # Cancelled outside the queue: nothing runs it again until a submit.
         return "failed"
+    if linked.state == "passed" and tip and tip != mr.base:
+        return "stale"
     return linked.state  # type: ignore[return-value]
+
+
+def can_merge(mr: MergeRequest, linked: Build | None, sha: str) -> str | None:
+    """Why the Merge of ``sha`` is refused, or ``None`` when it may run.
+
+    The Merge is pinned to the SHA the user saw: a submit between the view
+    and the click must not merge a SHA no gate passed.
+    """
+    if mr.state != "open":
+        return f"Merge request {mr.id} is {mr.state}"
+    if sha != mr.sha:
+        return f"Merge request {mr.id} is now at {mr.sha[:7]}, not {sha[:7]}"
+    if linked is None or linked.state != "passed":
+        return f"Merge request {mr.id} has not passed its Queue build"
+    return None
+
+
+def can_rebuild(mr: MergeRequest, linked: Build | None) -> str | None:
+    """Why a Rebuild is refused, or ``None``: only a ``failed`` request rebuilds.
+
+    A ``stale`` Build is not rebuilt, as its base check would fail again.
+    """
+    if mr.state != "open":
+        return f"Merge request {mr.id} is {mr.state}"
+    if linked is None or linked.state not in ("failed", "cancelled"):
+        state = "queued" if linked is None else linked.state
+        return f"Merge request {mr.id}'s Queue build is {state}, not failed"
+    return None
 
 
 def next_builds(
@@ -265,14 +322,17 @@ def record_number(id: str) -> int:
     return int(id.lstrip("mrb") or 0)
 
 
-def merge_request_json(mr: MergeRequest, builds: list[Build]) -> dict[str, Any]:
+def merge_request_json(
+    mr: MergeRequest, builds: list[Build], tip: str = ""
+) -> dict[str, Any]:
     """A Merge request as the API answers it: its fields, status and Builds.
 
-    ``builds`` is newest first; the linked one is found by id.
+    ``builds`` is newest first; the linked one is found by id. ``tip`` is as
+    :func:`status` takes it.
     """
     linked = next((b for b in builds if b.id == mr.build), None)
     return {
         **asdict(mr),
-        "status": status(mr, linked),
+        "status": status(mr, linked, tip),
         "builds": [asdict(b) for b in builds],
     }

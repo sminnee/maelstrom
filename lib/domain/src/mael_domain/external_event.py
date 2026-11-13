@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from .merge_request import Build, MergeRequest
 
 BUILD = "build"
+MERGE = "merge"
 GATE = "gate"
 GITHUB = "github"
 JIG = "jig"
@@ -36,6 +37,7 @@ BUILD_QUEUED = "build.queued"
 BUILD_PASSED = "build.passed"
 BUILD_FAILED = "build.failed"
 BUILD_REBASE = "build.rebase"
+MERGE_MERGED = "merge.merged"
 PR_WATCHING = "pr.watching"
 PR_CHECKS_FAILED = "pr.checks_failed"
 PR_CHECKS_PASSED = "pr.checks_passed"
@@ -260,17 +262,8 @@ def build_event(mr: "MergeRequest", build: "Build") -> ExternalEvent | None:
     cancelled outside the queue, so nothing runs it again until a submit.
     """
     short = build.sha[:7]
-    attrs = {
-        "task": mr.task,
-        "merge-request": mr.id,
-        "build": build.id,
-        "sha": short,
-        "branch": mr.branch,
-    }
-    resubmit = (
-        "run the light gates, and run `mael merge submit` again. End your turn "
-        "after the submit; do not wait on the Queue build."
-    )
+    attrs = _merge_attrs(mr, build.id)
+    attrs["sha"] = short
     if build.state == "queued":
         return ExternalEvent(
             BUILD,
@@ -294,7 +287,7 @@ def build_event(mr: "MergeRequest", build: "Build") -> ExternalEvent | None:
             BUILD_FAILED,
             attrs,
             f"Queue build {build.id} failed at {short}:\n{build.detail}\n"
-            f"Read the log, fix the failures, commit, {resubmit}",
+            f"Read the log, fix the failures, commit, {_RESUBMIT}",
         )
     if build.state == "cancelled":
         return ExternalEvent(
@@ -302,7 +295,7 @@ def build_event(mr: "MergeRequest", build: "Build") -> ExternalEvent | None:
             BUILD_FAILED,
             attrs,
             f"The gate job of Queue build {build.id} at {short} was cancelled outside "
-            f"the Build queue. Check why, then {resubmit}",
+            f"the Build queue. Check why, then {_RESUBMIT}",
         )
     if build.state == "stale":
         return ExternalEvent(
@@ -310,6 +303,46 @@ def build_event(mr: "MergeRequest", build: "Build") -> ExternalEvent | None:
             BUILD_REBASE,
             attrs,
             f"`main` moved since {short} was submitted, so Queue build {build.id} ran "
-            "no gate. Run `mael sync`, resolve any conflict, " + resubmit,
+            "no gate. Run `mael sync`, resolve any conflict, " + _RESUBMIT,
         )
     return None
+
+
+_RESUBMIT = (
+    "run the light gates, and run `mael merge submit` again. End your turn "
+    "after the submit; do not wait on the Queue build."
+)
+
+
+def _merge_attrs(mr: "MergeRequest", build_id: str) -> dict[str, str]:
+    return {
+        "task": mr.task,
+        "merge-request": mr.id,
+        "build": build_id,
+        "sha": mr.sha[:7],
+        "branch": mr.branch,
+    }
+
+
+def merge_event(mr: "MergeRequest") -> ExternalEvent:
+    """``merge.merged``: the Merge put ``mr``'s SHA in ``main`` on origin."""
+    short = mr.sha[:7]
+    return ExternalEvent(
+        MERGE,
+        MERGE_MERGED,
+        _merge_attrs(mr, mr.build),
+        f"Merge request {mr.id} merged: `main` on origin is at {short}. "
+        "Close the task with `mael task status done`, then end the session.",
+    )
+
+
+def rebase_event(mr: "MergeRequest") -> ExternalEvent:
+    """``build.rebase`` from the user's click: ``main`` moved after a pass."""
+    return ExternalEvent(
+        BUILD,
+        BUILD_REBASE,
+        _merge_attrs(mr, mr.build),
+        f"The user asked to merge Merge request {mr.id} at {mr.sha[:7]}, but "
+        "`main` moved since the submit. Run `mael sync`, resolve any conflict, "
+        + _RESUBMIT,
+    )

@@ -8,13 +8,17 @@ from mael_domain.external_event import (
     BUILD_PASSED,
     BUILD_QUEUED,
     BUILD_REBASE,
+    MERGE,
+    MERGE_MERGED,
     ExternalEvent,
     PrLedger,
     build_event,
     gate_event,
     ledger_without,
+    merge_event,
     parse,
     pr_events,
+    rebase_event,
     render,
 )
 from mael_domain.github_model import PrStatus
@@ -335,4 +339,40 @@ class TestBuildEvent:
         event = build_event(self.MR, self._build("cancelled"))
         assert event.type == BUILD_FAILED
         assert "cancelled outside" in event.body
+        assert "mael merge submit" in event.body
+
+
+class TestMergeEvents:
+    MR = TestBuildEvent.MR
+    ATTRS = {
+        "task": "demo/k1",
+        "merge-request": "mr1",
+        "build": "b2",
+        "sha": "aaaaaaa",
+        "branch": "feat/x",
+    }
+
+    def test_a_merge_says_main_is_at_the_sha_and_to_close(self):
+        event = merge_event(self.MR)
+        assert (event.source, event.type, event.attrs) == (
+            MERGE,
+            MERGE_MERGED,
+            self.ATTRS,
+        )
+        assert event.body.startswith(
+            "Merge request mr1 merged: `main` on origin is at aaaaaaa."
+        )
+        assert "mael task status done" in event.body
+
+    def test_a_rebase_click_says_main_moved_and_to_submit_again(self):
+        event = rebase_event(self.MR)
+        assert (event.source, event.type, event.attrs) == (
+            BUILD,
+            BUILD_REBASE,
+            self.ATTRS,
+        )
+        assert event.body.startswith(
+            "The user asked to merge Merge request mr1 at aaaaaaa, but `main` moved"
+        )
+        assert "mael sync" in event.body
         assert "mael merge submit" in event.body
