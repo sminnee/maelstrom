@@ -335,20 +335,30 @@ world. See [the build queue](build-queue.md).
 `build_queue.BuildQueue` runs each **Merge request**'s **Queue builds**. The server owns one and
 is the one writer of both records. `Orchestrator.start` starts it after the agents are read,
 because a re-tell may resume an agent. At start it cancels the Queue builds the last server life
-left running. It then re-tells each linked Queue build whose tell lags, and kicks the queue. Each running
+left running. It then re-tells each linked Queue build and each merge whose tell lags. It
+fetches, in the background, each project with a `passed` request, and kicks the queue. Each running
 Queue build is one `build` **Operation**.
 
 The routes are on the task, as its PR's are:
 
 | Route | Command | Answer |
 |---|---|---|
-| `PUT /api/tasks/{project}/{id}/merge-request` `{branch, sha, base}` | `mergeRequest.submit` | The request, its `status`, and its Queue builds |
+| `PUT /api/tasks/{project}/{id}/merge-request` `{branch, sha, base, description?}` | `mergeRequest.submit` | The request, its `status`, and its Queue builds |
 | `GET /api/tasks/{project}/{id}/merge-request` | — | The same; `?all=1` adds `earlier`, the task's earlier requests |
 | `DELETE /api/tasks/{project}/{id}/merge-request` | `mergeRequest.withdraw` | The request, `withdrawn` |
+| `POST /api/tasks/{project}/{id}/merge-request/merge` `{sha}` | `mergeRequest.merge` | `202` and the `merge` operation's id |
+| `POST /api/tasks/{project}/{id}/merge-request/rebase` | `mergeRequest.rebase` | The request. The chaperone hears `build.rebase` |
+| `POST /api/tasks/{project}/{id}/merge-request/retry` | `mergeRequest.retry` | The request, with a new queued Queue build |
 
 `validate.py` refuses an unknown task, a missing branch, and a `sha` or `base` that is not 40
 hex digits. The handler refuses a project that is not `merge: local`, and a withdraw with no
-open request: neither fact is in the world.
+open request: neither fact is in the world. A merge refuses a `sha` that is not the request's,
+or a request that has not passed. A rebase refuses a request that is not `stale`, and a retry
+one that is not `failed`.
+
+The Retry of a failed `build` Operation cannot run its command again. `_retry` sends it to
+`BuildQueue.rebuild_build`, which refuses when a newer Queue build replaced that one. The Retry
+of a `merge` Operation starts a new Merge.
 
 `_tell_chaperone` tells the task's live top-level agents. With none, it resumes the task's
 latest exited top-level agent with the rendered event as its first turn. A delegated agent is

@@ -565,8 +565,10 @@ def merge_request_entity(
     build = current.build
     return {
         "id": current.request.id,
+        "task": current.request.task,
         "status": current.status,
         "sha": current.request.sha,
+        "description": current.request.description,
         "detail": build.detail if build is not None else "",
         "gate": gate,
     }

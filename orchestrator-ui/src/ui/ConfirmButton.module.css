@@ -31,3 +31,22 @@
   /* Near the screen's foot or left edge it falls back. See `anchoredPopover.module.css`. */
   position-try-fallbacks: --above, --pin-left, --pin-left-above;
 }
+/* With a detail, the question and the detail take a row each and the buttons
+   share the last one, at its end. */
+.withDetail {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: min(40rem, 90vw);
+}
+.question {
+  flex: 1 0 100%;
+}
+.detail {
+  flex: 1 0 100%;
+  max-height: 20rem;
+  overflow: auto;
+  padding: var(--u);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}

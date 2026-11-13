@@ -635,8 +635,10 @@ def test_a_running_build_shows_the_gate_job_in_its_build_worktree():
     entity = merge_request_entity(_current("running"), jobs, "/p/northwind/_build1")
     assert entity == {
         "id": "mr1",
+        "task": "northwind/NORT-7",
         "status": "building",
         "sha": "a" * 40,
+        "description": "",
         "detail": "",
         "gate": {
             "jobId": "45",

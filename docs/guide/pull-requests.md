@@ -349,6 +349,13 @@ To merge from the orchestrator, open the task's node. A pull request that is rea
 is not a draft, shows a **Merge** button. The button asks first, then rebase-merges on GitHub.
 The question names `main`, the branch the pull request merges into.
 
+In a `merge: local` project, the node acts on the task's **Merge request**. A `passed` request
+shows **Merge**. Its question shows the request's description, from `.drafts/pr.md`. Merge
+pushes the gated SHA to `main` with no force. A `stale` request shows **Rebase and rebuild**,
+which asks the agent to sync and submit again. A `failed` request shows **Rebuild**, which gates
+the same SHA again. `mael git merge` merges a `passed` request at `HEAD`, and does not rebase.
+See [the Merge commands](../reference/cli.md#merge).
+
 The Changes tab header compares the worktree's local `HEAD` with the pull request's head commit.
 It shows **PR #n matches** or **PR #n differs**. When it differs, the local branch has commits
 that are not pushed, or the pull request was pushed from somewhere else. The **Merge** button is

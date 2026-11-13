@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -200,16 +201,58 @@ def _merge_request_path(project: str, task_id: str) -> str:
 
 
 def submit_merge_request(
-    project: str, task_id: str, branch: str, sha: str, base: str
+    project: str,
+    task_id: str,
+    branch: str,
+    sha: str,
+    base: str,
+    description: str | None = None,
 ) -> dict[str, Any]:
     """Submit ``sha`` to the task's Merge request; the request as it now stands.
 
-    On the parent's server for a delegated agent: the task is there.
+    A ``description`` of ``None`` keeps the request's text. On the parent's
+    server for a delegated agent: the task is there.
     """
+    body: dict[str, Any] = {"branch": branch, "sha": sha, "base": base}
+    if description is not None:
+        body["description"] = description
     return OrchestratorClient.for_tasks().put(
-        _merge_request_path(project, task_id),
-        {"branch": branch, "sha": sha, "base": base},
+        _merge_request_path(project, task_id), body
     )
+
+
+def merge_merge_request(project: str, task_id: str, sha: str) -> str:
+    """Start the Merge of the task's ``passed`` request at ``sha``; the operation id."""
+    reply = OrchestratorClient.for_tasks().post(
+        f"{_merge_request_path(project, task_id)}/merge", {"sha": sha}
+    )
+    return reply["operationId"]
+
+
+def retry_merge_request(project: str, task_id: str) -> dict[str, Any]:
+    """Queue a new Queue build of the task's ``failed`` request; the request."""
+    return OrchestratorClient.for_tasks().post(
+        f"{_merge_request_path(project, task_id)}/retry"
+    )
+
+
+def wait_for_operation(
+    client: OrchestratorClient, operation_id: str, *, timeout: float = 120.0
+) -> dict[str, Any] | None:
+    """Wait until an operation is no longer running, or ``timeout`` passes.
+
+    The operation as it ended, or ``None`` when it is gone or still runs.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        operations = client.get("/api/operations")["operations"]
+        found = next((o for o in operations if o["id"] == operation_id), None)
+        if found is None:
+            return None
+        if found["state"] != "running":
+            return found
+        time.sleep(0.5)
+    return None
 
 
 def read_merge_request(project: str, task_id: str) -> dict[str, Any]:

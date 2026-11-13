@@ -873,12 +873,14 @@ mael env status -w myproject._main
 | `mael merge submit` | Does what `mael gh create-pr` does. | Pushes the branch and submits its head to the task's **Merge request**. A **Queue build** is queued. |
 | `mael merge status` | Does what `mael gh read-pr` does. | Shows the Merge request, its status, and its linked Queue build. |
 | `mael merge withdraw` | Does what `mael gh withdraw-pr` does. | Withdraws the open Merge request and cancels its unfinished Queue build. |
+| `mael merge retry [TASK_ID]` | Fails with exit 2. | Queues a new Queue build of a `failed` Merge request, at the same SHA. |
 
 ```bash
 mael merge submit                 # finish: a PR, or a Queue build
 mael merge status --wait          # local: wait for the Queue build to end
 mael merge status --builds        # local: every Queue build of the request
 mael merge withdraw               # more work to do after the submit
+mael merge retry                  # local: rebuild a failed Queue build
 ```
 
 The local commands call the orchestrator server, or the **Parent server** for a delegated agent.
@@ -894,8 +896,9 @@ In a `merge: local` project, the submit refuses when:
 - `HEAD` is detached;
 - the branch is not based on `origin/main` after a fetch. Run `mael sync`, then submit.
 
-It then pushes with `--force-with-lease` and prints the Merge request, the Queue build and the
-status. The first submit opens the task's Merge request. A later submit updates it and cancels
+It then pushes with `--force-with-lease`. It sends `.drafts/pr.md` as the request's
+description when the file exists, and leaves the file in place. It prints the Merge request, the
+Queue build and the status. The first submit opens the task's Merge request. A later submit updates it and cancels
 its unfinished Queue build. A submit after a merge opens a new one.
 
 | Option | Description |
@@ -920,6 +923,16 @@ its unfinished Queue build. A submit after a merge opens a new one.
 | Option | Description |
 |---|---|
 | `--task TEXT` | Task whose PR or Merge request to withdraw. Default: `$MAEL_TASK_ID`. |
+| `--target TEXT` | Project/worktree target for directory resolution. |
+
+**`mael merge retry`**
+
+`merge: local` only. `TASK_ID` defaults to `$MAEL_TASK_ID`. The server refuses unless the
+request is open and its linked Queue build failed or was cancelled. A `stale` request does not
+rebuild: run `mael sync` and submit again.
+
+| Option | Description |
+|---|---|
 | `--target TEXT` | Project/worktree target for directory resolution. |
 
 ---
@@ -1057,7 +1070,7 @@ Exit codes: 0 = passed, 1 = failed, 2 = timeout.
 | Command | Description |
 |---|---|
 | `mael git status [TARGET]` | Show a compact git status summary. |
-| `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. |
+| `mael git merge [TARGET]` | Rebase the current branch onto main, fast-forward main to it, and push. In `merge: local`, merge the task's `passed` Merge request. |
 | `mael git squash-branch [TARGET]` | Collapse the branch's commits into one, keeping a working history. |
 | `mael git uncommit-branch [TARGET]` | Return the branch to unstaged changes at its fork point from `main`, keeping a working history. |
 
@@ -1073,6 +1086,11 @@ To autosquash `fixup!` commits without pushing — during Land, where fixups are
 `mael sync --squash --no-push`.
 
 **`mael git merge`**
+
+In a `merge: local` project, `mael git merge` merges the task's Merge request through the Build
+queue. It does not rebase. It refuses unless the status is `passed` and `HEAD` is the request's
+SHA. It then starts the Merge, waits up to 300 seconds for it, and prints its result and any
+step warning. `--close` and `--no-squash` fail with exit 2.
 
 | Option | Description |
 |---|---|

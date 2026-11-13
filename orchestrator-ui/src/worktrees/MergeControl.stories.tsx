@@ -2,14 +2,30 @@ import type { Story } from '@ladle/react';
 import { QueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { ApiProvider } from '../api/ApiProvider';
-import type { Worktree } from '../protocol/entities';
+import type { Worktree, WorktreeMergeRequest } from '../protocol/entities';
 import { createFakeServer } from '../fake/fakeServer';
-import { makeWorktree, worldWith } from '../fake/fixtures';
+import { makeMergeRequest, makeWorktree, worldWith } from '../fake/fixtures';
 import { MergeControl } from './MergeControl';
 
 export default { title: 'Worktrees / MergeControl' };
 
 const ready = makeWorktree({ prNumber: 118, prState: 'ready' });
+const local = (status: WorktreeMergeRequest['status'], nato: string) =>
+  makeWorktree({
+    id: `northwind-${nato}` as Worktree['id'],
+    nato,
+    mergeRequest: makeMergeRequest({
+      task: `northwind/${nato}`,
+      status,
+      sha: '3f9c2e1a7b'.padEnd(40, '0'),
+      description:
+        '## Why\n\nThe Build queue merges a `passed` request.\n\n## Test plan\n\n- Queue tests over a fake host.\n- One push to a scratch bare repo, by hand.',
+    }),
+  });
+const localPassed = local('passed', 'charlie');
+const localStale = local('stale', 'delta');
+const localFailed = local('failed', 'echo');
+
 const refused = makeWorktree({
   id: 'northwind-bravo' as Worktree['id'],
   nato: 'bravo',
@@ -18,7 +34,9 @@ const refused = makeWorktree({
 });
 
 /** The control posts through `useMergePullRequest`, so it takes the suite's own fake. */
-const server = createFakeServer({ world: worldWith({ worktrees: [ready, refused] }) });
+const server = createFakeServer({
+  world: worldWith({ worktrees: [ready, refused, localPassed, localStale, localFailed] }),
+});
 // GitHub refuses a merge whose head moved after the last poll.
 server.refuse(/POST \/api\/worktrees\/northwind-bravo\/merge-pr$/, {
   status: 400,
@@ -77,5 +95,20 @@ export const States: Story = () => (
       worktree={makeWorktree({ prNumber: 120, prState: 'ready', prDraft: true })}
     />
     <Row label="no pull request" worktree={makeWorktree()} />
+  </Board>
+);
+
+/**
+ * A Merge request (`merge: local`): Merge when `passed`, with the description
+ * in its confirm; "Rebase and rebuild" when `stale`; "Rebuild" when `failed`.
+ * Every other status draws nothing.
+ */
+export const MergeRequest: Story = () => (
+  <Board>
+    <Row label="passed" worktree={localPassed} />
+    <Row label="stale" worktree={localStale} />
+    <Row label="failed" worktree={localFailed} />
+    <Row label="building" worktree={local('building', 'foxtrot')} />
+    <Row label="merged" worktree={local('merged', 'golf')} />
   </Board>
 );
