@@ -15,6 +15,7 @@ from mael_domain.landing import (
     project_config,
     status_of,
     sync,
+    tracked_tasks,
 )
 from mael_domain.landing_store import (
     EnvLanding,
@@ -25,7 +26,10 @@ from mael_domain.landing_store import (
     SqliteTaskStepStore,
     StepEvent,
 )
+from mael_domain.merge_request import MergeRequest
+from mael_domain.merge_request_store import InMemoryMergeRequestStore
 from mael_domain.state_db.migrate import open_state_db
+from mael_domain.task_table import InMemoryTaskTable
 
 UAT_AND_LIVE = MaelstromConfig(deploy_environments={"uat": "uat", "live": "prod"})
 NO_DEPLOY = MaelstromConfig()
@@ -339,6 +343,61 @@ class TestSync:
             ("q", "t1", "done"),
             ("q", "t1", "merged"),
         ]
+
+
+MERGED_AT = "2026-11-12T08:00:00Z"
+
+
+def merged_request(task_id: str, state: str = "merged") -> MergeRequest:
+    return MergeRequest(
+        id=f"mr{task_id[1:]}",
+        task=f"p/{task_id}",
+        project="p",
+        task_id=task_id,
+        branch=f"feat/{task_id}",
+        sha="a" * 40,
+        base="c" * 40,
+        state=state,  # type: ignore[arg-type]
+        build="b1",
+        opened="T0",
+        updated=MERGED_AT,
+        merged=MERGED_AT if state == "merged" else "",
+    )
+
+
+class TestMergedMergeRequest:
+    """A ``merge: local`` task: no PR, but a Merge request the Build queue merged."""
+
+    async def test_tracked_tasks_follow_a_merged_request_but_not_a_bare_task(self):
+        table = InMemoryTaskTable()
+        for task_id in ("t1", "t2", "t3"):
+            await table.save(
+                task_model.Task(id=task_id, title=task_id, project="p", status="done")
+            )
+        merges = InMemoryMergeRequestStore()
+        await merges.save(merged_request("t1"))
+        await merges.save(merged_request("t2", state="open"))
+
+        assert await tracked_tasks(table, ["p"], merges) == [
+            TrackedTask("p", "t1", "done", 0, MERGED_AT)
+        ]
+
+    async def test_a_done_task_with_a_merged_request_reaches_merged_at_its_time(
+        self, stores
+    ):
+        tracked = TrackedTask("p", "t1", "done", 0, MERGED_AT)
+        await run_sync(stores, FakeSignals(), [tracked], now="T9")
+        # The deploy steps need a PR: the task stops at merged.
+        assert await recorded(stores) == [("done", "T9"), ("merged", MERGED_AT)]
+
+    async def test_landing_of_reads_the_merged_request(self):
+        merges = InMemoryMergeRequestStore()
+        await merges.save(merged_request("t1"))
+        landings = Landings(config_for=lambda project: UAT_AND_LIVE, merges=merges)
+        done = task_model.Task(id="t1", title="t", project="p", status="done")
+        bare = task_model.Task(id="t2", title="t", project="p", status="done")
+        assert await landings.landing_of(done) == {"status": "merged", "envs": {}}
+        assert await landings.landing_of(bare) == {"status": "done", "envs": {}}
 
 
 class TestLandingOf:

@@ -22,6 +22,7 @@ from mael_domain.context import (
 )
 from mael_domain.landing import Landings, project_config, tracked_tasks
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
+from mael_domain.merge_request_store import SqliteMergeRequestStore
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.state_db.paths import get_state_db_path
@@ -284,7 +285,7 @@ async def cmd_landings(since: str | None) -> None:
         table = SqliteTaskTable(db)
 
         async def tracked():
-            return await tracked_tasks(table, _projects())
+            return await tracked_tasks(table, _projects(), SqliteMergeRequestStore(db))
 
         landings = Landings(
             prs=SqlitePullRequestStore(db),

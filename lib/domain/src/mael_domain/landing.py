@@ -23,6 +23,8 @@ from .landing_store import (
     StepEvent,
     TaskStepStore,
 )
+from .merge_request import task_key
+from .merge_request_store import MergeRequestStore
 from .protocol import EnvLandingState, TaskLanding
 from .task import STATUS_DONE, Task
 from .task_table import TaskTable
@@ -36,12 +38,14 @@ UNKNOWN = "unknown"
 
 @dataclass(frozen=True)
 class TrackedTask:
-    """A task whose landing is followed: one with a registered pull request."""
+    """A task whose landing is followed: one with a Registered PR or a merged Merge request."""
 
     project: str
     task_id: str
     status: str
     pr_number: int
+    #: When the Build queue merged the task's Merge request, or ``""``.
+    merged_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -122,12 +126,16 @@ def _reached(
 
     A step is reached only after the one before it. A deploy step the project
     does not deploy to is passed over, so a project with no ``deploy:`` block
-    stops at ``merged``. An ``unknown`` environment is not reached.
+    stops at ``merged``. An ``unknown`` environment is not reached. A task
+    with no merged PR but a merged Merge request stops at ``merged``: a deploy
+    check needs a PR.
     """
     if task.status != STATUS_DONE:
         return []
     reached = ["done"]
     if pr is None or not pr.merged_at:
+        if task.merged_at:
+            reached.append("merged")
         return reached
     reached.append("merged")
     for step in STEPS[2:]:
@@ -182,7 +190,7 @@ async def sync(
                 task_id=task.task_id,
                 step=step,
                 pr_number=task.pr_number,
-                at=_step_at(step, pr, now),
+                at=_step_at(step, task, pr, now),
                 recorded_at=now,
             )
             await steps.add(event)
@@ -190,10 +198,12 @@ async def sync(
     return written
 
 
-def _step_at(step: str, pr: PullRequest | None, now: str) -> str:
-    """When ``step`` happened: GitHub's time where it gives one, else ``now``."""
-    if pr is not None and step == "merged":
+def _step_at(step: str, task: TrackedTask, pr: PullRequest | None, now: str) -> str:
+    """When ``step`` happened: GitHub's or the Merge's time where one is known, else ``now``."""
+    if step == "merged" and pr is not None and pr.merged_at:
         return pr.merged_at
+    if step == "merged" and task.merged_at:
+        return task.merged_at
     if pr is not None and step in pr.envs:
         return pr.envs[step].first_seen_at or now
     return now
@@ -294,14 +304,38 @@ async def _judge(
     return EnvLanding(NOT_YET, deploy.sha)
 
 
-async def tracked_tasks(table: TaskTable, projects: Iterable[str]) -> list[TrackedTask]:
-    """Every task in ``projects`` that has a **Registered PR**."""
-    return [
-        TrackedTask(project, task.id, task.status, task.pr_number)
-        for project in projects
-        for task in await table.list(project)
-        if task.pr_number
-    ]
+async def merged_times(merges: MergeRequestStore | None) -> dict[str, str]:
+    """When each task's Merge request merged, by ``<project>/<task id>``.
+
+    A task merged more than once keeps its newest time.
+    """
+    if merges is None:
+        return {}
+    found: dict[str, str] = {}
+    for mr in await merges.all():
+        if mr.state == "merged" and mr.merged > found.get(mr.task, ""):
+            found[mr.task] = mr.merged
+    return found
+
+
+async def tracked_tasks(
+    table: TaskTable,
+    projects: Iterable[str],
+    merges: MergeRequestStore | None = None,
+) -> list[TrackedTask]:
+    """Every task in ``projects`` that has a **Registered PR** or a merged Merge request."""
+    merged = await merged_times(merges)
+    tracked: list[TrackedTask] = []
+    for project in projects:
+        for task in await table.list(project):
+            merged_at = merged.get(task_key(project, task.id), "")
+            if task.pr_number or merged_at:
+                tracked.append(
+                    TrackedTask(
+                        project, task.id, task.status, task.pr_number, merged_at
+                    )
+                )
+    return tracked
 
 
 def project_config(projects_dir: Path, project: str) -> MaelstromConfig:
@@ -342,6 +376,8 @@ class Landings:
     signals: LandingSignals = field(default_factory=NoLandingSignals)
     tracked: Callable[[], Awaitable[list[TrackedTask]]] = _nothing_tracked
     config_for: Callable[[str], MaelstromConfig] = lambda project: MaelstromConfig()
+    #: The Merge requests, for the ``merged`` step of a ``merge: local`` task.
+    merges: MergeRequestStore | None = None
 
     async def sync(self, now: str) -> list[StepEvent]:
         """One :func:`sync` over the tasks followed now.
@@ -363,7 +399,10 @@ class Landings:
         if task.status != STATUS_DONE:
             return None
         config = self.config_for(task.project)
-        tracked = TrackedTask(task.project, task.id, task.status, task.pr_number)
+        merged_at = await self._merged_at(task)
+        tracked = TrackedTask(
+            task.project, task.id, task.status, task.pr_number, merged_at
+        )
         pr = (
             await self.prs.read(task.project, task.pr_number)
             if task.pr_number
@@ -379,6 +418,13 @@ class Landings:
                 else:
                     envs[step] = pr.envs.get(step, EnvLanding(UNKNOWN)).state  # type: ignore[assignment]
         return {"status": status_of(tracked, pr, config) or "done", "envs": envs}
+
+    async def _merged_at(self, task: Task) -> str:
+        """When the task's newest merged Merge request merged, or ``""``."""
+        if self.merges is None:
+            return ""
+        found = await self.merges.for_task(task_key(task.project, task.id))
+        return max((mr.merged for mr in found if mr.state == "merged"), default="")
 
     async def report(self) -> list[LandingRow]:
         """Each followed task, as the last sync left it. Reads nothing from GitHub."""
