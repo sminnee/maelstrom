@@ -11,7 +11,15 @@ T0, T1, T2 = "2026-11-10T09:00:00Z", "2026-11-10T09:05:00Z", "2026-11-10T09:10:0
 SHA_A, SHA_B, BASE = "a" * 40, "b" * 40, "c" * 40
 
 
-def _submit(existing=None, *, sha=SHA_A, request_id="mr1", build_id="b1", now=T0):
+def _submit(
+    existing=None,
+    *,
+    sha=SHA_A,
+    request_id="mr1",
+    build_id="b1",
+    now=T0,
+    description=None,
+):
     return mr_model.submit(
         existing,
         request_id=request_id,
@@ -22,6 +30,7 @@ def _submit(existing=None, *, sha=SHA_A, request_id="mr1", build_id="b1", now=T0
         base=BASE,
         build_id=build_id,
         now=now,
+        description=description,
     )
 
 
@@ -60,6 +69,16 @@ class TestSubmit:
         merged = replace(first, state="merged")
         mr, build = _submit(merged, request_id="mr2", build_id="b2")
         assert (mr.id, mr.state, build.merge_request) == ("mr2", "open", "mr2")
+
+    def test_a_submit_with_no_description_keeps_the_text(self):
+        first, _ = _submit(description="## Why")
+        kept, _ = _submit(first, request_id="mr2", build_id="b2")
+        replaced, _ = _submit(kept, request_id="mr2", build_id="b3", description="")
+        assert (first.description, kept.description, replaced.description) == (
+            "## Why",
+            "## Why",
+            "",
+        )
 
     def test_only_an_open_request_withdraws(self):
         first, _ = _submit()
@@ -147,6 +166,80 @@ class TestStatus:
     def test_a_closed_request_reads_its_own_state(self, state):
         mr, build = _submit()
         assert mr_model.status(replace(mr, state=state), build) == state
+
+    @pytest.mark.parametrize(
+        ("tip", "expected"), [(BASE, "passed"), ("", "passed"), (SHA_B, "stale")]
+    )
+    def test_a_passed_request_is_stale_once_main_moves(self, tip, expected):
+        mr, build = _submit()
+        assert mr_model.status(mr, replace(build, state="passed"), tip) == expected
+
+    @pytest.mark.parametrize("state", ["withdrawn", "merged"])
+    def test_a_closed_request_ignores_the_tip(self, state):
+        mr, build = _submit()
+        closed = replace(mr, state=state)
+        assert mr_model.status(closed, replace(build, state="passed"), SHA_B) == state
+
+    @pytest.mark.parametrize(
+        ("build_state", "expected"), [("queued", "queued"), ("failed", "failed")]
+    )
+    def test_a_moved_tip_leaves_an_unpassed_build_alone(self, build_state, expected):
+        mr, build = _submit()
+        assert mr_model.status(mr, replace(build, state=build_state), SHA_B) == expected
+
+
+class TestMerge:
+    def test_an_open_request_merges(self):
+        mr, _ = _submit()
+        merged = mr_model.merged(mr, T2)
+        assert (merged.state, merged.merged, merged.updated) == ("merged", T2, T2)
+
+    def test_only_an_open_request_merges(self):
+        mr, _ = _submit()
+        with pytest.raises(MergeRequestError):
+            mr_model.merged(mr_model.withdraw(mr, T1), T2)
+
+    def test_a_passed_request_may_merge_its_own_sha(self):
+        mr, build = _submit()
+        assert mr_model.can_merge(mr, replace(build, state="passed"), SHA_A) is None
+
+    def test_a_sha_other_than_the_requests_is_refused(self):
+        mr, build = _submit()
+        refusal = mr_model.can_merge(mr, replace(build, state="passed"), SHA_B)
+        assert refusal == "Merge request mr1 is now at aaaaaaa, not bbbbbbb"
+
+    @pytest.mark.parametrize("build_state", ["queued", "running", "failed", "stale"])
+    def test_a_build_that_has_not_passed_is_refused(self, build_state):
+        mr, build = _submit()
+        refusal = mr_model.can_merge(mr, replace(build, state=build_state), SHA_A)
+        assert refusal == "Merge request mr1 has not passed its Queue build"
+
+    def test_a_closed_request_is_refused(self):
+        mr, build = _submit()
+        closed = mr_model.merged(mr, T1)
+        refusal = mr_model.can_merge(closed, replace(build, state="passed"), SHA_A)
+        assert refusal == "Merge request mr1 is merged"
+
+
+class TestRebuild:
+    @pytest.mark.parametrize("build_state", ["failed", "cancelled"])
+    def test_a_failed_request_rebuilds(self, build_state):
+        mr, build = _submit()
+        assert mr_model.can_rebuild(mr, replace(build, state=build_state)) is None
+
+    @pytest.mark.parametrize("build_state", ["queued", "running", "passed", "stale"])
+    def test_any_other_build_is_refused(self, build_state):
+        mr, build = _submit()
+        refusal = mr_model.can_rebuild(mr, replace(build, state=build_state))
+        assert (
+            refusal == f"Merge request mr1's Queue build is {build_state}, not failed"
+        )
+
+    def test_a_closed_request_is_refused(self):
+        mr, build = _submit()
+        closed = mr_model.withdraw(mr, T1)
+        refusal = mr_model.can_rebuild(closed, replace(build, state="failed"))
+        assert refusal == "Merge request mr1 is withdrawn"
 
 
 class TestNextBuilds:

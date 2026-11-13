@@ -26,6 +26,10 @@ MR = MergeRequest(
     build="b1",
     opened=T0,
     updated=T1,
+    # Set, so the round trip covers the columns the second rung adds.
+    description="## Why\n\nFaster builds.",
+    merged=T1,
+    told="merged",
 )
 BUILD = Build(
     id="b1",

@@ -44,4 +44,13 @@ MERGE_REQUESTS: tuple[Rung, ...] = (
             "CREATE INDEX builds_merge_request ON builds (merge_request)",
         )
     ),
+    # The Merge: the submitted description, when it merged, and whether the
+    # chaperone was told.
+    Migration(
+        (
+            "ALTER TABLE merge_requests ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE merge_requests ADD COLUMN merged TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE merge_requests ADD COLUMN told TEXT NOT NULL DEFAULT ''",
+        )
+    ),
 )

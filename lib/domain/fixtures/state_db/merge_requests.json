@@ -44,5 +44,54 @@
         "sqlite_autoindex_merge_requests_1": "(id) unique=1 origin=pk partial=0"
       }
     }
+  },
+  {
+    "builds": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "merge_request TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "sha TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "state TEXT notnull=1 default='' pk=0",
+        "queued_at TEXT notnull=1 default='' pk=0",
+        "started TEXT notnull=1 default='' pk=0",
+        "ended TEXT notnull=1 default='' pk=0",
+        "slot TEXT notnull=1 default='' pk=0",
+        "job INTEGER notnull=1 default=0 pk=0",
+        "detail TEXT notnull=1 default='' pk=0",
+        "told TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "builds_merge_request": "(merge_request) unique=0 origin=c partial=0",
+        "builds_revision": "(revision) unique=0 origin=c partial=0",
+        "sqlite_autoindex_builds_1": "(id) unique=1 origin=pk partial=0"
+      }
+    },
+    "merge_requests": {
+      "columns": [
+        "id TEXT notnull=0 default=None pk=1",
+        "revision INTEGER notnull=1 default=None pk=0",
+        "task TEXT notnull=1 default='' pk=0",
+        "project TEXT notnull=1 default='' pk=0",
+        "task_id TEXT notnull=1 default='' pk=0",
+        "branch TEXT notnull=1 default='' pk=0",
+        "sha TEXT notnull=1 default='' pk=0",
+        "base TEXT notnull=1 default='' pk=0",
+        "state TEXT notnull=1 default='' pk=0",
+        "build TEXT notnull=1 default='' pk=0",
+        "opened TEXT notnull=1 default='' pk=0",
+        "updated TEXT notnull=1 default='' pk=0",
+        "description TEXT notnull=1 default='' pk=0",
+        "merged TEXT notnull=1 default='' pk=0",
+        "told TEXT notnull=1 default='' pk=0"
+      ],
+      "indexes": {
+        "merge_requests_revision": "(revision) unique=0 origin=c partial=0",
+        "merge_requests_task": "(task) unique=0 origin=c partial=0",
+        "sqlite_autoindex_merge_requests_1": "(id) unique=1 origin=pk partial=0"
+      }
+    }
   }
 ]
