@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 from typing import Any
@@ -210,6 +211,35 @@ def submit_merge_request(
         _merge_request_path(project, task_id),
         {"branch": branch, "sha": sha, "base": base},
     )
+
+
+def read_merge_request(project: str, task_id: str) -> dict[str, Any]:
+    """The task's current Merge request, its status and its Builds, newest first."""
+    return OrchestratorClient.for_tasks().get(_merge_request_path(project, task_id))
+
+
+def withdraw_merge_request(project: str, task_id: str) -> dict[str, Any]:
+    """Withdraw the task's open Merge request."""
+    return OrchestratorClient.for_tasks().delete(_merge_request_path(project, task_id))
+
+
+def wait_for_operation(
+    client: OrchestratorClient, operation_id: str, *, timeout: float = 120.0
+) -> dict[str, Any] | None:
+    """Wait until an operation is no longer running, or ``timeout`` passes.
+
+    The operation as it ended, or ``None`` when it is gone or still runs.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        operations = client.get("/api/operations")["operations"]
+        found = next((o for o in operations if o["id"] == operation_id), None)
+        if found is None:
+            return None
+        if found["state"] != "running":
+            return found
+        time.sleep(0.5)
+    return None
 
 
 def read_merge_request(project: str, task_id: str) -> dict[str, Any]:
