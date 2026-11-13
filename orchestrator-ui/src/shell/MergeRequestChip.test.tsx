@@ -1,16 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MergeRequestChip } from './MergeRequestChip';
-import type { WorktreeMergeRequest } from '../protocol/entities';
+import { makeMergeRequest } from '../fake/fixtures';
 
-const mr = (over: Partial<WorktreeMergeRequest> = {}): WorktreeMergeRequest => ({
-  id: 'mr3',
-  status: 'passed',
-  sha: 'a'.repeat(40),
-  detail: '',
-  gate: null,
-  ...over,
-});
+const mr = makeMergeRequest;
 
 describe('MergeRequestChip', () => {
   it('draws nothing where the branch has no Merge request', () => {

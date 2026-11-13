@@ -1404,6 +1404,47 @@ function command(
     return ok({ taskIds });
   }
 
+  // The Merge request's actions, as `server.py` answers them. The fake finds
+  // the request on the worktree node that shows it.
+  m = pathname.match(/^\/api\/tasks\/(.+)\/merge-request\/(merge|rebase|retry)$/);
+  if (m && method === 'POST') {
+    const taskId = m[1]!;
+    const action = m[2]!;
+    const worktree = Object.values(world.worktrees).find((w) => w.mergeRequest?.task === taskId);
+    const mr = worktree?.mergeRequest;
+    if (!worktree || !mr) return error(400, 'invalid', `Task ${taskId} has no open Merge request`);
+    const want = { merge: 'passed', rebase: 'stale', retry: 'failed' }[action];
+    if (mr.status !== want) return error(400, 'invalid', `Merge request ${mr.id} is ${mr.status}`);
+    if (action === 'merge') {
+      if (str('sha') !== mr.sha) {
+        return error(400, 'invalid', `Merge request ${mr.id} is now at ${mr.sha.slice(0, 7)}`);
+      }
+      return operate({
+        kind: 'merge',
+        keys: [`merge:${worktree.project}`],
+        project: worktree.project,
+        taskId,
+        doing: `Merging ${mr.id} at ${mr.sha.slice(0, 7)} into main`,
+        done: `Merged ${mr.id} at ${mr.sha.slice(0, 7)} into main`,
+        failing: `Could not merge ${mr.id}`,
+        steps: [
+          { name: 'check' },
+          {
+            name: 'push',
+            run: () => moveWorktree(worktree.id, { mergeRequest: { ...mr, status: 'merged' } }),
+          },
+          { name: 'branch' },
+          { name: 'main' },
+          { name: 'tell' },
+        ],
+      });
+    }
+    if (action === 'retry') {
+      moveWorktree(worktree.id, { mergeRequest: { ...mr, status: 'queued', detail: '' } });
+    }
+    return ok({ ...mr, status: action === 'retry' ? 'queued' : mr.status });
+  }
+
   m = pathname.match(/^\/api\/tasks\/(.+)\/launch$/);
   if (m && method === 'POST') {
     const task = world.tasks[m[1]!];

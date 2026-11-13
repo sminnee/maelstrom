@@ -1,5 +1,13 @@
 import { deskIdForTask } from '../protocol/deskId';
-import type { Agent, DeskEntry, Operation, Project, Task, Worktree } from '../protocol/entities';
+import type {
+  Agent,
+  DeskEntry,
+  Operation,
+  Project,
+  Task,
+  Worktree,
+  WorktreeMergeRequest,
+} from '../protocol/entities';
 import type { Attention } from '../protocol/attention';
 import type { Document } from '../protocol/documents';
 import type { PermissionRequestItem, PlanReviewItem, QuestionItem } from '../protocol/transcript';
@@ -7,6 +15,20 @@ import { emptyFakeWorld, type FakeWorld } from './fakeServer';
 
 export function makeProject(over: Partial<Project> = {}): Project {
   return { id: 'northwind', name: 'northwind', hasLinear: false, ...over };
+}
+
+/** A branch's **Merge request** as its worktree node shows it: `passed`, with no Build running. */
+export function makeMergeRequest(over: Partial<WorktreeMergeRequest> = {}): WorktreeMergeRequest {
+  return {
+    id: 'mr3',
+    task: 'northwind/t1',
+    status: 'passed',
+    sha: 'a'.repeat(40),
+    description: '',
+    detail: '',
+    gate: null,
+    ...over,
+  };
 }
 
 export function makeWorktree(over: Partial<Worktree> = {}): Worktree {

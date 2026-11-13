@@ -4,7 +4,7 @@ import type { OperationId, TaskId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
 import { keys } from './keys';
-import type { OperationStarted } from './operations';
+import { useStartOperation, type OperationStarted } from './operations';
 import type { InferredTask, TaskCreate, TaskEdit, TaskRow } from './types';
 
 export interface TasksBody {
@@ -147,5 +147,31 @@ export function useCreateTask() {
       void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
       void queryClient.invalidateQueries({ queryKey: keys.attention() });
     },
+  });
+}
+
+const mergeRequestUrl = (taskId: TaskId, action: string) =>
+  `/api/tasks/${taskId}/merge-request/${action}`;
+
+/** Merge a task's `passed` **Merge request**, pinned to the SHA the user saw, as an operation. */
+export function useMergeMergeRequest() {
+  return useStartOperation((api, vars: { taskId: TaskId; sha: string }) =>
+    api.post<OperationStarted>(mergeRequestUrl(vars.taskId, 'merge'), { sha: vars.sha }),
+  );
+}
+
+/** Ask the task's agent to rebase its `stale` Merge request and submit again. */
+export function useRebaseMergeRequest() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: (vars: { taskId: TaskId }) => api.post(mergeRequestUrl(vars.taskId, 'rebase')),
+  });
+}
+
+/** Queue a new Queue build of the task's `failed` Merge request, at the same SHA. */
+export function useRetryMergeRequest() {
+  const api = useApi();
+  return useMutation({
+    mutationFn: (vars: { taskId: TaskId }) => api.post(mergeRequestUrl(vars.taskId, 'retry')),
   });
 }
