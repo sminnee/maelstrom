@@ -348,12 +348,14 @@ def build_orchestrator(
     def list_projects() -> list[str]:
         return [path.name for path in find_all_projects(projects_dir)]
 
+    merge_requests = SqliteMergeRequestStore(state_db)
     landings = Landings(
         prs=SqlitePullRequestStore(state_db),
         steps=SqliteTaskStepStore(state_db),
         signals=GhLandingSignals(projects_dir),
-        tracked=lambda: tracked_tasks(table, list_projects()),
+        tracked=lambda: tracked_tasks(table, list_projects(), merge_requests),
         config_for=_config_reader(projects_dir),
+        merges=merge_requests,
     )
     tasks = NotebookTaskSource(
         table,
@@ -404,7 +406,7 @@ def build_orchestrator(
         comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
         pr_ledger=SqlitePrLedgerStore(state_db),
-        merge_requests=SqliteMergeRequestStore(state_db),
+        merge_requests=merge_requests,
         builds=SqliteBuildStore(state_db),
         build_host=BuildHost(projects_dir),
         executor=executor,
