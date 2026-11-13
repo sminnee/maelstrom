@@ -1003,7 +1003,7 @@ class TestAddRunCli:
         """A stand-in orchestrator that answers the create with ``taskId``."""
         client = MagicMock()
         monkeypatch.setattr(task_cli.OrchestratorClient, "for_tasks", lambda: client)
-        monkeypatch.setattr(task_cli, "_wait_for_operation", MagicMock())
+        monkeypatch.setattr(task_cli, "wait_for_operation", MagicMock())
         return client
 
     async def test_runs_the_new_task_in_its_worktree(

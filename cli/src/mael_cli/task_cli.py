@@ -7,7 +7,6 @@ says which commands call the server.
 
 import os
 import subprocess
-import time
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -63,6 +62,7 @@ from .orchestrator_client import (
     OrchestratorClient,
     OrchestratorRefused,
     refuse_with_parent,
+    wait_for_operation,
 )
 from .table_cli import draw_table
 from .worktree_launcher import (
@@ -936,7 +936,7 @@ async def add_task(
     if operation_id and (edit or cli):
         # The operation names the task. A local write before it ends would
         # save the stand-in title and branch over the names.
-        _wait_for_operation(client, operation_id)
+        wait_for_operation(client, operation_id)
     if edit:
         table = await _table()
         try:
@@ -958,20 +958,6 @@ async def add_task(
 def _qualified(project: str, task_id: str) -> str:
     """The wire id of ``task_id``; the ``*`` wildcard stays as it is."""
     return task_id if task_id == "*" else f"{project}/{task_id}"
-
-
-def _wait_for_operation(
-    client: OrchestratorClient, operation_id: str, *, timeout: float = 120.0
-) -> None:
-    """Wait until an operation is no longer running, or ``timeout`` passes."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        operations = client.get("/api/operations")["operations"]
-        if not any(
-            o["id"] == operation_id and o["state"] == "running" for o in operations
-        ):
-            return
-        time.sleep(0.5)
 
 
 def _launch_on_server(project: str, task_id: str) -> str:
