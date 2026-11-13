@@ -76,7 +76,8 @@ the request's history, each with its SHA and its result.
 A commit after the submit does not change the Queue build: it gates the recorded SHA. The next
 submit starts a new one.
 
-`.drafts/pr.md` becomes the Merge request's description. The merge review shows it.
+`mael merge submit` sends `.drafts/pr.md` as the Merge request's description and leaves the
+file in place. A submit with no file keeps the stored text. The Merge confirm shows it.
 
 ### The status
 
@@ -87,13 +88,19 @@ button read it.
 | ----------- | ------------------------------------------------ | ----------------------------------------------- |
 | `queued`    | The linked Queue build is `queued`.              | Waits for a free build worktree.                |
 | `building`  | The linked Queue build is `running`.             | Its steps or gate job run in a build worktree.  |
-| `passed`    | The linked Queue build `passed`.                 | Every gate passed. Merge is enabled.            |
-| `stale`     | The linked Queue build is `stale`.               | `main` moved since the submit. Rebase and submit again. |
+| `passed`    | The linked Queue build `passed`, and `main` is at its base. | Every gate passed. Merge is enabled.  |
+| `stale`     | The linked Queue build is `stale`, or it `passed` and `main` moved. | `main` moved since the submit. Rebase and submit again. |
 | `failed`    | The linked Queue build `failed`, or was cancelled outside the queue. | A step or a gate failed, or its gate job was cancelled. |
 | `withdrawn` | The request.                                     | The agent withdrew it.                          |
 | `merged`    | The request.                                     | `main` on origin is at its SHA, or contains it. |
 
 The normal path is `queued → building → passed → merged`.
+
+A `passed` request turns `stale` by derivation, and nothing stores the move. The queue keeps the
+last `origin/main` tip each fetch saw, per project, in memory. A stored move would make the
+restart re-tell send `build.rebase`, and only a click sends it. The queue fetches at the base
+check, at the Merge's check and after a rejected push. At start, it fetches each project that
+has an open `passed` request. A push to `main` from outside maelstrom shows at the next fetch.
 
 ### By example
 
@@ -123,8 +130,9 @@ dropped, and the status still shows on the node. The task closes at merge, not a
 chaperone stays on the Merge request until `merge.merged`.
 
 Each Queue build records, in `told`, the last state the chaperone heard. At start, the queue
-tells the chaperone again of each linked Queue build whose `told` differs from its state. A crash
-between a transition and its tell loses nothing.
+tells the chaperone again of each linked Queue build whose `told` differs from its state. A
+Merge request records `merged` in its own `told` when the chaperone hears `merge.merged`, and
+the start tells it again until then. A crash between a transition and its tell loses nothing.
 
 ## Building
 
@@ -140,10 +148,15 @@ runs `mael sync`, resolves any conflict, runs the light gates, and submits again
 
 ### No rebuild when `main` moves
 
-A merge does not touch the other Merge requests. A `passed` Merge request whose base is no longer
-the `main` tip shows `stale`. Its Merge button reads "Rebase and rebuild", and a click sends
+A merge does not touch the other Merge requests: each `passed` one reads `stale` (see
+[The status](#the-status)). Its Merge button reads "Rebase and rebuild", and a click sends
 `build.rebase` to the chaperone. Only a Merge request that a human wants to merge now builds
-again. Task q944.3 adds this; until then, `stale` is set only when a Queue build starts.
+again.
+
+A `failed` Merge request reads "Rebuild". It queues a new Queue build of the same SHA, as
+`mael merge retry` and the Retry of the failed `build` Operation do. The Retry refuses when a
+newer Queue build replaced that one. A `stale` Queue build does not rebuild: its base check
+would fail again.
 
 Records keep a rebuild cheap. A gate whose gate scope content did not change is `verified` at
 once.
@@ -235,21 +248,34 @@ own gates do not use it yet.
 
 ## Merging
 
-The Merge button merges a `passed` Merge request, and is pinned to its SHA. A click starts one
-**Operation**:
+The Merge button merges a `passed` Merge request. Its confirm shows the description. The click
+posts the SHA the button drew, and the server refuses any other SHA, so a submit between the
+view and the click cannot merge an ungated SHA. The click starts one **Operation**, kind
+`merge`, with the busy key `merge:<project>`:
 
-1. Fetch `origin/main`. When its tip is not the request's base, mark it `stale` and stop.
-2. `git push origin <sha>:main`, with no force.
-3. Delete the remote branch.
-4. Update `_main` with `update_local_main`.
-5. Send `merge.merged` to the chaperone, which closes the task and ends its session.
+| Step     | What it does                                                                           |
+| -------- | -------------------------------------------------------------------------------------- |
+| `check`  | Fetch. Refuse "main moved" when the tip is not the base and does not contain the SHA.  |
+| `push`   | Under the queue lock: check again, `git push origin <sha>:refs/heads/main` with no force, then record the request `merged`. |
+| `branch` | Delete the branch on origin. The worktree keeps its local branch.                      |
+| `main`   | Fetch and update `_main` with `update_local_main`.                                     |
+| `tell`   | Send `merge.merged` to the chaperone.                                                  |
 
-A rejected push marks the Merge request `stale`, as a move of `main` does. Git rejects a push that is
-not a fast-forward, so the push needs no lock.
+A `main` that already contains the SHA is a merge: the `push` step skips the push and records
+`merged`. A rejected push is refused as "main moved", and the fetch after it makes the request
+`stale`. Git rejects a push that is not a fast-forward, so a push to `main` from outside
+maelstrom needs no lock on origin. The `push` step holds the queue lock, so no submit moves the
+request between its check and the record. The push has a 60-second timeout. A push that fails
+while `main` is still at the base is a fault. A push that git reports as failed, but that
+origin took, is a merge.
+
+The request is `merged` as soon as the push succeeds. A fault in `branch`, `main` or `tell`
+does not lose the merge: the step ends `done` with the warning as its words.
 
 After the push, the branch is in `main`, so `is_worktree_closed` and **Dismiss** need no change.
 
-`mael git merge` goes through the queue in a `merge: local` project.
+`mael git merge` in a `merge: local` project starts the same Merge. See
+[`mael git merge`](../reference/cli.md#git-helpers).
 
 ## Events
 
@@ -261,16 +287,21 @@ After the push, the branch is in `main`, so `is_worktree_closed` and **Dismiss**
 | `build` | `build.rebase`  | The base check failed, or the user clicked "Rebase and rebuild". |
 | `merge` | `merge.merged`  | The push to `main` succeeded.                     |
 
-Each `build.*` event is about one Queue build. Its attributes are `task`, `merge-request`,
-`build`, `sha` and `branch`. A `running` or `cancelled` Queue build sends none.
+Each `build.*` and `merge.*` event has the attributes `task`, `merge-request`, `build`, `sha`
+and `branch`. A `running` Queue build sends none. "Rebase and rebuild" sends `build.rebase` only
+on a `stale` request. `merge.merged` tells the agent to close the task and end its session.
 
 The user's review comments reach the chaperone as `orchestrator-ui` events.
 
 ## Landing
 
 The `merged` **Landing step** of a `merge: local` task reads the queue's record in the state
-database, not GitHub's data about a PR. `uat` and `live` still come from the deploys that
-`deploy.environments` names.
+database, not GitHub's data about a PR. `tracked_tasks` follows a task with a `merged` Merge
+request as well as a task with a PR, and `TrackedTask.merged_at` holds the merge time.
+
+`uat` and `live` come from the deploys that `deploy.environments` names, and the deploy check
+needs a PR. So a `merge: local` task stops at `merged` until a deploy check keyed by the Merge
+request exists.
 
 ## Remote hosts
 
@@ -284,16 +315,15 @@ remote chaperone may not hear `build.*` events yet. See [remote hosts](remote-ho
 
 | Code                                                    | Use                                     |
 | ------------------------------------------------------- | --------------------------------------- |
-| `merge_to_main` (`mael_domain/worktree.py`)              | The push to `main`, without its rebase. |
 | `update_local_main`, `close_worktree`, `is_worktree_closed` (`worktree.py`) | `_main` after merge, Dismiss. |
 | `merge_request.py`, `merge_request_store.py` (`mael_domain`) | The two records, their moves, their status. |
 | `build_queue.py` (`mael_orchestrator`)                   | The queue, the slots, each Queue build. |
-| `merge_cli.py` (`mael_cli`)                              | `mael merge submit`, `status`, `withdraw`. |
-| `build_event`, `gate_event` (`mael_domain/external_event.py`) | The `build.*` events.        |
+| `merge_cli.py` (`mael_cli`)                              | `mael merge submit`, `status`, `withdraw`, `retry`. |
+| `build_event`, `merge_event`, `rebase_event` (`mael_domain/external_event.py`) | The `build.*` and `merge.*` events. |
 | `gate_source.py`, `gate_table.py` (`mael_orchestrator`)  | The Gate watch.                         |
 | `operations.py` (`mael_domain`, `mael_orchestrator`)     | Each build and each merge.              |
 | `landing.py`, `landing_github.py`                        | Landing `merged` from the queue.        |
-| `MergeControl.tsx` (`orchestrator-ui/src/worktrees/`)    | The Merge and "Rebase and rebuild" button. |
+| `MergeControl.tsx` (`orchestrator-ui/src/worktrees/`)    | Merge, "Rebase and rebuild" and "Rebuild". |
 
 ## Risks to test
 

@@ -34,6 +34,12 @@ release while that section is empty, and retitles it to the version it is releas
   queue** gates it in a **Build worktree**. `build_slots:` sets how many run at once. See
   [Merge](docs/reference/cli.md#merge) and
   [`merge:`](docs/reference/configuration.md#merge-and-build_slots).
+- **Merge a `merge: local` task from its node.** A `passed` Merge request draws a Merge button,
+  whose confirm shows the request's description from `.drafts/pr.md`. The Build queue pushes
+  the gated SHA to `main` with no force, and tells the agent with `merge.merged`. A request
+  whose base is no longer `main` reads `stale` and draws "Rebase and rebuild". A `failed` one
+  draws "Rebuild". `mael git merge` and the new `mael merge retry` do the same from the CLI. See
+  [Merge](docs/reference/cli.md#merge) and [`mael git merge`](docs/reference/cli.md#git-helpers).
 - **The desk draws as a graph, a kanban or a list.** A switch at the top of the desk picks the
   mode, and each mode has its own path, such as `/desk/kanban`. In kanban, drag a card to another
   column to set its task status. The desk now has four zones, Queued | To do | Running | Done,

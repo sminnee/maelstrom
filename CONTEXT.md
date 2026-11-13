@@ -911,8 +911,9 @@ _Avoid_: gate poll
 
 **Build queue**:
 The orchestrator server's service that runs a **Queue build** for each submit to a **Merge
-request**, in a **Build worktree**, in a `merge: local` project. It gates and never merges or
-changes a branch. It replaces CI, not the gates. See `docs/dev/build-queue.md`.
+request**, in a **Build worktree**, in a `merge: local` project. It gates each submit, and
+merges a `passed` Merge request when the user clicks Merge. It never rebases or commits on a
+branch. It replaces CI, not the gates. See `docs/dev/build-queue.md`.
 _Avoid_: merge queue (it does not order merges), CI, pipeline
 
 **Merge request**:
@@ -920,8 +921,10 @@ A task branch's request to merge into `main`, as a PR is, in a `merge: local` pr
 the head SHA and base of the last `mael merge submit`, and links the newest **Queue build**. Its
 states are `open`, `withdrawn` and `merged`. A submit updates an `open` or `withdrawn` one and
 reopens it; a submit after `merged` opens a new one.
+Its description is the `.drafts/pr.md` of a submit, which the Merge confirm shows.
 Its status comes from it and its linked Queue build: `queued`, `building`, `passed`, `stale`,
-`failed`, `withdrawn` or `merged`. A `passed` Merge request draws the Merge button.
+`failed`, `withdrawn` or `merged`. A `passed` one turns `stale` when `main` moves. A `passed`
+Merge request draws the Merge button. The Merge pushes its SHA to `main` and makes it `merged`.
 _Avoid_: Candidate, Submission, PR (in a `merge: local` project)
 
 **Queue build**:
