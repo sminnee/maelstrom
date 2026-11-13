@@ -77,7 +77,8 @@ Omit the key and `_main` keeps no ports and no `.env`. See
 
 ### `merge:` and `build_slots:`
 
-`merge:` chooses what `mael merge submit`, `status` and `withdraw` do:
+`merge:` chooses what `mael merge submit`, `status`, `withdraw` and `retry` do, and how
+`mael git merge` and the node's **Merge** button merge:
 
 | Value | What a submit does |
 |---|---|
