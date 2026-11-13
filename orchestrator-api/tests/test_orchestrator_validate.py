@@ -947,9 +947,17 @@ def test_a_merge_request_submit_with_a_branch_and_two_shas_is_allowed():
     ("over", "message"),
     [
         ({"branch": ""}, "branch is the task branch"),
+        ({"branch": "main"}, "branch is the task branch"),
+        ({"branch": "--all"}, "branch is the task branch"),
+        ({"branch": "feat/a..b"}, "branch is the task branch"),
         ({"sha": "abc1234"}, "sha is a 40-hex commit SHA"),
         ({"base": "C" * 40}, "base is a 40-hex commit SHA"),
         ({"sha": None}, "sha is a 40-hex commit SHA"),
+        ({"description": 7}, "description is the PR draft's text"),
+        (
+            {"type": "mergeRequest.merge", "sha": "abc1234"},
+            "sha is the 40-hex commit SHA to merge",
+        ),
     ],
 )
 def test_a_merge_request_submit_refuses_a_bad_branch_or_sha(over, message):
@@ -960,7 +968,16 @@ def test_a_merge_request_submit_refuses_a_bad_branch_or_sha(over, message):
     }
 
 
-@pytest.mark.parametrize("kind", ["mergeRequest.submit", "mergeRequest.withdraw"])
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "mergeRequest.submit",
+        "mergeRequest.withdraw",
+        "mergeRequest.merge",
+        "mergeRequest.rebase",
+        "mergeRequest.retry",
+    ],
+)
 def test_a_merge_request_command_for_an_unknown_task_is_refused(kind):
     cmd = {**SUBMIT, "type": kind, "taskId": "northwind/NORT-99"}
     assert (

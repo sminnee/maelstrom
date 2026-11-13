@@ -190,6 +190,10 @@ def _wait_name(*kinds: str) -> str:
 _SHA = re.compile(r"[0-9a-f]{40}")
 
 
+#: A branch name `git push --delete` cannot read as an option or a pattern.
+_TASK_BRANCH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]*")
+
+
 def _is_sha(value: object) -> bool:
     return isinstance(value, str) and _SHA.fullmatch(value) is not None
 
@@ -920,18 +924,38 @@ def validate_command(
             return _err("invalid", "sessionId is a session id: a UUID")
         return None
 
-    if kind in ("mergeRequest.submit", "mergeRequest.withdraw"):
+    if kind in (
+        "mergeRequest.submit",
+        "mergeRequest.withdraw",
+        "mergeRequest.merge",
+        "mergeRequest.rebase",
+        "mergeRequest.retry",
+    ):
         # The project's `merge:` mode and the open request are read by the
         # handler: neither is in the world.
         task_id = cmd.get("taskId", "")
         if task_id not in world["tasks"]:
             return _err("unknown_id", f"No task {task_id}")
         if kind == "mergeRequest.submit":
-            if not isinstance(cmd.get("branch"), str) or not cmd["branch"]:
+            branch = cmd.get("branch")
+            # The Merge deletes this branch on origin, so it must name a task
+            # branch and never `main` or a git option.
+            if (
+                not isinstance(branch, str)
+                or not _TASK_BRANCH.fullmatch(branch)
+                or branch == "main"
+                or ".." in branch
+                or branch.endswith((".lock", "/", "."))
+            ):
                 return _err("invalid", "branch is the task branch")
             for field in ("sha", "base"):
                 if not _is_sha(cmd.get(field)):
                     return _err("invalid", f"{field} is a 40-hex commit SHA")
+            description = cmd.get("description")
+            if description is not None and not isinstance(description, str):
+                return _err("invalid", "description is the PR draft's text")
+        if kind == "mergeRequest.merge" and not _is_sha(cmd.get("sha")):
+            return _err("invalid", "sha is the 40-hex commit SHA to merge")
         return None
 
     if kind == "task.update":

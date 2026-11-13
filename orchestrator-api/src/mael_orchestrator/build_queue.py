@@ -4,7 +4,8 @@ The server owns one. A submit updates the task's Merge request and queues a
 Build; :meth:`BuildQueue.kick` starts the oldest linked Builds in the free
 slots of each ``merge: local`` project. A running Build is one Operation, from
 the slot claim to the gate job's end; its busy key holds the slot. The Gate
-watch hands each job end to :meth:`BuildQueue.job_ended`. See
+watch hands each job end to :meth:`BuildQueue.job_ended`. The Merge of a
+``passed`` request is one more Operation, :meth:`BuildQueue.merge`. See
 ``docs/dev/build-queue.md``.
 """
 
@@ -17,12 +18,21 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from mael_common.shell import run_cmd
 from mael_domain import merge_request as model
 from mael_domain.config import MaelstromConfig, load_config_or_default
-from mael_domain.external_event import ExternalEvent, build_event
+from mael_domain.external_event import (
+    ExternalEvent,
+    build_event,
+    merge_event,
+    rebase_event,
+)
 from mael_domain.merge_request import Build, Current, MergeRequest
 from mael_domain.merge_request_store import BuildStore, MergeRequestStore
 from mael_domain.worktree import (
+    BATCH_GIT_ENV,
+    FETCH_TIMEOUT,
+    UpdateMainResult,
     ensure_build_worktree,
     ensure_fetched,
     prepare_build,
@@ -47,6 +57,10 @@ RUNNER_KIND = "queue"
 BACKSTOP_SECS = 15 * 60
 #: The Build's steps, in order.
 STEPS = ("base", "checkout", "install", "gates")
+#: How long a push to origin may take. The Merge holds the queue lock for it.
+PUSH_TIMEOUT = FETCH_TIMEOUT
+#: The Merge's steps, in order.
+MERGE_STEPS = ("check", "push", "branch", "main", "tell")
 
 #: How many job ends no Queue build claimed are kept. Every job on the
 #: machine ends through the Gate watch, the agents' jobs included.
@@ -99,6 +113,56 @@ class BuildHost:
         return run_git(
             ["rev-parse", f"origin/{MAIN_BRANCH}"], cwd=path, quiet=True
         ).stdout.strip()
+
+    def contains(self, project: str, sha: str, tip: str) -> bool:
+        """Whether ``tip`` already holds ``sha``."""
+        found = run_git(
+            ["merge-base", "--is-ancestor", sha, tip],
+            cwd=self.projects_dir / project,
+            quiet=True,
+            check=False,
+        )
+        return found.returncode == 0
+
+    def push_main(self, project: str, sha: str) -> tuple[bool, str]:
+        """Push ``sha`` to ``main`` on origin, with no force; whether git took it.
+
+        Git refuses a push that is not a fast-forward, so a ``main`` that moved
+        since the last fetch rejects it.
+        """
+        pushed = run_cmd(
+            ["git", "push", "origin", f"{sha}:refs/heads/{MAIN_BRANCH}"],
+            cwd=self.projects_dir / project,
+            quiet=True,
+            check=False,
+            env=BATCH_GIT_ENV,
+            timeout=PUSH_TIMEOUT,
+        )
+        return pushed.returncode == 0, (pushed.stdout or "") + (pushed.stderr or "")
+
+    def delete_remote_branch(self, project: str, branch: str) -> str | None:
+        """Delete ``branch`` on origin; a warning when git could not.
+
+        The worktree keeps its local branch: it may still have it checked out.
+        """
+        deleted = run_cmd(
+            ["git", "push", "origin", "--delete", f"refs/heads/{branch}"],
+            cwd=self.projects_dir / project,
+            quiet=True,
+            check=False,
+            env=BATCH_GIT_ENV,
+            timeout=PUSH_TIMEOUT,
+        )
+        if deleted.returncode == 0:
+            return None
+        out = ((deleted.stderr or "") + (deleted.stdout or "")).strip()
+        return f"could not delete {branch} on origin: {out.splitlines()[-1] if out else 'git failed'}"
+
+    def update_main(self, project: str) -> UpdateMainResult:
+        """Fetch, then fast-forward the local ``main`` and ``_main`` to origin's."""
+        result = ensure_fetched(self.projects_dir / project, max_age=0)
+        assert result is not None  # max_age=0 always fetches
+        return result
 
     def checkout(self, project: str, slot: str, sha: str) -> Path:
         """The Build worktree ``slot``, reset to ``sha``."""
@@ -165,6 +229,9 @@ class BuildQueue:
         self._cancelled: set[str] = set()
         #: Each branch's current request, by ``(project, branch)``.
         self.current: dict[tuple[str, str], Current] = {}
+        #: The last ``origin/main`` SHA each project's fetch saw; see
+        #: :func:`model.status`.
+        self.tips: dict[str, str] = {}
         #: The kicks that wait for a Build's operation to end, kept so a stop
         #: can cancel them.
         self._waiters: set[asyncio.Task[None]] = set()
@@ -172,9 +239,18 @@ class BuildQueue:
     # -- the requests --
 
     async def submit(
-        self, project: str, task_id: str, branch: str, sha: str, base: str
+        self,
+        project: str,
+        task_id: str,
+        branch: str,
+        sha: str,
+        base: str,
+        description: str | None = None,
     ) -> tuple[MergeRequest, Build]:
-        """Open or update the task's Merge request, and queue a Build of ``sha``."""
+        """Open or update the task's Merge request, and queue a Build of ``sha``.
+
+        A ``description`` of ``None`` keeps the request's text.
+        """
         async with self._lock:
             existing = await self.requests.current(model.task_key(project, task_id))
             if existing is not None and existing.state != "merged":
@@ -190,6 +266,7 @@ class BuildQueue:
                 base=base,
                 build_id=await self.builds.next_id(),
                 now=now,
+                description=description,
             )
             await self.builds.save(build)
             await self.requests.save(mr)
@@ -214,6 +291,71 @@ class BuildQueue:
         await self._changed()
         await self.kick()
         return mr
+
+    async def rebase(self, task: str) -> MergeRequest:
+        """Ask the chaperone to rebase the task's ``stale`` request and submit again.
+
+        Raises:
+            MergeRequestError: If the request is not ``stale``.
+        """
+        mr, linked = await self._open(task)
+        if model.status(mr, linked, self.tips.get(mr.project, "")) != "stale":
+            raise model.MergeRequestError(f"Merge request {mr.id} is not stale")
+        try:
+            await self._tell(mr, rebase_event(mr))
+        except Exception:  # noqa: BLE001 — the chaperone is not reachable
+            log.exception("the rebase tell of %s failed", mr.id)
+            raise model.MergeRequestError(
+                f"Could not tell the chaperone of {mr.task}"
+            ) from None
+        return mr
+
+    async def rebuild(
+        self, task: str, *, linked_id: str | None = None
+    ) -> tuple[MergeRequest, Build]:
+        """Queue a new Build of the task's ``failed`` request, at the same SHA.
+
+        ``linked_id`` is the Build a Retry rebuilds: refused unless it is
+        still the linked one.
+
+        Raises:
+            MergeRequestError: If the request is not ``failed``.
+        """
+        async with self._lock:
+            mr, linked = await self._open(task)
+            if linked_id is not None and mr.build != linked_id:
+                raise model.MergeRequestError("A newer Queue build replaced this one.")
+            refusal = model.can_rebuild(mr, linked)
+            if refusal is not None:
+                raise model.MergeRequestError(refusal)
+            assert linked is not None
+            mr, build = model.requeue(
+                mr, linked, await self.builds.next_id(), self.clock()
+            )
+            await self.builds.save(build)
+            await self.requests.save(mr)
+        await self._changed()
+        await self._tell_build(mr, build)
+        await self.kick()
+        return mr, build
+
+    async def rebuild_build(self, build_id: str) -> tuple[MergeRequest, Build]:
+        """:meth:`rebuild`, from a Build operation's Retry.
+
+        Raises:
+            MergeRequestError: If the Build is no longer its request's linked one.
+        """
+        build = await self.builds.read(build_id)
+        mr = await self.requests.read(build.merge_request) if build else None
+        if mr is None:
+            raise model.MergeRequestError("A newer Queue build replaced this one.")
+        return await self.rebuild(mr.task, linked_id=build_id)
+
+    async def _open(self, task: str) -> tuple[MergeRequest, Build | None]:
+        mr = await self.requests.current(task)
+        if mr is None or mr.state != "open":
+            raise model.MergeRequestError(f"Task {task} has no open Merge request")
+        return mr, await self.builds.read(mr.build)
 
     async def read(
         self, task: str, *, every: bool = False
@@ -252,11 +394,39 @@ class BuildQueue:
                 await self.builds.save(again)
                 await self.requests.save(mr)
         await self._changed()
+        passed: set[str] = set()
         for mr in await self.requests.open():
             linked = await self.builds.read(mr.build)
             if linked is not None and linked.told != linked.state:
                 await self._tell_build(mr, linked)
+            if linked is not None and linked.state == "passed":
+                passed.add(mr.project)
+        for mr in await self.requests.all():
+            if mr.state == "merged" and mr.told != "merged":
+                await self._tell_merged(mr)
+        self._background(self._fetch_tips(sorted(passed)))
         await self.kick()
+
+    async def _fetch_tips(self, projects: list[str]) -> None:
+        """Fetch each project, so a ``passed`` request that went stale shows it."""
+        for project in projects:
+            try:
+                await self._fetch_tip(project)
+            except Exception:  # noqa: BLE001 — the next fetch sets it
+                log.warning("build queue: cannot fetch %s", project)
+        await self._changed()
+
+    async def _fetch_tip(self, project: str) -> str:
+        """Fetch ``project``; ``origin/main``'s SHA, kept as its tip."""
+        tip = await asyncio.to_thread(self.host.origin_main, project)
+        self.tips[project] = tip
+        return tip
+
+    def _background(self, work: Awaitable[None]) -> None:
+        """Run ``work`` as a task that a stop cancels."""
+        waiter = asyncio.ensure_future(work)
+        self._waiters.add(waiter)
+        waiter.add_done_callback(self._waiters.discard)
 
     async def kick(self) -> None:
         """Start the oldest linked Builds in the free slots of each project."""
@@ -304,9 +474,7 @@ class BuildQueue:
         op_id = await self.operations.begin(
             {"type": "build", "buildId": build.id}, plan
         )
-        waiter = asyncio.create_task(self._kick_after(op_id))
-        self._waiters.add(waiter)
-        waiter.add_done_callback(self._waiters.discard)
+        self._background(self._kick_after(op_id))
         await self._changed()
 
     async def _kick_after(self, op_id: str) -> None:
@@ -389,7 +557,7 @@ class BuildQueue:
         return build
 
     async def _base(self, build: Build) -> None:
-        tip = await asyncio.to_thread(self.host.origin_main, build.project)
+        tip = await self._fetch_tip(build.project)
         if tip != build.base:
             # Read again: a submit or a withdraw may have cancelled it meanwhile.
             current = await self._still_running(build.id)
@@ -478,6 +646,171 @@ class BuildQueue:
                     return found
         return None
 
+    # -- the Merge --
+
+    async def merge(self, task: str, sha: str) -> str:
+        """Start the Merge of the task's ``passed`` request at ``sha``; its operation id.
+
+        Raises:
+            MergeRequestError: If the request cannot merge ``sha``.
+            Busy: If a Merge of the project already runs.
+        """
+        mr, linked = await self._open(task)
+        refusal = model.can_merge(mr, linked, sha)
+        if refusal is not None:
+            raise model.MergeRequestError(refusal)
+        short = sha[:7]
+        plan = OperationPlan(
+            kind="merge",
+            keys=frozenset({f"merge:{mr.project}"}),
+            doing=f"Merging {mr.id} at {short} into {MAIN_BRANCH}",
+            done=f"Merged {mr.id} at {short} into {MAIN_BRANCH}",
+            failing=f"Could not merge {mr.id}",
+            work=lambda hook: self._merge_work(task, sha, hook),
+            refresh=self._changed,
+            project=mr.project,
+            steps=MERGE_STEPS,
+            task_id=mr.task,
+        )
+        return await self.operations.begin(
+            {"type": "mergeRequest.merge", "taskId": task, "sha": sha}, plan
+        )
+
+    async def _merge_work(self, task: str, sha: str, hook: StepHook) -> None:
+        """Check, push, record ``merged``, then the side steps."""
+        step = "check"
+        hook.started(step)
+        try:
+            mr = await self._merge_check(task, sha)
+            hook.ended(StepEnd(step, "done", [], None))
+            step = "push"
+            hook.started(step)
+            mr, words = await self._push(mr)
+            hook.ended(StepEnd(step, "done", [], words))
+        except _Stale:
+            hook.ended(StepEnd(step, "refused", [], "main moved"))
+            raise CloseBlocked(
+                "main moved since the submit: rebase and rebuild"
+            ) from None
+        except CloseBlocked as exc:
+            hook.ended(StepEnd(step, "refused", [], str(exc)))
+            raise
+        except Exception as exc:
+            hook.ended(StepEnd(step, "failed", [], str(exc)))
+            raise
+        await self._side_step(
+            hook,
+            "branch",
+            lambda: asyncio.to_thread(
+                self.host.delete_remote_branch, mr.project, mr.branch
+            ),
+        )
+        await self._side_step(hook, "main", lambda: self._update_main(mr.project))
+        hook.started("tell")
+        told = await self._tell_merged(mr)
+        hook.ended(
+            StepEnd("tell", "done", [], None if told else "the chaperone was not told")
+        )
+
+    async def _merge_check(self, task: str, sha: str) -> MergeRequest:
+        """The request, once a fetch shows ``main`` at its base.
+
+        Raises:
+            CloseBlocked: If the request cannot merge ``sha``.
+            _Stale: If ``main`` moved since the submit.
+        """
+        mr, linked = await self._open_or_blocked(task)
+        refusal = model.can_merge(mr, linked, sha)
+        if refusal is not None:
+            raise CloseBlocked(refusal)
+        tip = await self._fetch_tip(mr.project)
+        await self._changed()
+        if tip != mr.base and not await asyncio.to_thread(
+            self.host.contains, mr.project, sha, tip
+        ):
+            raise _Stale
+        return mr
+
+    async def _push(self, mr: MergeRequest) -> tuple[MergeRequest, str | None]:
+        """Push the SHA to ``main`` and record the request ``merged``.
+
+        Under the lock, so no submit moves the request between the last check
+        and the record. A ``main`` that already holds the SHA needs no push.
+        """
+        async with self._lock:
+            current, linked = await self._open_or_blocked(mr.task)
+            refusal = model.can_merge(current, linked, mr.sha)
+            if refusal is not None:
+                raise CloseBlocked(refusal)
+            tip = self.tips.get(mr.project, "")
+            words = None
+            if await asyncio.to_thread(self.host.contains, mr.project, mr.sha, tip):
+                words = f"{MAIN_BRANCH} already holds {mr.sha[:7]}"
+            else:
+                ok, out = await asyncio.to_thread(
+                    self.host.push_main, mr.project, mr.sha
+                )
+                if not ok:
+                    await self._rejected(mr, out)
+                self.tips[mr.project] = mr.sha
+            merged = model.merged(current, self.clock())
+            await self.requests.save(merged)
+        await self._changed()
+        return merged, words
+
+    async def _rejected(self, mr: MergeRequest, out: str) -> None:
+        """Raise why the push failed: ``main`` moved, or a git fault.
+
+        Return when ``main`` holds the SHA after all: git can report a fault
+        for a push that origin took.
+        """
+        tip = await self._fetch_tip(mr.project)
+        if await asyncio.to_thread(self.host.contains, mr.project, mr.sha, tip):
+            return
+        if tip != mr.base:
+            raise _Stale
+        tail = out.strip().splitlines()[-1] if out.strip() else "git push failed"
+        raise RuntimeError(tail)
+
+    async def _open_or_blocked(self, task: str) -> tuple[MergeRequest, Build | None]:
+        try:
+            return await self._open(task)
+        except model.MergeRequestError as exc:
+            raise CloseBlocked(str(exc)) from None
+
+    async def _update_main(self, project: str) -> str | None:
+        result = await asyncio.to_thread(self.host.update_main, project)
+        return result.message if result.status == "warning" else None
+
+    async def _side_step(
+        self,
+        hook: StepHook,
+        name: str,
+        work: Callable[[], Awaitable[str | None]],
+    ) -> None:
+        """Run a step after the merge: a fault in it is a warning, not a fault."""
+        hook.started(name)
+        try:
+            warning = await work()
+        except Exception as exc:  # noqa: BLE001 — the merge is already recorded
+            log.warning("merge step %s failed: %s", name, exc)
+            warning = str(exc)
+        lines = [f"warning: {warning}"] if warning else []
+        hook.ended(StepEnd(name, "done", lines, warning))
+
+    async def _tell_merged(self, mr: MergeRequest) -> bool:
+        """Tell the chaperone of the merge, and record it as told."""
+        try:
+            delivered = await self._tell(mr, merge_event(mr))
+        except Exception:  # noqa: BLE001 — the restart re-tells it
+            log.exception("the merge tell of %s failed", mr.id)
+            return False
+        if delivered:
+            current = await self.requests.read(mr.id)
+            if current is not None and current.state == "merged":
+                await self.requests.save(model.mark_merge_told(current))
+        return delivered
+
     # -- ends and tells --
 
     async def _end(self, build: Build) -> Build:
@@ -539,7 +872,7 @@ class BuildQueue:
         for mr in reversed(await self.requests.all()):
             linked = await self.builds.read(mr.build)
             current[(mr.project, mr.branch)] = Current(
-                mr, linked, model.status(mr, linked)
+                mr, linked, model.status(mr, linked, self.tips.get(mr.project, ""))
             )
         self.current = current
         self._on_change()

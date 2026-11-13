@@ -11,6 +11,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from git_helpers import (
+    create_commit,
+    push_branch,
+    push_to_origin_main,
+    remote_tip,
+    rev_parse,
+)
 
 from mael_agent.host_ids import IdSpace
 from mael_domain.config import MaelstromConfig
@@ -20,8 +27,9 @@ from mael_domain.merge_request_store import (
     InMemoryMergeRequestStore,
 )
 from mael_domain.operation_store import InMemoryOperationStore
-from mael_orchestrator.build_queue import BuildQueue
-from mael_orchestrator.operations import OperationRunner
+from mael_domain.worktree import UpdateMainResult
+from mael_orchestrator.build_queue import BuildHost, BuildQueue
+from mael_orchestrator.operations import Busy, OperationRunner
 
 FIXTURES = Path(__file__).parent / "fixtures"
 #: ``tangier gate run`` without ``--wait``, as tangier 0.3.5 printed it for job 212.
@@ -38,6 +46,48 @@ class FakeHost:
         self.tip = BASE
         self.slots = slots
         self.checkouts: list[tuple[str, str]] = []
+        #: The SHAs ``main`` on origin holds.
+        self.main: set[str] = {BASE}
+        #: Set: the next push to ``main`` loses a race, and ``main`` is here.
+        self.race: str | None = None
+        #: Set: the next push fails with this git output. ``landed``: origin
+        #: took it all the same.
+        self.fault: str | None = None
+        self.landed = False
+        self.pushes: list[str] = []
+        self.deleted: list[str] = []
+        self.updates = 0
+        self.delete_fault: Exception | None = None
+        self.update_result = UpdateMainResult("updated", "fast-forwarded")
+
+    def contains(self, project: str, sha: str, tip: str) -> bool:
+        return sha in self.main
+
+    def push_main(self, project: str, sha: str) -> tuple[bool, str]:
+        self.pushes.append(sha)
+        if self.fault is not None:
+            out, self.fault = self.fault, None
+            if self.landed:
+                self.tip = sha
+                self.main.add(sha)
+            return False, out
+        if self.race is not None:
+            self.tip, self.race = self.race, None
+            self.main.add(self.tip)
+            return False, " ! [rejected]        main (fetch first)"
+        self.tip = sha
+        self.main.add(sha)
+        return True, ""
+
+    def delete_remote_branch(self, project: str, branch: str) -> str | None:
+        if self.delete_fault is not None:
+            raise self.delete_fault
+        self.deleted.append(branch)
+        return None
+
+    def update_main(self, project: str) -> UpdateMainResult:
+        self.updates += 1
+        return self.update_result
 
     def config(self, project: str) -> MaelstromConfig:
         return MaelstromConfig(merge="local", build_slots=self.slots)
@@ -409,3 +459,290 @@ async def test_a_cancel_between_steps_ends_the_operation_refused():
     await q.idle()
     (op,) = await q.operations.store.list()
     assert op["state"] == "refused"
+
+
+# -- the Merge --
+
+
+async def _passed(q: Queue, task: str = "k1", sha: str = SHA_A):
+    """A submit of ``sha`` whose Queue build passed; the request."""
+    mr, build = await q.submit(task, sha=sha)
+    await q.gates_started(build.id)
+    q.queue.job_ended(ended((await q.build(build.id)).job, "passed"))
+    await q.state_is(build.id, "passed")
+    await q.idle()
+    return await q.requests.read(mr.id)
+
+
+async def _merge(q: Queue, task: str = "demo/k1", sha: str = SHA_A) -> dict:
+    """Run the Merge to its end; the operation as it ended."""
+    op_id = await q.queue.merge(task, sha)
+    await q.operations.wait(op_id)
+    record = await q.operations.read(op_id)
+    assert record is not None
+    return record.operation
+
+
+def _steps(op: dict) -> dict[str, tuple[str, str]]:
+    return {s["name"]: (s["state"], s["words"]) for s in op["steps"]}
+
+
+async def test_a_merge_pushes_the_sha_records_it_and_tells_the_chaperone():
+    q = Queue()
+    mr = await _passed(q)
+    q.told.clear()
+    op = await _merge(q)
+
+    assert (op["state"], op["words"]) == ("done", "Merged mr1 at aaaaaaa into main")
+    assert q.host.pushes == [SHA_A]
+    merged = await q.requests.read(mr.id)
+    assert (merged.state, merged.merged, merged.told) == ("merged", "now", "merged")
+    assert q.host.deleted == ["feat/k1"]
+    assert q.host.updates == 1
+    assert q.told == [("merge.merged", mr.build)]
+    assert q.queue.current[("demo", "feat/k1")].status == "merged"
+
+
+def test_the_real_host_pushes_a_fast_forward_and_git_refuses_any_other(
+    project_with_worktree,
+):
+    """The git a fake host stands in for, on a real bare origin."""
+    project_path, worktree, remote = project_with_worktree
+    host = BuildHost(project_path.parent)
+    base = host.origin_main("test-repo")
+    create_commit(worktree, "a.txt", "a\n", "feat: a")
+    push_branch(worktree, "feature/work")
+    sha = rev_parse(worktree)
+
+    assert (
+        host.contains("test-repo", sha, base),
+        host.contains("test-repo", base, sha),
+    ) == (
+        False,
+        True,
+    )
+    assert host.push_main("test-repo", sha)[0] is True
+    assert host.origin_main("test-repo") == sha
+    assert host.delete_remote_branch("test-repo", "feature/work") is None
+    assert remote_tip(worktree, "feature/work") is None
+
+    create_commit(worktree, "b.txt", "b\n", "feat: b")
+    push_to_origin_main(project_path, remote)
+    ok, out = host.push_main("test-repo", rev_parse(worktree))
+    assert ok is False
+    assert "rejected" in out
+
+
+async def test_a_main_that_moved_before_the_click_refuses_with_no_push():
+    q = Queue()
+    mr = await _passed(q)
+    q.host.tip = "e" * 40
+    op = await _merge(q)
+
+    assert (op["state"], op["words"]) == (
+        "refused",
+        "main moved since the submit: rebase and rebuild",
+    )
+    assert q.host.pushes == []
+    assert (await q.requests.read(mr.id)).state == "open"
+    assert q.queue.current[("demo", "feat/k1")].status == "stale"
+
+
+async def test_a_rejected_push_refuses_and_shows_stale():
+    q = Queue()
+    mr = await _passed(q)
+    q.host.race = "e" * 40
+    op = await _merge(q)
+
+    assert op["state"] == "refused"
+    assert _steps(op)["push"] == ("refused", "main moved")
+    assert q.host.pushes == [SHA_A]
+    assert (await q.requests.read(mr.id)).state == "open"
+    assert q.queue.tips["demo"] == "e" * 40
+    assert q.queue.current[("demo", "feat/k1")].status == "stale"
+
+
+async def test_a_main_that_already_holds_the_sha_merges_with_no_push():
+    q = Queue()
+    mr = await _passed(q)
+    q.host.main.add(SHA_A)
+    q.host.tip = SHA_A
+    op = await _merge(q)
+
+    assert op["state"] == "done"
+    assert _steps(op)["push"] == ("done", "main already holds aaaaaaa")
+    assert q.host.pushes == []
+    assert (await q.requests.read(mr.id)).state == "merged"
+
+
+async def test_a_merge_makes_the_other_passed_requests_of_the_project_stale():
+    q = Queue()
+    await _passed(q, "k1", SHA_A)
+    await _passed(q, "k2", SHA_B)
+    await _merge(q, "demo/k1", SHA_A)
+
+    assert q.queue.current[("demo", "feat/k2")].status == "stale"
+
+
+@pytest.mark.parametrize(
+    ("fault", "step", "words"),
+    [
+        ("delete", "branch", "no route to origin"),
+        ("update", "main", "local main is ahead of origin/main"),
+    ],
+)
+async def test_a_fault_after_the_push_is_a_warning_and_the_merge_stands(
+    fault, step, words
+):
+    q = Queue()
+    mr = await _passed(q)
+    if fault == "delete":
+        q.host.delete_fault = RuntimeError(words)
+    else:
+        q.host.update_result = UpdateMainResult("warning", words)
+    op = await _merge(q)
+
+    assert op["state"] == "done"
+    assert _steps(op)[step] == ("done", words)
+    assert (await q.requests.read(mr.id)).state == "merged"
+    assert ("merge.merged", mr.build) in q.told
+
+
+async def test_a_merge_is_pinned_to_the_sha_and_to_a_passed_build():
+    q = Queue()
+    await _passed(q)
+    with pytest.raises(MergeRequestError):
+        await q.queue.merge("demo/k1", SHA_B)
+    await q.submit(sha=SHA_B)
+    with pytest.raises(MergeRequestError):
+        await q.queue.merge("demo/k1", SHA_B)
+    assert q.host.pushes == []
+
+
+async def test_a_submit_during_the_check_refuses_the_push():
+    q = Queue()
+    await _passed(q)
+    loop = asyncio.get_running_loop()
+
+    def origin_main(project):
+        # A submit lands while the check fetches.
+        asyncio.run_coroutine_threadsafe(q.submit(sha=SHA_B), loop).result()
+        return BASE
+
+    q.host.origin_main = origin_main  # type: ignore[method-assign]
+    op = await _merge(q)
+
+    assert op["state"] == "refused"
+    assert _steps(op)["push"][0] == "refused"
+    assert q.host.pushes == []
+
+
+async def test_a_second_merge_of_the_project_is_busy_while_one_runs():
+    q = Queue()
+    await _passed(q, "k1", SHA_A)
+    await _passed(q, "k2", SHA_B)
+    first = await q.queue.merge("demo/k1", SHA_A)
+    with pytest.raises(Busy):
+        await q.queue.merge("demo/k2", SHA_B)
+    await q.operations.wait(first)
+
+
+async def test_a_push_git_fails_while_main_stays_at_the_base_is_a_fault():
+    q = Queue()
+    mr = await _passed(q)
+    q.host.fault = "fatal: Could not read from remote repository."
+    op = await _merge(q)
+
+    assert op["state"] == "failed"
+    assert _steps(op)["push"] == (
+        "failed",
+        "fatal: Could not read from remote repository.",
+    )
+    assert (await q.requests.read(mr.id)).state == "open"
+    assert q.queue.current[("demo", "feat/k1")].status == "passed"
+
+
+async def test_a_push_git_reports_failed_but_origin_took_is_a_merge():
+    q = Queue()
+    mr = await _passed(q)
+    q.host.fault, q.host.landed = "fatal: the remote end hung up unexpectedly", True
+    op = await _merge(q)
+
+    assert op["state"] == "done"
+    assert (await q.requests.read(mr.id)).state == "merged"
+
+
+async def test_a_merge_tell_lost_to_a_crash_is_told_at_the_next_start():
+    q = Queue()
+    mr = await _passed(q)
+    q.deliver = False
+    await _merge(q)
+    assert (await q.requests.read(mr.id)).told == ""
+
+    q.deliver = True
+    q.told.clear()
+    await q.queue.start()
+    assert q.told == [("merge.merged", mr.build)]
+    assert (await q.requests.read(mr.id)).told == "merged"
+    q.told.clear()
+    await q.queue.start()
+    assert q.told == []
+
+
+async def test_a_start_fetches_the_projects_with_a_passed_request():
+    q = Queue()
+    await _passed(q)
+    q.queue = q._queue()
+    q.host.tip = "e" * 40
+    await q.queue.start()
+    await q.settle(lambda: _status_is(q, "stale"))
+
+
+async def _status_is(q: Queue, status: str) -> bool:
+    return q.queue.current[("demo", "feat/k1")].status == status
+
+
+async def test_rebase_tells_the_chaperone_only_when_stale():
+    q = Queue()
+    mr = await _passed(q)
+    with pytest.raises(MergeRequestError, match="not stale"):
+        await q.queue.rebase(mr.task)
+
+    q.host.tip = "e" * 40
+    await _merge(q)
+    q.told.clear()
+    await q.queue.rebase(mr.task)
+    assert q.told == [("build.rebase", mr.build)]
+
+
+async def test_rebuild_queues_a_new_linked_build_of_the_same_sha():
+    q = Queue()
+    mr, build = await q.submit()
+    await q.gates_started(build.id)
+    q.queue.job_ended(
+        ended(7, "failed", [{"name": "test", "state": "failed", "code": 1}])
+    )
+    await q.state_is(build.id, "failed")
+    await q.idle()
+
+    mr, again = await q.queue.rebuild(mr.task)
+    assert (mr.build, again.sha) == (again.id, SHA_A)
+    assert again.id != build.id
+    assert ("build.queued", again.id) in q.told
+    await q.gates_started(again.id)
+
+
+async def test_rebuild_refuses_a_request_that_has_not_failed():
+    q = Queue()
+    mr = await _passed(q)
+    with pytest.raises(MergeRequestError):
+        await q.queue.rebuild(mr.task)
+    assert q.told[-1] == ("build.passed", mr.build)
+
+
+async def test_rebuild_of_a_build_no_longer_linked_is_refused():
+    q = Queue()
+    _, first = await q.submit(sha=SHA_A)
+    await q.submit(sha=SHA_B)
+    with pytest.raises(MergeRequestError, match="A newer Queue build replaced"):
+        await q.queue.rebuild_build(first.id)

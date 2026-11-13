@@ -183,6 +183,15 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_delete(
         "/api/tasks/{project}/{id}/merge-request", _withdraw_merge_request
     )
+    app.router.add_post(
+        "/api/tasks/{project}/{id}/merge-request/merge", _merge_merge_request
+    )
+    app.router.add_post(
+        "/api/tasks/{project}/{id}/merge-request/rebase", _rebase_merge_request
+    )
+    app.router.add_post(
+        "/api/tasks/{project}/{id}/merge-request/retry", _retry_merge_request
+    )
     app.router.add_post("/api/agents", _start_free_agent)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
@@ -1233,7 +1242,10 @@ async def _withdraw_pr(request: web.Request) -> web.StreamResponse:
 
 
 async def _submit_merge_request(request: web.Request) -> web.StreamResponse:
-    """Submit ``{branch, sha, base}`` to the task's Merge request: a Build is queued."""
+    """Submit ``{branch, sha, base, description?}`` to the task's Merge request.
+
+    A Build is queued. With no ``description``, the request keeps its text.
+    """
     task_id = _task_id(request)
     return await _command(
         request,
@@ -1243,6 +1255,7 @@ async def _submit_merge_request(request: web.Request) -> web.StreamResponse:
             "branch": body.get("branch"),
             "sha": body.get("sha"),
             "base": body.get("base"),
+            "description": body.get("description"),
         },
     )
 
@@ -1266,6 +1279,36 @@ async def _withdraw_merge_request(request: web.Request) -> web.StreamResponse:
     task_id = _task_id(request)
     return await _command(
         request, lambda _body: {"type": "mergeRequest.withdraw", "taskId": task_id}
+    )
+
+
+async def _merge_merge_request(request: web.Request) -> web.StreamResponse:
+    """Merge the task's ``passed`` request at ``{sha}``: an operation pushes it to main."""
+    task_id = _task_id(request)
+    return await _command(
+        request,
+        lambda body: {
+            "type": "mergeRequest.merge",
+            "taskId": task_id,
+            "sha": body.get("sha"),
+        },
+        status=202,
+    )
+
+
+async def _rebase_merge_request(request: web.Request) -> web.StreamResponse:
+    """Ask the chaperone to rebase the task's ``stale`` request and submit again."""
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda _body: {"type": "mergeRequest.rebase", "taskId": task_id}
+    )
+
+
+async def _retry_merge_request(request: web.Request) -> web.StreamResponse:
+    """Queue a new Queue build of the task's ``failed`` request, at the same SHA."""
+    task_id = _task_id(request)
+    return await _command(
+        request, lambda _body: {"type": "mergeRequest.retry", "taskId": task_id}
     )
 
 
