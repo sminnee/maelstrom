@@ -7,6 +7,7 @@ from pathlib import Path
 import click
 
 from mael_common.shell import run_cmd
+from mael_domain.config import load_config_or_default
 from mael_domain.context import resolve_context
 from mael_domain.git_status import read_dirty_files
 from mael_domain.worktree import (
@@ -15,6 +16,7 @@ from mael_domain.worktree import (
     get_current_branch,
     get_local_only_commits,
     merge_to_main,
+    run_git,
     squash_branch,
     uncommit_branch,
 )
@@ -26,7 +28,15 @@ from mael_domain.worktree_model import (
 )
 
 from .json_flag import wants_json
-from .orchestrator_client import tell_pr_changed
+from .merge_cli import _refuse_flags
+from .orchestrator_client import (
+    OrchestratorClient,
+    merge_merge_request,
+    read_merge_request,
+    tell_pr_changed,
+    wait_for_operation,
+)
+from .task_cli import _resolve_task_id
 
 
 def print_rebase_conflict_help(result: SyncResult) -> None:
@@ -287,7 +297,11 @@ def git_status(target):
     help="Skip autosquashing fixup! commits during the rebase",
 )
 def git_merge(target, close, no_squash):
-    """Rebase the current branch onto main, fast-forward main to it, and push."""
+    """Rebase the current branch onto main, fast-forward main to it, and push.
+
+    In a merge: local project, merge the task's passed Merge request instead:
+    the Build queue pushes its gated SHA to main.
+    """
     try:
         context = resolve_context(target, require_project=True, require_worktree=True)
     except ValueError as e:
@@ -300,6 +314,15 @@ def git_merge(target, close, no_squash):
     branch = get_current_branch(worktree_path)
     if branch == MAIN_BRANCH:
         raise click.ClickException(f"Already on {MAIN_BRANCH}; nothing to merge")
+
+    try:
+        mode = load_config_or_default(worktree_path).merge
+    except ValueError as e:
+        raise click.ClickException(f".maelstrom.yaml is invalid: {e}")
+    if mode == "local":
+        assert context.project is not None
+        _merge_local(context.project, worktree_path, close=close, no_squash=no_squash)
+        return
 
     result = merge_to_main(worktree_path, squash=not no_squash, close=close)
 
@@ -316,6 +339,43 @@ def git_merge(target, close, no_squash):
         raise SystemExit(1)
 
     raise click.ClickException(result.message)
+
+
+#: How long `mael git merge` waits for the Merge operation.
+MERGE_WAIT_SECS = 300.0
+
+
+def _merge_local(project: str, cwd: Path, *, close: bool, no_squash: bool) -> None:
+    """Merge the task's ``passed`` Merge request at HEAD, and wait for it."""
+    _refuse_flags("local", close=close, no_squash=no_squash)
+    task_id = _resolve_task_id(None)
+    mr = read_merge_request(project, task_id)
+    if mr["status"] != "passed":
+        raise click.ClickException(
+            f"Merge request {mr['id']} is {mr['status']}, not passed. "
+            "See `mael merge status`."
+        )
+    head = run_git(["rev-parse", "HEAD"], cwd=cwd, quiet=True).stdout.strip()
+    if head != mr["sha"]:
+        raise click.ClickException(
+            f"HEAD is {head[:7]}, but Merge request {mr['id']} is at "
+            f"{mr['sha'][:7]}. Run `mael merge submit` first."
+        )
+    operation_id = merge_merge_request(project, task_id, mr["sha"])
+    ended = wait_for_operation(
+        OrchestratorClient.for_tasks(), operation_id, timeout=MERGE_WAIT_SECS
+    )
+    if ended is None:
+        raise click.ClickException(
+            f"The Merge ({operation_id}) did not end in {MERGE_WAIT_SECS:.0f}s, "
+            "or the server no longer lists it. See `mael merge status`."
+        )
+    if ended["state"] != "done":
+        raise click.ClickException(ended.get("words") or f"The Merge {ended['state']}")
+    click.echo(ended.get("words") or f"Merged {mr['id']}")
+    for step in ended.get("steps") or []:
+        if step.get("words"):
+            click.echo(f"  {step['name']}: {step['words']}")
 
 
 def _scope_option(fn):
