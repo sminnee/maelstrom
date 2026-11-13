@@ -124,8 +124,12 @@ export type MergeRequestStatus =
 /** The branch's current **Merge request**, as its worktree node shows it. */
 export interface WorktreeMergeRequest {
   id: string;
+  /** `<project>/<task id>`: the task the request belongs to. */
+  task: string;
   status: MergeRequestStatus;
   sha: string;
+  /** The submitted `.drafts/pr.md` text, which the Merge confirm shows; `''` with none. */
+  description: string;
   /** The linked Build's failed gates and log, or its failed step; `''` with none. */
   detail: string;
   /** The running Build's **Gate job**, in its Build worktree; `null` while none runs. */

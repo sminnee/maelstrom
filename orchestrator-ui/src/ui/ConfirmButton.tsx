@@ -21,6 +21,7 @@ import styles from './ConfirmButton.module.css';
  */
 export function ConfirmButton({
   question,
+  detail,
   confirm,
   confirmProcessing,
   cancel = 'Keep it',
@@ -34,6 +35,8 @@ export function ConfirmButton({
 }: {
   /** What is asked, e.g. "Delete this task?". */
   question: string;
+  /** Drawn under the question, e.g. what is merged. It scrolls past a max height. */
+  detail?: ReactNode;
   /** The word on the button that goes ahead, e.g. "Delete it". */
   confirm: ReactNode;
   /** Shown on that button while the action runs. Defaults to `confirm`. */
@@ -62,13 +65,20 @@ export function ConfirmButton({
       {asking && (
         <div
           ref={open}
-          className={`${styles.ask} nowrap`}
+          className={detail ? `${styles.ask} ${styles.withDetail}` : `${styles.ask} nowrap`}
           style={anchorStyle}
           role="alertdialog"
           aria-label={question}
           popover="manual"
         >
-          <span>{question}</span>
+          {detail ? (
+            <>
+              <span className={`${styles.question} nowrap`}>{question}</span>
+              <div className={styles.detail}>{detail}</div>
+            </>
+          ) : (
+            <span>{question}</span>
+          )}
           <AppButton onClick={onDismiss}>{cancel}</AppButton>
           {/* The action runs here, so a failure is this button's to report --
               `onError` on the trigger would never hear it. */}
