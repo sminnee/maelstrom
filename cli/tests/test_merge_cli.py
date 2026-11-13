@@ -48,23 +48,23 @@ class Server:
             return call
 
         monkeypatch.setattr(OrchestratorClient, "_call", None)
-        for method in ("get", "put", "delete"):
+        for method in ("get", "put", "post", "delete"):
             monkeypatch.setattr(OrchestratorClient, method, answer(method.upper()))
         monkeypatch.setattr(
             OrchestratorClient, "from_config", classmethod(lambda cls, **kw: cls("x"))
         )
 
 
-def a_request(status="queued"):
+def a_request(status="queued", sha="a" * 40):
     """The server's reply, built by the mapper the server answers with."""
     build_state = {"building": "running", "withdrawn": "cancelled"}.get(status, status)
     mr = MergeRequest(
-        "mr1", "test-repo/k1", "test-repo", "k1", "feature/work", "a" * 40,
+        "mr1", "test-repo/k1", "test-repo", "k1", "feature/work", sha,
         "c" * 40, "open", "b1", "t0", "t0",
     )  # fmt: skip
     if status in ("withdrawn", "merged"):
         mr = replace(mr, state=status)
-    build = Build("b1", "mr1", "test-repo", "a" * 40, "c" * 40, build_state, "t0")
+    build = Build("b1", "mr1", "test-repo", sha, "c" * 40, build_state, "t0")
     return merge_request_json(mr, [build])
 
 
@@ -101,6 +101,23 @@ def test_a_local_submit_pushes_and_submits_head_and_its_base(project, monkeypatc
         },
     )
     assert "Merge request mr1: Queue build b1" in result.output
+
+
+def test_a_local_submit_sends_the_pr_draft_and_leaves_it(project, monkeypatch):
+    _, worktree, _ = project
+    merge_local(worktree)
+    create_commit(worktree, ".gitignore", ".drafts/\n", "chore: ignore drafts")
+    draft = worktree / ".drafts" / "pr.md"
+    draft.parent.mkdir()
+    draft.write_text("## Why\n\nFaster builds.\n")
+    server = Server(monkeypatch, [a_request()])
+
+    result = CliRunner().invoke(cli, ["merge", "submit"])
+
+    assert result.exit_code == 0, result.output
+    (call,) = server.calls
+    assert call[2]["description"] == "## Why\n\nFaster builds.\n"
+    assert draft.exists()
 
 
 def test_a_local_submit_behind_main_is_refused_and_names_sync(project, monkeypatch):
@@ -154,3 +171,101 @@ def test_a_local_withdraw_deletes_the_request(project, monkeypatch):
     assert result.exit_code == 0, result.output
     assert server.calls == [("DELETE", "/api/tasks/test-repo/k2/merge-request", None)]
     assert "Withdrew Merge request mr1" in result.output
+
+
+def test_a_local_retry_posts_the_rebuild(project, monkeypatch):
+    merge_local(project[1])
+    server = Server(monkeypatch, [a_request("queued")])
+    result = CliRunner().invoke(cli, ["merge", "retry", "k2"])
+    assert result.exit_code == 0, result.output
+    assert server.calls == [
+        ("POST", "/api/tasks/test-repo/k2/merge-request/retry", None)
+    ]
+    assert "Queue build b1 of aaaaaaa is queued" in result.output
+
+
+def test_retry_in_a_github_project_is_refused(project, monkeypatch):
+    server = Server(monkeypatch, [a_request("queued")])
+    result = CliRunner().invoke(cli, ["merge", "retry"])
+    assert result.exit_code == 2
+    assert "not used with merge: github" in result.output
+    assert server.calls == []
+
+
+# -- `mael git merge` in a merge: local project --
+
+
+def an_operation(state="done", words="Merged mr1 at aaaaaaa into main"):
+    steps = [{"name": "branch", "state": "done", "words": "could not delete"}]
+    return {
+        "operations": [{"id": "op4", "state": state, "words": words, "steps": steps}]
+    }
+
+
+def test_git_merge_posts_the_passed_sha_and_waits_for_the_merge(project, monkeypatch):
+    _, worktree, _ = project
+    merge_local(worktree)
+    head = rev_parse(worktree)
+    server = Server(
+        monkeypatch,
+        [a_request("passed", sha=head), {"operationId": "op4"}, an_operation()],
+    )
+
+    result = CliRunner().invoke(cli, ["git", "merge"])
+
+    assert result.exit_code == 0, result.output
+    assert server.calls[1] == (
+        "POST",
+        "/api/tasks/test-repo/k1/merge-request/merge",
+        {"sha": head},
+    )
+    assert "Merged mr1 at aaaaaaa into main" in result.output
+    assert "branch: could not delete" in result.output
+
+
+def test_git_merge_reports_a_refused_merge(project, monkeypatch):
+    _, worktree, _ = project
+    merge_local(worktree)
+    Server(
+        monkeypatch,
+        [
+            a_request("passed", sha=rev_parse(worktree)),
+            {"operationId": "op4"},
+            an_operation("refused", "main moved since the submit: rebase and rebuild"),
+        ],
+    )
+    result = CliRunner().invoke(cli, ["git", "merge"])
+    assert result.exit_code == 1
+    assert "main moved since the submit" in result.output
+
+
+@pytest.mark.parametrize(
+    ("status", "at_head", "message"),
+    [
+        ("building", True, "is building, not passed"),
+        ("passed", False, "Run `mael merge submit` first"),
+    ],
+)
+def test_git_merge_refuses_unless_passed_at_head(
+    project, monkeypatch, status, at_head, message
+):
+    _, worktree, _ = project
+    merge_local(worktree)
+    sha = rev_parse(worktree) if at_head else "a" * 40
+    server = Server(monkeypatch, [a_request(status, sha=sha)])
+    result = CliRunner().invoke(cli, ["git", "merge"])
+    assert result.exit_code == 1
+    assert message in result.output
+    assert [c[0] for c in server.calls] == ["GET"]
+
+
+@pytest.mark.parametrize("flag", ["--close", "--no-squash"])
+def test_git_merge_refuses_a_flag_merge_local_has_no_use_for(
+    project, monkeypatch, flag
+):
+    merge_local(project[1])
+    server = Server(monkeypatch, [a_request("passed")])
+    result = CliRunner().invoke(cli, ["git", "merge", flag])
+    assert result.exit_code == 2
+    assert f"{flag}: not used with merge: local" in result.output
+    assert server.calls == []

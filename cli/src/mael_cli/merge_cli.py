@@ -17,7 +17,7 @@ from mael_common.cli_async import AsyncGroup
 from mael_domain.config import MaelstromConfig, load_config_or_default
 from mael_domain.context import resolve_context
 from mael_domain.github import push_head
-from mael_domain.github_model import GitHubError
+from mael_domain.github_model import PR_DRAFT_PATH, GitHubError
 from mael_domain.worktree import (
     FETCH_ERRORS,
     current_branch_or_none,
@@ -30,6 +30,7 @@ from mael_domain.worktree import (
 from . import github_cli
 from .orchestrator_client import (
     read_merge_request,
+    retry_merge_request,
     submit_merge_request,
     withdraw_merge_request,
 )
@@ -101,7 +102,8 @@ async def merge_submit(
 
     merge: github pushes and opens or updates the PR, as `mael gh create-pr`
     does. merge: local pushes the branch and submits its head commit to the
-    task's Merge request, which queues a Build.
+    task's Merge request, which queues a Build. It sends `.drafts/pr.md` as the
+    request's description when the file exists, and leaves the file in place.
     """
     project, project_path, cwd = _where(target)
     mode = _config(cwd).merge
@@ -148,7 +150,9 @@ async def merge_submit(
     except GitHubError as e:
         raise click.ClickException(str(e))
     sha = run_git(["rev-parse", "HEAD"], cwd=cwd, quiet=True).stdout.strip()
-    reply = submit_merge_request(project, task_id, branch, sha, base)
+    draft = cwd / PR_DRAFT_PATH
+    description = draft.read_text() if draft.is_file() else None
+    reply = submit_merge_request(project, task_id, branch, sha, base, description)
     build = reply["builds"][0] if reply.get("builds") else {}
     click.echo(
         f"Merge request {reply['id']}: Queue build {build.get('id', '?')} of "
@@ -248,3 +252,19 @@ async def merge_withdraw(task_id, target):
         return
     reply = withdraw_merge_request(project, _resolve_task_id(task_id))
     click.echo(f"Withdrew Merge request {reply['id']}")
+
+
+@merge.command("retry")
+@click.argument("task_id", required=False, default=None)
+@click.option("--target", default=None, help="Project/worktree target")
+def merge_retry(task_id, target):
+    """Rebuild the task's failed Merge request at the same SHA (merge: local)."""
+    project, _, cwd = _where(target)
+    mode = _config(cwd).merge
+    if mode != "local":
+        raise click.UsageError(f"mael merge retry: not used with merge: {mode}")
+    reply = retry_merge_request(project, _resolve_task_id(task_id))
+    click.echo(
+        f"Merge request {reply['id']}: Queue build {reply['build']} of "
+        f"{reply['sha'][:7]} is {reply['status']}."
+    )
