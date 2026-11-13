@@ -99,9 +99,13 @@ class WorktreeMergeRequest(TypedDict):
     """The branch's current **Merge request**, as its worktree node shows it."""
 
     id: str
+    #: ``<project>/<task id>``: the task the Merge request belongs to.
+    task: str
     #: :data:`mael_domain.merge_request.Status`.
     status: str
     sha: str
+    #: The submitted ``.drafts/pr.md`` text, which the Merge confirm shows.
+    description: str
     #: The linked Build's detail: the failed gates and log, or the failed step.
     detail: str
     #: The running Build's **Gate job**, from its Build worktree; ``None``

@@ -15197,8 +15197,10 @@ def test_a_submit_tells_the_live_agent_on_the_task_and_shows_on_the_node(
     node = harness.orch.world["worktrees"]["northwind-alpha"]["mergeRequest"]
     assert node == {
         "id": "mr1",
+        "task": f"{PROJECT}/NORT-7",
         "status": "stale",
         "sha": "a" * 40,
+        "description": "",
         "detail": "main moved since the submit, so no gate ran",
         "gate": None,
     }
@@ -15302,3 +15304,127 @@ def test_a_gate_watch_job_end_ends_the_running_queue_build(store):
 
     read = run(scenario())
     assert [(b["state"], b["job"]) for b in read["builds"]] == [("passed", 212)]
+
+
+@pytest.mark.parametrize(
+    ("action", "body"),
+    [("merge", {"sha": "a" * 40}), ("rebase", {}), ("retry", {})],
+)
+def test_a_merge_request_action_in_a_github_project_is_refused(
+    harness_factory, action, body
+):
+    harness = harness_factory(build_host=StaleBuildHost(merge="github"))
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(f"{MR_PATH}/{action}", body)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert "merge: local" in reply.body["error"]["message"]
+
+
+def test_a_submit_keeps_its_description_and_a_merge_maps_the_sha(harness_factory):
+    harness = harness_factory(build_host=StaleBuildHost())
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            put = await put_json(api, MR_PATH, {**MR_BODY, "description": "## Why"})
+            again = await put_json(api, MR_PATH, MR_BODY)
+            merge = await api.post(f"{MR_PATH}/merge", {"sha": "b" * 40})
+            return put, again, merge
+
+    put, again, merge = run(scenario())
+    assert (put.body["description"], again.body["description"]) == ("## Why", "## Why")
+    assert merge.status == 400
+    assert merge.body["error"]["message"] == (
+        "Merge request mr1 is now at aaaaaaa, not bbbbbbb"
+    )
+
+
+class FailingBuildHost(PassingBuildHost):
+    """A Build host whose checkout fails, so each Build fails at its checkout."""
+
+    def checkout(self, project: str, slot: str, sha: str) -> Path:
+        raise RuntimeError("unknown sha")
+
+
+def test_the_retry_of_a_failed_build_operation_rebuilds_while_it_is_linked(
+    harness_factory,
+):
+    harness = harness_factory(build_host=FailingBuildHost())
+    harness.add_task("NORT-7")
+
+    def build_ops() -> list[dict]:
+        ops = harness.orch.world["operations"].values()
+        return sorted(
+            (o for o in ops if o["kind"] == "build" and o["state"] != "running"),
+            key=lambda o: o["id"],
+        )
+
+    async def scenario():
+        async with harness.client() as api:
+            await put_json(api, MR_PATH, MR_BODY)
+            await wait_until(lambda: len(build_ops()) == 1)
+            first = build_ops()[0]
+            retried = await api.post(f"/api/operations/{first['id']}/retry")
+            await wait_until(lambda: len(build_ops()) == 2)
+            linked = await api.get_json(MR_PATH)
+            await put_json(api, MR_PATH, {**MR_BODY, "sha": "b" * 40})
+            await wait_until(lambda: len(build_ops()) == 3)
+            replaced = await api.post(f"/api/operations/{first['id']}/retry")
+            return first, retried, linked, replaced
+
+    first, retried, linked, replaced = run(scenario())
+    assert first["state"] == "failed"
+    assert retried.status == 202, retried.body
+    assert [(b["id"], b["sha"]) for b in linked["builds"]] == [
+        ("b2", "a" * 40),
+        ("b1", "a" * 40),
+    ]
+    assert linked["build"] == "b2"
+    assert replaced.status == 400
+    assert replaced.body["error"]["message"] == "A newer Queue build replaced this one."
+
+
+def test_rebase_tells_the_chaperone_of_a_stale_request(harness_factory):
+    harness = harness_factory(build_host=StaleBuildHost())
+    an_agent_on_a_task(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: "ag1" in harness.orch.world["agents"])
+            await put_json(api, MR_PATH, MR_BODY)
+            await wait_until(
+                lambda: events_said(harness) == ["build.queued", "build.rebase"]
+            )
+            reply = await api.post(f"{MR_PATH}/rebase")
+            await wait_until(lambda: len(events_said(harness)) == 3)
+            return reply
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["status"]) == (200, "stale")
+    assert events_said(harness)[-1] == "build.rebase"
+
+
+def test_retry_queues_a_new_build_of_a_failed_request(harness_factory):
+    harness = harness_factory(build_host=FailingBuildHost())
+    harness.add_task("NORT-7")
+
+    async def scenario():
+        async with harness.client() as api:
+            await put_json(api, MR_PATH, MR_BODY)
+
+            async def failed():
+                return (await api.get_json(MR_PATH))["status"] == "failed"
+
+            async with asyncio.timeout(2):
+                while not await failed():
+                    await asyncio.sleep(0.01)
+            return await api.post(f"{MR_PATH}/retry")
+
+    reply = run(scenario())
+    assert reply.status == 200, reply.body
+    assert (reply.body["build"], reply.body["builds"][0]["sha"]) == ("b2", "a" * 40)

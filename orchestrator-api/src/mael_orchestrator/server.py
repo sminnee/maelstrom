@@ -2985,6 +2985,9 @@ class Orchestrator:
             "task.addSession": self._add_task_session,
             "mergeRequest.submit": self._submit_merge_request,
             "mergeRequest.withdraw": self._withdraw_merge_request,
+            "mergeRequest.merge": self._merge_merge_request,
+            "mergeRequest.rebase": self._rebase_merge_request,
+            "mergeRequest.retry": self._retry_merge_request,
             "task.infer": self._infer_task,
             "task.create": self._create_task,
             "task.promote": self._promote,
@@ -5090,6 +5093,15 @@ class Orchestrator:
             # The world held it at validation; the store dropped it past the cap.
             return _refused("unknown_id", f"No operation {operation_id}")
         again = record.command
+        if again.get("type") == "build":
+            # A Build's command cannot run again: a Rebuild queues a new Build.
+            try:
+                await self.build_queue.rebuild_build(again["buildId"])
+            except MergeRequestError as exc:
+                return _refused("invalid", str(exc))
+            return {"ok": True, "result": {"operationId": operation_id}}
+        if again.get("type") == "mergeRequest.merge":
+            return await self._merge_merge_request(again)
         error = validate_command(self.world, again)
         if error:
             return {"ok": False, "error": error}
@@ -5369,17 +5381,65 @@ class Orchestrator:
         reply = await self._write_task(self.tasks.withdraw_pr, task_id)
         return self._with_task(reply, task_id)
 
-    async def _submit_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Submit the task branch's head to its Merge request: a Build is queued."""
-        project, _, task_id = command["taskId"].partition("/")
+    async def _not_local(self, task: str) -> dict[str, Any] | None:
+        """The refusal for a task whose project is not ``merge: local``, or ``None``."""
+        project = task.partition("/")[0]
         config = await asyncio.to_thread(self.build_queue.host.config, project)
         if config.merge != "local":
             return _refused(
                 "invalid", f"Project {project} merges through GitHub, not merge: local"
             )
+        return None
+
+    async def _submit_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Submit the task branch's head to its Merge request: a Build is queued."""
+        if refused := await self._not_local(command["taskId"]):
+            return refused
+        project, _, task_id = command["taskId"].partition("/")
         mr, _ = await self.build_queue.submit(
-            project, task_id, command["branch"], command["sha"], command["base"]
+            project,
+            task_id,
+            command["branch"],
+            command["sha"],
+            command["base"],
+            command.get("description"),
         )
+        return {"ok": True, "result": await self.merge_request_of(mr.task)}
+
+    async def _merge_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start the Merge of the task's ``passed`` request, pinned to ``sha``."""
+        if refused := await self._not_local(command["taskId"]):
+            return refused
+        try:
+            operation_id = await self.build_queue.merge(
+                command["taskId"], command["sha"]
+            )
+        except MergeRequestError as exc:
+            return _refused("invalid", str(exc))
+        except Busy as exc:
+            refused = _refused("invalid", str(exc))
+            refused["error"]["operationId"] = exc.operation_id
+            return refused
+        return {"ok": True, "result": {"operationId": operation_id}}
+
+    async def _rebase_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Tell the chaperone to rebase the task's ``stale`` request and submit again."""
+        if refused := await self._not_local(command["taskId"]):
+            return refused
+        try:
+            mr = await self.build_queue.rebase(command["taskId"])
+        except MergeRequestError as exc:
+            return _refused("invalid", str(exc))
+        return {"ok": True, "result": await self.merge_request_of(mr.task)}
+
+    async def _retry_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Queue a new Build of the task's ``failed`` request, at the same SHA."""
+        if refused := await self._not_local(command["taskId"]):
+            return refused
+        try:
+            mr, _ = await self.build_queue.rebuild(command["taskId"])
+        except MergeRequestError as exc:
+            return _refused("invalid", str(exc))
         return {"ok": True, "result": await self.merge_request_of(mr.task)}
 
     async def _withdraw_merge_request(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -5400,7 +5460,10 @@ class Orchestrator:
         found = await self.build_queue.read(task_key, every=every)
         if not found:
             return None
-        shaped = [merge_request_json(mr, builds) for mr, builds in found]
+        shaped = [
+            merge_request_json(mr, builds, self.build_queue.tips.get(mr.project, ""))
+            for mr, builds in found
+        ]
         return {**shaped[0], **({"earlier": shaped[1:]} if every else {})}
 
     def _with_task(self, reply: dict[str, Any], task_id: str) -> dict[str, Any]:
