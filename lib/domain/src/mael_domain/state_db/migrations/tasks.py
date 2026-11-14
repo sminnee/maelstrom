@@ -179,4 +179,7 @@ TASKS: tuple[Rung, ...] = (
     ),
     # Branch stacking is gone, and the task base with it. See ADR 0004.
     Migration(("ALTER TABLE tasks DROP COLUMN base",)),
+    # The ``blocked`` status is gone: follows are the one way to make a task
+    # wait. See CONTEXT.md, "Parked task".
+    Migration(("UPDATE tasks SET status = 'todo' WHERE status = 'blocked'",)),
 )

@@ -7,13 +7,12 @@ import type { AgentId, DeskId, OperationId, ProjectId, RequestId, TaskId, Worktr
  */
 export type Phase = 'shape' | 'plan' | 'build' | 'land';
 
-/** The folder a task sits in. Mirrors the notebook's six statuses. */
-export type TaskStatus = 'todo' | 'in-progress' | 'blocked' | 'done' | 'cancelled' | 'template';
+/** The folder a task sits in. Mirrors the notebook's five statuses. */
+export type TaskStatus = 'todo' | 'in-progress' | 'done' | 'cancelled' | 'template';
 
 export const TASK_STATUSES = [
   'todo',
   'in-progress',
-  'blocked',
   'done',
   'cancelled',
   'template',

@@ -487,7 +487,7 @@ export function workDeskId(agent: Agent | undefined, taskId: TaskId | undefined)
 }
 
 /** The task statuses whose work still needs its branch. */
-const OPEN_STATUSES: ReadonlySet<TaskStatus> = new Set(['todo', 'in-progress', 'blocked']);
+const OPEN_STATUSES: ReadonlySet<TaskStatus> = new Set(['todo', 'in-progress']);
 
 /** One **Holder** of a worktree. */
 export interface Holder {

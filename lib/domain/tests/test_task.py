@@ -735,12 +735,6 @@ class TestActionable:
         await model.move(store, "p", a.id, "cancelled", now=NOW)
         assert not await model.is_actionable(await model.load(store, "p", a.id), store)
 
-    async def test_blocked_status_not_actionable(self, store):
-        """A task parked in ``blocked/`` never launches, deps satisfied or not."""
-        a = await model.create(store, project="p", title="a", now=NOW)
-        await model.move(store, "p", a.id, model.STATUS_BLOCKED, now=NOW)
-        assert not await model.is_actionable(await model.load(store, "p", a.id), store)
-
 
 class TestCanStartNewSession:
     """A New session may reopen a done task, and nothing else that is shut."""

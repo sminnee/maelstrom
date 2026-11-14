@@ -1307,7 +1307,7 @@ async def task_add_scheduled(
     "--all-todo",
     "all_todo",
     is_flag=True,
-    help="Also show waiting and parked tasks (incomplete deps, or in blocked/); "
+    help="Also show waiting tasks (incomplete deps) and templates; "
     "still hides done/cancelled.",
 )
 @click.option(
@@ -1326,7 +1326,7 @@ async def task_list(
     """List actionable tasks (those that can be started now).
 
     By default only actionable tasks are shown. ``--all-todo`` also includes
-    tasks waiting on incomplete ``follows`` deps and tasks parked in ``blocked/``;
+    tasks waiting on incomplete ``follows`` deps and templates;
     ``--all`` additionally includes done and cancelled. ``--status`` filters
     first, so e.g. ``--status done`` without ``--all`` naturally shows nothing.
     """
@@ -1363,11 +1363,11 @@ async def task_list(
     for t in tasks:
         actionable = t["actionable"]
         terminal = model.is_terminal(t["status"])
-        blocked = not actionable and not terminal
+        waiting = not actionable and not terminal
         if all_ or show_all_in_folder:
             visible = True
         elif all_todo:
-            visible = actionable or blocked
+            visible = actionable or waiting
         else:
             visible = actionable
         if not visible:
@@ -1995,7 +1995,6 @@ _status_command("todo", model.STATUS_TODO, "Move a task back to todo.")
 _status_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress.")
 _status_command("done", model.STATUS_DONE, "Move a task to done.")
 _status_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")
-_status_command("block", model.STATUS_BLOCKED, "Move a task to blocked.")
 _status_command(
     "template", model.STATUS_TEMPLATE, "Park a task as a reusable template."
 )

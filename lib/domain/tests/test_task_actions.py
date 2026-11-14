@@ -150,13 +150,13 @@ class TestMoveWithActions:
 
     @pytest.mark.parametrize(
         "status",
-        [model.STATUS_TODO, model.STATUS_CANCELLED, model.STATUS_BLOCKED],
+        [model.STATUS_TODO, model.STATUS_CANCELLED],
     )
     async def test_other_destinations_fire_nothing(self, monkeypatch, status, store):
         from mael_domain.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
-        # Start in-progress so a move to todo/cancelled/blocked is a real move.
+        # Start in-progress so a move to todo/cancelled is a real move.
         t = await self._seed(
             store,
             parent="linear.NORT-12",

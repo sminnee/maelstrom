@@ -590,12 +590,6 @@ describe('echoesStatus', () => {
   it.each([
     ['a done task', makeTask({ status: 'done' }), undefined, true],
     ['a cancelled task', makeTask({ status: 'cancelled' }), undefined, true],
-    [
-      'a blocked task with no agent',
-      makeTask({ status: 'blocked', actionable: false }),
-      undefined,
-      true,
-    ],
     ['a queued task', makeTask({ status: 'todo', actionable: false }), undefined, false],
     ['a working agent', makeTask({ status: 'in-progress' }), AGENTS.live, false],
   ] as const)('is %s → %s', (_, task, agent, expected) => {
@@ -604,7 +598,7 @@ describe('echoesStatus', () => {
 
   // A status control must never speak alone about a value the card disputes.
   it('is false whenever the status is drifting', () => {
-    expect(progressOf(makeTask({ status: 'blocked' }), AGENTS.idle, [], null).echoesStatus).toBe(
+    expect(progressOf(makeTask({ status: 'todo' }), AGENTS.idle, [], null).echoesStatus).toBe(
       false,
     );
     expect(

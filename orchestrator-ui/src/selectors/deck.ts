@@ -121,9 +121,12 @@ export function emptyZoneWords(zone: Zone): string {
   }
 }
 
-/** The status a drop on each zone sets. Running has none: a drop never launches. */
+/**
+ * The status a drop on each zone sets. Running has none: a drop never launches.
+ * Queued has none: only follows make a task wait.
+ */
 const DROP_STATUS: Record<Zone, TaskStatus | null> = {
-  queued: 'blocked',
+  queued: null,
   todo: 'todo',
   running: null,
   done: 'done',

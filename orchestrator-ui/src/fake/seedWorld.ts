@@ -305,7 +305,7 @@ column the export needs, so this is a read path plus a download endpoint.
 
 /**
  * The world the app tests run against: two projects, a plan awaiting review,
- * a question being asked, working agents, a free agent, history and a blocked
+ * a question being asked, working agents, a free agent, history and a queued
  * task. Every id the app tests name lives here.
  */
 export function seedWorld(): Seed {
@@ -524,7 +524,7 @@ body rather than the query builder.
       id: 'NORT-15',
       project: 'northwind',
       title: 'Shape the reporting module',
-      status: 'blocked',
+      status: 'todo',
       command: 'shape',
       branch: 'feat/reporting',
       follows: ['NORT-12'],

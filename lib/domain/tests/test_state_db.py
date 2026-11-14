@@ -269,6 +269,30 @@ class TestTheShippedLadders:
         finally:
             db.close()
 
+    async def test_an_older_database_moves_each_blocked_task_to_todo(self, tmp_path):
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:10]  # up to the rung before the drop
+            await db.migrate()
+            await db.write_all(
+                [
+                    Write("tasks", "p/b", {"title": "B", "status": "blocked"}),
+                    Write("tasks", "p/w", {"title": "W", "status": "in-progress"}),
+                ]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            table = SqliteTaskTable(db)
+            blocked = await table.load("p", "b")
+            working = await table.load("p", "w")
+            assert blocked is not None and working is not None
+            assert (blocked.status, working.status) == ("todo", "in-progress")
+        finally:
+            db.close()
+
     async def test_the_sessions_rung_runs_without_an_agents_table(self, tmp_path):
         """On a fresh database the tasks ladder can run before the agents ladder."""
         db = open_state_db(tmp_path / "state.db")

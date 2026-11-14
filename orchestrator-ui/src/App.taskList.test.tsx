@@ -91,7 +91,7 @@ describe('the task list', () => {
     await renderApp();
     await goToList(user);
     const tasks = Object.values(seedWorld().world.tasks);
-    const live = tasks.filter((t) => ['todo', 'in-progress', 'blocked'].includes(t.status));
+    const live = tasks.filter((t) => ['todo', 'in-progress'].includes(t.status));
     expect(live.length).toBeLessThan(tasks.length);
     expect(listedIds()).toEqual(live.map((t) => t.id).sort());
 
@@ -104,9 +104,9 @@ describe('the task list', () => {
     await renderApp();
     await goToList(user);
     const trigger = screen.getByRole('button', { name: /^Status/ });
-    expect(trigger).toHaveTextContent(/^todo, in-progress, blocked$/);
+    expect(trigger).toHaveTextContent(/^todo, in-progress$/);
 
-    await toggleStatuses(user, 'todo', 'in-progress', 'blocked');
+    await toggleStatuses(user, 'todo', 'in-progress');
     expect(trigger).toHaveTextContent(/^all$/);
     expect(listedIds()).toEqual(Object.keys(seedWorld().world.tasks).sort());
   });
@@ -183,9 +183,9 @@ describe('the task list', () => {
     const row = () => listRow('NORT-9') as HTMLElement;
     expect(within(row()).queryByRole('combobox')).toBeNull();
 
-    await pickStatus(user, 'NORT-9', 'in-progress', 'blocked');
+    await pickStatus(user, 'NORT-9', 'in-progress', 'todo');
 
-    expect(await within(row()).findByRole('button', { name: 'blocked' })).toBeInTheDocument();
+    expect(await within(row()).findByRole('button', { name: 'todo' })).toBeInTheDocument();
     expect(within(row()).queryByRole('combobox')).toBeNull();
   });
 
@@ -410,7 +410,7 @@ describe('the task list', () => {
     const title = within(editor).getByLabelText('Title');
     await user.clear(title);
     await user.type(title, 'Migrate to Postgres 17');
-    await user.selectOptions(within(editor).getByLabelText('Status'), 'blocked');
+    await user.selectOptions(within(editor).getByLabelText('Status'), 'todo');
     await user.click(within(editor).getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
@@ -418,8 +418,8 @@ describe('the task list', () => {
     const patch = server.requests.find((r) => r.method === 'PATCH');
     expect(patch?.body).toEqual({ title: 'Migrate to Postgres 17' });
     const statusPost = server.requests.find((r) => r.path.endsWith('/status'));
-    expect(statusPost?.body).toEqual({ status: 'blocked' });
-    expect(server.world.tasks['NORT-9']?.status).toBe('blocked');
+    expect(statusPost?.body).toEqual({ status: 'todo' });
+    expect(server.world.tasks['NORT-9']?.status).toBe('todo');
   });
 
   it('closes the editor on Escape when nothing was typed', async () => {
@@ -782,24 +782,24 @@ describe('the task list', () => {
       const user = userEvent.setup();
       const { server } = await renderApp();
       await goToList(user);
-      // NORT-15 is already blocked.
+      // NORT-9 is already in progress.
       for (const id of ['NORT-9', 'NORT-9.1', 'NORT-15']) await tick(user, id);
 
       await user.selectOptions(
         within(bar()).getByRole('combobox', { name: 'Set status' }),
-        'blocked',
+        'in-progress',
       );
 
       await waitFor(noBar);
-      for (const id of ['NORT-9', 'NORT-9.1']) {
+      for (const id of ['NORT-9.1', 'NORT-15']) {
         expect(
-          await within(listRow(id) as HTMLElement).findByRole('button', { name: 'blocked' }),
+          await within(listRow(id) as HTMLElement).findByRole('button', { name: 'in-progress' }),
         ).toBeInTheDocument();
       }
       const posts = server.requests.filter((r) => r.path.endsWith('/status'));
       expect(posts.map((r) => r.path).sort()).toEqual([
+        '/api/tasks/NORT-15/status',
         '/api/tasks/NORT-9.1/status',
-        '/api/tasks/NORT-9/status',
       ]);
     });
 
@@ -812,26 +812,23 @@ describe('the task list', () => {
         message: 'NORT-9 has a running agent',
       });
       await goToList(user);
-      // NORT-9 goes first, so NORT-9.1 moving proves the run did not stop.
-      for (const id of ['NORT-9', 'NORT-9.1']) await tick(user, id);
+      // NORT-9 goes first, so NORT-7 moving proves the run did not stop.
+      for (const id of ['NORT-9', 'NORT-7']) await tick(user, id);
 
-      await user.selectOptions(
-        within(bar()).getByRole('combobox', { name: 'Set status' }),
-        'blocked',
-      );
+      await user.selectOptions(within(bar()).getByRole('combobox', { name: 'Set status' }), 'todo');
 
       expect(await within(bar()).findByRole('alert')).toHaveTextContent(
         '1 of 2 failed: NORT-9 has a running agent',
       );
       expect(bar()).toHaveTextContent('1 selected');
       expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).toBeChecked();
-      expect(screen.getByRole('checkbox', { name: 'Select NORT-9.1' })).not.toBeChecked();
+      expect(screen.getByRole('checkbox', { name: 'Select NORT-7' })).not.toBeChecked();
       expect(
-        await within(listRow('NORT-9.1') as HTMLElement).findByRole('button', { name: 'blocked' }),
+        await within(listRow('NORT-7') as HTMLElement).findByRole('button', { name: 'todo' }),
       ).toBeInTheDocument();
 
       // A new selection is not the one that failed.
-      await tick(user, 'NORT-9.1');
+      await tick(user, 'NORT-7');
       expect(within(bar()).queryByRole('alert')).toBeNull();
     });
 
@@ -841,7 +838,7 @@ describe('the task list', () => {
       await goToList(user);
       const all = screen.getByRole('checkbox', { name: 'Select all' });
       const live = Object.values(seedWorld().world.tasks).filter((t) =>
-        ['todo', 'in-progress', 'blocked'].includes(t.status),
+        ['todo', 'in-progress'].includes(t.status),
       );
 
       await tick(user, 'NORT-9');

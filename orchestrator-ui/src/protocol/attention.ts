@@ -1,13 +1,7 @@
 import type { AgentId, AttentionId, DocumentId, RequestId, TaskId } from './ids';
 
 export type AttentionKind =
-  | 'question'
-  | 'permission'
-  | 'plan_review'
-  | 'document_review'
-  | 'agent_exited'
-  | 'ci_failed'
-  | 'task_blocked';
+  'question' | 'permission' | 'plan_review' | 'document_review' | 'agent_exited' | 'ci_failed';
 
 export interface Attention {
   id: AttentionId;

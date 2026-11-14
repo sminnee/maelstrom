@@ -38,7 +38,6 @@ const AGENT_STATES = all<AgentState>({
 const TASK_STATUSES = all<TaskStatus>({
   todo: true,
   'in-progress': true,
-  blocked: true,
   done: true,
   cancelled: true,
   template: true,
@@ -91,7 +90,6 @@ const ATTENTION_KINDS = all<AttentionKind>({
   document_review: true,
   agent_exited: true,
   ci_failed: true,
-  task_blocked: true,
 });
 const ITEM_TYPES = all<TranscriptItem['type']>({
   message: true,
