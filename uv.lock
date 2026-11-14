@@ -497,6 +497,7 @@ dependencies = [
     { name = "mael-agent" },
     { name = "mael-common" },
     { name = "markdown-to-mrkdwn" },
+    { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
@@ -505,6 +506,7 @@ requires-dist = [
     { name = "mael-agent", editable = "lib/agent" },
     { name = "mael-common", editable = "lib/common" },
     { name = "markdown-to-mrkdwn", specifier = ">=0.3" },
+    { name = "pydantic", specifier = ">=2.13.5" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
 
