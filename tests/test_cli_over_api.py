@@ -320,7 +320,8 @@ def test_status_done_moves_the_row_and_names_the_next_follower(table, start_serv
     assert status_of(table, "NORT-1") == model.STATUS_DONE
 
 
-def test_status_done_names_a_follower_already_running(table, start_server):
+def test_status_done_names_a_parked_follower_that_can_resume(table, start_server):
+    """An in-progress follower with no live agent waits on the user now."""
     seed(table, title="First", id="NORT-1", branch="b")
     seed(
         table,
@@ -337,7 +338,30 @@ def test_status_done_names_a_follower_already_running(table, start_server):
     assert result.output == (
         "NORT-1 -> done\n"
         "\n"
-        "The following task is already in-progress:\n"
+        "The following task can resume now, with mael task run:\n"
+        "  NORT-2 - Second\n"
+    )
+
+
+def test_status_done_names_a_parked_follower_that_still_waits(table, start_server):
+    seed(table, title="First", id="NORT-1", branch="b")
+    seed(table, title="Other", id="NORT-3", branch="c")
+    seed(
+        table,
+        title="Second",
+        id="NORT-2",
+        follows=["NORT-1", "NORT-3"],
+        status=model.STATUS_IN_PROGRESS,
+        branch="b",
+    )
+    start_server()
+
+    result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
+
+    assert result.output == (
+        "NORT-1 -> done\n"
+        "\n"
+        "The following task is parked, and still waits on other work:\n"
         "  NORT-2 - Second\n"
     )
 

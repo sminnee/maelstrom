@@ -767,7 +767,11 @@ class NotebookTaskSource:
         return moved
 
     async def _follower(self, project: str, done_id: str) -> TaskFollower | None:
-        """The follower ``mael task next --run`` would start, unless one already runs."""
+        """The follower ``mael task next --run`` would start, unless one is in progress.
+
+        An in-progress follower is ``running`` here: the source cannot see
+        agents, so the server tells a live one from a parked one.
+        """
         running = await model.running_follower(self.table, project, done_id)
         follower = running or await model.next_follower(self.table, project, done_id)
         if follower is None:
@@ -775,7 +779,7 @@ class NotebookTaskSource:
         return {
             "id": task_key(project, follower.id),
             "title": follower.title,
-            "running": running is not None,
+            "state": "running" if running is not None else "next",
         }
 
     async def update(self, task_id: str, fields: dict[str, Any]) -> None:
