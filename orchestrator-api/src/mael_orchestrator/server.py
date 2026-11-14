@@ -5341,9 +5341,29 @@ class Orchestrator:
         await self.refresh_now()
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
-        return await self._write_task(
+        reply = await self._write_task(
             self.tasks.set_status, command["taskId"], command["status"]
         )
+        follower = (reply.get("result") or {}).get("follower")
+        if follower and follower["state"] == "running":
+            follower["state"] = self._in_progress_state(follower["id"])
+        return reply
+
+    def _in_progress_state(self, task_key: str) -> str:
+        """``running``, ``resume`` or ``waiting``: see ``FollowerState``.
+
+        Any live top-level agent counts, a delegated one included.
+        """
+        live = any(
+            agent["taskId"] == task_key
+            and not agent["parent"]
+            and agent["state"] != "exited"
+            for agent in self.world["agents"].values()
+        )
+        if live:
+            return "running"
+        task = self.world["tasks"].get(task_key)
+        return "resume" if task is not None and task["actionable"] else "waiting"
 
     async def _update_task(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(

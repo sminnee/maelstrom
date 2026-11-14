@@ -2025,14 +2025,20 @@ async def task_rm(id: str, project: str | None) -> None:
 
 
 def _echo_follower(follower: TaskFollower) -> None:
-    """Name the task that follows the one just done: running already, or next to run."""
+    """Name the task that follows the one just done, and where it stands."""
     title = f" - {follower['title']}" if follower["title"] else ""
     click.echo()
-    if follower["running"]:
-        click.echo("The following task is already in-progress:")
-    else:
-        click.echo("mael task next --run will run the following task in a new session:")
+    click.echo(_FOLLOWER_WORDS[follower["state"]])
     click.echo(f"  {_notebook_id(follower['id'])}{title}")
+
+
+#: The line that introduces a follower, by its state.
+_FOLLOWER_WORDS = {
+    "running": "The following task is already in-progress:",
+    "resume": "The following task can resume now, with mael task run:",
+    "waiting": "The following task is parked, and still waits on other work:",
+    "next": "mael task next --run will run the following task in a new session:",
+}
 
 
 @task.group("status")

@@ -2023,6 +2023,33 @@ def test_set_status_moves_the_task_before_it_answers(harness):
     assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "done"
 
 
+def test_set_status_done_names_a_follower_with_a_live_agent_running(harness):
+    """The source sees only ``in-progress``; the server tells a live agent apart."""
+    harness.add_task("NORT-6")
+    an_agent_on_a_task(harness, follows=["NORT-6"], status="in-progress")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await wait_until(
+                    lambda: (
+                        "ag1" in harness.orch.world["agents"]
+                        and harness.orch.world["agents"]["ag1"]["taskId"]
+                        == "northwind/NORT-7"
+                    )
+                )
+                return await api.post(
+                    "/api/tasks/northwind/NORT-6/status", {"status": "done"}
+                )
+
+    reply = run(scenario())
+    assert reply.status == 200
+    assert reply.body == {
+        "follower": {"id": "northwind/NORT-7", "title": "NORT-7", "state": "running"}
+    }
+
+
 def test_update_writes_only_the_fields_it_was_given(harness):
     harness.add_task("NORT-7", branch="feat/orders")
 

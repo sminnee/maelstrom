@@ -458,12 +458,20 @@ class TaskRow(TypedDict):
     sessions: list[TaskSession]
 
 
+#: Where a follower of a task just done stands. ``running``: an agent is live
+#: on it. ``resume``: it is ``in-progress`` with no live agent, and every task
+#: it follows is done, so the user resumes it. ``waiting``: as ``resume``, but
+#: it still follows unfinished work. ``next``: a ``todo`` task that
+#: ``mael task next --run`` would start.
+FollowerState = Literal["running", "resume", "waiting", "next"]
+
+
 class TaskFollower(TypedDict):
-    """A task that follows a task just done: one already running, or the next to run."""
+    """A task that follows a task just done, and where it stands."""
 
     id: str
     title: str
-    running: bool
+    state: FollowerState
 
 
 class StatusMoved(TypedDict, total=False):
