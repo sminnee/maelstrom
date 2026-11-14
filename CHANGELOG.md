@@ -20,6 +20,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **`mael task follow` and `mael task unfollow` change an existing task's follows.** An
+  `in-progress` task that follows unfinished work is a **Parked task**: its agent ends its
+  session, and the task keeps its status and its session. Its node waits in the queued zone
+  until every followed task is done, then you resume it. See [Tasks](docs/guide/tasks.md).
 - **Attach any file, or a text note, to a task or an agent message.** **Attach image** is now
   **Attach file**, and it takes any file up to 50 MB. **Attach text note** turns a block of text
   into a file. An image is embedded as before. Any other file is linked, with its size, and the
@@ -137,6 +141,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **The `blocked` status.** Follows are the one way to make a task wait. The upgrade moves each
+  `blocked` task to `todo`. `mael task status block` is gone, and the kanban Queued column takes
+  no drop.
 - **The Worktrees view.** The worktree table is now the Worktrees tab of each Project dialog.
   `/worktrees` redirects to `/desk`.
 - **`~/.maelstrom.yaml` is no longer read.** Move its contents into `~/.maelstrom/config.yaml`.

@@ -1923,7 +1923,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?}` | `linear.plan` | `202 {operationId}` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |
-| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower` that runs next or already runs. Each is absent when empty |
+| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower`, with its `state`: `running`, `resume`, `waiting` or `next` (see `FollowerState` in `protocol.py`). The source reports an in-progress follower as `running`; the server makes it `resume` or `waiting` when no agent is live on it. Each is absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/tasks/{project}/{id}/documents` | `{name, kind?, title?, body}` | `taskDocument.add` | `{uri, version}` |

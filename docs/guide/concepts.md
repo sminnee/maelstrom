@@ -111,12 +111,13 @@ the session. `minnstack` holds optional development practices, such as `design-b
 ### The task notebook — what each agent is doing
 
 The notebook is a database maelstrom keeps for itself. Each task is one record, and **its
-status is a field on it** — `todo`, `in-progress`, `blocked`, `done`, `cancelled` or
-`template`. See [Tasks](tasks.md).
+status is a field on it** — `todo`, `in-progress`, `done`, `cancelled` or `template`. See
+[Tasks](tasks.md).
 
-Two of the six statuses park a task rather than track its progress. A `template` task is a
-recipe to duplicate from. A `blocked` task is one you parked by hand. Maelstrom never launches
-either, whatever their `follows` say.
+A `template` task is a recipe to duplicate from, and maelstrom never launches it. No status
+means "waiting": a task waits on other work through its `follows`. A task already in progress
+can wait too. `mael task follow <id>` makes it a parked task, and the user resumes it when the
+followed work is done.
 
 Three ideas describe how tasks relate. **Their separability is the single most important
 idea in the system** — each one can vary without the other two:

@@ -5,13 +5,12 @@ The task notebook is how maelstrom knows what each agent is doing, and in what o
 ## What a task is
 
 A task is a record in maelstrom's own database, with a plan in its body. **Its status is one
-of six**:
+of five**:
 
 ```
 todo           actionable, or waiting on a dependency
-in-progress    a session is running it
+in-progress    a session is running it, or it is parked on a dependency
 done
-blocked        parked by hand; never actionable itself
 cancelled
 template       a reusable recipe; never actionable itself
 ```
@@ -73,6 +72,19 @@ quote the `*`: unquoted it is a YAML alias, and `"\*"` is a bad escape. Both fai
 
 `mael task promote` with no follow flag **splices** instead. See [Drafts and
 promotion](#drafts-and-promotion).
+
+`mael task follow` adds follows to a task that already exists. With no `--task`, it changes
+the current task. An `in-progress` task that now follows unfinished work is **parked**: its
+agent ends the session, and the task keeps its status. The node waits in the queued zone. When
+every followed task is done, the node is back in the running zone, and you resume it.
+`mael task status done` on the last followed task names it: "The following task can resume
+now".
+
+```bash
+mael task follow <id>...                  # the current task waits on each id
+mael task follow <id> --task <follower>   # another task waits on <id>
+mael task unfollow <id>                   # the current task stops waiting on <id>
+```
 
 ### Dotted ids express lineage
 

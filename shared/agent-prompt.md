@@ -89,6 +89,9 @@ stays as it is, so close it first. Finish the PR push and the CI watch before yo
 Do not write `<compact-session>` in the message that ends the session. The end wins, and the
 session is not compacted.
 
+To wait on other work, run `mael task follow <id>...`: the `/mael` skill, "Waiting on other
+work", has the steps.
+
 ## PR links
 
 Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so the task card shows
