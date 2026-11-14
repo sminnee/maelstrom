@@ -1889,9 +1889,12 @@ async def reconcile(
       transcript — it never actually launched, so the in-progress status is bogus.
       Suggested fix → ``todo`` (send it back to be run).
     - **orphan-session**: a live session whose task is *not* ``in-progress``
-      (todo/blocked/etc.). Suggested fix → ``in-progress``. A session whose
+      (todo/template). Suggested fix → ``in-progress``. A session whose
       task is already terminal (done/cancelled) or missing is reported with no
       fix — a finished task whose window lingers is not a corruption to flip.
+
+    A parked task — ``in-progress``, no live session, and following unfinished
+    work — gets no row. It waits for the user to resume it.
 
     ``ran_ids`` is built in the CLI layer (transcript existence per in-progress
     task's worktree/session), mirroring how ``session_task_ids`` is injected —
@@ -1916,7 +1919,7 @@ async def reconcile(
                     fix_status=None,
                 )
             )
-        else:
+        elif await is_actionable(task, table):
             # A stopped session just means finished; a task with no transcript
             # never ran. Close the former, send the latter back to todo.
             ran = task.id in ran_ids

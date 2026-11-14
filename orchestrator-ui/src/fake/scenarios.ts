@@ -146,7 +146,11 @@ const NODES: NodeSpec[] = [
     task: { status: 'todo' },
     agent: { state: 'idle' },
   },
-  { title: 'Blocked', task: { status: 'blocked' }, attention: 'task_blocked' },
+  {
+    title: 'Parked on other work',
+    task: { status: 'in-progress', actionable: false },
+    agent: { state: 'exited', exitCode: 0 },
+  },
   { title: 'A template', task: { status: 'template' } },
 ];
 

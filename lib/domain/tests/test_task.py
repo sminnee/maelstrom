@@ -2496,6 +2496,14 @@ class TestReconcile:
         assert rows[0].state == model.RECONCILE_NEVER_RAN
         assert rows[0].fix_status == model.STATUS_TODO
 
+    async def test_a_parked_task_gets_no_row(self, store):
+        # An in-progress task that follows unfinished work waits for the user
+        # to resume it: --fix must not close it.
+        await model.create(store, project="p", title="h", id="h1")
+        await self._in_progress(store, "p", "a", id="t1", follows=["h1"])
+        rows = await model.reconcile(store, "p", session_task_ids={}, ran_ids={"t1"})
+        assert rows == []
+
     async def test_ran_ids_only_affects_stale_rows(self, store):
         # An OK row (live session) is unaffected even if its id is in ran_ids.
         t = await self._in_progress(store, "p", "a", id="t1")

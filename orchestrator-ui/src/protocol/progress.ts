@@ -99,7 +99,9 @@ function nodeState(
   // Ready is the one waiting state the operator can act on, so it is the one
   // that gets a hue: queued is waiting on other work, ready is waiting on them.
   if (!agent) return task?.actionable ? 'ready' : 'queued';
-  if (agent.state === 'exited') return 'stopped';
+  // A stopped agent on a task that is not actionable waits on other work,
+  // not on the user: see CONTEXT.md, Parked task.
+  if (agent.state === 'exited') return task && !task.actionable ? 'queued' : 'stopped';
   if (isWorking(agent)) return 'working';
   // Waiting on its gate: see CONTEXT.md, Unanswered agent.
   if (agent.state === 'idle' && gate) return 'working';
@@ -112,7 +114,7 @@ function nodeState(
  * The state in words. It switches on the state, not on a second walk of the
  * task and the agent, so the words and the way the node draws cannot disagree.
  * The task only ever supplies the noun for a state that does not name itself:
- * `queued` covers waiting, blocked and template alike.
+ * `queued` covers waiting, parked and template alike.
  */
 function describeState(
   state: NodeState,
@@ -211,6 +213,8 @@ function isTurning(agent: Agent): boolean {
 function driftOf(task: TaskFacts | undefined, agent: Agent | undefined): DriftKind | null {
   if (!task) return null;
   if (task.status === 'in-progress') {
+    // A Parked task waits on other work: no session is expected.
+    if (!task.actionable) return null;
     if (!agent) return 'never-ran';
     // A stopped session just means the work ended: there is no
     // completed-versus-aborted signal on disk.
