@@ -209,7 +209,8 @@ async def test_actionability_is_decided_for_a_changed_task(table):
     """``actionable`` is the notebook's rule, and a partial read still applies it.
 
     ``NORT-8`` follows ``NORT-7``, so it is not actionable until that one is
-    done. Finishing ``NORT-7`` moves both rows, and the reading must say so.
+    done. Finishing ``NORT-7`` moves only its own row, but the reading must
+    carry the follower too, or its ``actionable`` goes stale.
     """
     await model.create(table, project=PROJECT, title="First", id="NORT-7")
     await model.create(
@@ -221,8 +222,28 @@ async def test_actionability_is_decided_for_a_changed_task(table):
     await model.move(table, PROJECT, "NORT-7", model.STATUS_DONE)
     changed = await source.read_since(before)
 
-    by_id = {t["id"]: t for t in changed.tasks}
-    assert by_id[f"{PROJECT}/NORT-7"]["actionable"] is False, "a done task is terminal"
+    assert {t["id"]: t["actionable"] for t in changed.tasks} == {
+        f"{PROJECT}/NORT-7": False,  # a done task is terminal
+        f"{PROJECT}/NORT-8": True,
+    }
+
+
+async def test_a_follower_that_changed_too_is_read_once(table):
+    await model.create(table, project=PROJECT, title="First", id="NORT-7")
+    await model.create(
+        table, project=PROJECT, title="Second", id="NORT-8", follows=["NORT-7"]
+    )
+    source = a_source(table)
+    before = await table.revision()
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_DONE)
+    await model.update(table, PROJECT, "NORT-8", title="Second, renamed")
+    changed = await source.read_since(before)
+
+    assert sorted(t["id"] for t in changed.tasks) == [
+        f"{PROJECT}/NORT-7",
+        f"{PROJECT}/NORT-8",
+    ]
 
 
 async def test_a_task_outside_the_read_projects_is_left_out(table):

@@ -2025,10 +2025,12 @@ async def next_follower(
     Followers are matched across all parents: a ``follows`` edge is not constrained
     to a single parent, so no ``parent`` filter is applied.
     """
-    candidates = await list_tasks(table, project=project, status=STATUS_TODO)
+    candidates = [
+        t for t in await table.followers(project, {done_id}) if t.status == STATUS_TODO
+    ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     for t in candidates:
-        if done_id in t.follows and await is_actionable(t, table):
+        if await is_actionable(t, table):
             return t
     return None
 
@@ -2041,13 +2043,15 @@ async def running_follower(
     """Return an in-progress task that directly follows ``done_id``.
 
     A *direct follower* whose ``follows`` list contains ``done_id`` and which is
-    already ``in-progress`` — i.e. its session is already running, so a new one
-    should **not** be launched. Returns the oldest such task, or
-    ``None`` when no direct follower is in progress.
+    already ``in-progress``, so a new session should **not** be launched. Its
+    session may be live, or it may be a **Parked task**: the table cannot tell
+    which. Returns the oldest such task, or ``None`` when no direct follower is
+    in progress.
     """
-    candidates = await list_tasks(table, project=project, status=STATUS_IN_PROGRESS)
+    candidates = [
+        t
+        for t in await table.followers(project, {done_id})
+        if t.status == STATUS_IN_PROGRESS
+    ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
-    for t in candidates:
-        if done_id in t.follows:
-            return t
-    return None
+    return candidates[0] if candidates else None

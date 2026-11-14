@@ -181,6 +181,14 @@ class TaskTable(ABC):
         """
 
     @abstractmethod
+    async def followers(self, project: str, ids: set[str]) -> "list[Task]":
+        """``project``'s tasks that follow any of ``ids``, oldest first.
+
+        One query, so a poller that re-reads the followers of the rows that
+        changed does not read the whole project.
+        """
+
+    @abstractmethod
     def transact(self) -> Any:
         """Open a write transaction: every write inside it lands as one cut.
 
@@ -294,6 +302,9 @@ class InMemoryTaskTable(TaskTable):
             if any(s.id == session_id for s in _sessions(row["sessions"])):
                 return task_from_row(row)  # type: ignore[arg-type]
         return None
+
+    async def followers(self, project: str, ids: set[str]) -> "list[Task]":
+        return [t for t in await self.list(project) if ids.intersection(t.follows)]
 
     @asynccontextmanager
     async def transact(self) -> AsyncGenerator[None]:
@@ -436,6 +447,21 @@ class SqliteTaskTable(TaskTable):
             ).fetchone()
         )
         return task_from_row(row) if row is not None else None
+
+    async def followers(self, project: str, ids: set[str]) -> "list[Task]":
+        if not ids:
+            return []
+        wanted = sorted(ids)
+        marks = ", ".join("?" for _ in wanted)
+        rows = await self._db._call(
+            lambda conn: conn.execute(
+                f"SELECT * FROM {TABLE} WHERE project = ? AND EXISTS ("  # noqa: S608 — the table name is this module's own
+                f" SELECT 1 FROM json_each(follows) WHERE value IN ({marks}))"
+                " ORDER BY created, task_id",
+                (project, *wanted),
+            ).fetchall()
+        )
+        return [task_from_row(row) for row in rows]
 
     def transact(self) -> Any:
         """The database's own transaction, so every write inside is one cut."""
