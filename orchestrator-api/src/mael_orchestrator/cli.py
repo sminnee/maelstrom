@@ -44,6 +44,7 @@ from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.merge_request_store import SqliteBuildStore, SqliteMergeRequestStore
 from mael_domain.notebook_root import NotebookRootUnset
 from mael_domain.operation_store import SqliteOperationStore
+from mael_domain.orchestrator_data import SqliteOrchestratorDataStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.release_bundle.layout import installed_web_root
 from mael_domain.ssh_target import SshTarget
@@ -406,6 +407,7 @@ def build_orchestrator(
         comm_updates=SqliteCommUpdateStore(state_db),
         operations=SqliteOperationStore(state_db),
         pr_ledger=SqlitePrLedgerStore(state_db),
+        orchestrator_data=SqliteOrchestratorDataStore(state_db),
         merge_requests=merge_requests,
         builds=SqliteBuildStore(state_db),
         build_host=BuildHost(projects_dir),

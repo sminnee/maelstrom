@@ -75,6 +75,7 @@ from mael_domain.external_event import (
     JIG_PICK,
     ORCHESTRATOR,
     ORCHESTRATOR_UI,
+    PR_MERGED,
     SESSION_COMPACTED,
     SESSION_NOT_COMPACTED,
     TASK_UPDATED,
@@ -82,6 +83,7 @@ from mael_domain.external_event import (
     gate_event,
     ledger_without,
     pr_events,
+    pr_merged_ending,
     task_edit_event,
 )
 from mael_domain.external_event import render as render_event
@@ -129,6 +131,10 @@ from mael_domain.operation_store import (
     OperationStore,
 )
 from mael_domain.operations import DONE
+from mael_domain.orchestrator_data import (
+    InMemoryOrchestratorDataStore,
+    OrchestratorDataStore,
+)
 from mael_domain.pr_ledger_store import InMemoryPrLedgerStore, PrLedgerStore
 from mael_domain.protocol import (
     HOST_ID,
@@ -687,6 +693,7 @@ class Orchestrator:
         comm_updates: CommUpdateStore | None = None,
         operations: OperationStore | None = None,
         pr_ledger: PrLedgerStore | None = None,
+        orchestrator_data: OrchestratorDataStore | None = None,
         merge_requests: MergeRequestStore | None = None,
         builds: BuildStore | None = None,
         build_host: BuildHost | None = None,
@@ -776,6 +783,13 @@ class Orchestrator:
         #: What each Registered PR's agents were last told. See
         #: orchestrator-server.md, "External events".
         self.pr_ledger = pr_ledger if pr_ledger is not None else InMemoryPrLedgerStore()
+        #: What the server keeps about each agent, such as its Conditional end.
+        #: See data-architecture.md, "Orchestrator data".
+        self.orchestrator_data = (
+            orchestrator_data
+            if orchestrator_data is not None
+            else InMemoryOrchestratorDataStore()
+        )
         #: The Registered PRs that had a recipient at the last world change, so
         #: a new one is checked against what the cache already holds.
         self._watched_prs: set[str] = set()
@@ -888,6 +902,10 @@ class Orchestrator:
         #: The agents that asked to end the session, until the turn ends. On
         #: the server, not on the watch: a lost stream must not drop it.
         self._pending_ends: set[str] = set()
+        #: The agents in `_pending_ends` because a merge met their Conditional
+        #: end, not because they wrote `<end-session>`. A user message takes
+        #: them out again.
+        self._merge_ends: set[str] = set()
         #: Whether the last watch failed, so a lasting failure logs once.
         self._gate_watch_failed = False
         #: The gate tells in flight, kept so a stop can cancel them.
@@ -953,6 +971,7 @@ class Orchestrator:
         await self._restore_ended_agents()
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
+        await self._drop_stale_conditional_ends()
         await self.build_queue.start()
         self._started.set()
         self._pollers = [
@@ -1683,6 +1702,20 @@ class Orchestrator:
         world = self.world
         kept = desk_model.drop_unknown_agents(world["desk"], world["agents"])
         await self._set_desk(kept)
+
+    async def _drop_stale_conditional_ends(self) -> None:
+        """Clear the Conditional end of each agent that is exited.
+
+        An exit clears it, but an exit the server did not see, such as one
+        while it was down, does not. A resumed agent must not end on a merge
+        it no longer waits for. An agent the world does not hold keeps its
+        end: the first agent read may have failed.
+        """
+        agents = self.world["agents"]
+        for agent_id, data in (await self.orchestrator_data.list()).items():
+            agent = agents.get(agent_id)
+            if data.end_on and agent is not None and agent["state"] == "exited":
+                await self.orchestrator_data.update(agent_id, end_on=None)
 
     async def _prune_desk(self) -> None:
         """Drop desk entries for tasks that are no longer in the notebook."""
@@ -2426,6 +2459,22 @@ class Orchestrator:
         if out.end_session:
             # Parked even in replay, as a compaction request is.
             self._pending_ends.add(watch.agent_id)
+            if watch.caught_up.is_set():
+                await self.orchestrator_data.update(watch.agent_id, end_on=None)
+        elif out.end_on and watch.caught_up.is_set():
+            # Only a live marker arms: a replayed one may since have been
+            # cleared by a stop or a user message.
+            await self.orchestrator_data.update(watch.agent_id, end_on=out.end_on)
+        if out.end_refused and watch.caught_up.is_set():
+            log.warning(
+                "agent %s: end-session marker ignored: %s",
+                watch.agent_id,
+                out.end_refused,
+            )
+        if out.user_said and watch.caught_up.is_set():
+            # A message from the TUI or `mael agent say` reaches the agent
+            # past `_say`: the stream is the one place every path shows.
+            await self._clear_conditional_end(watch.agent_id)
         await self._follow_compact(watch, out)
         if out.turn_end and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
@@ -2438,6 +2487,16 @@ class Orchestrator:
         # Last: the stop cancels this watch, so the turn's milestone goes first.
         await self._follow_end(watch, out)
 
+    async def _clear_conditional_end(self, agent_id: str) -> None:
+        """The user is here again: a Conditional end must not close the session.
+
+        This also cancels an end that a merge already parked.
+        """
+        await self.orchestrator_data.update(agent_id, end_on=None)
+        if agent_id in self._merge_ends:
+            self._merge_ends.discard(agent_id)
+            self._pending_ends.discard(agent_id)
+
     async def _follow_end(self, watch: AgentWatch, out: Normalised) -> None:
         """Terminate the agent when the turn that asked to end does.
 
@@ -2446,6 +2505,7 @@ class Orchestrator:
         if not out.turn_end or watch.agent_id not in self._pending_ends:
             return
         self._pending_ends.discard(watch.agent_id)
+        self._merge_ends.discard(watch.agent_id)
         if not watch.caught_up.is_set():
             # A replayed turn end was acted on by the run that read it live.
             return
@@ -3000,6 +3060,8 @@ class Orchestrator:
         self._apply(out.events)
         self._drop_hold(agent_id)
         self._pending_ends.discard(agent_id)
+        self._merge_ends.discard(agent_id)
+        await self.orchestrator_data.update(agent_id, end_on=None)
         self._sessions_sent.pop(agent_id, None)
         self._sessions_refused.pop(agent_id, None)
         # A param left on with no agent to hear it could not be turned off:
@@ -3201,6 +3263,9 @@ class Orchestrator:
         # Defaulted, not indexed: an image-only turn is valid, and the
         # route omits `text` when the body carries none.
         text = command.get("text", "")
+        # At once, not when the stream shows the message: a merge may have
+        # parked an end for the turn that runs now.
+        await self._clear_conditional_end(command["agentId"])
         agent = self.world["agents"].get(command["agentId"])
         if agent and agent.get("project"):
             # An attachment ref holds the portable token. The agent needs a
@@ -3904,7 +3969,7 @@ class Orchestrator:
                 events, ledger = pr_events(pr, told, withdrawn)
                 again = pr.url in self._prs_due
                 for sent, event in enumerate(events):
-                    if not await self._tell_logged(agent_ids, event, quiet=again):
+                    if not await self._tell_pr_event(agent_ids, event, quiet=again):
                         self._prs_due.add(pr.url)
                         if sent:
                             ledger = ledger_without(told, ledger, events[sent:])
@@ -3915,6 +3980,38 @@ class Orchestrator:
                     await self.pr_ledger.save(pr.url, ledger)
         except Exception:  # noqa: BLE001 — nothing awaits this task
             log.exception("the PR watch failed for %s", pr.url)
+
+    async def _tell_pr_event(
+        self, agent_ids: list[str], event: ExternalEvent, *, quiet: bool
+    ) -> bool:
+        """Tell one PR event. Whether one agent or more took it.
+
+        A merge ends the session of each agent whose Conditional end waits on
+        it, at the end of the turn the tell starts. See orchestrator-server.md,
+        "An end-session request".
+        """
+        if event.type != PR_MERGED:
+            return bool(await self._tell_logged(agent_ids, event, quiet=quiet))
+        armed = [
+            agent_id
+            for agent_id in agent_ids
+            if (await self.orchestrator_data.read(agent_id)).end_on == PR_MERGED
+        ]
+        plain = [agent_id for agent_id in agent_ids if agent_id not in armed]
+        # Parked before the tell, so a turn the tell starts cannot end first.
+        self._pending_ends.update(armed)
+        self._merge_ends.update(armed)
+        ending = await self._tell_logged(armed, pr_merged_ending(event), quiet=quiet)
+        for agent_id in armed:
+            if agent_id in ending:
+                await self.orchestrator_data.update(agent_id, end_on=None)
+            else:
+                # Not told, so not ended. A redelivery tells it again, unless
+                # another agent of the PR took the merge: the ledger moves.
+                self._pending_ends.discard(agent_id)
+                self._merge_ends.discard(agent_id)
+        told = await self._tell_logged(plain, event, quiet=quiet)
+        return bool(ending or told)
 
     async def _pr_watch_again(self, url: str) -> None:
         """Run the watch for a due PR on what the cache holds now."""
@@ -4121,8 +4218,8 @@ class Orchestrator:
 
     async def _tell_logged(
         self, agent_ids: list[str], event: ExternalEvent, *, quiet: bool = False
-    ) -> bool:
-        """Tell ``event`` and log each refusal. Whether one agent or more took it.
+    ) -> list[str]:
+        """Tell ``event`` and log each refusal. The agents that took it.
 
         ``quiet`` is for a tell sent again: its first refusal is in the log.
         """
@@ -4134,7 +4231,7 @@ class Orchestrator:
                 event.type,
                 refused["error"]["message"],
             )
-        return bool(delivered)
+        return delivered
 
     def _redeliver(self) -> None:
         """Send again each External event that no agent took.

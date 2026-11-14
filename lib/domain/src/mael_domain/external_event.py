@@ -7,7 +7,7 @@ the user's words. The facts are attributes; the body is what to do. See
 
 import html
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
@@ -137,11 +137,7 @@ def pr_events(
 
     if pr.state == "merged":
         if told is None or told.state != "merged":
-            add(
-                PR_MERGED,
-                f"PR #{number} has merged. The work is done: write `<end-session>` "
-                "and end your turn.",
-            )
+            add(PR_MERGED, f"PR #{number} has merged. No action needed.")
     else:
         if told is None:
             add(
@@ -175,6 +171,22 @@ def pr_events(
         if withdrawn:
             events = []
     return events, PrLedger(pr.state, pr.conflicting, failed_oid, green_oid)
+
+
+def pr_merged_ending(event: ExternalEvent) -> ExternalEvent:
+    """A ``pr.merged`` ``event`` as an agent reads it whose **Conditional end** waits on it.
+
+    The server ends that session when the turn ends, so the body says so rather
+    than asking the agent to act.
+    """
+    if event.type != PR_MERGED:
+        raise ValueError(f"not a merge: {event.type}")
+    number = event.attrs.get("pr", "")
+    return replace(
+        event,
+        body=f"PR #{number} has merged. You asked to end the session on the "
+        "merge, so Maelstrom ends it when this turn ends.",
+    )
 
 
 def ledger_without(
