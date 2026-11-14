@@ -135,8 +135,9 @@ and written whole.
 _Avoid_: Ticket, issue, job
 
 **Status**:
-A column on the task row. The six statuses are `todo`, `in-progress`, `blocked`, `done`,
-`cancelled` and `template`. Changing one is a single-column update, not a move.
+A column on the task row. The five statuses are `todo`, `in-progress`, `done`, `cancelled` and
+`template`. Changing one is a single-column update, not a move. No status means "waiting": see
+**Follows**.
 _Avoid_: State, folder
 
 **Parent**:
@@ -148,8 +149,16 @@ _Avoid_: Epic, group
 
 **Follows**:
 The ordering relationship. A task becomes actionable only once every id it follows reaches
-`done`. Follows is the system's real blocking mechanism, and it is independent of parent.
+`done`. Follows is the one way to make a task wait, and it is independent of parent.
+`mael task follow` adds follows to a task that already exists.
 _Avoid_: Depends-on, blocked-by
+
+**Parked task**:
+An `in-progress` task that follows unfinished work. Its agent ended its session to wait, and the
+task keeps its status and its session. Its node is in the queued zone, with the queued styling.
+When every followed task is `done`, the node is a stopped node in the running zone again, and the
+user resumes it. A parked task is not drift: `mael task reconcile --fix` leaves it.
+_Avoid_: Blocked task, paused task
 
 **Dotted id**:
 Lineage expressed in a task's name. `PROJ-12.3` is a child of `PROJ-12`, and
@@ -171,8 +180,8 @@ nothing marks a free agent as lacking a task.
 _Avoid_: Fallback id, placeholder id
 
 **Actionable**:
-A task maelstrom may launch now: not `done`, not `cancelled`, not `blocked`, not a template,
-and every followed id is `done`.
+A task maelstrom may launch now: not `done`, not `cancelled`, not a template, and every followed
+id is `done`.
 _Avoid_: Ready, unblocked
 
 **Template**:
@@ -1385,7 +1394,7 @@ _Avoid_: Done, Finish, Remove
 
 **Holder**:
 Work that still needs a worktree, so a **Dismiss** of another node keeps the worktree open: a live
-top-level agent in the worktree, an open task on it (`todo`, `in-progress` or `blocked`), or a desk
+top-level agent in the worktree, an open task on it (`todo` or `in-progress`), or a desk
 node whose work is in it, whatever its status. A task is on the worktree where its agent ran last,
 else, or when that worktree is closed, on the open worktree of its branch. A bulk Dismiss does not
 count the holders in its **Selection**.
@@ -1443,8 +1452,8 @@ _Avoid_: board
 
 **Zone**:
 One of the four stages of progress the desk lays out left to right: queued, to do, running,
-done. New work is on the left. Queued work waits on other work: it follows unfinished work, or
-it is blocked. To-do work is **Actionable** and waits on the operator. A node's zone comes from
+done. New work is on the left. Queued work waits on other work: it follows unfinished work. A
+**Parked task** is queued too, though an agent ran on it. To-do work is **Actionable** and waits on the operator. A node's zone comes from
 its state, not from its task status: the running zone means an agent has been launched and the
 task is not finished, so an agent that ran and stopped is still running work rather than
 history. Zone boundaries line up across every lane, so the canvas reads as four vertical
@@ -1480,8 +1489,9 @@ How the desk draws its nodes: graph (the **Canvas**), kanban, or list (the **Dec
 mode has its own path, such as `/desk/kanban`, and all three use the same zones. Kanban draws
 one column of cards per zone, with no boxes or follows wires. When the drawn nodes come from two
 or more projects, one lane per project crosses the four columns. A drag of a card to another
-column sets the task status that puts the card in that column: Queued sets `blocked`, To do sets
-`todo`, Done sets `done`. A drop never launches, so the Running column takes no drop. A drop
+column sets the task status that puts the card in that column: To do sets `todo`, Done sets
+`done`. Only follows make a task wait, so the Queued column takes no drop. A drop never launches,
+so the Running column takes no drop. A drop
 stays in the card's own lane: it cannot move a task to another project.
 _Avoid_: Desk view, layout (a layout is narrow, medium or wide)
 

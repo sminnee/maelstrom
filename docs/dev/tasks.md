@@ -83,6 +83,24 @@ They are orthogonal:
 
 A chain is typically a `follows` line-up of siblings that all share one `parent`.
 
+## Parking a task
+
+An `in-progress` task that follows unfinished work is a **Parked task** (see
+`CONTEXT.md`). `mael task follow` makes one:
+
+```bash
+mael task follow k3f9          # the current task now waits on k3f9
+```
+
+- `is_actionable` is false, so the UI's `nodeState` puts the node in the queued
+  zone.
+- `reconcile` and the UI's `driftOf` skip it, so `--fix` does not close it.
+
+`mael task follow` and `unfollow` post `task.update` to the server, which checks
+the full list: unknown ids, a self-follow and a cycle. The server re-reads the
+followers of each changed task on its poll (`TaskTable.followers`), so a
+follower's `actionable` changes in the same tick as the task it follows.
+
 ## `MAEL_TASK_PARENT` and chaining
 
 A session launched by `mael task run` exports `MAEL_TASK_ID` and

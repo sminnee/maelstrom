@@ -367,6 +367,8 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task read ID` | Print the task as markdown, rendered from its row. |
 | `mael task edit ID` | Open the task in `$EDITOR` (default `vi`). Writes it back if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
+| `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until each one is done. |
+| `mael task unfollow IDS...` | Make a task stop following each of `IDS`. |
 | `mael task rm ID` | Delete a task and strip it from any dependents' `follows` lists. |
 | `mael task log ID MSG` | Append a line to a task's log. |
 | `mael task status <state> [ID]` | Move a task between lifecycle states. |
@@ -527,7 +529,7 @@ Rows are in priority order. Within one priority, the oldest task is first.
 |---|---|
 | `--status TEXT` | Filter by status (folder). |
 | `--parent TEXT` | Filter by parent id. |
-| `--all-todo` | Also show waiting tasks (incomplete deps) and tasks parked in `blocked/`. Still hides done and cancelled. |
+| `--all-todo` | Also show waiting tasks (incomplete deps) and templates. Still hides done and cancelled. |
 | `--all` | Show everything, including done and cancelled. Takes precedence over `--all-todo`. |
 
 `--status template` adds the `SCHEDULE` and `NEXT-FIRE` columns. `NEXT-FIRE` is in the
@@ -551,7 +553,7 @@ prefers a task on the current git branch, then falls back to the global next tas
 | Option | Description |
 |---|---|
 | `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`, which runs in this shell, in the task's worktree. |
-| `--new-session` | Start a **New session**: a new session id in place of the current one. The prompt names the task's earlier sessions. A done task reopens. A cancelled, template or blocked task, or one that follows unfinished work, is refused. |
+| `--new-session` | Start a **New session**: a new session id in place of the current one. The prompt names the task's earlier sessions. A done task reopens. A cancelled or template task, or one that follows unfinished work, is refused. |
 
 **`mael task load-many`**
 
@@ -610,18 +612,37 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 | `mael task status todo [ID]` | `todo/` |
 | `mael task status start [ID]` | `in-progress/` |
 | `mael task status done [ID]` | `done/` |
-| `mael task status block [ID]` | `blocked/` |
 | `mael task status cancel [ID]` | `cancelled/` |
 | `mael task status template [ID]` | `template/` |
 
 `ID` defaults to `$MAEL_TASK_ID`, so a session can close its own task with
 `mael task status done`.
 
+**`mael task follow` and `mael task unfollow`**
+
+| Option | Description |
+|---|---|
+| `--task ID` | The task to change. Defaults to `$MAEL_TASK_ID`. With neither, the command refuses with "no current task: pass --task". |
+| `--project TEXT` | Project name. Defaults to the project of the current directory. |
+
+```bash
+mael task follow k3f9 p2x7           # the current task now follows k3f9 and p2x7
+mael task follow k3f9 --task m4q1    # task m4q1 now follows k3f9
+mael task unfollow k3f9              # the current task no longer follows k3f9
+```
+
+The server checks the new follows and refuses an unknown id, a self-follow and a cycle. An id
+already followed, or not followed for `unfollow`, changes nothing. The output names the task and
+its follows. It says "The task now waits on unfinished work." when the task is not
+**Actionable**. An `in-progress` task in that state is a **Parked task**.
+
 **`mael task reconcile`**
 
 | Option | Description |
 |---|---|
 | `--fix` | Apply the suggested corrections. Without it, prints a dry-run table only. |
+
+A **Parked task** gets no row: it waits on other work, so no session is expected.
 
 **`mael task add-scheduled`**
 

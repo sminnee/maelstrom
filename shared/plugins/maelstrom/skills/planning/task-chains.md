@@ -45,6 +45,8 @@ mael task promote .drafts/1.md .drafts/2.md .drafts/3.md
 
 The set splices in after the current task.
 
+To order tasks that already exist, run `mael task follow <id>... --task <follower>`.
+
 On UI approval, the UI already promoted the set the same way and deleted the drafts. Use the reported ids and skip the promote command. On rejection, delete the drafts.
 
 ## Close, launch, end

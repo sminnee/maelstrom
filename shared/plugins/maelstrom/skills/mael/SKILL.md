@@ -32,6 +32,16 @@ Task documents:
 
 `$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the notebook holds the plan. Do not write the plan into Linear.
 
+## Waiting on other work
+
+When the current task cannot go on until another task is done:
+
+1. Run `mael task follow <id>...`. It acts on the current task.
+2. Commit the work in progress.
+3. End the session. When the system prompt teaches `<end-session>`, write it and end your turn.
+
+The task stays `in-progress`. The user resumes it when every followed task is done. Use `--task <id>` only to change another task's follows. Do not wait with a status, a note in the content, or a poll loop.
+
 ## Build and commit
 
 Build as `design-build-test` says, if the skill is available. Stop environments before heavy edits. Run the project gates from its instructions. Commit in small steps. Give each build commit a short body that says why the change was made: `/present` reads these bodies to find the design decisions. Working commits may use `wip:`. Do not use `--fixup` before review; commit the correction as its own step. Use `printf ... | git commit -F -` for commits. Final prefixes are `feat:`, `fix:`, `refactor:`, and `chore:`; include the Linear id when applicable.

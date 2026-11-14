@@ -132,12 +132,12 @@ Leave `branch:` unset on drafts.
 ### `mael task next` returns nothing
 
 ```bash
-mael task list --all-todo     # includes waiting and parked tasks
+mael task list --all-todo     # includes waiting tasks and templates
 ```
 
-A task is actionable only once everything it `follows` is done, and only if it is not parked
-in `blocked/` or `template/`. If nothing is actionable, either an upstream task has not closed
-— see "stuck in `in-progress/`" above — or the task you expect was parked by hand.
+A task is actionable only once everything it `follows` is done, and only if it is not a
+`template`. If nothing is actionable, an upstream task has not closed — see "stuck in
+`in-progress/`" above.
 
 By default `next` prefers the current git branch, then falls back globally. `--branch`
 removes the fallback, so it can legitimately return nothing.

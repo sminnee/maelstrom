@@ -62,6 +62,7 @@ The ordinary run through them, in order:
 | Needs you · … | `in-progress` | awaiting, with an open attention item | running |
 | Unanswered | `in-progress` | idle, with a last message | running |
 | Idle | `in-progress` | idle, with no message | running |
+| Queued | `in-progress`, follows unfinished work | stopped, or none | queued |
 | Finalising | `done` | still running | running |
 | Done | `done` | stopped, or none | done |
 
@@ -70,12 +71,14 @@ then runs `watch-pr` to take CI green — so a `done` task with a live agent is 
 the work, not a disagreement. It stays in the running zone, because the work is not settled
 until CI is, and it moves to the done zone when the agent stops.
 
-Two branches leave that line. `blocked` and `cancelled` read as themselves. And a status that
-disagrees with the agent is drift: `in-progress` with no agent, or `in-progress` whose agent has
-stopped. Drift draws an amber caret and names both values on the card. It never counts as
+Three branches leave that line. `cancelled` reads as itself. A task that is not **Actionable**,
+a **Parked task** included, reads `Queued` in the queued zone (a template reads `Template`), even
+when its agent has stopped: it waits on other work, not on the user. A crash still reads `Exited`. And a status that
+disagrees with the agent is drift: an actionable `in-progress` task with no agent, or one whose
+agent has stopped. Drift draws an amber caret and names both values on the card. It never counts as
 attention, because nothing is waiting on the user.
 
-A stopped agent draws recessed and says `Finished`, and on an `in-progress` task the card offers
+A stopped agent draws recessed and says `Finished`, and on an actionable `in-progress` task the card offers
 `done` as the fix. It stays in the running zone all the same: the session is resumable, so the
 work is unfinished rather than history.
 
@@ -430,12 +433,12 @@ The environment control is `worktrees/EnvControl.tsx`, a split button over the e
 options are listed in [the guide](../guide/dev-environments.md#the-environment-in-the-orchestrator).
 The expanded card draws both controls when its task has an open worktree.
 
-The task list opens on `todo`, `in-progress` and `blocked`, for the same reason the canvas opens
+The task list opens on `todo` and `in-progress`, for the same reason the canvas opens
 near-empty. Ticking `done`, `cancelled` or `template` brings that work back; unticking every
 status shows every task.
 
 The task list also writes. A row's status is a button until it is clicked, then a native select
-of the six statuses. The expanded card carries the same control, at the right end of its state
+of the five statuses. The expanded card carries the same control, at the right end of its state
 strip, so a decision taken on the canvas does not need the list. Both use `ui/StatusPicker.tsx`,
 which says why the select is native. Choosing a status posts the new one, and a refusal shows
 beside the control. A click anywhere on a row opens the task editor, which holds title, status,
@@ -630,8 +633,8 @@ the **Failover id** rule, which `CONTEXT.md` defines.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
 review", never a raw agent state). The state strip also carries the task's notebook status, which
-the user can set from there. Where the words would only restate the status — `done`, `cancelled`,
-and `blocked` with no agent — the card drops them and the status stands alone. The collapsed node
+the user can set from there. Where the words would only restate the status — `done` and
+`cancelled` — the card drops them and the status stands alone. The collapsed node
 keeps them: it has no status control, so there the words are the only reading. A free agent has
 no task, so its card has no status control. Esc, the close button and a click on the canvas
 collapse it — but with the status picker open, Esc closes the picker only.
