@@ -60,7 +60,7 @@ When the implementation is written, run this unattended sequence:
 4. Run `/code-review`, if the skill is available. It squashes the branch, applies its fixes to the working tree, and commits them. A branch whose PR is already open gets an additive pass over the unpushed commits alone.
 5. Run `/present`, if the skill is available. It writes `<milestone>presented</milestone>`.
 6. Push with `mael gh create-pr --squash`, in the background. It rebases, runs the project's `pre_push_cmd`, then pushes. When the check fails, nothing is pushed: fix the failure and run step 6 again.
-7. Run `mael task status done`. When the system prompt teaches `<compact-session>`, write `<compact-session min-tokens="200k">` and end your turn.
+7. Run `mael task status done`. When the system prompt teaches `<compact-session>`, write `<compact-session min-tokens="200k">` and end your turn. When it teaches `<end-session on="pr.merged">`, write that marker in the same message.
 8. Run `/watch-pr` until CI passes or times out.
 
 When more work starts after step 6, run `mael gh withdraw-pr` first, then run the flow again from step 1. A CI fix inside `/watch-pr` does not withdraw.

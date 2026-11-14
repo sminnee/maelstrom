@@ -74,6 +74,10 @@ mael task next --run --parent "$MAEL_TASK_PARENT"   # head now actionable — la
 
 Then the session writes `<end-session>`, and the orchestrator terminates it.
 
+A task session that has pushed its PR writes `<end-session on="pr.merged">` instead. The
+orchestrator terminates it when the PR merges. A message from you clears that request, so a
+session you resume or talk to stays open after the merge.
+
 Promotion consumes each draft file and wires the chain at the moment ids exist. With no follow
 flag, the set [splices](planning.md#expanding-a-chain-mid-way) in after the planning task, so
 the head follows it. Closing the planning task is what makes

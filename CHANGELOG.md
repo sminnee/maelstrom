@@ -100,6 +100,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A session ends on its PR's merge only when it asked to.** After the PR push, the agent writes
+  `<end-session on="pr.merged">`, and the orchestrator ends the session when the PR merges. A
+  stop, an exit, or a message from you clears the request. Before, every merge told the agent to
+  end, so a session you resumed after the merge ended at once. See
+  [An end-session request](docs/dev/orchestrator-server.md#an-end-session-request).
 - **`claude:fable` runs as `claude-fable-5-2`.** Claude Code's own alias `fable` still selects
   Fable 5.1. Maelstrom now gives `claude` the full id: in a daemon launch, in a `--cli` launch,
   and in an execute-model switch.

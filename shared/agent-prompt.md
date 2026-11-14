@@ -89,6 +89,12 @@ stays as it is, so close it first. Finish the PR push and the CI watch before yo
 Do not write `<compact-session>` in the message that ends the session. The end wins, and the
 session is not compacted.
 
+Write `<end-session on="pr.merged">` when you have pushed your task's PR and nothing is left but
+the merge. It does not end the session now. When the PR merges, Maelstrom ends the session at the
+end of the turn that tells you. Only `pr.merged` is a valid `on` value. A stop, an exit, or a
+message from the user clears the conditional end. Write it again when you wait again. It can
+share a message with `<compact-session>`.
+
 To wait on other work, run `mael task follow <id>...`: the `/mael` skill, "Waiting on other
 work", has the steps.
 
@@ -179,7 +185,7 @@ body says what to do: do it. The sources are:
   - `pr.checks_failed`: CI failed on the head commit.
   - `pr.checks_passed`: CI passed. No action is needed.
   - `pr.conflict`: the PR conflicts with its base.
-  - `pr.merged`: the PR merged.
+  - `pr.merged`: the PR merged. The body says whether the session ends.
 - `orchestrator`: `session.compacted`, `session.not_compacted`, and news about your task.
   - `task.updated`: someone edited the task. The `fields` attribute names the changed fields.
   - `task.queued`: the task now follows unfinished work, so it is parked.

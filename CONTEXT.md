@@ -1210,6 +1210,15 @@ resumable, and its task stays open. See `docs/dev/orchestrator-server.md`, "An e
 request".
 _Avoid_: session end (the removed command)
 
+**Conditional end**:
+An **End-session request** that waits for an **External event**, written as
+`<end-session on="pr.merged">`. The agent writes it after it pushes its PR, when it waits only for
+the merge. The orchestrator stores it per agent. When the PR watch tells `pr.merged` to that agent,
+the orchestrator ends the session at the end of that turn. A stop, an exit, or a user message
+clears it, so a session the user resumes or talks to does not end on the merge. See
+`docs/dev/orchestrator-server.md`, "An end-session request".
+_Avoid_: end gate, deferred end
+
 **Milestone snapshot**:
 What a driven agent had spent when it reached a milestone: its own tokens, its subagents' tokens,
 and the host's dollar figure, with the delta since the milestone before it. The deltas sum to the
