@@ -45,4 +45,14 @@ AGENTS: tuple[Rung, ...] = (
             "CREATE INDEX agent_milestones_agent ON agent_milestones (agent_id)",
         )
     ),
+    Migration(
+        (
+            # What the orchestrator server keeps about an agent, as JSON that
+            # `mael_domain.orchestrator_data.OrchestratorData` validates. A companion
+            # to `body`, which the daemon bridge saves whole: a write to one
+            # column leaves the other alone. A new field needs no new rung.
+            "ALTER TABLE agents ADD COLUMN "
+            "orchestrator_data TEXT NOT NULL DEFAULT '{}'",
+        )
+    ),
 )

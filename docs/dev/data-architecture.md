@@ -350,6 +350,22 @@ The difference between a canonical table and a cached one is **one property on t
 a separate database, a separate read path, or a separate design. Only a canonical table is
 backed up. Only a canonical table refuses to be rebuilt from empty.
 
+### Orchestrator data
+
+A single-purpose fact that the server keeps about an agent does not get its own table. It is a
+field of `OrchestratorData` in `mael_domain/orchestrator_data.py`. That pydantic dataclass is stored as
+JSON in the `orchestrator_data` column of the `agents` row. It is validated on each read and
+each write. A new field with a default needs no migration.
+
+The column is a companion to `body`, not a part of it. `body` is the agent's lifecycle record.
+The daemon bridge holds it in memory and saves it whole, so a field that another writer put
+there is lost at the next save. An upsert writes only the columns it names, so a `body` save
+leaves `orchestrator_data` alone, and the reverse is also true.
+
+A row whose JSON does not validate reads as empty. Each field must therefore default to the safe
+side. The **Conditional end**'s `end_on` defaults to no end, so a bad row leaves the session
+open.
+
 ## Choosing a pattern
 
 Ask who authors the data, then how expensive it is to read.

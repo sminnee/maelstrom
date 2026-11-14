@@ -77,6 +77,8 @@ def _decoded(row: Any) -> dict[str, Any] | None:
 
     A store bug must drop the bad row rather than corrupt the read, so a body
     that is not JSON, or whose ``id`` disagrees with the row's, is no record.
+    A row with an empty body holds only ``orchestrator_data``: the server
+    wrote it for an agent with no record, so it is no record either.
     """
     try:
         agent = json.loads(row["body"])

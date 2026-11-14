@@ -5,7 +5,7 @@ description = "Maelstrom's domain model: tasks, worktrees, environments and the 
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Sam Minnee" }]
-dependencies = ["mael-common", "mael-agent", "pyyaml>=6.0", "markdown-to-mrkdwn>=0.3"]
+dependencies = ["mael-common", "mael-agent", "pyyaml>=6.0", "markdown-to-mrkdwn>=0.3", "pydantic>=2.13.5"]
 
 [tool.uv.sources]
 mael-common = { workspace = true }
