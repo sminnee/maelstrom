@@ -30,8 +30,6 @@ export function useRowAction(node: GraphNode): RowAction | null {
     agent: node.agent,
     taskId: node.task?.id,
     where: nodeWorktree(world, node),
-    // The row leaves the deck when the world changes; there is nothing to close.
-    onTakenOffDesk: () => {},
   });
   const { task } = node;
   const { state } = node.progress;

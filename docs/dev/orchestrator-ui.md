@@ -612,8 +612,15 @@ status words, **Unseen** in the strip — see "Operations" in
 [the orchestrator server](orchestrator-server.md). The card, opened again, offers Shelve, Trash
 and Delete as Dismiss chains, so each still ends off the desk.
 
-The session head in the panel draws the same control, from `session/AgentControls.tsx`. There Off
-desk also closes the session tab. The agent's document tabs stay open.
+The session head in the panel draws the same control, from `session/AgentControls.tsx`.
+
+A Dismiss or an Off desk from the UI closes the node's tabs as it starts: the card, the session
+head, a deck row's swipe and the **Bulk bar** all do. `nodeTabKeys` in `selectors/tabs.ts` picks
+the node's session and document tabs. A chain that ends the worktree (`close`, `shelve`, `trash`
+or `delete`) also closes every tab of the worktree's group, because those tabs have no worktree
+left. A refused close loses those tabs too: the tabs close before the server answers. Terminate and Off desk keep the worktree, so its changes and
+dev env tabs stay open for other work there. A node that leaves the desk another way, by `mael`
+or from another window, closes no tabs: the user can still be reading them.
 
 A node shows the bare notebook id, because its lane already names the project. A panel tab
 shows the bare id too, because the panel sidebar beside the strip names the project.

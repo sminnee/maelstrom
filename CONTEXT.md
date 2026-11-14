@@ -1378,7 +1378,9 @@ worktree when it can close and the node is its last **Holder**. It is the button
 node card's end-of-work control. The server runs it as one `dismiss` **Operation**. Its chain is
 `terminate` (stop the agent, then off desk) or a worktree end — `close`, `shelve`, `trash` or
 `delete` — then off desk. A close refuses a dirty tree or unmerged commits, so Dismiss is
-**Refused** on a branch whose PR is not merged yet, and the node stays on the desk.
+**Refused** on a branch whose PR is not merged yet, and the node stays on the desk. A Dismiss
+from the UI closes the node's session and document tabs, and on a worktree end every tab of the
+**Worktree group**.
 _Avoid_: Done, Finish, Remove
 
 **Holder**:

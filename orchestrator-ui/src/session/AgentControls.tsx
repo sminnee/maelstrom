@@ -16,7 +16,7 @@ import { useLaunchOptions } from './useLaunchOptions';
  * agent still goes off the desk, so `agent` is optional.
  *
  * `onTakenOffDesk` runs once Off desk has taken the entry off the desk, or once
- * a Dismiss starts: the card collapses, and the panel closes the session tab.
+ * a Dismiss starts: the card collapses.
  */
 export function AgentControls({ agent, taskId, where, onTakenOffDesk }: EndOfWorkProps) {
   const resume = useResume();

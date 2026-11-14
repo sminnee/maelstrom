@@ -13,6 +13,7 @@ import {
   type DismissStep,
 } from '../selectors/bulkTargets';
 import { isLive, type GraphNode } from '../selectors/graph';
+import { useCloseNodeTabs } from '../panel/useCloseNodeTabs';
 import { OffDeskIcon } from '../shell/OffDeskIcon';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
@@ -48,6 +49,7 @@ export function SelectionBar({
   const comms = useComms().data?.comms;
   const recent = useRecent('comm');
   const bulk = useBulkRun();
+  const closeTabs = useCloseNodeTabs();
   const { busy } = bulk;
   const [linking, setLinking] = useState('');
   const [unlinking, setUnlinking] = useState('');
@@ -80,6 +82,13 @@ export function SelectionBar({
   const setComms = (node: GraphNode, next: string[]) =>
     updateTask.mutateAsync({ taskId: node.task!.id, fields: { comms: next } });
   const runDismiss = async () => {
+    closeTabs(
+      ...plan.map((s) => ({
+        agentId: s.node.agent?.id,
+        taskId: s.node.task?.id,
+        worktreeId: s.worktreeId,
+      })),
+    );
     const { failed, failure } = await bulk.run(plan, (step: DismissStep) =>
       step.chain === 'offDesk'
         ? takeOffDesk.mutateAsync({ id: step.deskId })
