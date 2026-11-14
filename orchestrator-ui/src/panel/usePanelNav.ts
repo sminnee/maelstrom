@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useWorld } from '../api/useWorld';
+import { currentLoc, useRouter } from '../nav/router';
 import { useGo, useLoc, type GoOptions } from '../nav/useNav';
 import { activateTab, groupKeyOf, selectGroup as selectGroupIn } from '../selectors/tabs';
 import { useAppStore } from '../store/store';
@@ -14,7 +15,6 @@ export function usePanelNav() {
   const { panel } = useLoc();
   const go = useGo();
   const ui = useAppStore((s) => s.ui);
-  const closeTabs = useAppStore((s) => s.closeTabs);
   const toggleSplit = useAppStore((s) => s.toggleSplit);
   const activeTabKey = panel?.key ?? null;
   const groupOf = useCallback((tab: PanelTab) => groupKeyOf(world, tab), [world]);
@@ -34,10 +34,26 @@ export function usePanelNav() {
     /** Show a worktree group: the most recent of its tabs, past its split tab. */
     selectGroup: (tabKeys: string[]) =>
       show(selectGroupIn({ ...ui, activeTabKey }, tabKeys).activeTabKey),
-    /**
-     * Close tabs; the active one hands over within its own group first. The move closes: it
-     * goes back when the tab that takes over is the entry before, and replaces otherwise.
-     */
-    close: (keys: string[]) => show(closeTabs(keys, groupOf, activeTabKey), { close: true }),
+    close: useCloseTabs(),
+  };
+}
+
+/**
+ * Close tabs; the active one hands over within its own group first. The move closes: it
+ * goes back when the tab that takes over is the entry before, and replaces otherwise.
+ *
+ * It reads the tabs and the location when it runs, and subscribes to neither: every deck row
+ * and card holds one, through the end-of-work control.
+ */
+export function useCloseTabs(): (keys: string[]) => void {
+  const { world } = useWorld();
+  const router = useRouter();
+  const go = useGo();
+  return (keys) => {
+    const { ui, closeTabs } = useAppStore.getState();
+    const active = currentLoc(router).panel?.key ?? null;
+    const next = closeTabs(keys, (tab) => groupKeyOf(world, tab), active);
+    if (next === active) return;
+    go({ panel: ui.tabs.find((t) => t.key === next) ?? null }, { close: true });
   };
 }
