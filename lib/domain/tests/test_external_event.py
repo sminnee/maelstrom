@@ -23,6 +23,7 @@ from mael_domain.external_event import (
     merge_event,
     parse,
     pr_events,
+    pr_merged_ending,
     rebase_event,
     render,
     task_edit_event,
@@ -128,9 +129,20 @@ class TestPrEvents:
         events, _ = pr_events(_seen("ci-failed"), None, False)
         assert _types(events) == ["pr.watching", "pr.checks_failed"]
 
-    def test_first_sight_of_a_merged_pr_says_only_that(self):
+    def test_first_sight_of_a_merged_pr_says_only_that_and_asks_nothing(self):
+        """An agent that did not ask to end on the merge may be the one the
+        user just resumed, so the body must not end its session."""
         events, _ = pr_events(_seen("merged"), None, False)
-        assert _types(events) == ["pr.merged"]
+        assert [e.body for e in events] == ["PR #118 has merged. No action needed."]
+
+    def test_a_merge_told_to_an_armed_agent_says_the_session_ends(self):
+        events, _ = pr_events(_seen("merged"), None, False)
+        armed = pr_merged_ending(events[0])
+        assert (armed.type, armed.attrs) == ("pr.merged", {"pr": "118"})
+        assert armed.body == (
+            "PR #118 has merged. You asked to end the session on the merge, so "
+            "Maelstrom ends it when this turn ends."
+        )
 
     def test_a_failure_is_told_once_per_head(self):
         ledger = _told(_seen("ci-running"))

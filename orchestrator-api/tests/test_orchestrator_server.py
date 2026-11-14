@@ -58,6 +58,8 @@ from mael_domain.external_event import (
     SESSION_COMPACTED,
     SESSION_NOT_COMPACTED,
     ExternalEvent,
+    pr_events,
+    pr_merged_ending,
 )
 from mael_domain.external_event import parse as parse_external_event
 from mael_domain.feedback import format_controls, format_pick
@@ -75,6 +77,7 @@ from mael_domain.landing_store import InMemoryTaskStepStore, StepEvent
 from mael_domain.language_servers import LanguageServer, LocalRuntime
 from mael_domain.live_feedback_key import sign
 from mael_domain.operation_store import InMemoryOperationStore, OperationRecord
+from mael_domain.orchestrator_data import InMemoryOrchestratorDataStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
 from mael_domain.protocol import HostUsage
 from mael_domain.release_bundle.layout import MANIFEST, Manifest
@@ -9306,6 +9309,245 @@ def test_an_end_session_request_wins_over_a_compaction_request(harness):
                 return said_texts(harness)
 
     assert run(scenario()) == []
+
+
+# --- the conditional end -----------------------------------------------------
+
+
+END_ON_MERGE = 'Pushed.\n\n<end-session on="pr.merged">'
+#: The two merge bodies, as `external_event` words them. The server picks one.
+[_MERGED], _ = pr_events(a_pr("merged"), None, False)
+NEUTRAL, ENDING = _MERGED.body, pr_merged_ending(_MERGED).body
+
+
+def merged_bodies(harness, agent_id: str = "ag1") -> list[str]:
+    """The bodies of each ``pr.merged`` said to ``agent_id``."""
+    return [
+        event.body
+        for c in said(harness)
+        if c["id"] == agent_id
+        and (event := parse_external_event(c["text"]))
+        and event.type == "pr.merged"
+    ]
+
+
+async def stored_end(harness, agent_id: str = "ag1") -> str | None:
+    return (await harness.orch.orchestrator_data.read(agent_id)).end_on
+
+
+async def armed(harness) -> None:
+    """ag1 writes a Conditional end live, and the server stores it."""
+    harness.daemon.push("ag1", tag_event(END_ON_MERGE))
+    harness.daemon.push("ag1", end_turn())
+    await after_message(harness, "Waiting.")
+    assert (await harness.orch.orchestrator_data.read("ag1")).end_on == "pr.merged"
+
+
+def test_a_merge_ends_an_armed_agent_when_the_turn_it_starts_ends(harness):
+    prs = a_watched_pr(harness)
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            await armed(harness)
+            prs.answer = {"feat/orders": a_pr("merged")}
+            await wait_until(lambda: len(merged_bodies(harness)) == 1)
+            before = stopped(harness)
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: stopped(harness))
+            return before, (await harness.orch.orchestrator_data.read("ag1")).end_on
+
+    before, stored = run(scenario())
+    assert before is False
+    assert stored is None
+    assert merged_bodies(harness) == [ENDING]
+
+
+def test_a_merge_does_not_end_an_agent_that_did_not_ask(harness):
+    """The resumed-agent case: the merge is news, not an instruction."""
+    a_watched_pr(harness, state="merged")
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(merged_bodies(harness)) == 1)
+            harness.daemon.push("ag1", end_turn())
+            await after_message(harness, "Continuing.")
+            return stopped(harness)
+
+    assert run(scenario()) is False
+    assert merged_bodies(harness) == [NEUTRAL]
+
+
+def test_a_user_message_clears_the_conditional_end(harness):
+    prs = a_watched_pr(harness)
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            await armed(harness)
+            await api.post("/api/agents/ag1/say", {"text": "One more thing."})
+            prs.answer = {"feat/orders": a_pr("merged")}
+            await wait_until(lambda: len(merged_bodies(harness)) == 1)
+            harness.daemon.push("ag1", end_turn())
+            await after_message(harness, "Continuing.")
+            return stopped(harness)
+
+    assert run(scenario()) is False
+    assert merged_bodies(harness) == [NEUTRAL]
+
+
+def user_turn(text: str) -> dict:
+    """A user message, as the host echoes one sent from any path."""
+    return {
+        "type": "user",
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+        "isReplay": True,
+    }
+
+
+def test_a_user_message_from_the_terminal_clears_the_conditional_end(harness):
+    """The TUI and `mael agent say` reach the agent past the server's `_say`."""
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client():
+            await armed(harness)
+            harness.daemon.push("ag1", user_turn("One more thing."))
+            await after_message(harness, "On it.")
+            return await stored_end(harness)
+
+    assert run(scenario()) is None
+
+
+def test_a_user_message_cancels_the_end_a_merge_parked(harness_factory):
+    """The merge turn runs when the user writes: the session must stay."""
+    ends = InMemoryOrchestratorDataStore()
+    run(ends.update("ag1", end_on="pr.merged"))
+    harness = harness_factory(orchestrator_data=ends)
+    a_watched_pr(harness, state="merged")
+
+    async def scenario():
+        async with harness.client() as api:
+            await wait_until(lambda: merged_bodies(harness) == [ENDING])
+            await api.post("/api/agents/ag1/say", {"text": "Wait, one more thing."})
+            harness.daemon.push("ag1", end_turn())
+            await after_message(harness, "On it.")
+            return stopped(harness)
+
+    assert run(scenario()) is False
+
+
+def test_an_exit_clears_the_conditional_end(harness):
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await armed(harness)
+                harness.daemon.rows["ag1"]["state"] = "exited(0)"
+                await until(api, "/api/agents/ag1", lambda a: a["state"] == "exited")
+                return (await harness.orch.orchestrator_data.read("ag1")).end_on
+
+    assert run(scenario()) is None
+
+
+def test_a_replayed_conditional_end_does_not_arm(harness):
+    """A stop or a user message may have cleared it since it was written."""
+    harness.daemon.rows["ag1"] = agent_row()
+    harness.daemon.backlog["ag1"] = [tag_event(END_ON_MERGE), end_turn()]
+
+    async def scenario():
+        async with harness.client():
+            await after_message(harness, "Continuing.")
+            return (await harness.orch.orchestrator_data.read("ag1")).end_on
+
+    assert run(scenario()) is None
+
+
+def test_an_arm_stored_before_the_start_is_honoured(harness_factory):
+    """The store's own suite proves the SQLite backend persists it."""
+    ends = InMemoryOrchestratorDataStore()
+    run(ends.update("ag1", end_on="pr.merged"))
+    harness = harness_factory(orchestrator_data=ends)
+    a_watched_pr(harness, state="merged")
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(merged_bodies(harness)) == 1)
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: stopped(harness))
+            return (await ends.read("ag1")).end_on
+
+    assert run(scenario()) is None
+    assert merged_bodies(harness) == [ENDING]
+
+
+def test_a_merge_ends_only_the_armed_agent_of_a_pr(harness_factory):
+    ends = InMemoryOrchestratorDataStore()
+    run(ends.update("ag1", end_on="pr.merged"))
+    harness = harness_factory(orchestrator_data=ends)
+    a_watched_pr(harness, state="merged")
+    harness.daemon.rows["ag2"] = agent_row("ag2", session=session_of("NORT-7"))
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(
+                lambda: merged_bodies(harness) and merged_bodies(harness, "ag2")
+            )
+            harness.daemon.push("ag2", end_turn())
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: stopped(harness))
+            await asyncio.sleep(0.05)
+            return {c["id"] for c in harness.daemon.calls if c["cmd"] == "stop"}
+
+    assert run(scenario()) == {"ag1"}
+    assert (merged_bodies(harness), merged_bodies(harness, "ag2")) == (
+        [ENDING],
+        [NEUTRAL],
+    )
+
+
+def test_a_refused_merge_tell_keeps_the_arm_until_one_is_taken(harness_factory):
+    """A turn end before the agent took the merge must not stop it."""
+    ends = InMemoryOrchestratorDataStore()
+    run(ends.update("ag1", end_on="pr.merged"))
+    harness = harness_factory(orchestrator_data=ends)
+    harness.daemon.replies["say"] = [{"error": "agent daemon not reachable"}] * 1000
+    a_watched_pr(harness, state="merged")
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: len(merged_bodies(harness)) >= 2)
+            harness.daemon.push("ag1", end_turn())
+            await after_message(harness, "Still here.")
+            before = (stopped(harness), (await ends.read("ag1")).end_on)
+            harness.daemon.replies["say"].clear()
+            async with asyncio.timeout(2):
+                while (await ends.read("ag1")).end_on is not None:
+                    await asyncio.sleep(0.01)
+            harness.daemon.push("ag1", end_turn())
+            await wait_until(lambda: stopped(harness))
+            return before
+
+    assert run(scenario()) == (False, "pr.merged")
+
+
+def test_the_start_clears_the_conditional_end_of_an_exited_agent(harness_factory):
+    """An exit while the server was down cleared nothing."""
+    ends = InMemoryOrchestratorDataStore()
+    run(ends.update("ag1", end_on="pr.merged"))
+    run(ends.update("gone", end_on="pr.merged"))
+    harness = harness_factory(orchestrator_data=ends)
+    harness.daemon.rows["ag1"] = agent_row(state="exited(0)")
+
+    async def scenario():
+        async with harness.client():
+            return {k: v.end_on for k, v in (await ends.list()).items()}
+
+    # An agent the world does not hold keeps its end: the agent read may have
+    # failed at start.
+    assert run(scenario()) == {"gone": "pr.merged"}
 
 
 # ---------------------------------------------------------------------------
