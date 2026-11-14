@@ -1794,6 +1794,72 @@ async def task_log(id: str, msg: str, project: str | None) -> None:
     click.echo(f"Logged to {id}.")
 
 
+def _follow_options(f):
+    """The arguments ``task follow`` and ``task unfollow`` share."""
+    f = click.option(
+        "--project", default=None, help="Project name (default: from cwd)."
+    )(f)
+    f = click.option(
+        "--task",
+        "task_id",
+        default=None,
+        help="The task to change (default: $MAEL_TASK_ID).",
+    )(f)
+    return click.argument("ids", nargs=-1, required=True)(f)
+
+
+def _change_follows(
+    ids: tuple[str, ...], task_id: str | None, project: str | None, *, add: bool
+) -> None:
+    """Add ``ids`` to, or remove them from, a task's follows, through the server.
+
+    The server checks the full list: unknown ids, a self-follow and a cycle.
+    An id already followed, or not followed, changes nothing.
+    """
+    task_id = task_id or os.environ.get("MAEL_TASK_ID")
+    if not task_id:
+        raise click.ClickException("no current task: pass --task")
+    proj = resolve_project(project)
+    before: list[str] = _task_call(proj, task_id)["follows"]
+    given = [_qualified(proj, i) for i in ids]
+    if add:
+        after = list(dict.fromkeys([*before, *given]))
+    else:
+        after = [f for f in before if f not in given]
+    if after != before:
+        path = f"/api/tasks/{quote(proj, safe='')}/{quote(task_id, safe='')}"
+        OrchestratorClient.for_tasks().patch(path, {"follows": after})
+    t: TaskDetail = _task_call(proj, task_id)
+    follows = ", ".join(_notebook_id(f) for f in t["follows"]) or "nothing"
+    click.echo(f"{task_id} follows: {follows}")
+    if not t["actionable"] and not task_model.is_terminal(t["status"]):
+        click.echo("The task now waits on unfinished work.")
+
+
+@task.command("follow")
+@_follow_options
+async def task_follow(
+    ids: tuple[str, ...], task_id: str | None, project: str | None
+) -> None:
+    """Make a task follow IDS, so it waits until each one is done.
+
+    The task is the current task, or the one --task names.
+    """
+    _change_follows(ids, task_id, project, add=True)
+
+
+@task.command("unfollow")
+@_follow_options
+async def task_unfollow(
+    ids: tuple[str, ...], task_id: str | None, project: str | None
+) -> None:
+    """Make a task stop following IDS.
+
+    The task is the current task, or the one --task names.
+    """
+    _change_follows(ids, task_id, project, add=False)
+
+
 @task.command("update")
 @click.argument("id")
 @click.argument("title", required=False)

@@ -379,6 +379,89 @@ def test_status_start_takes_the_session_s_task(table, start_server, monkeypatch)
     assert status_of(table, "NORT-1") == model.STATUS_IN_PROGRESS
 
 
+def follows_of(table: InMemoryTaskTable, id: str) -> list[str]:
+    return asyncio.run(model.load(table, PROJECT, id)).follows
+
+
+def test_follow_parks_the_current_task_on_many_ids(table, start_server, monkeypatch):
+    """The task keeps its status: follows alone make it wait."""
+    seed(table, title="Working", id="NORT-1", status=model.STATUS_IN_PROGRESS)
+    seed(table, title="Schema", id="NORT-2")
+    seed(table, title="Fixtures", id="NORT-3")
+    start_server()
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-1")
+
+    result = mael_task("follow", "NORT-2", "NORT-3", "--project", PROJECT)
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "NORT-1 follows: NORT-2, NORT-3\nThe task now waits on unfinished work.\n"
+    )
+    assert follows_of(table, "NORT-1") == ["NORT-2", "NORT-3"]
+    assert status_of(table, "NORT-1") == model.STATUS_IN_PROGRESS
+
+
+def seed_follower(table: InMemoryTaskTable) -> None:
+    """NORT-3 follows the done NORT-1; NORT-2 is open."""
+    seed(table, title="Done", id="NORT-1", status=model.STATUS_DONE)
+    seed(table, title="Open", id="NORT-2")
+    seed(table, title="Other", id="NORT-3", follows=["NORT-1"])
+
+
+def test_follow_changes_the_task_named_by_task(table, start_server, monkeypatch):
+    """An id already followed changes nothing; the current task is left alone."""
+    seed_follower(table)
+    start_server()
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-2")
+
+    again = mael_task("follow", "NORT-1", "--task", "NORT-3", "--project", PROJECT)
+    added = mael_task("follow", "NORT-2", "--task", "NORT-3", "--project", PROJECT)
+
+    assert (again.exit_code, again.output) == (0, "NORT-3 follows: NORT-1\n")
+    assert (added.exit_code, added.output) == (
+        0,
+        "NORT-3 follows: NORT-1, NORT-2\nThe task now waits on unfinished work.\n",
+    )
+    assert follows_of(table, "NORT-3") == ["NORT-1", "NORT-2"]
+    assert follows_of(table, "NORT-2") == []
+
+
+def test_unfollow_drops_the_ids_and_ignores_one_not_followed(table, start_server):
+    seed_follower(table)
+    seed(table, title="Waits", id="NORT-4", follows=["NORT-1", "NORT-2"])
+    start_server()
+
+    result = mael_task(
+        "unfollow", "NORT-2", "NORT-9", "--task", "NORT-4", "--project", PROJECT
+    )
+
+    assert (result.exit_code, result.output) == (0, "NORT-4 follows: NORT-1\n")
+    assert follows_of(table, "NORT-4") == ["NORT-1"]
+
+
+def test_follow_with_no_current_task_is_refused(start_server, monkeypatch):
+    start_server()
+    monkeypatch.delenv("MAEL_TASK_ID", raising=False)
+
+    result = mael_task("follow", "NORT-2", "--project", PROJECT)
+
+    assert result.exit_code == 1
+    assert result.output == "Error: no current task: pass --task\n"
+
+
+def test_follow_shows_the_server_s_refusal(table, start_server):
+    """The server checks follows: here, a cycle."""
+    seed(table, title="First", id="NORT-1")
+    seed(table, title="Second", id="NORT-2", follows=["NORT-1"])
+    start_server()
+
+    result = mael_task("follow", "NORT-2", "--task", "NORT-1", "--project", PROJECT)
+
+    assert result.exit_code == 1
+    assert result.output == "Error: That would make a cycle\n"
+    assert follows_of(table, "NORT-1") == []
+
+
 @pytest.mark.parametrize("command", [["show"], ["read"], ["status", "done"]])
 def test_an_unknown_task_is_refused(start_server, command):
     start_server()

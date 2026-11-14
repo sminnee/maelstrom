@@ -123,6 +123,9 @@ class OrchestratorClient:
     def put(self, path: str, body: dict[str, Any] | None = None) -> Any:
         return self._call("PUT", path, body or {})
 
+    def patch(self, path: str, body: dict[str, Any] | None = None) -> Any:
+        return self._call("PATCH", path, body or {})
+
     def delete(self, path: str) -> Any:
         return self._call("DELETE", path, None)
 
