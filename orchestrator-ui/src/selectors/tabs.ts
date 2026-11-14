@@ -414,3 +414,48 @@ export function groupTabs(world: WorldView, tabs: PanelTab[], ownPrefix = ''): P
     }))
     .sort((a, b) => Number(!a.project) - Number(!b.project) || a.label.localeCompare(b.label));
 }
+
+/** A node on the desk, as its tabs are found: see `nodeTabKeys`. */
+export interface TabNode {
+  agentId?: AgentId;
+  /** The node's task. Without it, the agent's task stands in. */
+  taskId?: TaskId;
+  /** The worktree the Dismiss ends, if any. */
+  worktreeId?: WorktreeId;
+}
+
+/**
+ * The open tabs that a node's **Dismiss** or **Off desk** closes: see docs/dev/orchestrator-ui.md.
+ *
+ * A session tab is the node's when its agent is the node's agent, any agent of
+ * the node's task (an earlier session), or a subagent of one of those. A
+ * document tab is the node's when its document belongs to the task or to one of
+ * those agents. With `worktreeId`, every tab of that worktree's group closes too.
+ */
+export function nodeTabKeys(world: WorldView, tabs: PanelTab[], node: TabNode): string[] {
+  const taskId = node.taskId ?? world.agents[node.agentId ?? '']?.taskId;
+  const direct = (id: AgentId): boolean =>
+    id === node.agentId || (!!taskId && world.agents[id]?.taskId === taskId);
+  const ownAgent = (id: AgentId): boolean => {
+    const parent = world.agents[id]?.parent;
+    return direct(id) || (!!parent && direct(parent));
+  };
+  const owns = (tab: PanelTab): boolean => {
+    switch (tab.kind) {
+      case 'session':
+        return ownAgent(tab.agentId);
+      case 'document': {
+        const doc = world.documents[tab.documentId];
+        return !!doc && ((!!taskId && doc.taskId === taskId) || ownAgent(doc.agentId));
+      }
+      case 'changes':
+      case 'devenv':
+        return false;
+    }
+  };
+  return tabs
+    .filter(
+      (t) => owns(t) || (node.worktreeId !== undefined && groupKeyOf(world, t) === node.worktreeId),
+    )
+    .map((t) => t.key);
+}
