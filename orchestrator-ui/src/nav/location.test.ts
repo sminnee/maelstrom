@@ -75,7 +75,7 @@ describe('the URL of a location', () => {
   it('leaves out every default', () => {
     const loc = withLoc(defaultLoc(), {
       filters: { agentStatus: 'all', text: '' },
-      listFilters: { statuses: ['blocked', 'todo', 'in-progress'] },
+      listFilters: { statuses: ['todo', 'in-progress'] },
       zone: 'running',
     });
     expect(toHref(loc)).toBe('/desk/graph');

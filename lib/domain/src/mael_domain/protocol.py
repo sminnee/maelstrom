@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from typing import Any, Literal, NotRequired, TypedDict, cast
 
 Phase = Literal["shaping", "planning", "executing", "finalising"]
-TaskStatus = Literal["todo", "in-progress", "blocked", "done", "cancelled", "template"]
+TaskStatus = Literal["todo", "in-progress", "done", "cancelled", "template"]
 AgentStateName = Literal[
     "idle",
     "processing",

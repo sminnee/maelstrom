@@ -161,9 +161,8 @@ function workingWords(agent: Agent | undefined, gate: WorktreeGate | null): stri
   return 'Working';
 }
 
-/** The words a waiting node uses. Blocked and template say what they are. */
+/** The words a waiting node uses. A template says what it is. */
 function queuedWords(task: TaskFacts | undefined): string {
-  if (task?.status === 'blocked') return 'Blocked';
   if (task?.status === 'template') return 'Template';
   return 'Queued';
 }
@@ -255,8 +254,7 @@ function restatesStatus(task: TaskFacts | undefined, state: NodeState): boolean 
   if (!task) return false;
   // The words say what the status cannot while an agent still carries the PR.
   if (state === 'finalising') return false;
-  if (task.status === 'done' || task.status === 'cancelled') return true;
-  return task.status === 'blocked' && state === 'queued';
+  return task.status === 'done' || task.status === 'cancelled';
 }
 
 /**

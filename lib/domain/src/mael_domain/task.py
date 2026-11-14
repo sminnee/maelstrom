@@ -58,11 +58,6 @@ STATUS_TODO = "todo"
 STATUS_IN_PROGRESS = "in-progress"
 STATUS_DONE = "done"
 STATUS_CANCELLED = "cancelled"
-# A task a human has parked by hand. Never actionable, whatever its ``follows``
-# say, so it stays out of the default scans. Distinct from a *todo* task waiting
-# on its ``follows`` — that is the ordinary blocking mechanism and needs no
-# status change.
-STATUS_BLOCKED = "blocked"
 # A parking folder for tasks you duplicate *from* regularly (templates). Kept
 # out of the actionable/WIP scans (next_task/list_tasks default, is_actionable),
 # which only consider todo + in-progress, yet trivially listed via
@@ -73,7 +68,6 @@ STATUS_TEMPLATE = "template"
 VALID_STATUSES = (
     STATUS_TODO,
     STATUS_IN_PROGRESS,
-    STATUS_BLOCKED,
     STATUS_DONE,
     STATUS_CANCELLED,
     STATUS_TEMPLATE,
@@ -570,7 +564,7 @@ async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
     """Return whether a **New session** may start on ``task`` now.
 
     As :func:`is_actionable`, but a done task is accepted too: a new session
-    reopens it. A cancelled, template or blocked task stays refused, and so
+    reopens it. A cancelled or template task stays refused, and so
     does a task that follows unfinished work.
     """
     if is_done(task.status):
@@ -581,16 +575,15 @@ async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
 async def is_actionable(task: Task, table: "TaskTable") -> bool:
     """Return whether ``task`` can be started now.
 
-    A task is actionable when it is not terminal, not parked, and every id it
-    follows is done. Two statuses park a task. A ``template`` task is a recipe
-    to duplicate from, never something to launch directly. A ``blocked`` task is
-    one a human has parked by hand. Neither is ever actionable, so both stay out
-    of the default ``task list``/``task next`` views.
+    A task is actionable when it is not terminal, not a ``template``, and every
+    id it follows is done. A ``template`` task is a recipe to duplicate from,
+    never something to launch directly, so it stays out of the default
+    ``task list``/``task next`` views.
 
     Each dependency resolves to a single-row query, which is what killed the
     per-dep full scan that used to dominate this hot path.
     """
-    if is_terminal(task.status) or task.status in (STATUS_TEMPLATE, STATUS_BLOCKED):
+    if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
         return False
     for dep in task.follows:
         found = await table.load(task.project, dep)
@@ -971,7 +964,7 @@ async def promote_chain(
     The first task follows ``follows`` and the leaves ``follow_ends`` resolve
     to when either is given, else ``after``, else nothing. A ``*`` resolves
     against the first task's parent. Each later task follows the one before
-    it. With ``after`` and no ``follows``, the set is a **splice**: each ``todo`` or ``blocked`` task
+    it. With ``after`` and no ``follows``, the set is a **splice**: each ``todo`` task
     that followed ``after`` now follows the last new task. A follower that
     already ran keeps the follows it ran with.
 
@@ -1034,7 +1027,7 @@ async def promote_chain(
         if splice and created:
             new_ids = {t.id for t in created}
             for task in await list_tasks(table, project=project):
-                waiting = task.status in (STATUS_TODO, STATUS_BLOCKED)
+                waiting = task.status == STATUS_TODO
                 if task.id in new_ids or not waiting or after not in task.follows:
                     continue
                 moved = [created[-1].id if f == after else f for f in task.follows]
@@ -1942,7 +1935,7 @@ async def reconcile(
             continue  # already an OK row above
         found = await table.load(project, task_id)
         status = found.status if found is not None else None
-        # Only flip a non-terminal task (todo/blocked) into in-progress. A
+        # Only flip a non-terminal task (todo/template) into in-progress. A
         # terminal or missing task with a lingering session is listed, not
         # auto-corrected. NB: the current CLI caller
         # (task_cli._live_sessions_by_task) keys strictly off tasks that still

@@ -94,6 +94,6 @@ export function isActionable(
   task: Pick<Task, 'status' | 'follows'>,
   tasks: Record<TaskId, Pick<Task, 'status'>>,
 ): boolean {
-  if (['done', 'cancelled', 'blocked', 'template'].includes(task.status)) return false;
+  if (['done', 'cancelled', 'template'].includes(task.status)) return false;
   return task.follows.every((id) => tasks[id]?.status === 'done');
 }

@@ -647,11 +647,11 @@ describe('the expanded node', () => {
     await user.click(
       idLine().getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
     );
-    await user.selectOptions(idLine().getByRole('combobox'), 'blocked');
+    await user.selectOptions(idLine().getByRole('combobox'), 'in-progress');
 
     expect(
       await idLine().findByRole('button', {
-        name: 'Status of Watch the migration PR, blocked',
+        name: 'Status of Watch the migration PR, in-progress',
       }),
     ).toBeInTheDocument();
     expect(idLine().queryByRole('combobox')).toBeNull();
@@ -687,7 +687,7 @@ describe('the expanded node', () => {
     await user.click(
       within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
     );
-    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+    await user.selectOptions(within(expanded()).getByRole('combobox'), 'in-progress');
 
     expect(await within(expanded()).findByRole('alert')).toHaveTextContent(
       'That task cannot move yet',
@@ -705,15 +705,15 @@ describe('the expanded node', () => {
     await user.click(
       within(expanded()).getByRole('button', { name: 'Status of Watch the migration PR, todo' }),
     );
-    await user.selectOptions(within(expanded()).getByRole('combobox'), 'blocked');
+    await user.selectOptions(within(expanded()).getByRole('combobox'), 'cancelled');
 
-    // "Blocked" is just `blocked` in words, so the strip does not say it twice.
+    // "Cancelled" is just `cancelled` in words, so the strip does not say it twice.
     expect(
       await within(expanded()).findByRole('button', {
-        name: 'Status of Watch the migration PR, blocked',
+        name: 'Status of Watch the migration PR, cancelled',
       }),
     ).toBeInTheDocument();
-    expect(within(expanded()).queryByText('Blocked')).toBeNull();
+    expect(within(expanded()).queryByText('Cancelled')).toBeNull();
   });
 
   it('a free agent has no status to set, because it has no task', async () => {

@@ -158,10 +158,16 @@ describe('dropStatus', () => {
 
   const todo = makeTask({ id: 'T1', status: 'todo', actionable: true });
   const head = (status: TaskStatus) => makeTask({ id: 'H', status });
-  const blocked = makeTask({ id: 'T2', status: 'blocked', actionable: false, follows: ['H'] });
+  const parked = makeTask({ id: 'T2', status: 'in-progress', actionable: false, follows: ['H'] });
 
   it.each<[string, Parameters<typeof drawnWorld>[0], string, Zone, TaskStatus | null]>([
-    ['a to-do task dropped on Queued is blocked', { tasks: [todo] }, 'T1', 'queued', 'blocked'],
+    [
+      'a drop on Queued is refused: only follows make a task wait',
+      { tasks: [todo] },
+      'T1',
+      'queued',
+      null,
+    ],
     ['any task dropped on Done is done', { tasks: [todo] }, 'T1', 'done', 'done'],
     ['a drop never launches', { tasks: [todo] }, 'T1', 'running', null],
     ['a drop on its own zone does nothing', { tasks: [todo] }, 'T1', 'todo', null],
@@ -178,32 +184,18 @@ describe('dropStatus', () => {
       null,
     ],
     [
-      'a blocked task whose follows are done goes back to todo',
-      { tasks: [head('done'), blocked] },
-      'T2',
-      'todo',
-      'todo',
-    ],
-    [
-      'a blocked task whose follows are not done would stay queued, so To do refuses it',
-      { tasks: [head('in-progress'), blocked] },
+      'a parked task whose follows are not done would stay queued, so To do refuses it',
+      { tasks: [head('in-progress'), parked] },
       'T2',
       'todo',
       null,
     ],
     [
       'a follows id the world does not hold is not done, as the server reads it',
-      { tasks: [blocked] },
+      { tasks: [parked] },
       'T2',
       'todo',
       null,
-    ],
-    [
-      'a done task dropped on Queued is blocked',
-      { tasks: [makeTask({ id: 'T3', status: 'done' })] },
-      'T3',
-      'queued',
-      'blocked',
     ],
     [
       'a task with a live agent stays running, so To do refuses it',

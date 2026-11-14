@@ -190,14 +190,6 @@ def seed_list(table: InMemoryTaskTable) -> None:
         status=in_progress,
         branch="b7",
     )
-    seed(
-        table,
-        title="Parked",
-        id="NORT-8",
-        follows=["NORT-4"],
-        status=model.STATUS_BLOCKED,
-        branch="b8",
-    )
     seed(table, title="Nightly", id="NORT-9", status=model.STATUS_TEMPLATE, branch="b9")
     asyncio.run(
         model.create(
@@ -234,7 +226,6 @@ def test_list_all_todo_adds_what_cannot_start_and_the_actionable_column(
         ["NORT-2", "todo", "high", "yes"],
         ["NORT-6", "in-progress", "medium", "yes"],
         ["NORT-7", "in-progress", "medium", "no"],
-        ["NORT-8", "blocked", "medium", "no"],
         ["NORT-9", "template", "medium", "no"],
         ["NORT-3", "todo", "medium", "no"],
         ["NORT-1", "todo", "low", "yes"],
@@ -254,7 +245,6 @@ def test_list_all_adds_the_finished_tasks(table, start_server):
         ["NORT-5", "cancelled", "medium", "no"],
         ["NORT-6", "in-progress", "medium", "yes"],
         ["NORT-7", "in-progress", "medium", "no"],
-        ["NORT-8", "blocked", "medium", "no"],
         ["NORT-9", "template", "medium", "no"],
         ["NORT-3", "todo", "medium", "no"],
         ["NORT-1", "todo", "low", "yes"],
@@ -359,7 +349,6 @@ def test_status_done_names_a_follower_already_running(table, start_server):
         ("start", model.STATUS_IN_PROGRESS),
         ("done", model.STATUS_DONE),
         ("cancel", model.STATUS_CANCELLED),
-        ("block", model.STATUS_BLOCKED),
         ("template", model.STATUS_TEMPLATE),
     ],
 )

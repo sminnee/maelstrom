@@ -7,7 +7,7 @@ import { branchKey, matchesText } from './filters';
 import { agentsByTask } from './graph';
 
 /** The statuses the task list opens on: work that is still live. */
-export const LIVE_STATUSES: readonly TaskStatus[] = ['todo', 'in-progress', 'blocked'];
+export const LIVE_STATUSES: readonly TaskStatus[] = ['todo', 'in-progress'];
 
 /** The filters that apply only to Tasks. */
 export interface ListFilters {

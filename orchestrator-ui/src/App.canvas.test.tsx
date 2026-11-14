@@ -1001,7 +1001,7 @@ describe('selection', () => {
 
     await user.selectOptions(
       within(bar()!).getByRole('combobox', { name: 'Set status' }),
-      'blocked',
+      'cancelled',
     );
 
     await waitFor(() => expect(selected()).toEqual([]));
@@ -1090,7 +1090,7 @@ describe('selection', () => {
 
     await user.selectOptions(
       within(bar()!).getByRole('combobox', { name: 'Set status' }),
-      'blocked',
+      'cancelled',
     );
 
     // One node is left, but the bar stays to say why.

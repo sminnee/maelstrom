@@ -631,7 +631,6 @@ function asks(): Seed {
       summary: 'The agent exited with code 1',
     }),
     raise('ci_failed', { agentId: null, taskId: 'NORT-12', summary: 'CI failed on PR #118' }),
-    raise('task_blocked', { agentId: null, taskId: 'NORT-15', summary: 'Blocked on NORT-12' }),
   ];
   for (const a of raised) world.attention[a.id] = a;
   world.agents['e5b1d8c3'] = { ...world.agents['e5b1d8c3']!, state: 'exited', exitCode: 1 };

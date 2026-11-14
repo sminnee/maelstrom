@@ -56,7 +56,7 @@ function Row({ label, children }: { label: string; children: ReactNode }) {
 
 /** The task list's status filter, holding its own pick. */
 function StatusFilter() {
-  const [value, setValue] = useState<TaskStatus[]>(['todo', 'in-progress', 'blocked']);
+  const [value, setValue] = useState<TaskStatus[]>(['todo', 'in-progress']);
   return (
     <MultiSelect
       label="Status"

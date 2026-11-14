@@ -590,7 +590,7 @@ describe('worktreeHolders', () => {
         tasks: [
           makeTask({ id: 'T1', status: 'todo' }),
           makeTask({ id: 'T2', status: 'in-progress' }),
-          makeTask({ id: 'T3', status: 'blocked' }),
+          makeTask({ id: 'T3', status: 'in-progress', actionable: false }),
         ],
         desk: [makeDeskEntry({ id: 'task:T1' })],
       }),

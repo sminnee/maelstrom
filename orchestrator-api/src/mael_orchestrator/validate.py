@@ -25,7 +25,7 @@ from .desk import split_desk_id
 from .world_build import split_task_key
 
 #: The six folders a task can sit in. A move names one of these.
-TASK_STATUSES = ("todo", "in-progress", "blocked", "done", "cancelled", "template")
+TASK_STATUSES = ("todo", "in-progress", "done", "cancelled", "template")
 
 #: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.
 EDITABLE = (

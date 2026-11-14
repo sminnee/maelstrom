@@ -91,40 +91,14 @@ describe('the desk modes', () => {
     expect(within(cell('northwind', 'To do')).getAllByTestId('deck-row')).toHaveLength(1);
   });
 
-  it('sets the status a drop on Queued puts the card in', async () => {
-    const { server } = await renderApp({ url: '/desk/kanban' });
-    const before = server.requests.length;
-    const transfer = dataTransfer();
-    fireEvent.dragStart(card('NORT-20'), { dataTransfer: transfer });
-    fireEvent.dragOver(cell('northwind', 'Queued'), { dataTransfer: transfer });
-    // Only the cell the drop would land in lights.
-    expect(cell('northwind', 'Queued')).toHaveAttribute('data-drop');
-    expect(
-      board()
-        .getAllByRole('region')
-        .filter((r) => r.hasAttribute('data-drop')),
-    ).toHaveLength(1);
-    fireEvent.drop(cell('northwind', 'Queued'), { dataTransfer: transfer });
-    fireEvent.dragEnd(card('NORT-20'), { dataTransfer: transfer });
-    await waitFor(() =>
-      expect(commandsSince(server, before)).toEqual(['POST /api/tasks/NORT-20/status']),
-    );
-    const write = server.requests.slice(before).find((r) => r.method === 'POST');
-    expect(write?.body).toEqual({ status: 'blocked' });
-    // The fake reads `actionable` fresh, as the server does, so the card lands where it was dropped.
-    await waitFor(() =>
-      expect(within(cell('northwind', 'Queued')).getByText(/Add a search/)).toBeInTheDocument(),
-    );
-  });
-
   it('refuses a drop in another project’s lane: a drop cannot move a task', async () => {
     const { server } = await renderApp({ url: '/desk/kanban' });
     const before = server.requests.length;
     const transfer = dataTransfer();
     fireEvent.dragStart(card('NORT-20'), { dataTransfer: transfer });
-    fireEvent.dragOver(cell('maelstrom', 'Queued'), { dataTransfer: transfer });
-    expect(cell('maelstrom', 'Queued')).not.toHaveAttribute('data-drop');
-    fireEvent.drop(cell('maelstrom', 'Queued'), { dataTransfer: transfer });
+    fireEvent.dragOver(cell('maelstrom', 'Done'), { dataTransfer: transfer });
+    expect(cell('maelstrom', 'Done')).not.toHaveAttribute('data-drop');
+    fireEvent.drop(cell('maelstrom', 'Done'), { dataTransfer: transfer });
     fireEvent.dragEnd(card('NORT-20'), { dataTransfer: transfer });
     await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
     expect(commandsSince(server, before)).toEqual([]);

@@ -29,6 +29,6 @@ describe('activeFilterCount', () => {
   });
 
   it('counts the live statuses in any order as the default', () => {
-    expect(count('list', {}, { statuses: ['blocked', 'todo', 'in-progress'] })).toBe(0);
+    expect(count('list', {}, { statuses: ['todo', 'in-progress'] })).toBe(0);
   });
 });

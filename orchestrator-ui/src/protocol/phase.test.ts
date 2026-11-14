@@ -95,7 +95,7 @@ describe('isActionable', () => {
     expect(isActionable(task, { A: done, B: open, C: task })).toBe(false);
   });
 
-  it.each(['done', 'cancelled', 'blocked', 'template'] as const)('is false when %s', (status) => {
+  it.each(['done', 'cancelled', 'template'] as const)('is false when %s', (status) => {
     const task = makeTask({ id: 'C', status });
     expect(isActionable(task, { C: task })).toBe(false);
   });

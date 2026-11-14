@@ -33,7 +33,7 @@ const anyStatus = (over = {}, shared = {}) => rows({ statuses: [], ...over }, sh
 
 describe('listTasks', () => {
   it('opens on the live statuses, hiding finished work', () => {
-    expect(noListFilters().statuses).toEqual(['todo', 'in-progress', 'blocked']);
+    expect(noListFilters().statuses).toEqual(['todo', 'in-progress']);
     expect(rows()).toEqual(['maelstrom/MAEL-1', 'northwind/NORT-7']);
   });
 
