@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { expanded, openSession, stripKeys, tabStrip, worktreeRow } from './test/appHelpers';
+import {
+  exitAgent,
+  expanded,
+  openSession,
+  putAway,
+  stripKeys,
+  tabStrip,
+  worktreeRow,
+} from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 
 const sidebar = () => screen.getByRole('tablist', { name: 'Worktrees' });
@@ -111,5 +119,45 @@ describe('the panel sidebar groups tabs by worktree', () => {
     await waitFor(() => expect(rows()).toEqual(['northwind alpha']));
     // The location moves to the tab that takes over once the router has run.
     await waitFor(() => expect(stripKeys()).toEqual(['session:a1f3c9e2']));
+  });
+});
+
+describe("a node's Dismiss closes its tabs", () => {
+  /** Open NORT-9's session in bravo, then NORT-7's session, plan and changes in alpha. */
+  async function openAlphaWork(user: ReturnType<typeof userEvent.setup>) {
+    await openSession(user, 'NORT-9');
+    await openSession(user, 'NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
+    await user.click(within(expanded()).getByRole('link', { name: 'Changes' }));
+    expect(stripKeys()).toEqual([
+      'session:a1f3c9e2',
+      'document:doc-nort7-plan',
+      'changes:northwind-alpha',
+    ]);
+  }
+  const nodeCommands = () => within(within(expanded()).getByTestId('node-commands'));
+
+  it('closes its session, its document and the tabs of the worktree it ends', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    exitAgent(server, 'a1f3c9e2');
+    // NORT-7.1, queued on the same branch, would hold alpha open.
+    await putAway(server, 'NORT-7.1');
+    await openAlphaWork(user);
+
+    await user.click(nodeCommands().getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => expect(rows()).toEqual(['northwind bravo']));
+    await waitFor(() => expect(stripKeys()).toEqual(['session:d9a4c7f1']));
+  });
+
+  it('keeps the worktree tabs when it ends no worktree', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await openAlphaWork(user);
+
+    await user.click(nodeCommands().getByRole('button', { name: 'More actions' }));
+    await user.click(within(expanded()).getByRole('menuitem', { name: '…and take off desk' }));
+    await waitFor(() => expect(stripKeys()).toEqual(['changes:northwind-alpha']));
+    expect(rows()).toEqual(['northwind alpha', 'northwind bravo']);
   });
 });

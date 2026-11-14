@@ -10,8 +10,10 @@ import {
   chipCount,
   commandsSince,
   exitAgent,
+  expanded,
   isShowing,
   nodeState,
+  openSession,
   paneItem,
   putAway,
 } from './test/appHelpers';
@@ -25,6 +27,8 @@ import { faultKey } from './fake/operations';
  * the card's end-of-work control is found here, not in the whole card.
  */
 const commands = (card: HTMLElement) => within(within(card).getByTestId('node-commands'));
+/** An open tab in the panel's strip, by key. */
+const openTab = (key: string) => document.querySelector(`[data-tab-key="${key}"]`);
 /** A node on the board, by its task id. */
 const nodeEl = (taskId: string) =>
   document.querySelector<HTMLElement>(`[data-task-id="${taskId}"]`);
@@ -1038,9 +1042,14 @@ describe('selection', () => {
     ]);
   });
 
-  it('asks before a Dismiss that ends a live agent, and closes a shared worktree once', async () => {
+  it("asks before a Dismiss that ends a live agent, closes a shared worktree once, and closes the nodes' tabs as it starts", async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
+    await openSession(user, 'NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: 'Changes' }));
+    await user.keyboard('{Escape}');
+    expect(openTab('session:a1f3c9e2')).not.toBeNull();
+    expect(openTab('changes:northwind-alpha')).not.toBeNull();
     // NORT-7 runs in northwind-alpha; NORT-7.1 is on its branch, so in alpha too.
     shiftClick('NORT-7');
     shiftClick('NORT-7.1');
@@ -1052,6 +1061,9 @@ describe('selection', () => {
     });
     expect(commandsSince(server, before)).toEqual([]);
     await user.click(within(ask).getByRole('button', { name: 'Dismiss them' }));
+    expect(openTab('session:a1f3c9e2')).toBeNull();
+    // NORT-7.1's step closes alpha, so its changes tab goes too.
+    expect(openTab('changes:northwind-alpha')).toBeNull();
 
     await waitFor(() =>
       expect(commandsSince(server, before)).toEqual([

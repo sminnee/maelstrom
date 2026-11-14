@@ -1,8 +1,9 @@
 import { useStop } from '../api/agents';
 import { useDismiss, useTakeOffDesk, type DismissChain } from '../api/desk';
 import { useWorld } from '../api/useWorld';
+import { useCloseNodeTabs } from '../panel/useCloseNodeTabs';
 import type { Agent, Worktree } from '../protocol/entities';
-import type { DeskId, TaskId } from '../protocol/ids';
+import type { DeskId, TaskId, WorktreeId } from '../protocol/ids';
 import { isLive, workDeskId, worktreeHolders } from '../selectors/graph';
 import { canClose } from '../selectors/worktrees';
 import type { WorldView } from '../selectors/world';
@@ -15,7 +16,8 @@ export interface EndOfWorkProps {
   agent: Agent | undefined;
   taskId?: TaskId;
   where: Worktree | undefined;
-  onTakenOffDesk: () => void;
+  /** Runs as the node leaves the desk, after its tabs close. */
+  onTakenOffDesk?: () => void;
 }
 
 /**
@@ -97,22 +99,26 @@ function heldDetail({ running, agents, tasks }: OtherHolders, nato: string): str
  * before the server has taken the node off the desk. The server runs the whole
  * chain as one operation, so a reload does not lose it partway — see
  * `docs/dev/orchestrator-ui.md`.
+ *
+ * The node's tabs close as the chain starts: see docs/dev/orchestrator-ui.md.
  */
 export function useNodeDismiss({
   agent,
   taskId,
   onTakenOffDesk,
-}: Omit<EndOfWorkProps, 'where'>): (chain: DismissChain, worktreeId?: string) => Promise<void> {
+}: Omit<EndOfWorkProps, 'where'>): (chain: DismissChain, worktreeId?: WorktreeId) => Promise<void> {
   const dismiss = useDismiss();
+  const closeTabs = useCloseNodeTabs();
   return async (chain, worktreeId) => {
+    closeTabs({ agentId: agent?.id, taskId, worktreeId });
     await dismiss.mutateAsync({ deskId: workDeskId(agent, taskId), chain, worktreeId });
-    onTakenOffDesk();
+    onTakenOffDesk?.();
   };
 }
 
 /**
  * **Off desk** alone, for a node with nothing left to stop or end: the node's
- * desk entry goes, then `onTakenOffDesk` runs.
+ * tabs close, its desk entry goes, then `onTakenOffDesk` runs.
  */
 export function useTakeNodeOffDesk({
   agent,
@@ -121,11 +127,13 @@ export function useTakeNodeOffDesk({
 }: Omit<EndOfWorkProps, 'where'>): () => Promise<void> {
   const { world } = useWorld();
   const offDesk = useTakeOffDesk();
+  const closeTabs = useCloseNodeTabs();
   return async () => {
+    closeTabs({ agentId: agent?.id, taskId });
     const id = workDeskId(agent, taskId);
     // A live node draws with no desk entry, so there may be none to take.
     if (id in world.desk) await offDesk.mutateAsync({ id });
-    onTakenOffDesk();
+    onTakenOffDesk?.();
   };
 }
 
