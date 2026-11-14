@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   changesTab,
   closeTabs,
+  devEnvTab,
   documentTab,
   focusedTaskId,
   groupKeyOf,
   groupTabs,
+  nodeTabKeys,
   mostRecentTab,
   openOrFocusTab,
   selectGroup,
@@ -403,5 +405,95 @@ describe('focusedTaskId', () => {
     const tabs = [documentTab('doc-1')];
     expect(focusedTaskId(orphaned, tabs, 'document:doc-1')).toBe('NORT-7');
     expect(tabAttribution(orphaned, tabs[0]!).id).toBe('NORT-7');
+  });
+});
+
+describe('nodeTabKeys', () => {
+  // NORT-7 runs in alpha: `run2` now, `run1` before, `run2.1` a subagent.
+  // NORT-8 shares alpha. `free` is a free agent, and `free.1` its subagent.
+  const world = worldWith({
+    worktrees: [
+      makeWorktree({ id: 'northwind-alpha' }),
+      makeWorktree({ id: 'northwind-bravo', nato: 'bravo' }),
+    ],
+    tasks: [makeTask({ id: 'NORT-7' }), makeTask({ id: 'NORT-8' })],
+    agents: [
+      makeAgent({ id: 'run1', taskId: 'NORT-7', worktreeId: 'northwind-alpha' }),
+      makeAgent({ id: 'run2', taskId: 'NORT-7', worktreeId: 'northwind-alpha' }),
+      makeAgent({ id: 'run2.1', parent: 'run2', taskId: '', worktreeId: 'northwind-alpha' }),
+      makeAgent({ id: 'other', taskId: 'NORT-8', worktreeId: 'northwind-alpha' }),
+      makeAgent({ id: 'free', taskId: '', worktreeId: 'northwind-bravo' }),
+      makeAgent({ id: 'free.1', parent: 'free', taskId: '', worktreeId: 'northwind-bravo' }),
+    ],
+    documents: [
+      makeDocument({ id: 'by-task', agentId: 'gone', taskId: 'NORT-7' }),
+      makeDocument({ id: 'by-agent', agentId: 'run1', taskId: '' }),
+      makeDocument({ id: 'other-doc', agentId: 'other', taskId: 'NORT-8' }),
+      makeDocument({ id: 'free-doc', agentId: 'free', taskId: '' }),
+    ],
+  });
+  const tabs = [
+    sessionTab('run1'),
+    sessionTab('run2'),
+    sessionTab('run2.1'),
+    sessionTab('other'),
+    sessionTab('free'),
+    sessionTab('free.1'),
+    documentTab('by-task'),
+    documentTab('by-agent'),
+    documentTab('other-doc'),
+    documentTab('free-doc'),
+    changesTab('northwind-alpha'),
+    devEnvTab('northwind-alpha', 'web'),
+    changesTab('northwind-bravo'),
+  ];
+
+  it("takes a task node's sessions, subagents and documents, and leaves its neighbours", () => {
+    expect(nodeTabKeys(world, tabs, { agentId: 'run2', taskId: 'NORT-7' })).toEqual([
+      'session:run1',
+      'session:run2',
+      'session:run2.1',
+      'document:by-task',
+      'document:by-agent',
+    ]);
+  });
+
+  // The session head names the agent alone: its task stands in for the node's.
+  it('reads the task from the agent when the node names none', () => {
+    expect(nodeTabKeys(world, tabs, { agentId: 'run1' })).toEqual([
+      'session:run1',
+      'session:run2',
+      'session:run2.1',
+      'document:by-task',
+      'document:by-agent',
+    ]);
+  });
+
+  it('takes a free agent, its subagent and its documents alone', () => {
+    expect(nodeTabKeys(world, tabs, { agentId: 'free' })).toEqual([
+      'session:free',
+      'session:free.1',
+      'document:free-doc',
+    ]);
+  });
+
+  it("takes every tab of the worktree it ends, and no other worktree's", () => {
+    expect(
+      nodeTabKeys(world, tabs, {
+        agentId: 'run2',
+        taskId: 'NORT-7',
+        worktreeId: 'northwind-alpha',
+      }),
+    ).toEqual([
+      'session:run1',
+      'session:run2',
+      'session:run2.1',
+      'session:other',
+      'document:by-task',
+      'document:by-agent',
+      'document:other-doc',
+      'changes:northwind-alpha',
+      'devenv:northwind-alpha:web',
+    ]);
   });
 });
