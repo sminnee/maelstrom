@@ -325,6 +325,11 @@ next line start is long enough to lose your place, and a line broken up by liter
 worse. Not shorter, because the transcript gives 3.5rem of its width to the time gutter, so a
 message there already reads narrower than the number says.
 
+A table is an inset object, not prose, so the measure does not bind it. On the document tab a
+table wider than the measure grows past it into the gutter, centred on the column, up to the
+width of the document body. It scrolls sideways only past that. Other surfaces keep a table
+inside the measure until they opt in with `--table-breakout`.
+
 ### Rhythm
 
 Reading surfaces advance on a grid of `--prose-row`: 24px on the wide layout, 30px on the narrow. The grid is not

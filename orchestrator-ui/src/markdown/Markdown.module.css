@@ -217,6 +217,19 @@
   overflow-x: auto;
   margin: 0 0 var(--prose-gap);
 }
+/* A surface sets `--table-breakout` to let a top-level table outgrow the
+   column (DESIGN.md § Measure). `min-width: 100%` keeps a narrow table at the
+   column's left edge. The relative shift centres a wide one: a margin cannot
+   refer to the element's own width. A nested table keeps the rule above,
+   because the shift would centre it on its list item or clip it in a quiet
+   block. */
+.markdown > .tableScroll {
+  min-width: 100%;
+  max-width: var(--table-breakout, 100%);
+  position: relative;
+  left: 50%;
+  translate: -50%;
+}
 .markdown table {
   border-collapse: collapse;
 }
