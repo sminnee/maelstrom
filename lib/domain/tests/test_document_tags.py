@@ -279,6 +279,43 @@ def test_an_end_session_request_quoted_in_code_is_text(text):
     assert tagged.text == text
 
 
+def test_a_conditional_end_names_its_event_and_does_not_end_now():
+    tagged = read_tags(
+        'Pushed.\n\n<end-session on="pr.merged">', show_image=lambda _image: None
+    )
+    assert (tagged.end_session, tagged.end_on) == (False, "pr.merged")
+    assert tagged.text == "Pushed."
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '<end-session on="pr.merged">\n<end-session>',
+        '<end-session>\n<end-session on="pr.merged">',
+    ],
+    ids=["plain-last", "plain-first"],
+)
+def test_a_plain_end_wins_over_a_conditional_one(text):
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert (tagged.end_session, tagged.end_on) == (True, None)
+
+
+def test_a_conditional_end_on_an_unknown_event_is_cut_and_ignored():
+    """A misspelt condition must not end the agent at once."""
+    tagged = read_tags(
+        'Pushed.\n\n<end-session on="pr.merge">', show_image=lambda _image: None
+    )
+    assert (tagged.end_session, tagged.end_on) == (False, None)
+    assert tagged.text == "Pushed."
+
+
+def test_a_conditional_end_quoted_in_code_is_text():
+    text = 'Write `<end-session on="pr.merged">` after the push.'
+    tagged = read_tags(text, show_image=lambda _image: None)
+    assert tagged.end_on is None
+    assert tagged.text == text
+
+
 # --- the milestone: the agent marks a stage of the work ---------------------
 
 

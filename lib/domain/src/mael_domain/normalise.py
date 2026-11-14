@@ -199,6 +199,12 @@ class Normalised:
     compact_refused: str | None = None
     #: Whether the agent asked to end its session.
     end_session: bool = False
+    #: The event a conditional end waits for, if the agent wrote one.
+    end_on: str | None = None
+    #: The attribute text of an end marker that was cut and ignored.
+    end_refused: str = ""
+    #: Whether the event was a message the user wrote, not an External event.
+    user_said: bool = False
     #: Whether the event ended a turn: a Claude ``result`` or a Codex
     #: ``turn/completed``. A parked milestone, end or compact waits for it.
     turn_end: bool = False
@@ -665,6 +671,7 @@ def _user_text(out: "_Emitter", text: str, show_refs: ShowRefs) -> None:
     else:
         markdown = show_refs(text, out.agent_entity["project"])
         out.append({"type": "message", "role": "user", "markdown": markdown})
+        out.user_said = True
     # A message to the agent is the start of a turn. Without this
     # the UI shows "idle" until the agent's first event lands,
     # which reads as though nothing was sent.
@@ -741,6 +748,11 @@ def _assistant_text(
         out.compact_request = tagged.compact
     if tagged and tagged.end_session:
         out.end_session = True
+        out.end_on = None
+    elif tagged and tagged.end_on:
+        out.end_on = tagged.end_on
+    if tagged and tagged.end_refused:
+        out.end_refused = tagged.end_refused
 
 
 #: Codex notifications that move the agent's state or usage, or say nothing a
@@ -1450,6 +1462,10 @@ class _Emitter:
         self.compact_refused: str | None = None
         #: Whether the agent asked to end its session.
         self.end_session = False
+        #: The event a conditional end waits for. Last wins.
+        self.end_on: str | None = None
+        self.end_refused = ""
+        self.user_said = False
         #: Whether the event ended a turn.
         self.turn_end = False
 
@@ -1974,6 +1990,9 @@ class _Emitter:
             self.compacted,
             self.compact_refused,
             self.end_session,
+            self.end_on,
+            self.end_refused,
+            self.user_said,
             self.turn_end,
         )
 

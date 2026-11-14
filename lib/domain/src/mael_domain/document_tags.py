@@ -49,6 +49,11 @@ turn that carries it ends::
 
     <end-session>
 
+A conditional end asks for the same end later, when the event the ``on``
+attribute names reaches the agent. Only ``pr.merged`` is a condition::
+
+    <end-session on="pr.merged">
+
 See ``docs/dev/orchestrator-server.md``, "A tagged document", for the design.
 """
 
@@ -60,6 +65,7 @@ from pathlib import Path
 
 from mael_agent.tags import ATTRIBUTES, NOTE_TAG
 
+from .external_event import PR_MERGED
 from .task import parse_draft
 
 #: Turns one image tag into the markdown that replaces it, or ``None`` when the
@@ -113,8 +119,11 @@ _COMPACT_TAG = re.compile(
     r"(?:((?:(?!<compact-session\b).)*?)</compact-session>)?",
     re.DOTALL,
 )
-#: Asks for the agent to be terminated when its turn ends. Self-closing.
-_END_SESSION_TAG = re.compile(r"<end-session\s*/?>")
+#: Asks for the agent to be terminated when its turn ends, or, with ``on``,
+#: when that event reaches it. Self-closing.
+_END_SESSION_TAG = re.compile(rf"<end-session(?=[\s/>]){ATTRIBUTES}>")
+#: The events a conditional end may wait for. See CONTEXT.md, "Conditional end".
+END_CONDITIONS = (PR_MERGED,)
 _MIN_TOKENS = re.compile(r'\bmin-tokens\s*=\s*"([^"]*)"')
 _TOKEN_COUNT = re.compile(r"(\d+(?:\.\d+)?)([km]?)", re.IGNORECASE)
 _TOKEN_UNITS = {"": 1, "k": 1_000, "m": 1_000_000}
@@ -206,6 +215,10 @@ class TaggedMessage:
 
     ``compact`` is the compaction request the message carried. Last wins.
     ``end_session`` says whether the message asked for the agent to end.
+    ``end_on`` is the event a conditional end waits for. A plain end anywhere
+    in the message wins over it, and leaves it empty. ``end_refused`` is the
+    attribute text of the last end marker that was neither plain nor a known
+    condition: it is cut and ignored, and the caller logs it.
     """
 
     text: str
@@ -217,6 +230,8 @@ class TaggedMessage:
     feedback_params: tuple[ParamSet, ...] = ()
     compact: CompactRequest | None = None
     end_session: bool = False
+    end_on: str | None = None
+    end_refused: str = ""
 
 
 def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
@@ -300,10 +315,24 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         spans.append(match.span())
 
     end_session = False
+    end_on: str | None = None
+    end_refused = ""
     # And so does this one: a quoted marker must not stop the agent.
     for match in _unquoted(_END_SESSION_TAG, text, spans):
-        end_session = True
         spans.append(match.span())
+        raw = match.group(1).strip().rstrip("/").strip()
+        on = _attributes(raw).get("on")
+        if not raw:
+            end_session = True
+        elif on in END_CONDITIONS:
+            end_on = on
+        else:
+            # Any other attribute text, such as `on='pr.merged'`, is a
+            # malformed condition. It must not end the agent at once.
+            end_refused = raw
+    if end_session:
+        # A plain end wins: the session ends now, so nothing is left to wait for.
+        end_on = None
 
     replacements: list[tuple[int, int, str]] = []
     for match in _IMAGE_TAG.finditer(text):
@@ -331,6 +360,8 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         feedback_params=tuple(feedback_params),
         compact=compact,
         end_session=end_session,
+        end_on=end_on,
+        end_refused=end_refused,
     )
 
 

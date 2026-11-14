@@ -311,13 +311,13 @@ def test_a_codex_message_carries_the_same_markers_as_a_claude_message():
             "pr": (out.pr_link, out.pr_withdrawn),
             "params": out.feedback_params,
             "compact": out.compact_request,
-            "end": out.end_session,
+            "end": (out.end_session, out.end_on),
             "documents": [d["title"] for d in documents_of(replayed)],
             "message": items_of(replayed, "message")[-1]["markdown"],
         }
 
     assert markers(codex_run) == markers(claude)
-    assert markers(codex_run)["end"] is True
+    assert markers(codex_run)["end"] == (True, None)
     assert markers(codex_run)["documents"] == ["Draft"]
 
 
