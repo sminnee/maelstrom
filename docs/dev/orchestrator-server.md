@@ -672,6 +672,60 @@ while the agent is in `_pending_ends`.
 A request is parked in replay too, and a turn end in replay clears it, as for a compaction
 request. The run that read it live terminated the agent, so a resumed agent is not stopped again.
 
+#### The conditional end
+
+A **Conditional end** rides out on `Normalised.end_on`:
+
+```
+<end-session on="pr.merged">
+```
+
+Only `pr.merged` is a condition. A marker is plain only when it has no attributes. A marker with
+any other attribute text, such as `on="pr.merge"` or `on='pr.merged'`, is cut and ignored, and
+the server logs it for a live event. So a misspelt condition does not end the agent at once. A
+plain marker in the same message wins and clears the condition.
+
+The server stores the condition as `end_on` in the agent's orchestrator data, through
+`OrchestratorDataStore`. See `data-architecture.md`, "Orchestrator data". A PR can wait for
+hours, across many restarts, and the transcript replay is a ring of frames that cannot rebuild
+it. Only a live marker saves it. A replayed marker does nothing, because a stop or a user
+message may have cleared it since.
+
+These events clear the condition:
+
+| Event | Where |
+| --- | --- |
+| The agent exits, after a stop or by itself | `_exit` |
+| The user sends a message from the UI | `_say`, at once |
+| The user sends a message from the TUI or `mael agent say` | `_normalise`, on `Normalised.user_said` |
+| The agent writes a plain `<end-session>` | `_normalise` |
+| The agent takes the merge | `_tell_pr_event` |
+
+An External event goes through `_tell`, shows as an `external_event` item, and keeps the
+condition.
+
+At start, `_drop_stale_conditional_ends` clears the condition of each agent that is exited. An exit
+while the server was down cleared nothing. An agent the world does not hold keeps its condition,
+because the first agent read may have failed.
+
+The PR watch tells `pr.merged` through `_tell_pr_event`. An agent with no condition gets the
+neutral body "PR #N has merged. No action needed." An armed agent gets the body from
+`external_event.pr_merged_ending`. The server adds it to `_pending_ends` and `_merge_ends`
+before the tell, then clears the stored condition once the agent takes the event. `_follow_end`
+then stops the agent at the turn end, as for a plain request. An agent mid-turn when the merge is
+told ends at that turn's end, before it reads the event.
+
+A user message through `_say` before that turn ends cancels the stop: `_merge_ends` marks the end
+as the merge's, not the agent's. A TUI message shows in the stream only when its turn starts,
+which is after the stop.
+
+The ledger rule does not change: the merge counts as told when any agent took it. So an armed
+agent that refused the tell, while another agent of the PR took it, is not told again and stays
+armed.
+
+Compaction and a conditional end can share a message. The conditional end does not end the
+turn's session, so the "end wins" rule above applies only to the plain marker.
+
 ### Approving a task set
 
 A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A session in a terminal gates on

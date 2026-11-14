@@ -11,7 +11,7 @@ metadata:
 Load `mael` first. An open PR for the current branch is required. Run this loop without waiting for the user:
 
 1. Wait for the CI result:
-   - When `MAEL_HARNESS_TYPE` is `daemon` and you work on a task, end your turn. Maelstrom sends a `github` external event when CI moves. Do not run `read-pr --wait`.
+   - When `MAEL_HARNESS_TYPE` is `daemon` and you work on a task, end your turn. Maelstrom sends a `github` external event when CI moves. Do not run `read-pr --wait`. When the system prompt teaches `<end-session on="pr.merged">`, write it in each message that ends your turn while the PR waits: a user message clears it.
    - Otherwise, such as for a free agent, run `mael gh read-pr --wait; echo "EXIT_CODE=$?"` in the background. Read the printed exit code, not the background completion status.
 2. On pass (`pr.checks_passed`, or exit 0), report green and stop. On timeout, report it and stop. On `pr.merged`, stop.
 3. On failure (`pr.checks_failed`, or a failing exit), inspect `mael gh read-pr` and `mael gh check-log <run-id> --failed-only`. Download artifacts when needed. Reproduce where practical and run project gates.
