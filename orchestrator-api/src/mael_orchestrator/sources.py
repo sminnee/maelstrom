@@ -676,6 +676,7 @@ class NotebookTaskSource:
         for session in sorted(moved):
             if (task := await self.table.find_by_session_id(session)) is not None:
                 tasks.append(task)
+        tasks += await self._followers(changed.tasks, wanted)
         entities: list[Task] = []
         for task in tasks:
             if task.project not in wanted:
@@ -683,6 +684,27 @@ class NotebookTaskSource:
             entities.append(await self._entity(task))
         removed = [key for key in changed.removed if split_task_key(key)[0] in wanted]
         return TaskReading(tasks=entities, removed=removed, revision=changed.revision)
+
+    async def _followers(
+        self, changed: list[model.Task], wanted: set[str]
+    ) -> list[model.Task]:
+        """The unchanged tasks that follow a changed one.
+
+        A follower's ``actionable`` reads its followed tasks' statuses, so it
+        moves when they do, though its own row does not. One query per project
+        with a change.
+        """
+        seen = {(t.project, t.id) for t in changed}
+        by_project: dict[str, set[str]] = {}
+        for task in changed:
+            if task.project in wanted:
+                by_project.setdefault(task.project, set()).add(task.id)
+        found: list[model.Task] = []
+        for project, ids in sorted(by_project.items()):
+            for task in await self.table.followers(project, ids):
+                if (project, task.id) not in seen:
+                    found.append(task)
+        return found
 
     async def claim_launch(
         self, task_id: str, model_name: str | None, *, new_session: bool = False
