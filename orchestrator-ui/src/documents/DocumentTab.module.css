@@ -100,8 +100,12 @@
  * shrinks, so without a measure every extra pixel of panel width went into
  * longer lines — dragging the panel wider made a document harder to read, not
  * easier. Capped and centred, the extra width becomes gutter instead.
+ *
+ * `.body` is the size container that `.prose`'s `--table-breakout: 100cqi`
+ * measures (DESIGN.md § Measure).
  */
 .body {
+  container-type: inline-size;
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -109,6 +113,7 @@
   padding: var(--prose-gap-loose) var(--u-2) 0;
 }
 .prose {
+  --table-breakout: 100cqi;
   max-width: var(--measure-prose);
   margin-inline: auto;
   /* 50vh trailing, so the last paragraph scrolls clear of the bottom edge.
