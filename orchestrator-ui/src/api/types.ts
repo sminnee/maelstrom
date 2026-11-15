@@ -44,6 +44,8 @@ export interface TaskCreate extends TaskEdit {
   /** The comms the task is linked to as it is written. */
   comms?: string[];
   launch?: boolean;
+  /** The **Remote host** the launch runs on. Needs `launch`. */
+  host?: string;
 }
 
 /**

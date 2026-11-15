@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useAgents } from '../api/agents';
 import { useHost } from '../api/host';
 import { useLaunch } from '../api/tasks';
@@ -18,28 +19,53 @@ export function useLaunchOptions(
   task: { id: TaskId } | undefined,
   { newSession = false }: { newSession?: boolean } = {},
 ): SplitOption[] {
-  const { data } = useHost();
+  const choices = useHostChoices();
   const agents = useAgents();
   const launch = useLaunch();
   if (!task) return [];
   const lastHost = newestAgent(agents.data?.agents ?? [], task.id)?.host ?? '';
-  return launchOptions(
-    lastHost,
-    data?.host?.name ?? '',
-    data?.host?.remoteHosts ?? [],
+  return hostOptions(
     newSession ? NEW_SESSION : LAUNCH,
+    choices,
     (host) => launch.mutateAsync({ taskId: task.id, host, ...(newSession ? { newSession } : {}) }),
+    lastHost,
   );
 }
 
-/** The words of one kind of launch: a first launch, or a **New session**. */
-interface LaunchWords {
-  verb: string;
-  processing: string;
+/** The hosts work can start on: this server's name, and each online **Remote host**. */
+export interface HostChoices {
+  ownName: string;
+  online: RemoteHostState[];
 }
 
-const LAUNCH: LaunchWords = { verb: 'Launch', processing: 'Launching' };
-const NEW_SESSION: LaunchWords = { verb: 'New session', processing: 'Starting' };
+/** The host choices of a launch, shared by a task card's Launch and the New work dialog's Start. */
+export function useHostChoices(): HostChoices {
+  const host = useHost().data?.host;
+  return {
+    ownName: host?.name ?? '',
+    online: (host?.remoteHosts ?? []).filter((h) => h.online),
+  };
+}
+
+/** The words of one kind of launch: a first launch, a **New session**, or a Start. */
+export interface LaunchWords {
+  verb: string;
+  processing: string;
+  icon: ReactNode;
+}
+
+const LAUNCH: LaunchWords = { verb: 'Launch', processing: 'Launching', icon: actionIcon('launch') };
+const NEW_SESSION: LaunchWords = {
+  verb: 'New session',
+  processing: 'Starting',
+  icon: actionIcon('launch'),
+};
+/** The words of the New work dialog's Start. */
+export const START: LaunchWords = {
+  verb: 'Start',
+  processing: 'Starting',
+  icon: actionIcon('start'),
+};
 
 /** The task's agent that started last. ISO 8601 strings sort as times. */
 function newestAgent(agents: Agent[], taskId: TaskId): Agent | undefined {
@@ -49,22 +75,25 @@ function newestAgent(agents: Agent[], taskId: TaskId): Agent | undefined {
   return newest;
 }
 
-function launchOptions(
-  lastHost: string,
-  ownName: string,
-  remoteHosts: RemoteHostState[],
+/**
+ * One option per host: here first, then each online **Remote host**. The
+ * default is `sticky` when it is online, else here. `run` gets `undefined`
+ * for here.
+ */
+export function hostOptions(
   words: LaunchWords,
-  launch: (host: string | undefined) => Promise<unknown>,
+  { ownName, online }: HostChoices,
+  run: (host: string | undefined) => Promise<unknown>,
+  sticky = '',
 ): SplitOption[] {
-  const online = remoteHosts.filter((h) => h.online);
-  const sticky = online.some((h) => h.name === lastHost) ? lastHost : '';
+  const chosen = online.some((h) => h.name === sticky) ? sticky : '';
   const option = (host: string, label: string): SplitOption => ({
     label,
     buttonLabel: words.verb,
-    icon: actionIcon('launch'),
+    icon: words.icon,
     processing: words.processing,
-    isDefault: host === sticky,
-    run: () => launch(host || undefined),
+    isDefault: host === chosen,
+    run: () => run(host || undefined),
   });
   const here = ownName ? `${words.verb} on ${ownName}` : `${words.verb} here`;
   return [option('', here), ...online.map((h) => option(h.name, `${words.verb} on ${h.name}`))];

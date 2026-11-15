@@ -272,6 +272,12 @@ the deck row's swipe both use these choices, so the two cannot launch in differe
 The default is the host of the task's newest agent when that host is online. Else it is here. The
 host comes from the agent's **Id prefix** (`Agent.host`).
 
+The New work dialog's Start, for a new task and for a Linear plan, uses the same host choices.
+`useHostChoices` gives the hosts and `hostOptions` builds the options, with the words "Start on
+<host>". A new task has no earlier agent, so the default is always here. The chosen host goes to
+`POST /api/tasks` or `POST /api/linear/tasks` as `host`. A free agent and an investigation start
+here only, so their Start is a plain button.
+
 The session tab's meta line starts with the agent's remote host, or `<host> offline` while its
 link is down. An agent on this server shows no host.
 

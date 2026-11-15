@@ -49,7 +49,8 @@ and `mael task next --run` default to `--cli`.
 
 A remote host is a second machine with its own orchestrator server, named by `host_name:` in its
 config. Your `~/.maelstrom/config.yaml` names it under `hosts:`. A task card's Launch button then
-offers "Launch on <host>" for each remote host that is online. The remote host runs the agent and
+offers "Launch on <host>" for each remote host that is online. The New work dialog's Start offers
+"Start on <host>" for a new task or a Linear plan. The remote host runs the agent and
 its worktree. Your board names that worktree `<host>:<nato>`, such as `cobalt:bravo`, and the
 remote host's board marks it `in use by <your server>` while the agent lives. The task stays on
 your orchestrator, and the agent's `mael task` commands reach it there. You follow and answer an agent on a remote host as a local one, and your desk shows the
