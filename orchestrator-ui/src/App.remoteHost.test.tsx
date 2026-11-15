@@ -49,6 +49,51 @@ describe('the Launch button of a task card', () => {
   });
 });
 
+describe('the Start button of the New work dialog', () => {
+  const creates = (server: { requests: { method: string; path: string; body: unknown }[] }) =>
+    server.requests.filter((r) => r.method === 'POST' && r.path === '/api/tasks');
+
+  async function writeTask(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole('button', { name: 'New' }));
+    const form = screen.getByRole('dialog', { name: 'New work' });
+    await user.click(within(form).getByRole('radio', { name: 'northwind' }));
+    await user.type(within(form).getByLabelText('What needs doing?'), 'The export drops a row');
+    return form;
+  }
+
+  it('offers each online remote host, and sends the host chosen', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'remote-host' });
+    const form = await writeTask(user);
+
+    await user.click(within(form).getByRole('button', { name: 'Start on another host' }));
+    // An offline host is not offered.
+    expect(screen.getAllByRole('menuitem').map((item) => item.getAttribute('aria-label'))).toEqual([
+      'Start on monolith',
+      'Start on cobalt',
+    ]);
+    await user.click(screen.getByRole('menuitem', { name: 'Start on cobalt' }));
+
+    await waitFor(() => expect(creates(server)).toHaveLength(1));
+    expect(creates(server)[0]!.body).toMatchObject({ launch: true, host: 'cobalt' });
+  });
+
+  it('is a plain Start with no remote host online, and sends no host', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const form = await writeTask(user);
+
+    expect(
+      within(form).queryByRole('button', { name: 'Start on another host' }),
+    ).not.toBeInTheDocument();
+    await user.click(within(form).getByRole('button', { name: 'Start' }));
+
+    await waitFor(() => expect(creates(server)).toHaveLength(1));
+    expect(creates(server)[0]!.body).toMatchObject({ launch: true });
+    expect(creates(server)[0]!.body).not.toHaveProperty('host');
+  });
+});
+
 describe('the session tab of an agent on a remote host', () => {
   it('names the host, and marks it offline', async () => {
     const user = userEvent.setup();

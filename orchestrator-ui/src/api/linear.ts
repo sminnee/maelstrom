@@ -44,7 +44,13 @@ export function useCreateLinearTask() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (
-      vars: { project: string; issueId: string; launch?: boolean } & Partial<PlanningFields>,
+      vars: {
+        project: string;
+        issueId: string;
+        launch?: boolean;
+        /** The **Remote host** the launch runs on. Needs `launch`. */
+        host?: string;
+      } & Partial<PlanningFields>,
     ) => api.post<OperationStarted>('/api/linear/tasks', vars),
     onSuccess: (_result, vars) => {
       void queryClient.invalidateQueries({ queryKey: keys.tasks.list() });

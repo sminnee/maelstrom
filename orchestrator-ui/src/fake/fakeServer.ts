@@ -1603,6 +1603,18 @@ function command(
     });
   }
 
+  // A create or a plan that launches may name a **Remote host**, refused as
+  // `validate.py` refuses it. The fake's launch then runs here regardless.
+  const launchHostRefusal = (): Reply | undefined => {
+    const host = str('host');
+    if (!host) return undefined;
+    if (!b.launch) return error(400, 'invalid', 'host needs launch');
+    const remote = world.host?.remoteHosts.find((h) => h.name === host);
+    if (!remote) return error(400, 'invalid', `No remote host ${host}`);
+    if (!remote.online) return error(400, 'invalid', `${host} is offline`);
+    return undefined;
+  };
+
   if (pathname === '/api/tasks' && method === 'POST') {
     const project = str('project') ?? '';
     if (!world.projects[project]) return notFound(`project ${project}`);
@@ -1614,6 +1626,8 @@ function command(
       const unknown = b.comms.find((id) => !world.comms[id]);
       if (unknown) return notFound(`comm ${unknown}`);
     }
+    const refused = launchHostRefusal();
+    if (refused) return refused;
     const taskId = `${project}/NEW-${mint()}`;
     const unnamed = (['title', 'branch'] as const).filter((f) => !str(f)?.trim());
     // As the server writes them: the prose's first line stands in for the
@@ -1670,6 +1684,8 @@ function command(
     if (mode !== undefined && !MODES.some((m) => m === mode)) {
       return error(400, 'invalid', `No mode ${mode}`);
     }
+    const refused = launchHostRefusal();
+    if (refused) return refused;
     // The same task `mael linear plan` writes: the real server builds these
     // fields from the issue's brief, and this fake from its id alone.
     let taskId = '';

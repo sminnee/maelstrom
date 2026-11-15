@@ -33,6 +33,8 @@ import { LinearFields } from './LinearFields';
 import { PlanningLevelField } from '../tasklist/PlanningLevelField';
 import { ProjectField } from './ProjectField';
 import { Spinner } from '../ui/Spinner';
+import { SplitButton } from '../ui/SplitButton';
+import { hostOptions, START, useHostChoices } from '../session/useLaunchOptions';
 import { retainedKey } from '../ui/retained';
 import { TextArea } from '../ui/TextArea';
 import { useRetained } from '../ui/useRetained';
@@ -335,19 +337,22 @@ export function NewWork() {
     close();
   };
 
-  const planIssue = async (launch: boolean) => {
+  const hosts = useHostChoices();
+
+  const planIssue = async (launch: boolean, host?: string) => {
     await plan.mutateAsync({
       project: chosen,
       issueId: issue,
       command: captured.linearCommand,
       mode: captured.linearMode,
       ...(launch ? { launch } : {}),
+      ...(host ? { host } : {}),
     });
     release();
     close();
   };
 
-  const writeTask = async (launch: boolean) => {
+  const writeTask = async (launch: boolean, host?: string) => {
     await create.mutateAsync({
       project: chosen,
       title: task.title.trim(),
@@ -362,6 +367,7 @@ export function NewWork() {
       // explicit empty list would be a needless field on the wire.
       ...(captured.comms.length > 0 ? { comms: captured.comms } : {}),
       ...(launch ? { launch } : {}),
+      ...(host ? { host } : {}),
     });
     release();
     close();
@@ -463,14 +469,12 @@ export function NewWork() {
             >
               Save
             </AppButton>
-            <AppButton
+            <SplitButton
               variant="primary"
-              icon={actionIcon('start')}
+              menuLabel="Start on another host"
               disabled={busy || !issue.trim()}
-              onClick={() => planIssue(true)}
-            >
-              Start
-            </AppButton>
+              options={hostOptions(START, hosts, (host) => planIssue(true, host))}
+            />
           </>
         ) : (
           // The prose is the only field a task needs: inference no longer gates
@@ -483,14 +487,12 @@ export function NewWork() {
             >
               Save
             </AppButton>
-            <AppButton
+            <SplitButton
               variant="primary"
-              icon={actionIcon('start')}
+              menuLabel="Start on another host"
               disabled={busy || !chosen || !draft.trim()}
-              onClick={() => writeTask(true)}
-            >
-              Start
-            </AppButton>
+              options={hostOptions(START, hosts, (host) => writeTask(true, host))}
+            />
           </>
         )}
       </DialogFooter>
