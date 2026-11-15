@@ -55,12 +55,15 @@ export function SplitButton({
   options,
   menuLabel = 'More actions',
   variant = 'plain',
+  disabled = false,
   errorResetMs,
   onError,
 }: {
   options: SplitOption[];
   /** The chevron's accessible name. A row with two split buttons gives each its own. */
   menuLabel?: string;
+  /** Disables both segments, such as while a form is incomplete. */
+  disabled?: boolean;
 } & Pick<AppButtonProps, 'variant' | 'errorResetMs' | 'onError'>) {
   const { state, run } = useClickLifecycle({ errorResetMs, onError });
   const [running, setRunning] = useState<SplitOption | null>(null);
@@ -104,7 +107,7 @@ export function SplitButton({
         type="button"
         className={`${segment} ${styles.main}`}
         style={split ? undefined : anchorStyle}
-        disabled={main.disabled || processing || asking !== null}
+        disabled={disabled || main.disabled || processing || asking !== null}
         aria-busy={processing || undefined}
         data-state={state.kind}
         data-icon={main.icon === undefined ? undefined : ''}
@@ -133,7 +136,7 @@ export function SplitButton({
             className={`${segment} ${styles.chevron}`}
             style={anchorStyle}
             aria-label={menuLabel}
-            disabled={processing || asking !== null}
+            disabled={disabled || processing || asking !== null}
           >
             {actionIcon('disclose')}
           </button>
