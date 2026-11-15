@@ -11,9 +11,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
+from .task import is_done, is_terminal
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .merge_request import Build, MergeRequest
+    from .protocol import Task
 
 BUILD = "build"
 MERGE = "merge"
@@ -45,6 +49,12 @@ PR_CONFLICT = "pr.conflict"
 PR_MERGED = "pr.merged"
 SESSION_COMPACTED = "session.compacted"
 SESSION_NOT_COMPACTED = "session.not_compacted"
+TASK_UPDATED = "task.updated"
+TASK_QUEUED = "task.queued"
+
+#: The task fields whose change tells the task's agent. See "Task edits" in
+#: ``docs/dev/orchestrator-server.md``.
+WATCHED_TASK_FIELDS = ("title", "content", "status", "follows", "branch")
 
 _TAG = "external-event"
 
@@ -345,4 +355,47 @@ def rebase_event(mr: "MergeRequest") -> ExternalEvent:
         f"The user asked to merge Merge request {mr.id} at {mr.sha[:7]}, but "
         "`main` moved since the submit. Run `mael sync`, resolve any conflict, "
         + _RESUBMIT,
+    )
+
+
+def task_edit_event(
+    old: "Task", new: "Task", status_of: "Callable[[str], str | None]"
+) -> ExternalEvent | None:
+    """The event that tells a task's agent of its edit from ``old`` to ``new``, or ``None``.
+
+    ``status_of`` gives the status of a followed task by wire id, or ``None``
+    for a task it does not hold. A move to ``done`` or ``cancelled`` ends the
+    work, so it sends nothing. A new follow on a task that is not ``done``
+    parks the task, as ``is_actionable`` counts it.
+    """
+    if is_terminal(new["status"]):
+        return None
+    changed = [name for name in WATCHED_TASK_FIELDS if old[name] != new[name]]
+    if not changed:
+        return None
+    task_key, task_id = new["id"], new["notebookId"]
+    unfinished = [
+        dep.rpartition("/")[2]
+        for dep in new["follows"]
+        if dep not in old["follows"] and not is_done(status_of(dep) or "")
+    ]
+    if unfinished:
+        return ExternalEvent(
+            ORCHESTRATOR,
+            TASK_QUEUED,
+            {"task": task_key, "follows": ",".join(unfinished)},
+            f"Task {task_id} now follows unfinished work: {', '.join(unfinished)}. "
+            "Commit your work, write `<end-session>`, and end your turn. The user "
+            "resumes the task when that work is done.",
+        )
+    fields = ", ".join(changed)
+    body = f"The {fields} of task {task_id} changed."
+    if "status" in changed:
+        body += f" Its status is now {new['status']}."
+    body += f" Read it with `mael task show {task_id}`."
+    return ExternalEvent(
+        ORCHESTRATOR,
+        TASK_UPDATED,
+        {"task": task_key, "fields": ",".join(changed)},
+        body,
     )
