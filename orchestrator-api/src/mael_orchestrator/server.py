@@ -4555,6 +4555,8 @@ class Orchestrator:
         launching = _Launching(project=command["project"], task_id=task_id)
         unnamed = list(command.get("unnamed") or [])
         launch = bool(command.get("launch"))
+        host = str(command.get("host") or "")
+        launch_steps = launch_step_names(host)
 
         parent = self.world["tasks"][task_id]["parent"]
         # What `_create_task` wrote in place of each empty field.
@@ -4587,11 +4589,13 @@ class Orchestrator:
         async def work(hook: OperationHook) -> None:
             steps = [Step(name="name_task", run=name_task)] if unnamed else []
             if launch:
-                steps += self._task_launch_steps(launching, command.get("model"), hook)
+                steps += self._task_launch_steps(
+                    launching, command.get("model"), hook, host
+                )
             await self._run_launch(steps, hook, launching)
 
         title = self._task_title(task_id)
-        steps = (("name_task",) if unnamed else ()) + (LAUNCH_STEPS if launch else ())
+        steps = (("name_task",) if unnamed else ()) + (launch_steps if launch else ())
         return OperationPlan(
             "create",
             frozenset({desk_id_for_task(task_id)}),
@@ -4602,7 +4606,7 @@ class Orchestrator:
             self._refresh_launched,
             project=launching.project,
             steps=steps,
-            replay=frozenset(LAUNCH_STEPS),
+            replay=frozenset(launch_steps),
             task_id=task_id,
         )
 
@@ -4618,6 +4622,8 @@ class Orchestrator:
         issue_id = command["issueId"]
         launching = _Launching(project=project, task_id=command.get("taskId", ""))
         launch = bool(command.get("launch"))
+        host = str(command.get("host") or "")
+        launch_steps = launch_step_names(host)
         level = {k: command[k] for k in ("command", "mode") if k in command}
         read: dict[str, Any] = {}
 
@@ -4671,7 +4677,7 @@ class Orchestrator:
                 write_task(hook),
             ]
             if launch:
-                steps += self._task_launch_steps(launching, None, hook)
+                steps += self._task_launch_steps(launching, None, hook, host)
             await self._run_launch(steps, hook, launching)
 
         steps = ("read_issue", "name_task", "write_task")
@@ -4684,8 +4690,8 @@ class Orchestrator:
             work,
             self._refresh_launched,
             project=project,
-            steps=steps + (LAUNCH_STEPS if launch else ()),
-            replay=frozenset({"read_issue", "name_task", *LAUNCH_STEPS}),
+            steps=steps + (launch_steps if launch else ()),
+            replay=frozenset({"read_issue", "name_task", *launch_steps}),
             task_id=launching.task_id or None,
         )
 

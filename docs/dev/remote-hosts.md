@@ -62,6 +62,11 @@ or failed rolls the claim back.
 The parent refuses the launch when the host is not in `hosts:`, when it is offline, or when the
 parent has no `orchestrator_url` to give as `parentUrl`.
 
+A create or a Linear plan that launches also takes `host`: `POST /api/tasks` and
+`POST /api/linear/tasks`. The task is written on the parent, then its launch tail is the same
+`start_on_host` step. The validator refuses an unknown or offline host before the task is written.
+It also refuses a `host` with no `launch`.
+
 ## The per-launch parent
 
 The parent is a fact about one agent, not about the remote host's server. So one server can run

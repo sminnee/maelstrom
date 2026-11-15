@@ -14580,6 +14580,41 @@ def test_a_delegated_codex_launch_stores_its_thread_and_a_relaunch_resumes_it(
     assert sent[1]["id"] == "thread-1"
 
 
+@pytest.mark.parametrize(
+    ("path", "body", "steps"),
+    [
+        (
+            "/api/tasks",
+            {"title": "Export the orders", "branch": "feat/order-export"},
+            ["start_on_host"],
+        ),
+        (
+            "/api/linear/tasks",
+            {"issueId": "ME-1"},
+            ["read_issue", "name_task", "write_task", "start_on_host"],
+        ),
+    ],
+)
+def test_a_create_or_plan_that_launches_on_a_remote_host_starts_the_agent_there(
+    store, tmp_path, linear, path, body, steps
+):
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            reply = await api.post(
+                path, {"project": PROJECT, **body, "launch": True, "host": "cobalt"}
+            )
+            assert reply.status == 202, reply.body
+            op = await ended(api, reply.body["operationId"])
+            seen = await merged(api, "cobalt:new1", lambda a: a["taskId"])
+            return op, seen
+
+    op, seen = run(scenario())
+    assert op["state"] == "done", op["words"]
+    assert [s["name"] for s in op["steps"]] == steps
+    agent = next(a for a in seen["agents"] if a["id"] == "cobalt:new1")
+    assert (agent["taskId"], agent["host"]) == (op["taskId"], "cobalt")
+
+
 def test_a_delegated_launch_the_host_refuses_rolls_the_task_back(store, tmp_path):
     async def scenario():
         async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
