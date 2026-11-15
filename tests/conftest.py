@@ -37,6 +37,7 @@ def home(tmp_path, monkeypatch):
     monkeypatch.delenv("MAEL_TASK_ID", raising=False)
     monkeypatch.delenv("MAEL_TASK_PARENT", raising=False)
     monkeypatch.delenv("MAEL_TASK_PROJECT", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
     return tmp_path
 
 

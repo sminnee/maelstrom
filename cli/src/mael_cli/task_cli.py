@@ -7,6 +7,7 @@ says which commands call the server.
 
 import os
 import subprocess
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, tzinfo
 from pathlib import Path
@@ -465,6 +466,17 @@ def _task_call(project: str, id: str, action: str = "", body: dict | None = None
 def _fetch_rows() -> list[TaskRow]:
     """Every task in every project, as the orchestrator server lists them."""
     return OrchestratorClient.for_tasks().get("/api/tasks")["tasks"]
+
+
+def _sender() -> dict[str, str]:
+    """The calling session, so the server does not tell its agent its own edit."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    try:
+        uuid.UUID(session)
+    except ValueError:
+        # The server refuses a session that is not a UUID, and the edit with it.
+        return {}
+    return {"session": session}
 
 
 def _notebook_id(wire_id: str) -> str:
@@ -1814,7 +1826,7 @@ def _change_follows(
         after = [f for f in before if f not in given]
     if after != before:
         path = f"/api/tasks/{quote(proj, safe='')}/{quote(task_id, safe='')}"
-        OrchestratorClient.for_tasks().patch(path, {"follows": after})
+        OrchestratorClient.for_tasks().patch(path, {"follows": after, **_sender()})
     t: TaskDetail = _task_call(proj, task_id)
     follows = ", ".join(_notebook_id(f) for f in t["follows"]) or "nothing"
     click.echo(f"{task_id} follows: {follows}")
@@ -2039,7 +2051,8 @@ def _status_command(name: str, status: str, help_text: str):
     async def _cmd(id: str | None, project: str | None) -> None:
         task_id = _resolve_task_id(id)
         proj = resolve_project(project)
-        reply: StatusMoved = _task_call(proj, task_id, "status", {"status": status})
+        body = {"status": status, **_sender()}
+        reply: StatusMoved = _task_call(proj, task_id, "status", body)
         for line in reply.get("actionLines", []):
             _warn(line)
         click.echo(f"{task_id} -> {status}")

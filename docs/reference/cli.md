@@ -391,6 +391,11 @@ when that key is unset or no server answers. The server runs the status actions,
 prints each action's line on stderr. The server writes each task that `add`, `promote` and
 `load-many` create, and puts it on the desk, so it shows on the canvas at once.
 
+An edit of a task tells its live agent with an External event. `status`, `follow` and `unfollow`
+send the caller's `CLAUDE_CODE_SESSION_ID`, so the agent that made the edit is not told of it,
+unless the edit makes the task follow unfinished work. `mael task update` and `mael task edit`
+send no session, so the caller's agent hears its own edit.
+
 In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
 commands call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
 there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
