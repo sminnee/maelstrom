@@ -15455,3 +15455,87 @@ def test_retry_queues_a_new_build_of_a_failed_request(harness_factory):
     reply = run(scenario())
     assert reply.status == 200, reply.body
     assert (reply.body["build"], reply.body["builds"][0]["sha"]) == ("b2", "a" * 40)
+
+
+# --- task edits ---------------------------------------------------------------
+#
+# An edit of a task's watched fields tells its live agent. See "Task edits" in
+# docs/dev/orchestrator-server.md. Which edit is which event is
+# `task_edit_event`'s, in lib/domain/tests/test_external_event.py.
+
+AGENT_SESSION = "4f1c2a3b-5d6e-4f70-8192-a3b4c5d6e7f8"
+OTHER_SESSION = "9e8d7c6b-5a49-4382-9170-6f5e4d3c2b1a"
+
+
+def an_agent_on_an_edited_task(harness) -> None:
+    harness.add_task("NORT-2")
+    harness.add_task("NORT-7", session=AGENT_SESSION, status="in-progress")
+    harness.daemon.rows["ag1"] = agent_row(session=AGENT_SESSION)
+
+
+async def edit_task(harness, edit) -> list:
+    """Run ``edit`` against the API once ag1 is on NORT-7; the events told."""
+    async with harness.client() as api:
+        await wait_until(
+            lambda: (
+                harness.orch.world["agents"].get("ag1", {}).get("taskId")
+                == "northwind/NORT-7"
+            )
+        )
+        reply = await edit(api)
+        assert reply.status == 200, reply.body
+        await asyncio.gather(*harness.orch._task_tells)
+    return said_texts(harness)
+
+
+def patch_task(fields: dict):
+    return lambda api: api.patch("/api/tasks/northwind/NORT-7", fields)
+
+
+def post_status(body: dict):
+    return lambda api: api.post("/api/tasks/northwind/NORT-7/status", body)
+
+
+@pytest.mark.parametrize("session", [None, OTHER_SESSION], ids=["none", "other"])
+def test_a_content_edit_tells_the_tasks_live_agent(harness, session):
+    an_agent_on_an_edited_task(harness)
+    edit = patch_task({"content": "Export as CSV.", "session": session})
+    [told] = run(edit_task(harness, edit))
+    assert (told.source, told.type) == ("orchestrator", "task.updated")
+    assert told.attrs == {"task": "northwind/NORT-7", "fields": "content"}
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        patch_task({"content": "Mine.", "session": AGENT_SESSION}),
+        post_status({"status": "todo", "session": AGENT_SESSION}),
+    ],
+    ids=["update", "setStatus"],
+)
+def test_the_agent_that_made_the_edit_is_not_told(harness, edit):
+    an_agent_on_an_edited_task(harness)
+    assert run(edit_task(harness, edit)) == []
+
+
+def test_a_follow_on_unfinished_work_queues_the_task_even_for_its_sender(harness):
+    an_agent_on_an_edited_task(harness)
+    edit = patch_task({"follows": ["northwind/NORT-2"], "session": AGENT_SESSION})
+    [told] = run(edit_task(harness, edit))
+    assert told.type == "task.queued"
+    assert told.attrs == {"task": "northwind/NORT-7", "follows": "NORT-2"}
+
+
+def test_a_notebook_write_the_poll_publishes_tells_once(harness):
+    """``mael task update`` writes the notebook; the poll sees the edit."""
+    an_agent_on_an_edited_task(harness)
+
+    async def edit(api):
+        await model.update(harness.store, PROJECT, "NORT-7", title="Export orders")
+        harness.version += 1
+        await harness.orch.refresh_tasks()
+        await harness.orch.refresh_tasks(force=True)
+        return await api.get("/api/tasks/northwind/NORT-7")
+
+    [told] = run(edit_task(harness, edit))
+    assert told.attrs["fields"] == "title"

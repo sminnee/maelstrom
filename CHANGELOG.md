@@ -20,6 +20,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **An edit of a task tells its live agent.** A change to a task's title, content, status,
+  follows or branch reaches the running agent as a `task.updated` External event, so the agent
+  does not work from stale content. A follow on unfinished work sends `task.queued`: the agent
+  commits and ends its session, and the task is a **Parked task**. See
+  [Task edits](docs/dev/orchestrator-server.md#task-edits).
 - **`mael task follow` and `mael task unfollow` change an existing task's follows.** An
   `in-progress` task that follows unfinished work is a **Parked task**: its agent ends its
   session, and the task keeps its status and its session. Its node waits in the queued zone
