@@ -308,19 +308,56 @@ def test_accepts_a_launch_of_an_actionable_task():
     )
 
 
+LAUNCHES = {
+    "agent.launch": {"type": "agent.launch", "taskId": "northwind/NORT-7"},
+    "task.create": {
+        "type": "task.create",
+        "project": "northwind",
+        "title": "Export the orders",
+        # Through the comms check, which must not end the checks early.
+        "comms": ["comm-1"],
+        "launch": True,
+    },
+    "linear.plan": {
+        "type": "linear.plan",
+        "project": "northwind",
+        "issueId": "ME-1",
+        "launch": True,
+    },
+}
+
+
+@pytest.mark.parametrize("kind", list(LAUNCHES))
 @pytest.mark.parametrize(
     ("host", "message"),
     [("zinc", "No remote host zinc"), ("cobalt", "cobalt is offline")],
 )
-def test_invalid_for_launching_on_a_host_that_is_unknown_or_offline(host, message):
-    world = world_with(tasks=[make_task()])
+def test_invalid_for_launching_on_a_host_that_is_unknown_or_offline(
+    kind, host, message
+):
+    world = world_with(
+        tasks=[make_task()],
+        projects=[{"id": "northwind", "name": "northwind", "hasLinear": True}],
+    )
+    world["comms"]["comm-1"] = {"id": "comm-1"}
     world["host"][HOST_ID] = {
         "id": HOST_ID,
         "remoteHosts": [{"name": "cobalt", "online": False, "since": ""}],
     }
-    cmd = {"type": "agent.launch", "taskId": "northwind/NORT-7", "host": host}
-    error = validate_command(world, cmd)
+    error = validate_command(world, {**LAUNCHES[kind], "host": host})
     assert (code(error), error["message"]) == ("invalid", message)
+
+
+@pytest.mark.parametrize("kind", ["task.create", "linear.plan"])
+def test_invalid_for_a_host_on_a_create_or_plan_that_does_not_launch(kind):
+    world = world_with(
+        tasks=[make_task()],
+        projects=[{"id": "northwind", "name": "northwind", "hasLinear": True}],
+    )
+    world["comms"]["comm-1"] = {"id": "comm-1"}
+    cmd = {**LAUNCHES[kind], "launch": False, "host": "cobalt"}
+    error = validate_command(world, cmd)
+    assert (code(error), error["message"]) == ("invalid", "host needs launch")
 
 
 def test_unknown_id_for_adding_a_task_not_in_the_world_to_the_desk():

@@ -1074,8 +1074,10 @@ def validate_command(
             )
         comms = cmd.get("comms")
         if comms is not None:
-            return _check_comm_ids(world, [], comms)
-        return None
+            error = _check_comm_ids(world, [], comms)
+            if error:
+                return error
+        return _launch_host_refusal(world, cmd)
 
     if kind == "task.promote":
         project = cmd.get("project", "")
@@ -1124,7 +1126,7 @@ def validate_command(
         mode = cmd.get("mode")
         if mode is not None and mode not in MODES:
             return _err("invalid", f"No mode {mode}")
-        return None
+        return _launch_host_refusal(world, cmd)
 
     if kind == "project.add":
         git_url = cmd.get("gitUrl")
@@ -1217,6 +1219,16 @@ def _reopens(world: World, task: Task) -> bool:
     return is_done(task["status"]) and all(
         f in tasks and is_done(tasks[f]["status"]) for f in task["follows"]
     )
+
+
+def _launch_host_refusal(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
+    """Why the ``host`` of a create or a plan that launches is refused, or ``None``."""
+    host = cmd.get("host")
+    if not host:
+        return None
+    if not cmd.get("launch"):
+        return _err("invalid", "host needs launch")
+    return _remote_host_refusal(world, str(host))
 
 
 def _remote_host_refusal(world: World, name: str) -> dict[str, str] | None:
