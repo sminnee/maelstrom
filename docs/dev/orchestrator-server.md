@@ -184,6 +184,7 @@ tag says the turn is from outside, the attributes are its facts, and the body is
 | `github` | `pr.watching`, `pr.checks_failed`, `pr.checks_passed`, `pr.conflict`, `pr.merged` | The PR watch |
 | `gate` | `gate.passed`, `gate.failed`, `gate.cancelled` | The gate watch |
 | `orchestrator` | `session.compacted`, `session.not_compacted` | A compaction request |
+| `orchestrator` | `task.updated`, `task.queued` | A task edit |
 
 **One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
 agent in turn, and answers who took it and who refused. `_tell_worktree` wraps it for the
@@ -262,6 +263,45 @@ checks, so two reads cannot tell the same news.
 **Fast acknowledgement.** A live `<link rel="gh-pr">` tag reads its branch's PR at once, as
 `POST /api/worktrees/refresh` does. Every maelstrom push re-reads too; see "A write reads straight
 away".
+
+### Task edits
+
+An edit of a task tells the task's live top-level agents, so an agent does not work from stale
+content. `_apply` finds the edit, so every write path counts: the UI, the API, and a notebook
+write by `mael task update` that the poll publishes.
+
+`_task_edits` pairs each task upsert with the task as the world holds it before the apply. A new
+task is not an edit. After the apply, `_schedule_task_tells` reads each followed task's new
+status, and `task_edit_event` makes the event. It reads each followed task's status through a
+lookup, so the whole rule is in the domain module:
+
+| Edit | Event |
+|---|---|
+| `follows` gains a task that is not `done`, or that the world does not hold | `task.queued`: commit, write `<end-session>`, and end the turn |
+| Another change to `title`, `content`, `status`, `follows` or `branch` | `task.updated`: the `fields` attribute names the changed fields |
+| A move to `done` or `cancelled` | None. The move ends the work, and `pr.merged` covers a merge |
+| A change to any other field | None. Fields such as `sessions` and `actionable` move without an edit |
+
+The new follow makes the task a **Parked task**, and `task.queued` tells its agent to stop.
+"Unfinished" is what `is_actionable` counts: any status but `done`, so a follow on a `cancelled`
+task parks the task too. The event goes by the new follow, not by `actionable`: a task that is
+parked already can gain a second follow, and its agent must still stop.
+
+**Sender suppression.** The agent that made the edit knows about it, so `task.updated` leaves it
+out. `mael task status`, `mael task follow` and `mael task unfollow` send `session`, from
+`CLAUDE_CODE_SESSION_ID`. `_write_task` keeps it in `_task_edit_senders`, by task, until its
+forced refresh ends, because the poll can publish the write first. An agent whose `session` is
+the sender hears nothing. `task.queued` ignores the sender: the agent must stop even when it
+added the follow itself. `mael task update` and `mael task edit` write the notebook directly and
+send no sender, so an agent that edits its own task with them hears the edit back.
+
+The suppression is keyed by task, not by write. An edit by someone else that the same forced
+refresh publishes, such as a `mael task update` the poll has not read yet, is not told to the
+sender's agent either. Two writes to one task at once share one entry. Both cases are rare, and
+the cost is one missed `task.updated`.
+
+**No redelivery.** The tell runs off the loop, as the gate tell does. A refusal or a failure is
+logged and dropped. The task is the source of truth, so a missed `task.updated` costs little.
 
 ### The gate watch
 

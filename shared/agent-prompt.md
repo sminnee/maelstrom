@@ -180,6 +180,9 @@ body says what to do: do it. The sources are:
   - `pr.checks_passed`: CI passed. No action is needed.
   - `pr.conflict`: the PR conflicts with its base.
   - `pr.merged`: the PR merged.
+- `orchestrator`: `session.compacted`, `session.not_compacted`, and news about your task.
+  - `task.updated`: someone edited the task. The `fields` attribute names the changed fields.
+  - `task.queued`: the task now follows unfinished work, so it is parked.
 - `gate`: a gate job in your worktree ended. The `job` attribute is its number.
   - `gate.passed`: every gate passed.
   - `gate.failed`: a gate failed. A `--fail-fast` job that stopped at a failure is also

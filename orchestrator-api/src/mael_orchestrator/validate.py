@@ -901,7 +901,7 @@ def validate_command(
         status = cmd.get("status")
         if status not in TASK_STATUSES:
             return _err("invalid", f"No status {status}")
-        return None
+        return _sender_error(cmd)
 
     if kind in ("task.registerPr", "task.withdrawPr"):
         task_id = cmd.get("taskId", "")
@@ -962,6 +962,9 @@ def validate_command(
         task_id = cmd.get("taskId", "")
         if task_id not in world["tasks"]:
             return _err("unknown_id", f"No task {task_id}")
+        error = _sender_error(cmd)
+        if error:
+            return error
         fields = cmd.get("fields") or {}
         edited = [
             key for key in _wire_edited(fields, EDITABLE) if fields.get(key) is not None
@@ -1253,6 +1256,13 @@ def _start_spec_refusal(cmd: dict[str, Any]) -> dict[str, str] | None:
     # so only a delegated start may name one, or the task's env and id.
     if not parent_url and (cmd.get("session") or cmd.get("taskId") or env):
         return _err("invalid", "Only a delegated start names a session, env or task")
+    return None
+
+
+def _sender_error(cmd: dict[str, Any]) -> dict[str, str] | None:
+    """A task write's optional ``session``: the session that sent it, a UUID."""
+    if "session" in cmd and not _is_uuid(cmd["session"]):
+        return _err("invalid", "session is a session id: a UUID")
     return None
 
 

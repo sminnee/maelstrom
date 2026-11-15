@@ -380,6 +380,19 @@ def test_invalid_for_a_status_the_notebook_has_no_folder_for():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        {"type": "task.setStatus", "status": "done"},
+        {"type": "task.update", "fields": {"title": "x"}},
+    ],
+)
+def test_invalid_for_a_task_write_whose_session_is_no_session_id(cmd):
+    world = world_with(tasks=[make_task()])
+    cmd = {**cmd, "taskId": "northwind/NORT-7", "session": "me"}
+    assert code(validate_command(world, cmd)) == "invalid"
+
+
 def test_accepts_an_update_that_changes_one_field():
     world = world_with(tasks=[make_task()])
     cmd = {

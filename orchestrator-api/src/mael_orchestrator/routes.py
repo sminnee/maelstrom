@@ -1187,6 +1187,7 @@ async def _set_status(request: web.Request) -> web.StreamResponse:
             "type": "task.setStatus",
             "taskId": task_id,
             "status": body.get("status"),
+            **_sender(body),
         },
     )
 
@@ -1195,8 +1196,18 @@ async def _update_task(request: web.Request) -> web.StreamResponse:
     task_id = _task_id(request)
     return await _command(
         request,
-        lambda body: {"type": "task.update", "taskId": task_id, "fields": body},
+        lambda body: {
+            "type": "task.update",
+            "taskId": task_id,
+            "fields": {k: v for k, v in body.items() if k != "session"},
+            **_sender(body),
+        },
     )
+
+
+def _sender(body: dict[str, Any]) -> dict[str, Any]:
+    """The ``session`` that sent a task write, so its agent is not told the edit."""
+    return {"session": body["session"]} if body.get("session") else {}
 
 
 async def _delete_task(request: web.Request) -> web.StreamResponse:

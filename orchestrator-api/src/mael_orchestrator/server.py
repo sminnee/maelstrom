@@ -77,10 +77,12 @@ from mael_domain.external_event import (
     ORCHESTRATOR_UI,
     SESSION_COMPACTED,
     SESSION_NOT_COMPACTED,
+    TASK_UPDATED,
     ExternalEvent,
     gate_event,
     ledger_without,
     pr_events,
+    task_edit_event,
 )
 from mael_domain.external_event import render as render_event
 from mael_domain.feedback import (
@@ -884,6 +886,13 @@ class Orchestrator:
         self._gate_watch_failed = False
         #: The gate tells in flight, kept so a stop can cancel them.
         self._gate_tells: set[asyncio.Task[None]] = set()
+        #: The task tells in flight. See "Task edits" in
+        #: ``docs/dev/orchestrator-server.md``.
+        self._task_tells: set[asyncio.Task[None]] = set()
+        #: The session that writes each task now, by task key, so its agent
+        #: is not told its own edit. The poll can publish the write first, so
+        #: it stays set until the write's forced refresh ends.
+        self._task_edit_senders: dict[str, str] = {}
         #: Loop time the last read that asked GitHub about every branch
         #: finished, or ``None`` before the first. ``GET /api/worktrees?max_age=``
         #: reads against it: a poll asks about the desk's branches only.
@@ -983,6 +992,7 @@ class Orchestrator:
             *reading,
             *self._pr_watches,
             *self._gate_tells,
+            *self._task_tells,
             *self._hold_releases,
         ]:
             task.cancel()
@@ -996,6 +1006,7 @@ class Orchestrator:
             *reading,
             *self._pr_watches,
             *self._gate_tells,
+            *self._task_tells,
             *self._hold_releases,
             return_exceptions=True,
         )
@@ -1181,7 +1192,9 @@ class Orchestrator:
         if not events:
             return
         touched = self._comms_touched(events)
+        edits = self._task_edits(events)
         self.state.apply(events)
+        self._schedule_task_tells(edits)
         relinked = self._rederived_comms(touched)
         if relinked:
             self.state.apply(relinked)
@@ -1196,6 +1209,55 @@ class Orchestrator:
         if "comm" in notices:
             self.comm_revision += 1
         self.notices.notify(notices)
+
+    def _task_edits(self, events: list[ServerEvent]) -> list[tuple[str, Task]]:
+        """Each task ``events`` upsert that the world holds, with its row before.
+
+        Read before the events apply. A new task is not an edit.
+        """
+        tasks = self.world["tasks"]
+        return [
+            (event["entity"]["id"], tasks[event["entity"]["id"]])
+            for event in events
+            if event.get("kind") == "task"
+            and event["type"] == "upsert"
+            and event["entity"]["id"] in tasks
+        ]
+
+    def _schedule_task_tells(self, edits: list[tuple[str, Task]]) -> None:
+        """Tell each edited task's live agents what the edit changed.
+
+        Read after the events apply, so a followed task in the same batch has
+        its new status. A refused tell is logged and dropped.
+        """
+        tasks = self.world["tasks"]
+
+        def status_of(key: str) -> str | None:
+            followed = tasks.get(key)
+            return followed["status"] if followed is not None else None
+
+        for key, old in edits:
+            new = tasks.get(key)
+            event = task_edit_event(old, new, status_of) if new is not None else None
+            if event is None:
+                continue
+            agents = self._task_agents(key)
+            if event.type == TASK_UPDATED:
+                sender = self._task_edit_senders.get(key)
+                agents = [a for a in agents if not sender or a["session"] != sender]
+            if not agents:
+                continue
+            tell = asyncio.create_task(
+                self._task_tell([a["id"] for a in agents], event)
+            )
+            self._task_tells.add(tell)
+            tell.add_done_callback(self._task_tells.discard)
+
+    async def _task_tell(self, agent_ids: list[str], event: ExternalEvent) -> None:
+        try:
+            await self._tell_logged(agent_ids, event)
+        except Exception:  # noqa: BLE001 — nothing awaits this task
+            log.exception("the %s tell failed for %s", event.type, event.attrs["task"])
 
     def _stop_language_servers(self, events: list[ServerEvent]) -> None:
         """Stop the servers of each worktree ``events`` close or remove."""
@@ -5354,7 +5416,10 @@ class Orchestrator:
 
     async def _set_status(self, command: dict[str, Any]) -> dict[str, Any]:
         reply = await self._write_task(
-            self.tasks.set_status, command["taskId"], command["status"]
+            self.tasks.set_status,
+            command["taskId"],
+            command["status"],
+            sender=command.get("session"),
         )
         follower = (reply.get("result") or {}).get("follower")
         if follower and follower["state"] == "running":
@@ -5379,7 +5444,10 @@ class Orchestrator:
 
     async def _update_task(self, command: dict[str, Any]) -> dict[str, Any]:
         return await self._write_task(
-            self.tasks.update, command["taskId"], dict(command["fields"])
+            self.tasks.update,
+            command["taskId"],
+            dict(command["fields"]),
+            sender=command.get("session"),
         )
 
     async def _register_task_pr(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -5687,7 +5755,11 @@ class Orchestrator:
         self._apply(self._rederived_comms(u.comm_id for u in updates))
 
     async def _write_task(
-        self, write: Callable[..., Any], task_id: str, *args: Any
+        self,
+        write: Callable[..., Any],
+        task_id: str,
+        *args: Any,
+        sender: str | None = None,
     ) -> dict[str, Any]:
         """One notebook write, then the upsert it caused, then the reply.
 
@@ -5695,16 +5767,25 @@ class Orchestrator:
 
         The refresh is forced, as the launch path forces it: a version-checked
         refresh races the poll, so the client could get its reply first.
+
+        ``sender`` is the session that asked for the write; see
+        ``_task_edit_senders``.
         """
+        if sender:
+            self._task_edit_senders[task_id] = sender
         try:
-            result = await self._run(write, task_id, *args)
-        except KeyError:
-            return _refused("unknown_id", f"No task {task_id}")
-        except ValueError as exc:
-            return _refused("invalid", str(exc))
-        except TaskSourceRemote as exc:
-            return _refused("unreachable", str(exc))
-        await self.refresh_tasks(force=True)
+            try:
+                result = await self._run(write, task_id, *args)
+            except KeyError:
+                return _refused("unknown_id", f"No task {task_id}")
+            except ValueError as exc:
+                return _refused("invalid", str(exc))
+            except TaskSourceRemote as exc:
+                return _refused("unreachable", str(exc))
+            await self.refresh_tasks(force=True)
+        finally:
+            if sender:
+                self._task_edit_senders.pop(task_id, None)
         return {"ok": True, "result": result or {}}
 
 
