@@ -85,6 +85,16 @@ describe('SplitButton', () => {
     expect(chevron()).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('holds both segments when disabled', async () => {
+    const user = userEvent.setup();
+    const options = three();
+    render(<SplitButton options={options} disabled />);
+    expect(screen.getByRole('button', { name: 'Terminate' })).toBeDisabled();
+    expect(chevron()).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Terminate' }));
+    expect(options[0]!.run).not.toHaveBeenCalled();
+  });
+
   it('closes the menu on a second chevron click', async () => {
     const user = userEvent.setup();
     render(<SplitButton options={three()} />);
