@@ -503,6 +503,12 @@ LAUNCH_STEPS = ("open_worktree", "write_env", "start_agent")
 #: ``.env`` and the start as its own operation.
 REMOTE_LAUNCH_STEPS = ("start_on_host",)
 
+
+def launch_step_names(host: str) -> tuple[str, ...]:
+    """The step names :meth:`Orchestrator._task_launch_steps` builds for ``host``."""
+    return REMOTE_LAUNCH_STEPS if host else LAUNCH_STEPS
+
+
 #: The keys of a start spec: what ``POST /api/agents`` takes, and what a
 #: delegated launch sends. See "Delegation" in ``docs/dev/remote-hosts.md``.
 START_SPEC_KEYS = (
@@ -4515,7 +4521,7 @@ class Orchestrator:
             new_session=bool(command.get("newSession")),
         )
         host = str(command.get("host") or "")
-        steps = REMOTE_LAUNCH_STEPS if host else LAUNCH_STEPS
+        steps = launch_step_names(host)
 
         async def work(hook: OperationHook) -> None:
             launch_steps = self._task_launch_steps(
