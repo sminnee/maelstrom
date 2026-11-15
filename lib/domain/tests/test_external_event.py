@@ -1,5 +1,7 @@
 """The **External event** envelope, and the PR and gate news that become events."""
 
+from typing import Any
+
 import pytest
 
 from mael_domain.external_event import (
@@ -10,6 +12,9 @@ from mael_domain.external_event import (
     BUILD_REBASE,
     MERGE,
     MERGE_MERGED,
+    ORCHESTRATOR,
+    TASK_QUEUED,
+    TASK_UPDATED,
     ExternalEvent,
     PrLedger,
     build_event,
@@ -20,6 +25,7 @@ from mael_domain.external_event import (
     pr_events,
     rebase_event,
     render,
+    task_edit_event,
 )
 from mael_domain.github_model import PrStatus
 from mael_domain.merge_request import Build, MergeRequest
@@ -376,3 +382,100 @@ class TestMergeEvents:
         )
         assert "mael sync" in event.body
         assert "mael merge submit" in event.body
+
+
+def _task(**over: Any) -> Any:
+    task = {
+        "id": "northwind/NORT-7",
+        "notebookId": "NORT-7",
+        "title": "Add order export",
+        "content": "Export orders.",
+        "status": "in-progress",
+        "follows": [],
+        "branch": "feat/orders",
+        "sessions": [],
+        "actionable": True,
+        "updated": "2026-09-01T00:00:00Z",
+    }
+    return {**task, **over}
+
+
+#: The followed tasks' statuses, by wire id. ``northwind/NORT-9`` is unknown.
+STATUSES = {
+    "northwind/NORT-1": "done",
+    "northwind/NORT-2": "todo",
+    "northwind/NORT-3": "in-progress",
+    "northwind/NORT-4": "cancelled",
+}
+
+
+def _edit(old: Any, new: Any) -> ExternalEvent | None:
+    return task_edit_event(old, new, STATUSES.get)
+
+
+class TestTaskEditEvent:
+    @pytest.mark.parametrize(
+        ("over", "fields"),
+        [
+            ({"title": "Export orders"}, "title"),
+            ({"content": "Export orders as CSV."}, "content"),
+            ({"branch": "feat/other"}, "branch"),
+            ({"follows": ["northwind/NORT-1"]}, "follows"),
+            ({"title": "Export", "content": "CSV."}, "title,content"),
+        ],
+    )
+    def test_names_each_changed_watched_field(self, over, fields):
+        event = _edit(_task(), _task(**over))
+        assert event is not None
+        assert (event.source, event.type) == (ORCHESTRATOR, TASK_UPDATED)
+        assert event.attrs == {"task": "northwind/NORT-7", "fields": fields}
+        assert "Read it with `mael task show NORT-7`." in event.body
+
+    def test_a_status_change_names_the_new_status(self):
+        event = _edit(_task(status="todo"), _task(status="in-progress"))
+        assert event is not None
+        assert event.body == (
+            "The status of task NORT-7 changed. Its status is now in-progress. "
+            "Read it with `mael task show NORT-7`."
+        )
+
+    @pytest.mark.parametrize("status", ["done", "cancelled"])
+    def test_a_move_that_ends_the_work_sends_nothing(self, status):
+        assert _edit(_task(), _task(status=status)) is None
+
+    def test_an_unwatched_change_sends_nothing(self):
+        new = _task(sessions=[{"id": "s", "harness": "claude"}], actionable=False)
+        assert _edit(_task(), new) is None
+
+    @pytest.mark.parametrize(
+        ("follows", "queued"),
+        [
+            (["northwind/NORT-2", "northwind/NORT-3"], "NORT-2,NORT-3"),
+            # As `is_actionable`: only `done` is finished.
+            (["northwind/NORT-4"], "NORT-4"),
+            (["northwind/NORT-9"], "NORT-9"),
+            (["northwind/NORT-1", "northwind/NORT-2"], "NORT-2"),
+        ],
+        ids=["open", "cancelled", "unknown", "only-the-unfinished"],
+    )
+    def test_a_new_follow_on_unfinished_work_queues_the_task(self, follows, queued):
+        event = _edit(_task(), _task(follows=follows, content="More."))
+        assert event is not None
+        assert event.type == TASK_QUEUED
+        assert event.attrs == {"task": "northwind/NORT-7", "follows": queued}
+
+    def test_a_follow_held_before_the_edit_does_not_queue(self):
+        old = _task(follows=["northwind/NORT-2"])
+        new = _task(follows=["northwind/NORT-2"], content="More.")
+        event = _edit(old, new)
+        assert event is not None
+        assert event.type == TASK_UPDATED
+
+    def test_the_queued_body_tells_the_agent_to_stop(self):
+        event = _edit(_task(), _task(follows=["northwind/NORT-2"]))
+        assert event is not None
+        assert event.body == (
+            "Task NORT-7 now follows unfinished work: NORT-2. Commit your work, "
+            "write `<end-session>`, and end your turn. The user resumes the task "
+            "when that work is done."
+        )
