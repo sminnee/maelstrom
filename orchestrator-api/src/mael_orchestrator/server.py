@@ -4294,7 +4294,8 @@ class Orchestrator:
             "project": claim.project,
             "branch": plan.branch,
             "prompt": plan.prompt,
-            "mode": plan.permission_mode or "",
+            # A Remote host's `agent.start` refuses an empty mode; no flag is `normal`.
+            "mode": plan.permission_mode or "normal",
             "model": plan.model,
             "executeModel": plan.execute_model,
             "session": plan.session_id,
