@@ -207,6 +207,32 @@ def test_add_with_an_empty_comm_opts_out_of_the_parent_comms(table, start_server
     assert stored(served.table, opts_out.output.strip()).comms == []
 
 
+def test_add_in_a_session_inherits_the_session_task_comms(
+    table, start_server, monkeypatch, tmp_path
+):
+    served = serve(start_server)
+    client = OrchestratorClient(served.url)
+    weekly, launch = (client.post("/api/comms", {"title": t}) for t in ("A", "B"))
+    seed(table, title="Plan", id="NORT-1", branch="feat/orders", comms=[weekly["id"]])
+    seed(table, title="Me", id="NORT-2", branch="feat/me", comms=[launch["id"]])
+    monkeypatch.setenv("MAEL_TASK_PROJECT", PROJECT)
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-2")
+
+    made = mael_task("add", "Made by me", "-p", PROJECT, "-P", "NORT-1")
+    plan = tmp_path / "plan.md"
+    plan.write_text("---CREATE TASK l---\ntitle: L\n---\n")
+    loaded = mael_task("load-many", str(plan), "--project", PROJECT)
+
+    assert made.exit_code == 0, made.output
+    assert stored(served.table, made.output.strip()).comms == [
+        weekly["id"],
+        launch["id"],
+    ]
+    assert loaded.exit_code == 0, loaded.output
+    [loaded_id, _] = loaded.output.strip().split("\t")
+    assert stored(served.table, loaded_id).comms == [launch["id"]]
+
+
 def test_add_run_starts_the_task_on_the_server(start_server):
     served = serve(start_server)
 

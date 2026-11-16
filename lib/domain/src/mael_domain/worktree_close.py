@@ -195,6 +195,18 @@ def reopen_task_fields(result: CloseResult) -> dict[str, str] | None:
     }
 
 
+async def branch_comms(table: TaskTable, project: str, branch: str) -> list[str]:
+    """The comms of every task on ``branch``, first seen first, with no repeat.
+
+    The reopen task takes them: it carries on the work of the closed tasks.
+    """
+    comms: list[str] = []
+    for task in await task_model.list_tasks(table, project=project):
+        if task.branch == branch:
+            comms.extend(c for c in task.comms if c not in comms)
+    return comms
+
+
 async def add_reopen_task(
     table: TaskTable, project: str, result: CloseResult
 ) -> task_model.Task | None:
@@ -210,6 +222,7 @@ async def add_reopen_task(
         branch=fields["branch"],
         priority=fields["priority"],
         content=fields["content"],
+        comms=await branch_comms(table, project, fields["branch"]),
     )
 
 

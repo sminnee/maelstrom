@@ -1404,7 +1404,8 @@ class TestBranchDefault:
 
 
 class TestCommInheritance:
-    # A child feeds the comms its parent task feeds, as it shares its branch.
+    # A new task feeds the comms of every task it is made from: its parent, its
+    # follows tasks, and the task whose session made it.
     async def _parent(self, store):
         return await model.create(
             store, project="p", title="par", id="par", comms=["c1", "c2"], now=NOW
@@ -1453,6 +1454,59 @@ class TestCommInheritance:
         )
         assert a.comms == ["c1", "c2"]
         assert b.comms == ["c5"]
+
+    async def test_a_task_takes_the_comms_of_its_parent_follows_and_source(self):
+        # First seen first, with no repeat; a missing task gives nothing.
+        store = InMemoryTaskTable()
+        await self._parent(store)
+        for id, comms in [("f1", ["c3", "c1"]), ("f2", []), ("src", ["c4", "c3"])]:
+            await model.create(store, project="p", title=id, id=id, comms=comms)
+        t = await model.create(
+            store,
+            project="p",
+            title="t",
+            parent="par",
+            follows=["f1", "f2", "gone"],
+            source="src",
+            now=NOW,
+        )
+        assert t.comms == ["c1", "c2", "c3", "c4"]
+
+    async def test_an_empty_list_opts_out_of_the_source_comms_too(self):
+        store = InMemoryTaskTable()
+        await self._parent(store)
+        t = await model.create(
+            store, project="p", title="t", source="par", comms=[], now=NOW
+        )
+        assert t.comms == []
+
+    async def test_a_load_many_block_inherits_the_session_task_comms(self):
+        store = InMemoryTaskTable()
+        await self._parent(store)
+        await model.create(store, project="p", title="s", id="s", comms=["c7"])
+        [a] = await model.load_many(
+            store,
+            project="p",
+            blocks=[{"name": "a", "args": {"title": "A"}, "content": ""}],
+            default_parent="par",
+            source="s",
+        )
+        assert a.comms == ["c1", "c2", "c7"]
+
+    async def test_a_promoted_chain_takes_the_planning_task_comms(self):
+        # The planning task is not the chain's parent, but its comms carry on.
+        store = InMemoryTaskTable()
+        await self._parent(store)
+        await model.create(
+            store, project="p", title="plan", id="plan", parent="par", comms=["c8"]
+        )
+        drafts = [("a.md", model.draft_markdown(title=t)) for t in ("A", "B")]
+        a, b = await model.promote_chain(
+            store, project="p", drafts=drafts, parent="par", after="plan"
+        )
+        assert a.comms == ["c1", "c2", "c8"]
+        # The second task follows the first, so it takes the same comms.
+        assert b.comms == ["c1", "c2", "c8"]
 
     async def test_update_replaces_the_list(self):
         store = InMemoryTaskTable()
@@ -2356,11 +2410,14 @@ class TestDuplicate:
         run = await model.duplicate(store, "p", "tmpl", parent="", id="tmpl.1")
         assert run.comms == ["c2"]
 
-    async def test_a_duplicate_under_a_parent_takes_the_parent_comms(self, store):
+    async def test_a_duplicate_takes_the_comms_of_its_parent_session_and_template(
+        self, store
+    ):
         await model.create(store, project="p", title="T", id="tmpl", comms=["c2"])
         await model.create(store, project="p", title="P", id="par", comms=["c5"])
-        dup = await model.duplicate(store, "p", "tmpl", parent="par")
-        assert dup.comms == ["c5"]
+        await model.create(store, project="p", title="S", id="s", comms=["c7", "c2"])
+        dup = await model.duplicate(store, "p", "tmpl", parent="par", source="s")
+        assert dup.comms == ["c5", "c7", "c2"]
 
     async def test_copies_recipe_into_todo(self, store):
         src = await model.create(

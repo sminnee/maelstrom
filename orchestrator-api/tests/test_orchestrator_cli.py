@@ -17,7 +17,7 @@ from click.testing import CliRunner
 from mael_domain.context import GlobalConfig
 from mael_domain.github_model import GitHubCommandFailed, PrState, PrStatus
 from mael_domain.state_db.types import SchemaTooOldError
-from mael_domain.task import list_tasks
+from mael_domain.task import create, list_tasks
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import CloseResult
 from mael_domain.worktree_close import FullCloseResult
@@ -357,13 +357,34 @@ def test_a_force_close_over_unmerged_work_writes_a_reopen_task_to_its_home(
     tmp_path, monkeypatch
 ):
     table = InMemoryTaskTable()
-    worktrees = _worktree_source(tmp_path, monkeypatch)
+    # The closed tasks: the reopen task carries on their comms.
+    for task_id, branch, comms in [
+        ("1", "feat/orders", ["c1"]),
+        ("2", "feat/orders", ["c2", "c1"]),
+        ("3", "feat/other", ["c3"]),
+    ]:
+        asyncio.run(
+            create(
+                table,
+                project="northwind",
+                title=task_id,
+                id=task_id,
+                branch=branch,
+                comms=comms,
+                status="done",
+            )
+        )
+    worktrees = _worktree_source(tmp_path, monkeypatch, table)
     _force_close(worktrees, _notebook(table), had_unmerged_work=True)
 
-    [task] = asyncio.run(list_tasks(table, project="northwind"))
+    [task] = [
+        t
+        for t in asyncio.run(list_tasks(table, project="northwind"))
+        if t.command == "reopen-branch"
+    ]
     assert task.title == "Reopen feat/orders"
-    assert task.command == "reopen-branch"
     assert task.branch == "feat/orders"
+    assert task.comms == ["c1", "c2"]
 
 
 def test_a_force_close_with_nothing_unmerged_writes_no_task(tmp_path, monkeypatch):

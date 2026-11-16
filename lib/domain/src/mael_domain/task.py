@@ -184,7 +184,7 @@ TASK_FIELDS = (
     _FieldSpec("pr-url"),
     # What fires a template. See CONTEXT.md, "Trigger".
     _FieldSpec("trigger"),
-    # The comms the task feeds. A child inherits its parent task's list. See
+    # The comms the task feeds. A new task inherits them. See
     # CONTEXT.md, "Comm".
     _FieldSpec("comms", block=True),
     # Set while the agent does more work after the push. See CONTEXT.md,
@@ -710,6 +710,7 @@ async def create(
     status: str = DEFAULT_STATUS,
     now: str | None = None,
     generate_branch: bool = True,
+    source: str = "",
 ) -> Task:
     """Create a new task and write its row (one write).
 
@@ -724,8 +725,9 @@ async def create(
     as a child of ``parent`` or a fresh orphan. ``status`` places the task in a
     folder other than ``todo/`` (e.g. ``template/`` for a parked template).
 
-    ``comms`` set to ``None`` inherits the parent task's comms, as the branch
-    is inherited. An explicit list wins, and ``[]`` opts out.
+    ``comms`` set to ``None`` inherits the comms of every task the new task is
+    made from: its parent, each ``follows`` task, and ``source``, the task whose
+    session made it. An explicit list wins, and ``[]`` opts out.
 
     ``generate_branch=False`` skips the generator and takes the cheap
     ``task/<id>`` shape, for a caller that names the branch itself later.
@@ -778,7 +780,9 @@ async def create(
         comms=(
             list(comms)
             if comms is not None
-            else await _parent_comms(table, project, parent)
+            else await _inherited_comms(
+                table, project, [parent, *(follows or []), source]
+            )
         ),
         content=content,
         status=status,
@@ -811,6 +815,7 @@ async def duplicate(
     id: str | None = None,
     now: str | None = None,
     generate_branch: bool = True,
+    source: str = "",
 ) -> Task:
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
@@ -822,9 +827,9 @@ async def duplicate(
     ``trigger`` are set only from the explicit override (so a run never inherits
     its template's cron or trigger).
 
-    ``comms`` set to ``None`` takes the parent task's comms when there is a
-    parent, and the source's comms when there is none — so a scheduled run
-    feeds the comms its template feeds.
+    ``comms`` set to ``None`` inherits as :func:`create` does, with the
+    duplicated task as one more source — so a scheduled run feeds the comms
+    its template feeds.
 
     ``branch``/``follows``/``status`` compose the remaining ``add`` flags onto the
     duplicate. For a scheduled run pass ``parent=""`` and
@@ -834,6 +839,10 @@ async def duplicate(
     duplicates omit both and get a normal id.
     """
     src = await load(table, project, src_id)
+    if comms is None:
+        comms = await _inherited_comms(
+            table, project, [parent, *(follows or []), source, src_id]
+        )
     return await create(
         table,
         project=project,
@@ -853,7 +862,7 @@ async def duplicate(
         schedule=schedule,
         trigger=trigger,
         priority=priority if priority is not None else src.priority,
-        comms=comms if comms is not None or parent else list(src.comms),
+        comms=comms,
         status=status,
         id=id,
         now=now,
@@ -953,6 +962,7 @@ async def _create_from_draft(
     draft: Task,
     overrides: dict[str, str | None],
     follows: list[str],
+    source: str,
 ) -> Task:
     """Create the task a parsed draft describes: one step of :func:`promote_chain`.
 
@@ -974,6 +984,7 @@ async def _create_from_draft(
         follows=follows,
         # A draft that names comms wins; one that names none inherits them.
         comms=draft.comms or None,
+        source=source,
         **fields,
     )
 
@@ -1003,7 +1014,8 @@ async def promote_chain(
     already ran keeps the follows it ran with.
 
     A task's parent is ``overrides["parent"]``, else the draft's own, else the
-    ``parent`` argument. The set is one transaction: a draft that does not
+    ``parent`` argument. ``after`` is the planning task, so each task inherits
+    its comms too, whether or not the set splices after it. The set is one transaction: a draft that does not
     parse leaves nothing created and no follower moved.
 
     Raises:
@@ -1016,6 +1028,7 @@ async def promote_chain(
     if (priority := given.get("priority")) is not None:
         validate_priority(priority)
     created: list[Task] = []
+    source = after or ""
     async with table.transact():
         # A task outside the project, such as a stale $MAEL_TASK_ID, is not
         # spliced after: a follow on it would block the chain for good.
@@ -1054,6 +1067,7 @@ async def promote_chain(
                         "parent": given.get("parent") or draft.parent or parent,
                     },
                     follows=wired,
+                    source=source,
                 )
             except ValueError as exc:
                 raise ValueError(f"{name}: {exc}") from exc
@@ -1208,11 +1222,13 @@ async def load_many(
     blocks: list[dict],
     default_parent: str = "",
     now: str | None = None,
+    source: str = "",
 ) -> list[Task]:
     """Create every block as a task in one transaction (a single commit).
 
     A block's ``parent`` defaults to ``default_parent`` (the launching session's
-    ``$MAEL_TASK_PARENT``) when its frontmatter omits one.
+    ``$MAEL_TASK_PARENT``) when its frontmatter omits one. ``source`` is the
+    launching session's task (``$MAEL_TASK_ID``): each task inherits its comms.
 
     Each block's ``follow`` values are resolved against the tasks created earlier
     in this batch (block name -> allocated id) and otherwise passed through as
@@ -1252,10 +1268,11 @@ async def load_many(
                 pre_action=str(args.get("pre-action", "")),
                 post_action=str(args.get("post-action", "")),
                 follows=deduped,
-                # An omitted key inherits the parent task's comms.
+                # An omitted key inherits the comms of the tasks it is made from.
                 comms=(_coerce_follows(args["comms"]) if "comms" in args else None),
                 content=b["content"],
                 now=now,
+                source=source,
             )
             created[b["name"]] = t
     return list(created.values())
@@ -1642,15 +1659,21 @@ async def _parent_branch(table: "TaskTable", project: str, parent: str) -> str:
     return parent_task.branch
 
 
-async def _parent_comms(table: "TaskTable", project: str, parent: str) -> list[str]:
-    """Return the parent task's comms, or ``[]`` for no parent or a virtual one."""
-    if not parent:
-        return []
-    try:
-        parent_task = await load(table, project, parent)
-    except KeyError:
-        return []
-    return list(parent_task.comms)
+async def _inherited_comms(
+    table: "TaskTable", project: str, sources: list[str]
+) -> list[str]:
+    """The comms of every task in ``sources``, first seen first, with no repeat.
+
+    A blank id, a virtual one, and a task that does not exist give nothing.
+    """
+    comms: list[str] = []
+    for id in dict.fromkeys(s for s in sources if s):
+        try:
+            task = await load(table, project, id)
+        except (KeyError, ValueError):
+            continue
+        comms.extend(c for c in task.comms if c not in comms)
+    return comms
 
 
 def default_branch(
