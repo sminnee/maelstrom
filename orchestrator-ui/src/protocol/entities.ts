@@ -443,6 +443,8 @@ export interface Comm {
   category: string;
   /** The project a task made from the comm goes to, or `''`. */
   project: string;
+  /** See `CONTEXT.md`, "Comm codename". `''` before one is made: show the id. */
+  codename: string;
   taskIds: TaskId[];
   queued: CommItem[];
   updates: CommUpdate[];

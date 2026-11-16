@@ -40,6 +40,8 @@ export interface Loc {
   projectDetail: ProjectId | null;
   /** The Project dialog's tab. Read only while `projectDetail` is set. */
   projectTab: ProjectTab;
+  /** The comm the comm editor is open on, over any view. */
+  commDetail: string | null;
   /** Whether the new-work form is open. */
   newWork: boolean;
   /** Whether the **Welcome dialog** is open, as the logo opens it. */
@@ -111,6 +113,7 @@ export function defaultLoc(): Loc {
     edit: null,
     projectDetail: null,
     projectTab: DEFAULT_PROJECT_TAB,
+    commDetail: null,
     newWork: false,
     welcome: false,
     addProject: false,
@@ -251,6 +254,7 @@ export function locAt(screen: Screen, params: Params, search: string): Loc {
     edit: q.get('edit') || null,
     projectDetail: q.get('detail') || null,
     projectTab: dtab && PROJECT_TABS.includes(dtab) ? dtab : DEFAULT_PROJECT_TAB,
+    commDetail: q.get('cdetail') || null,
     newWork: q.get('new') === '1',
     welcome: q.get('welcome') === '1',
     addProject: q.get('add') === '1',
@@ -290,6 +294,7 @@ export function toHref(loc: Loc): string {
     // in every later URL.
     ['dtab', loc.projectDetail && loc.projectTab !== DEFAULT_PROJECT_TAB ? loc.projectTab : null],
     ['closed', loc.projectDetail && loc.worktreeFilters.showClosed ? '1' : null],
+    ['cdetail', loc.commDetail],
     ['new', loc.newWork ? '1' : null],
     ['welcome', loc.welcome ? '1' : null],
     ['add', loc.addProject ? '1' : null],

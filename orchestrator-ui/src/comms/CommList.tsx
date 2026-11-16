@@ -7,18 +7,19 @@ import { hasDraft, highestLanding, listComms, queueSize } from '../selectors/com
 import { noFilters } from '../selectors/filters';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
+import { useCommDetail } from '../nav/useOverlays';
+import { CommChip } from './CommChip';
 import { CommEditor } from './CommEditor';
 import styles from './CommList.module.css';
-
-/** What the editor is open on: a comm, or a new one. */
-type Editing = { kind: 'comm'; id: string } | { kind: 'new' } | null;
 
 /** Every open comm, with how far its work has landed. */
 export function CommList() {
   const comms = useComms();
   const { world } = useWorld();
   const [showClosed, setShowClosed] = useState(false);
-  const [editing, setEditing] = useState<Editing>(null);
+  // A new comm's form is the list's own; a comm's editor is the location's.
+  const [creating, setCreating] = useState(false);
+  const detail = useCommDetail();
   const rows = useMemo(
     () => listComms(comms.data?.comms ?? [], showClosed),
     [comms.data, showClosed],
@@ -46,7 +47,7 @@ export function CommList() {
           >
             {queued === 0 ? 'Draft updates' : `Draft updates (${queued})`}
           </AppButton>
-          <AppButton icon={actionIcon('new')} onClick={() => setEditing({ kind: 'new' })}>
+          <AppButton icon={actionIcon('new')} onClick={() => setCreating(true)}>
             New comm
           </AppButton>
         </div>
@@ -63,7 +64,7 @@ export function CommList() {
         <tbody>
           {rows.map((comm) => {
             const landing = highestLanding(comm.taskIds.map((id) => world.tasks[id]));
-            const open = () => setEditing({ kind: 'comm', id: comm.id });
+            const open = () => detail.open(comm.id);
             return (
               <tr
                 key={comm.id}
@@ -74,6 +75,7 @@ export function CommList() {
                 }}
               >
                 <td>
+                  <CommChip comm={comm} className={styles.chip} />
                   {/* A real button: a row reaches no keyboard. */}
                   <button type="button" className={`${styles.title} wrap`} onClick={open}>
                     {comm.title}
@@ -117,12 +119,14 @@ export function CommList() {
           )}
         </tbody>
       </table>
-      {editing && (
+      {creating && (
         <CommEditor
-          key={editing.kind === 'comm' ? editing.id : 'new'}
-          commId={editing.kind === 'comm' ? editing.id : null}
-          onCreated={(id) => setEditing({ kind: 'comm', id })}
-          onClose={() => setEditing(null)}
+          commId={null}
+          onCreated={(id) => {
+            setCreating(false);
+            detail.open(id);
+          }}
+          onClose={() => setCreating(false)}
         />
       )}
     </div>

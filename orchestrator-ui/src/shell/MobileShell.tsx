@@ -12,6 +12,7 @@ import { NewWork } from '../newwork/NewWork';
 import { useDeck } from '../deck/useDeck';
 import { nodeTitle } from '../selectors/graph';
 import type { PanelTab } from '../store/uiSlice';
+import { CommOverlay } from '../comms/CommOverlay';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { SessionTab } from '../session/SessionTab';
@@ -142,6 +143,8 @@ export function MobileShell() {
         <GatesOverlay />
         <UsageOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
+        {/* After the task editor: its comm chips open a comm over it. */}
+        <CommOverlay />
         {newWorkOpen && <NewWork />}
       </div>
     </ScreenChromeContext.Provider>

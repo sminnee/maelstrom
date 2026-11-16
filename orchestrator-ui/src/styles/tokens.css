@@ -42,6 +42,9 @@
   /* Its own purple, not `--hue-shape`: a phase palette tweak must not restyle
      every archived thing. */
   --hue-archival: #b58cf6;
+  /* Magenta: the one hue of every comm. The phases hold purple, blue,
+     teal and amber, and danger is salmon, so magenta reads as none of them. */
+  --hue-comm: #ff00bb;
 
   /* Semantic: surfaces and lines. */
   --bg: var(--n1);
@@ -97,6 +100,12 @@
   /* Two readings the state hues do not cover. `--tone-archival` is finished and
      filed away; `--tone-dormant` is parked on purpose, waiting on nobody. */
   --tone-archival: var(--hue-archival);
+  /* A **Comm codename** chip. See `comms/CommChip.tsx`. */
+  --comm: var(--hue-comm);
+  /* A comm chip: a wash of the hue, and the codename tinted toward the page's
+     ink. Each scheme sets its own strengths around the one hue. */
+  --comm-fill: 50%;
+  --comm-text: color-mix(in srgb, var(--comm) 13%, white);
   --tone-dormant: var(--mark-neutral);
   /* The current phase's hue: `base.css` sets it from `[data-phase]`. */
   --phase: var(--fg-faint);
@@ -314,6 +323,8 @@
     --hue-plan: #2f6fd0;
     --hue-build: #128274;
     --hue-land: #9e6a10;
+    --comm-fill: 13%;
+    --comm-text: color-mix(in srgb, var(--comm) 75%, black);
     --syntax-shade: 20%;
 
     --shadow-card: 0 16px 40px rgba(20, 24, 34, 0.18), 0 1px 3px rgba(20, 24, 34, 0.12);

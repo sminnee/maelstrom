@@ -4,6 +4,7 @@ import type { AgentStatusFilter, Filters } from '../selectors/filters';
 import { AGENT_STATUS_LABELS } from '../selectors/filters';
 import { filterOptions } from '../selectors/filterOptions';
 import { useComms } from '../api/comms';
+import { commLabel } from '../selectors/comms';
 import { useWorld } from '../api/useWorld';
 import { TASK_STATUSES } from '../protocol/entities';
 import { MultiSelect } from '../ui/MultiSelect';
@@ -141,7 +142,7 @@ function CommField({
         {value && !offered.some((c) => c.id === value) && <option value={value}>{value}</option>}
         {offered.map((c) => (
           <option key={c.id} value={c.id}>
-            {c.id} · {c.title}
+            {commLabel(c)} · {c.title}
           </option>
         ))}
       </select>

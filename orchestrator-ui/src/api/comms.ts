@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Comm } from '../protocol/entities';
 import { useApi } from './ApiProvider';
@@ -15,6 +16,8 @@ export interface CommEdit {
   category?: string;
   /** `''` or a project the world holds. */
   project?: string;
+  /** One or two words no other comm uses, or `''` to show the id. See CONTEXT.md, "Comm codename". */
+  codename?: string;
   /** `true` closes the comm and stamps `closedAt`; `false` opens it again. */
   closed?: boolean;
 }
@@ -26,6 +29,12 @@ export function useComms() {
     queryKey: keys.comms.list(),
     queryFn: ({ signal }) => api.get<CommsBody>('/api/comms', { signal }),
   });
+}
+
+/** Every comm by its id, from the one comms query, so each card that draws a chip shares it. */
+export function useCommsById(): ReadonlyMap<string, Comm> {
+  const comms = useComms().data?.comms;
+  return useMemo(() => new Map((comms ?? []).map((c) => [c.id, c])), [comms]);
 }
 
 export function useComm(commId: string | null) {

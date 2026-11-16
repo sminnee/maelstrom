@@ -63,9 +63,6 @@
 .node[data-state='stopped'] .status {
   color: var(--fg-muted);
 }
-.node[data-state='stopped'] .phase {
-  color: var(--phase-dormant);
-}
 .node[data-state='queued'] {
   border-style: dashed;
   opacity: 0.65;
@@ -202,13 +199,20 @@
   flex: none;
   align-self: center;
 }
-.phase {
-  flex: none;
+/* The comms, at the row's end. A long codename gives way before the id does. */
+.comms {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
   margin-left: auto;
-  padding-left: var(--u);
-  color: var(--phase);
-  font-size: var(--text-sm);
-  letter-spacing: 0.06em;
+  align-self: center;
+}
+.more {
+  flex: none;
+  color: var(--comm-text);
 }
 
 /* `.head .badge` outranks PanelLink's `.link`, whatever order the stylesheets load in. */

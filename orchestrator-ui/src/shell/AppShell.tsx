@@ -6,6 +6,7 @@ import { CommList } from '../comms/CommList';
 import { ProjectList } from '../projects/ProjectList';
 import { Panel } from '../panel/Panel';
 import { NewWork } from '../newwork/NewWork';
+import { CommOverlay } from '../comms/CommOverlay';
 import { TaskEditor } from '../tasklist/TaskEditor';
 import { TaskList } from '../tasklist/TaskList';
 import { useLayoutMode } from '../layout/useLayoutMode';
@@ -119,6 +120,8 @@ function SlotShell() {
         <GatesOverlay />
         <UsageOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
+        {/* After the task editor: its comm chips open a comm over it. */}
+        <CommOverlay />
         {newWorkOpen && <NewWork />}
       </div>
     </ReactFlowProvider>

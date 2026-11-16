@@ -55,6 +55,11 @@
   padding: 0;
   cursor: pointer;
 }
+/* The codename leads the title, a gap before it. */
+.chip {
+  margin-right: var(--u);
+  vertical-align: middle;
+}
 .actions {
   display: flex;
   gap: var(--u);

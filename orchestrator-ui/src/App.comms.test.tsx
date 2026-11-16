@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
+import { act } from 'react';
 import userEvent from '@testing-library/user-event';
 import { paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
@@ -11,10 +12,10 @@ describe('the comms view', () => {
   };
   const row = (id: string) =>
     document.querySelector(
-      `[data-testid="comm-list"] [data-comm-id="${id}"]`,
+      `[data-testid="comm-list"] tr[data-comm-id="${id}"]`,
     ) as HTMLElement | null;
   const listedIds = () =>
-    [...document.querySelectorAll('[data-testid="comm-list"] [data-comm-id]')].map((r) =>
+    [...document.querySelectorAll('[data-testid="comm-list"] tr[data-comm-id]')].map((r) =>
       r.getAttribute('data-comm-id'),
     );
 
@@ -274,7 +275,7 @@ describe('the comms view', () => {
       within(offer)
         .getAllByRole('option')
         .map((o) => o.textContent),
-    ).toEqual(['c1Order export is live']);
+    ).toEqual(['c1Lantern · Order export is live']);
     await user.click(within(offer).getByRole('option'));
     await user.click(comms.getByRole('button', { name: 'Link' }));
     await waitFor(() => expect(server.world.tasks['NORT-12']!.comms).toEqual(['c2', 'c1']));
@@ -400,5 +401,74 @@ describe('the comm filter', () => {
     expect(
       document.querySelectorAll('[data-testid="worktree-box"][data-empty="true"]'),
     ).toHaveLength(0);
+  });
+});
+
+describe('the comm chips', () => {
+  const node = (taskId: string) =>
+    document.querySelector(`[data-testid="task-node"][data-task-id="${taskId}"]`) as HTMLElement;
+
+  it("ends a node's meta row with its first comm's codename, in place of the phase word", async () => {
+    await renderApp({ scenario: 'comms' });
+    await waitFor(() => expect(node('NORT-12')).not.toBeNull());
+    const chip = within(node('NORT-12')).getByRole('button', { name: 'Night Owl' });
+    expect(chip).toHaveAttribute('title', 'Night Owl: Refunds retry on their own');
+    expect(node('NORT-12')).not.toHaveTextContent(/SHAPE|PLAN|BUILD|LAND/);
+  });
+
+  it('counts the other comms after the first, and shows an id before a codename', async () => {
+    const { server } = await renderApp({ scenario: 'comms' });
+    await waitFor(() => expect(node('NORT-12')).not.toBeNull());
+    await act(async () => {
+      server.change({ kind: 'task', ids: ['NORT-12'] }, (w) => {
+        w.tasks['NORT-12'] = { ...w.tasks['NORT-12']!, comms: ['c3', 'c1', 'c2'] };
+      });
+    });
+    // c3 has no codename: its id stands in.
+    await waitFor(() => expect(within(node('NORT-12')).getByRole('button', { name: 'c3' })));
+    expect(node('NORT-12')).toHaveTextContent('+2');
+  });
+
+  it('opens the comm from a chip, over the desk, and leaves the node as it was', async () => {
+    const user = userEvent.setup();
+    const { router } = await renderApp({ scenario: 'comms' });
+    await waitFor(() => expect(node('NORT-12')).not.toBeNull());
+    await user.click(within(node('NORT-12')).getByRole('button', { name: 'Night Owl' }));
+
+    const editor = await screen.findByRole('dialog', { name: 'Refunds retry on their own' });
+    expect(within(editor).getByLabelText('Codename')).toHaveValue('Night Owl');
+    expect(router.state.location.pathname).toBe('/desk/graph');
+    expect(node('NORT-12')).not.toHaveAttribute('data-expanded');
+  });
+
+  it("lists the comms on a task's expanded card, and none on a task that feeds none", async () => {
+    const { reload, router } = await renderApp({
+      scenario: 'comms',
+      url: '/desk/graph/task/NORT-12',
+    });
+    const comms = await screen.findByRole('list', { name: 'Comms' });
+    expect(within(comms).getByRole('button', { name: 'Night Owl' })).toBeInTheDocument();
+    expect(comms).toHaveTextContent('Refunds retry on their own');
+
+    await act(() => router.navigate('/desk/graph/task/NORT-7'));
+    await reload();
+    await screen.findByTestId('node-id-line');
+    expect(screen.queryByRole('list', { name: 'Comms' })).toBeNull();
+  });
+
+  it("sets a comm's codename in its editor, and the list shows it", async () => {
+    const user = userEvent.setup();
+    await renderApp({ scenario: 'comms', url: '/comms?cdetail=c2' });
+    const editor = await screen.findByRole('dialog', { name: 'Refunds retry on their own' });
+    const field = within(editor).getByLabelText('Codename');
+    await user.clear(field);
+    await user.type(field, 'Heron');
+    await user.click(within(editor).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const row = document.querySelector('[data-testid="comm-list"] tr[data-comm-id="c2"]')!;
+    await waitFor(() =>
+      expect(within(row as HTMLElement).getByRole('button', { name: 'Heron' })).toBeVisible(),
+    );
   });
 });
