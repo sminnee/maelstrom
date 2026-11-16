@@ -143,27 +143,45 @@ function instantOf(
   return guess;
 }
 
-/** The weighted measure of `[from, to)`, in weighted milliseconds. */
-export function weightedSpan(from: number, to: number, calendar: WorkCalendar): number {
-  // A reversed or empty interval measures nothing. Never a negative: that
-  // would flow on as a negative fraction and read as the healthiest window on
-  // the bar.
-  if (!(to > from)) return 0;
+/** One stretch of `[from, to)` inside a period: where it opens and closes, and its weight. */
+export type WorkingSegment = readonly [opens: number, closes: number, weight: number];
 
-  let total = 0;
+/**
+ * The parts of `[from, to)` that fall inside a period, in time order, each
+ * clipped to the interval. Hours outside every period give no segment.
+ * Between two segment ends the weighted measure grows at one rate.
+ */
+export function workingSegments(
+  from: number,
+  to: number,
+  calendar: WorkCalendar,
+): WorkingSegment[] {
+  // A reversed or empty interval gives no segment. Never a negative measure: that
+  // would flow on as a negative fraction and read as the healthiest window on the bar.
+  if (!(to > from)) return [];
+  const segments: WorkingSegment[] = [];
   // Start a day early: the local day containing `from` may have begun before
   // it in UTC terms.
   for (let cursor = from - DAY; cursor < to + DAY; cursor += DAY) {
     const day = localParts(cursor, calendar.timeZone);
     for (const period of calendar.periods) {
       if (!period.days.includes(day.weekday)) continue;
-      const opens = instantOf(day, period.fromHour, calendar.timeZone);
-      const closes = instantOf(day, period.toHour, calendar.timeZone);
-      const overlap = Math.min(to, closes) - Math.max(from, opens);
-      if (overlap > 0) total += overlap * period.weight;
+      const opens = Math.max(from, instantOf(day, period.fromHour, calendar.timeZone));
+      const closes = Math.min(to, instantOf(day, period.toHour, calendar.timeZone));
+      if (closes > opens) segments.push([opens, closes, period.weight]);
     }
   }
-  return total;
+  return segments.sort((a, b) => a[0] - b[0]);
+}
+
+/** The weighted measure of `[from, to)`, in weighted milliseconds. */
+export function weightedSpan(from: number, to: number, calendar: WorkCalendar): number {
+  return segmentsWeight(workingSegments(from, to, calendar));
+}
+
+/** The weighted measure the segments hold, in weighted milliseconds. */
+export function segmentsWeight(segments: readonly WorkingSegment[]): number {
+  return segments.reduce((total, [opens, closes, weight]) => total + (closes - opens) * weight, 0);
 }
 
 /**
