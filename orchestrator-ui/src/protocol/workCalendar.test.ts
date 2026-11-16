@@ -7,7 +7,7 @@
  * different on a UTC runner than it does here.
  */
 import { describe, expect, it } from 'vitest';
-import { WORKING_WEEK, weightedFractionLeft, weightedSpan } from './workCalendar';
+import { WORKING_WEEK, weightedFractionLeft, weightedSpan, workingSegments } from './workCalendar';
 import type { WorkCalendar } from './workCalendar';
 
 const HOUR = 3_600_000;
@@ -90,6 +90,25 @@ describe('weightedSpan', () => {
     const to = at('2026-09-27T05:00:00.000Z'); // Sun 6pm NZDT
     expect(to - from).toBe(33 * HOUR);
     expect(weightedSpan(from, to, WORKING_WEEK)).toBeCloseTo(10 * HOUR, 0);
+  });
+});
+
+describe('workingSegments', () => {
+  it('gives each period’s wall-clock ends, in order, across a daylight saving change', () => {
+    // The weekend of the case above: Sat 8am NZST to Mon 8am NZDT.
+    const from = at('2026-09-25T18:00:00.000Z'); // Sat 6am NZST
+    const to = at('2026-09-27T19:00:00.000Z'); // Mon 8am NZDT
+    expect(workingSegments(from, to, WORKING_WEEK)).toEqual([
+      [at('2026-09-25T20:00:00.000Z'), at('2026-09-26T06:00:00.000Z'), 0.5], // Sat 8am–6pm NZST
+      [at('2026-09-26T19:00:00.000Z'), at('2026-09-27T05:00:00.000Z'), 0.5], // Sun 8am–6pm NZDT
+    ]);
+  });
+
+  it('clips a segment to the interval', () => {
+    // Thu 10am to 3pm Auckland, inside one working day.
+    const from = at('2026-09-09T22:00:00.000Z');
+    const to = at('2026-09-10T03:00:00.000Z');
+    expect(workingSegments(from, to, WORKING_WEEK)).toEqual([[from, to, 1]]);
   });
 });
 
