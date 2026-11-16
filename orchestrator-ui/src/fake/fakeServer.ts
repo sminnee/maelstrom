@@ -2193,12 +2193,14 @@ function command(
       closedAt: '',
       category: (str('category') ?? '').trim(),
       project: str('project') ?? '',
+      // No Task metadata generator here: a new comm shows its id until one is set.
+      codename: '',
       taskIds: [],
       queued: [],
       updates: [],
     };
     server.change({ kind: 'comm', ids: [id] });
-    return ok({ id });
+    return ok({ id, codename: '' });
   }
 
   if (pathname === '/api/comms/updates' && method === 'POST') {
@@ -2260,7 +2262,7 @@ function command(
     if (b.closed !== undefined && typeof b.closed !== 'boolean') {
       return error(400, 'invalid', 'closed is true or false');
     }
-    const refused = commFieldsError(b, world);
+    const refused = commFieldsError(b, world) ?? codenameError(b, world, comm.id);
     if (refused) return refused;
     const next = { ...comm };
     if (b.title !== undefined) next.title = String(b.title).trim();
@@ -2268,6 +2270,7 @@ function command(
     if (Array.isArray(b.recipients)) next.recipients = b.recipients as string[];
     if (typeof b.category === 'string') next.category = b.category.trim();
     if (typeof b.project === 'string') next.project = b.project;
+    if (typeof b.codename === 'string') next.codename = codenameOf(b.codename);
     // Closing again keeps the first stamp, as `comms.close` does.
     if (b.closed === true && !comm.closedAt) next.closedAt = now();
     if (b.closed === false) next.closedAt = '';
@@ -2282,7 +2285,38 @@ function command(
 }
 
 /** The comm fields `comm.update` takes, as `COMM_EDITABLE` in `orchestrator/validate.py`. */
-const COMM_EDITABLE = ['title', 'content', 'recipients', 'category', 'project', 'closed'] as const;
+const COMM_EDITABLE = [
+  'title',
+  'content',
+  'recipients',
+  'category',
+  'project',
+  'codename',
+  'closed',
+] as const;
+
+/** A codename in Title Case, or `''` for one that is not one or two words. As `comm_codename.normalise`. */
+function codenameOf(raw: string): string {
+  const name = raw
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+  return /^[A-Z][a-z]+( [A-Z][a-z]+)?$/.test(name) ? name : '';
+}
+
+/** A new codename's refusal, as `_check_codename`: `''`, or one or two words no other comm uses. */
+function codenameError(b: Record<string, unknown>, world: FakeWorld, commId: string) {
+  if (b.codename === undefined || b.codename === '') return null;
+  if (typeof b.codename !== 'string') return error(400, 'invalid', 'codename is text');
+  const name = codenameOf(b.codename);
+  if (!name) return error(400, 'invalid', 'A codename is one or two words, letters only');
+  const taken = Object.values(world.comms).some(
+    (c) => c.id !== commId && c.codename.toLowerCase() === name.toLowerCase(),
+  );
+  return taken ? error(400, 'invalid', `Codename ${name} is in use by another comm`) : null;
+}
 
 const isStrings = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((v) => typeof v === 'string');

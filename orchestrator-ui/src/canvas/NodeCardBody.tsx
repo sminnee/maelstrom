@@ -47,6 +47,8 @@ import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { NextChains } from '../worktrees/NextChains';
 import { useAppStore } from '../store/store';
 import { StepMeter } from '../ui/StepMeter';
+import { useCommsById } from '../api/comms';
+import { CommChip } from '../comms/CommChip';
 import styles from './NodeCard.module.css';
 import { taskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
@@ -257,6 +259,8 @@ function WorkCardBody({
           </div>
         )
       )}
+      {task && task.comms.length > 0 && <CardComms ids={task.comms} />}
+
       {op?.state === 'refused' &&
         (op.kind === 'close' || op.kind === 'dismiss') &&
         op.worktreeId !== null && (
@@ -632,5 +636,25 @@ function ArchivedEntries({ groups }: { groups: CardGroup[] }) {
       </button>
       {open && groups.map((g) => <DocumentEntry key={g.id} group={g} />)}
     </div>
+  );
+}
+
+/** The comms the task feeds: each as its chip, then its title. */
+function CardComms({ ids }: { ids: readonly string[] }) {
+  const byId = useCommsById();
+  return (
+    <ul className={styles.comms} aria-label="Comms">
+      {ids.map((id) => {
+        const comm = byId.get(id);
+        return (
+          <li key={id} className={styles.comm}>
+            <CommChip comm={comm ?? { id, codename: '', title: '' }} />
+            <span className={`${styles.commTitle} truncate`} title={comm?.title}>
+              {comm?.title ?? ''}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

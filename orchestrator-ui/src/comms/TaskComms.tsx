@@ -8,6 +8,8 @@ import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
 import fieldStyles from '../ui/Dialog.module.css';
 import { useRecent } from '../ui/recent';
+import { commLabel } from '../selectors/comms';
+import { CommChip } from './CommChip';
 import styles from './CommEditor.module.css';
 
 /**
@@ -29,7 +31,7 @@ export function TaskComms({ taskId, held }: { taskId: TaskId; held: string[] }) 
     () =>
       (comms ?? [])
         .filter((c) => !c.closedAt && !linked.includes(c.id))
-        .map((c) => ({ value: c.id, label: c.title })),
+        .map((c) => ({ value: c.id, label: `${commLabel(c)} · ${c.title}` })),
     [comms, linked],
   );
   const target = options.some((o) => o.value === picked.trim()) ? picked.trim() : null;
@@ -43,7 +45,7 @@ export function TaskComms({ taskId, held }: { taskId: TaskId; held: string[] }) 
         <ul className={styles.taskList}>
           {linked.map((id) => (
             <li key={id} className={styles.task} data-comm-id={id}>
-              <span className={styles.taskId}>{id}</span>
+              <CommChip comm={byId.get(id) ?? { id, codename: '', title: '' }} />
               <span className={styles.taskTitle}>{byId.get(id)?.title ?? ''}</span>
               <AppButton
                 variant="quiet"

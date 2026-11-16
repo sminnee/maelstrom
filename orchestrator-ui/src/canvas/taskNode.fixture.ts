@@ -283,3 +283,17 @@ export const gated: { label: string; node: GraphNode }[] = (
     worktree: worktree({ gate }),
   }),
 }));
+
+/**
+ * Nodes that feed comms: one, then three, then one with a long two-word codename. The story
+ * seeds the comms on its fake server. Check the chip holds the
+ * meta row at 220px and cuts a long codename before it pushes out the id.
+ */
+export const withComms: { label: string; node: GraphNode }[] = [
+  { label: 'one comm', comms: ['c1'] },
+  { label: 'three comms', comms: ['c1', 'c2', 'c3'] },
+  { label: 'a long codename', comms: ['c-long'] },
+].map(({ label, comms }) => ({
+  label,
+  node: node({ id: `MAEL-40-${comms.length}`, task: task({ comms }) }),
+}));

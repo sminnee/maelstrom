@@ -1,0 +1,29 @@
+/*
+ * A comm's pill. One colour for every comm: the chip says "this feeds a comm"
+ * and the codename says which. A wash of the hue for the fill, and no border.
+ */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  height: var(--chip);
+  padding: 0 var(--u);
+  border-radius: var(--radius-pill);
+  border: none;
+  background: color-mix(in srgb, var(--comm) var(--comm-fill), transparent);
+  color: var(--comm-text);
+  font-family: var(--font);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  /* A button, but a chip: it takes the chip height, not a control's. */
+  min-height: 0;
+}
+.chip:hover {
+  background: color-mix(in srgb, var(--comm) calc(var(--comm-fill) + 10%), transparent);
+}

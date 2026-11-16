@@ -864,6 +864,7 @@ function comms(): Seed {
     comm({
       id: 'c1',
       title: 'Order export is live',
+      codename: 'Lantern',
       content: 'Sales asked to hear when customers can download their orders.',
       recipients: ['#sales', 'ops@northwind.test'],
       category: 'release',
@@ -883,6 +884,7 @@ function comms(): Seed {
     comm({
       id: 'c2',
       title: 'Refunds retry on their own',
+      codename: 'Night Owl',
       content: 'Support wants to stop retrying failed refunds by hand.',
       recipients: ['#support'],
       category: 'release',
@@ -940,6 +942,7 @@ function longText(): Seed {
   diffs[CHANGES_SHA] = [...diffs[CHANGES_SHA]!, deep];
   world.comms['c-long'] = comm({
     id: 'c-long',
+    codename: 'Thunderbird Lighthouse',
     title:
       'Auth tokens now rotate on their own across every northwind service, and the old token stays valid for a minute',
     recipients: ['#security-and-platform-engineering', 'platform-announcements@northwind.test'],

@@ -20,6 +20,11 @@ export function highestLanding(tasks: readonly (TaskRow | undefined)[]): string 
   return best?.landing?.status ?? null;
 }
 
+/** What a comm is called on screen: its **Comm codename**, or its id before it has one. */
+export function commLabel(comm: Pick<Comm, 'id' | 'codename'>): string {
+  return comm.codename || comm.id;
+}
+
 /** The comms the list shows, newest first. A closed comm shows only when asked. */
 export function listComms(comms: readonly Comm[], showClosed: boolean): Comm[] {
   return comms

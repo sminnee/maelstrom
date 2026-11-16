@@ -74,6 +74,17 @@ export function useProjectDetail() {
   };
 }
 
+/** The comm editor, which the location's `cdetail` opens over any view. A close goes back. */
+export function useCommDetail() {
+  const { commDetail } = useLoc();
+  const go = useGo();
+  return {
+    commId: commDetail,
+    open: (commId: string) => go({ commDetail: commId }),
+    close: () => go({ commDetail: null }, { close: true }),
+  };
+}
+
 /** The **Welcome dialog**, which the location's `welcome` opens. A close dismisses it. */
 export function useWelcome() {
   const { welcome } = useLoc();

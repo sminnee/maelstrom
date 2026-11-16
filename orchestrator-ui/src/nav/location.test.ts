@@ -63,6 +63,7 @@ describe('the URL of a location', () => {
     ],
     ['/tasks?edit=maelstrom/2026-09-22.1', { view: 'list', edit: 'maelstrom/2026-09-22.1' }],
     ['/projects?detail=northwind', { view: 'projects', projectDetail: 'northwind' }],
+    ['/desk/graph?cdetail=c3', { commDetail: 'c3' }],
     ['/desk/graph?new=1', { newWork: true }],
     ['/desk/graph?welcome=1', { welcome: true }],
     ['/projects?add=1', { view: 'projects', addProject: true }],

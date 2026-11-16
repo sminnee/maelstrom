@@ -119,6 +119,26 @@
   font-weight: 500;
 }
 /* The stage last reached. See DESIGN.md, "Node Card". */
+/* The comms the task feeds: one line each, the chip then the title. */
+.comms {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.comm {
+  display: flex;
+  align-items: center;
+  gap: var(--u);
+  min-width: 0;
+}
+.commTitle {
+  flex: 1 1 auto;
+  color: var(--fg-muted);
+}
 .stage {
   font-size: var(--text-sm);
   color: var(--fg-muted);

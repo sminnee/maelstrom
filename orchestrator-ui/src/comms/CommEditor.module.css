@@ -106,3 +106,8 @@
   white-space: pre-wrap;
   color: var(--fg-muted);
 }
+/* The codename beside the id in the header, in the one comm colour. */
+.codename {
+  color: var(--comm-text);
+  font-weight: var(--weight-semibold);
+}

@@ -32,6 +32,7 @@ interface Draft {
   recipients: string[];
   category: string;
   project: string;
+  codename: string;
 }
 
 /**
@@ -45,7 +46,7 @@ export function CommEditor({
   onClose,
 }: {
   commId: string | null;
-  onCreated: (id: string) => void;
+  onCreated?: (id: string) => void;
   onClose: () => void;
 }) {
   const comm = useComm(commId);
@@ -78,7 +79,7 @@ function CommForm({
   onClose,
 }: {
   comm: Comm | null;
-  onCreated: (id: string) => void;
+  onCreated?: (id: string) => void;
   onClose: () => void;
 }) {
   const create = useCreateComm();
@@ -96,8 +97,16 @@ function CommForm({
           recipients: comm.recipients,
           category: comm.category,
           project: comm.project,
+          codename: comm.codename,
         }
-      : { title: '', content: '', recipients: [], category: '', project: filters.project ?? '' },
+      : {
+          title: '',
+          content: '',
+          recipients: [],
+          category: '',
+          project: filters.project ?? '',
+          codename: '',
+        },
   );
   const [draft, setDraft] = useState(opened);
   // A new comm's project follows its category until the user picks one.
@@ -123,6 +132,7 @@ function CommForm({
   const recipientId = useId();
   const categoryId = useId();
   const projectId = useId();
+  const codenameId = useId();
 
   const withPending = (d: Draft): Draft => {
     const extra = recipient.trim();
@@ -152,7 +162,7 @@ function CommForm({
         category: final.category,
         project: final.project,
       });
-      onCreated(id);
+      onCreated?.(id);
       return;
     }
     const fields = changed(opened, final);
@@ -164,7 +174,9 @@ function CommForm({
 
   return (
     <Dialog label={comm ? comm.title : 'New comm'} onClose={leave}>
-      <DialogHeader title={comm ? comm.id : 'New comm'} onClose={leave} />
+      <DialogHeader title={comm ? comm.id : 'New comm'} onClose={leave}>
+        {comm?.codename && <span className={styles.codename}>{comm.codename}</span>}
+      </DialogHeader>
       <label className={fieldStyles.field} htmlFor={titleId}>
         <span>Title</span>
         <input
@@ -183,6 +195,17 @@ function CommForm({
           onChange={(e) => setDraft((d) => ({ ...d, content: e.target.value }))}
         />
       </div>
+      {comm && (
+        <label className={fieldStyles.field} htmlFor={codenameId}>
+          <span>Codename</span>
+          <input
+            id={codenameId}
+            value={draft.codename}
+            placeholder={`One or two words; blank shows ${comm.id}`}
+            onChange={(e) => setDraft((d) => ({ ...d, codename: e.target.value }))}
+          />
+        </label>
+      )}
       <div className={styles.pair}>
         <div className={fieldStyles.field}>
           <label htmlFor={categoryId}>Category</label>
@@ -505,6 +528,7 @@ function changed(before: Draft, after: Draft): CommEdit {
   if (after.content !== before.content) fields.content = after.content;
   if (after.category.trim() !== before.category) fields.category = after.category.trim();
   if (after.project !== before.project) fields.project = after.project;
+  if (after.codename.trim() !== before.codename) fields.codename = after.codename.trim();
   if (after.recipients.join('\n') !== before.recipients.join('\n')) {
     fields.recipients = after.recipients;
   }

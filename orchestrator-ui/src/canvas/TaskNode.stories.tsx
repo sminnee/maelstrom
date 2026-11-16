@@ -9,7 +9,8 @@ import { makeWorktree } from '../fake/fixtures';
 import { SCENARIOS } from '../fake/scenarios';
 import { TaskNode } from './TaskNode';
 import type { GraphNode } from '../selectors/graph';
-import { byState, gated, idle, stopped, stoppedByPhase } from './taskNode.fixture';
+import { comm } from '../fake/seedWorld';
+import { byState, gated, idle, stopped, stoppedByPhase, withComms } from './taskNode.fixture';
 
 export default { title: 'Canvas / TaskNode' };
 
@@ -184,6 +185,30 @@ export const UnderOperation: Story = () => (
   <Board>
     <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
       {Object.entries(underOperation).map(([label, node]) => (
+        <Cell key={label} label={label} node={node} />
+      ))}
+    </div>
+  </Board>
+);
+
+// The comms the nodes below feed, from the fake server the story reads.
+for (const c of [
+  comm({ id: 'c1', title: 'Order export is live', codename: 'Lantern' }),
+  comm({ id: 'c2', title: 'Refunds retry on their own', codename: 'Night Owl' }),
+  comm({ id: 'c3', title: 'No codename yet: the id stands in' }),
+  comm({ id: 'c-long', title: 'Auth tokens rotate', codename: 'Thunderbird Lighthouse' }),
+]) {
+  server.world.comms[c.id] = c;
+}
+
+/**
+ * The comm chip at the end of the meta row, in the one comm colour, where the phase word was.
+ * Check it in light and in dark, and that a long codename cuts before it pushes out the id.
+ */
+export const FeedsComms: Story = () => (
+  <Board>
+    <div style={{ display: 'flex', gap: 'var(--u-3)', alignItems: 'flex-start' }}>
+      {withComms.map(({ label, node }) => (
         <Cell key={label} label={label} node={node} />
       ))}
     </div>
