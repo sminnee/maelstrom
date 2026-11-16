@@ -1,0 +1,50 @@
+/* A chart, not 100 columns of text. */
+.dialog {
+  width: min(480px, 100%);
+}
+.chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.tick {
+  font-size: 0.75em;
+  fill: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+.curve {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.guide {
+  fill: none;
+  stroke: var(--fg-faint);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+/* The spend now, in the chip's tone, with a ring of the surface where it sits on the curve. */
+.spent {
+  fill: var(--fg);
+  stroke: var(--bg-raised);
+  stroke-width: 2;
+}
+.spent[data-tone='busy'] {
+  fill: var(--attention);
+}
+.spent[data-tone='bad'] {
+  fill: var(--danger);
+}
+.caption {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+.faint {
+  color: var(--fg-faint);
+}

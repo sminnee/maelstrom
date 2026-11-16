@@ -235,7 +235,7 @@ describe('the usage scenario', () => {
   it('draws both windows fresh, the 5-hour ahead of pace', async () => {
     const { findByRole } = await renderApp({ scenario: 'usage' });
     const fiveHour = await findByRole('img', { name: /^5-hour limit/ });
-    const week = await findByRole('img', { name: /^7-day limit/ });
+    const week = await findByRole('button', { name: /^7-day limit/ });
     expect(fiveHour).not.toHaveAttribute('data-stale');
     expect(week).not.toHaveAttribute('data-stale');
     expect(fiveHour).toHaveAttribute('data-tone', 'busy');

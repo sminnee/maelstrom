@@ -73,6 +73,8 @@ export interface UiState {
   console: ConsoleState;
   /** The **Gates chip**'s dialog: whether it is open, and the job it marks. */
   gates: GatesState;
+  /** The **Budget chart**: whether it is open, and whose budget it draws. */
+  usage: UsageState;
   /**
    * The user closed the **Welcome dialog** this page load, so a world with no project does not
    * open it again. Not kept across a reload: a fresh load with no project greets again.
@@ -84,6 +86,12 @@ export interface GatesState {
   open: boolean;
   /** The job the dialog marks, as a gate lozenge opened it; `null` marks none. */
   jobId: string | null;
+}
+
+export interface UsageState {
+  open: boolean;
+  /** Whose budget the chart draws, such as `Codex`. Empty is the Claude account. */
+  account: string;
 }
 
 export interface ConsoleState {
@@ -114,6 +122,7 @@ export function initialUiState(): UiState {
     panelWidth: null,
     console: { open: false, selected: null, height: null },
     gates: { open: false, jobId: null },
+    usage: { open: false, account: '' },
     welcomeDismissed: false,
   };
 }

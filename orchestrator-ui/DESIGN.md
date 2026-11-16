@@ -1037,6 +1037,13 @@ the same `DialogFooter`.
   A running gate throbs between the plain text colour and faint, in StepMeter's rhythm: a
   change in lightness, because amber is kept for attention and blue for affordance. Under
   reduced motion it is still. With no gate job the chip is absent.
+- **Budget chart:** a click on a seven-day usage chip, `week` or `week gpt`, opens a narrow
+  dialog. It draws the **Budget schedule** from the window start to the reset, with the days
+  marked at local midnight. A dot in the chip's tone marks the spend now. Two dotted guides show
+  the gap: from now up to the curve and across to the axis, which is the budget by now; and from
+  the dot across to the curve and down, which is the instant the schedule budgets the spend for.
+  The caption says both in words: `24% spent, 18% budgeted by now: 6 points ahead. 24% is
+budgeted for Thu 14:00, in 1d 3h.` The gap is in points, so it reads off the axis.
 - **Gate lozenge:** a small untoned pill in a node's meta row, beside the PR chip, while the
   node's worktree has a **Gate job**. It names the gate that runs now, such as `test`, or the
   queue place: `queued 2`. A running gate throbs as it does in the dialog. A click opens the

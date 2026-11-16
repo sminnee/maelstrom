@@ -22,6 +22,7 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { HostBanner } from './HostBanner';
 import { MobileShell } from './MobileShell';
 import { GatesOverlay } from './GatesDialog';
+import { UsageOverlay } from './UsageDialog';
 import { ProjectOverlays } from './ProjectOverlays';
 import { TopBar } from './TopBar';
 import styles from './AppShell.module.css';
@@ -116,6 +117,7 @@ function SlotShell() {
         <ProjectOverlays />
         {/* After the project dialogs, so the Gate jobs dialog opens over them. */}
         <GatesOverlay />
+        <UsageOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>
