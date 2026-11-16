@@ -22,9 +22,10 @@ interface Account {
  * The usage-shaped adapter over `SplitChip`, as `PrChip` is the PR-shaped one:
  * it decides what a reading means and the chip knows none of it.
  *
- * It reads the clock through `useNow` because staleness arrives on its own.
- * No event says a reading has gone old — it goes old by nothing happening, so
- * without a tick the bar would hold a morning figure all afternoon.
+ * It reads the clock through `useNow` because pace moves on its own. No event
+ * comes while the desk is quiet, but the budget by now still grows, and the
+ * window still resets. Without a tick the tone would hold a morning pace all
+ * afternoon.
  */
 export function UsageChips() {
   const { data } = useHost();

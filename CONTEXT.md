@@ -452,6 +452,10 @@ The first term is wall clock for the five-hour window, which is shorter than the
 sits inside. The seven-day window measures it against the **working week** instead: it spans
 nights and weekends, and on the clock those hours give the reading back time nobody could have
 spent.
+The quotient reads the latest reading's spend against the time now, whatever the reading's age.
+No driven agent has spent since that reading, or a newer one would have arrived (see **Usage
+window**). Other spend on the account, such as claude.ai or another machine, shows only at the
+next reading. A reading whose window has reset says nothing about the current window.
 _Avoid_: Burn rate, pace percentage. Not **utilisation**, which is the raw spend the source
 reports; the quotient is what that spend means against the time the window actually offers.
 
