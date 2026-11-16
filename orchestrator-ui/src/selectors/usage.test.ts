@@ -178,34 +178,31 @@ describe('usageChip', () => {
     expect(usageChip(h, 'fiveHour', NOW)).toBeNull();
   });
 
-  it('marks a reading older than the window stale', () => {
-    const fresh = {
-      fiveHour: { utilization: 0.8, resetsAt: 0 },
-      sevenDay: null,
-      at: '2026-09-11T09:50:00.000Z',
-    };
-    const old = {
-      fiveHour: { utilization: 0.8, resetsAt: 0 },
-      sevenDay: null,
-      at: '2026-09-11T08:00:00.000Z',
-    };
-    expect(usageChip(fresh, 'fiveHour', NOW)?.stale).toBe(false);
-    expect(usageChip(old, 'fiveHour', NOW)?.stale).toBe(true);
-  });
-
-  it('reports the honest tone even when stale, and says it is stale', () => {
-    // The selector says what the reading deserves; `SplitChip` is what
-    // refuses to draw it loud. Splitting it that way means one component
-    // enforces the rule rather than every caller remembering it.
-    const old = {
-      // Two thirds spent with most of the window left: well past pace, so
-      // the tone is earned rather than assumed.
-      fiveHour: { utilization: 0.66, resetsAt: Math.floor(NOW / 1000) + 4 * 3600 },
+  it('marks a reading stale once its window has reset, and not for its age', () => {
+    const reading = (resetsAt: number) => ({
+      fiveHour: { utilization: 0.8, resetsAt },
       sevenDay: null,
       at: '2026-09-11T06:00:00.000Z',
+    });
+    expect(usageChip(reading(Math.floor(NOW / 1000) + 600), 'fiveHour', NOW)?.stale).toBe(false);
+    expect(usageChip(reading(Math.floor(NOW / 1000) - 600), 'fiveHour', NOW)?.stale).toBe(true);
+    // No reset: nothing says the window ended.
+    expect(usageChip(reading(0), 'fiveHour', NOW)?.stale).toBe(false);
+  });
+
+  it('reads an aged reading against the time now, so the budget catches up', () => {
+    // A week reading taken Fri 10pm Auckland, 30% spent: 10 of 60 weighted
+    // hours gone. Three days later, Mon 10pm, 30 of 60 are gone, so the same
+    // figure is behind the pace.
+    const h = {
+      fiveHour: null,
+      sevenDay: { utilization: 0.3, resetsAt: Math.floor(NOW / 1000) + 6 * 86_400 },
+      at: '2026-09-11T09:59:00.000Z',
     };
-    expect(usageChip(old, 'fiveHour', NOW)?.tone).toBe('bad');
-    expect(usageChip(old, 'fiveHour', NOW)?.stale).toBe(true);
+    const threeDaysLater = NOW + 3 * 86_400_000;
+    expect(usageChip(h, 'sevenDay', NOW)?.tone).toBe('busy');
+    expect(usageChip(h, 'sevenDay', threeDaysLater)?.tone).toBe('neutral');
+    expect(usageChip(h, 'sevenDay', threeDaysLater)?.stale).toBe(false);
   });
 
   it('colours a window spending faster than its clock', () => {
@@ -339,15 +336,26 @@ describe('usageChip', () => {
     );
   });
 
-  it('says when a stale reading was taken instead of when it resets', () => {
+  it('keeps the budget figure on an aged reading, and says when it was taken', () => {
     const h = {
       fiveHour: { utilization: 0.1, resetsAt: Math.floor(NOW / 1000) + 600 },
       sevenDay: null,
       at: '2026-09-11T08:00:00.000Z',
     };
-    // No budget figure beside it: a stale reading cannot vouch for the spend,
-    // so a comparison would invite planning around a number that has moved.
-    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe('5-hour limit: 10% consumed, as of 2h ago');
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe(
+      '5-hour limit: 10% consumed compared to 97% budget. 10m remaining. Reading as of 2h ago',
+    );
+  });
+
+  it('gives no budget figure for a window that has reset', () => {
+    const h = {
+      fiveHour: { utilization: 0.1, resetsAt: Math.floor(NOW / 1000) - 600 },
+      sevenDay: null,
+      at: '2026-09-11T08:00:00.000Z',
+    };
+    expect(usageChip(h, 'fiveHour', NOW)?.title).toBe(
+      '5-hour limit: 10% consumed in a window that has reset, as of 2h ago',
+    );
   });
 });
 
@@ -369,11 +377,24 @@ describe('isNotable', () => {
     expect(isNotable(chip({ tone: 'neutral' }))).toBe(false);
   });
 
-  it('drops a stale reading whatever its tone', () => {
-    // A reading arrives only while an agent takes a turn, so `bad` and
-    // `stale` together is the resting state rather than an edge case.
+  it('drops a reading whose window has reset, whatever its tone', () => {
     expect(isNotable(chip({ tone: 'bad', stale: true }))).toBe(false);
     expect(isNotable(chip({ tone: 'busy', stale: true }))).toBe(false);
+  });
+
+  it('keeps an aged reading that is ahead of pace for the time now', () => {
+    // Two thirds of a five-hour window spent, read four hours ago, with four
+    // hours to the reset: still ahead of pace now.
+    const aged = usageChip(
+      {
+        fiveHour: { utilization: 0.66, resetsAt: Math.floor(NOW / 1000) + 4 * 3600 },
+        sevenDay: null,
+        at: '2026-09-11T06:00:00.000Z',
+      },
+      'fiveHour',
+      NOW,
+    );
+    expect(aged && isNotable(aged)).toBe(true);
   });
 
   it('drops the tones no usage window earns today', () => {

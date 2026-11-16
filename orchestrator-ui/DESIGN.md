@@ -1013,8 +1013,10 @@ the same `DialogFooter`.
   the value leads. On the narrow layout the label is about 11px. It is the one text under the
   Phone Type Rule's floor: a fixed word the eye does not read twice. Sunken ground, so it sits _in_ the raised bar; tabular value, so the chip holds
   its width as the number ticks. Only the value takes the tone. Both halves read at rest,
-  unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading too old to
-  vouch for drops to faint and dashes its outline, and the chip itself gives up the tone.
+  unlike the hue chip: a reading nobody hovers is a reading nobody has. A reading the chip
+  cannot vouch for drops to faint and dashes its outline, and the chip itself gives up the tone.
+  On a usage chip that is a reading whose window has reset. Age alone is not: the tone reads
+  the old spend against the time now, and the title ends `Reading as of 3h ago`.
   On a usage chip the tone reads pace, not the number beside it. A high percentage near a
   reset stays quiet; a low one early in a window can sit amber. The title carries both figures
   — what is consumed and what the window allows for by now — because colour alone cannot

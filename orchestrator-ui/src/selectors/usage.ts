@@ -1,34 +1,36 @@
 /**
  * What the top bar's chips read: the account's budget, and how many agents run.
  *
- * Pure, and takes `now` rather than reading the clock, so staleness and pace
- * are a table of cases rather than a timing test. `useNow` makes it tick.
+ * Pure, and takes `now` rather than reading the clock, so a reading's age and
+ * pace are a table of cases rather than a timing test. `useNow` makes it tick.
  *
  * A chip's colour reads pace, not a percentage: the budget quotient in
  * `CONTEXT.md`. Elapsed time is half of every reading here — the clock for the
  * five-hour window, the working week for the seven-day one — which is why `now`
- * reaches further in than the staleness check.
+ * reaches further in than the age check.
+ *
+ * The latest reading is the current reading, whatever its age: see the budget
+ * quotient in `CONTEXT.md`.
  */
 import type { Agent, HostUsage } from '../protocol/entities';
 import { isWorking } from '../protocol/progress';
 import type { ChipTone } from '../protocol/chipTone';
 import type { WorkCalendar } from '../protocol/workCalendar';
 import { WORKING_WEEK, weightedFractionLeft } from '../protocol/workCalendar';
-import { ago } from '../protocol/time';
+import { ago, silentFor } from '../protocol/time';
 import { isLive } from './graph';
 
 /** Which window a chip reads. The two the account is billed against. */
 export type UsageKey = 'fiveHour' | 'sevenDay';
 
 /**
- * How old a reading may be before the chip stops vouching for it.
+ * How old a reading may be before the title says when it was taken.
  *
- * A reading arrives only while an agent takes a turn, so a quiet desk holds
- * the last one indefinitely. Fifteen minutes is long enough to ride out the
- * gaps between turns and short enough that a number left over from this
- * morning is never shown as current.
+ * Fifteen minutes rides out the gaps between turns, so an active desk does not
+ * carry `as of` on every title. The age changes no figure and no tone: see the
+ * module docblock.
  */
-const STALE_AFTER_MS = 15 * 60_000;
+const AGED_AFTER_MS = 15 * 60_000;
 
 /**
  * The most of a window a reading will admit is left, 0 to 1.
@@ -88,6 +90,7 @@ const CALENDAR: Record<UsageKey, WorkCalendar | null> = {
 export interface UsageChip {
   percent: string;
   tone: ChipTone;
+  /** The window has reset since the reading, so the chip goes faint. Age alone never sets it. */
   stale: boolean;
   title: string;
 }
@@ -117,10 +120,10 @@ export function budgetReading(
   resetsAt: number,
   now: number,
 ): BudgetReading {
-  // Negated so an unreadable stamp folds into the same path, as `isStale` does
-  // below: `NaN <= 0` is false, and a NaN quotient would read as on pace. A
-  // non-finite utilization goes the same way — it reaches the wire intact from
-  // Python's `float("nan")`, and would otherwise render a literal `NaN%`.
+  // Negated so an unreadable stamp returns no quotient too: `NaN <= 0` is false,
+  // and a NaN quotient would read as on pace. A non-finite utilization goes the
+  // same way — it reaches the wire intact from Python's `float("nan")`, and
+  // would otherwise render a literal `NaN%`.
   if (!(resetsAt > 0) || !Number.isFinite(utilization)) return { quotient: null, timeLeft: 0 };
   const end = resetsAt * 1000;
   // The wire names the reset but never the start, so the nominal length is
@@ -161,8 +164,9 @@ export function usageTone(quotient: number | null): ChipTone {
  *
  * Notable means ahead of pace, which is what `usageTone` already reads. A
  * window keeping up says nothing that changes whether to start more work.
- * Stale disqualifies a reading whatever its tone: `SplitChip` greys it, and
- * an alarm the reading cannot vouch for is no alarm.
+ * A reading whose window has reset is out whatever its tone: `SplitChip`
+ * greys it, and it is about a window that ended. An aged reading is not out:
+ * its tone is read against the time now.
  */
 export function isNotable(chip: UsageChip): boolean {
   return !chip.stale && (chip.tone === 'busy' || chip.tone === 'bad');
@@ -185,14 +189,14 @@ export function usageChip(
 ): UsageChip | null {
   const window = usage?.[key];
   if (!usage || !window) return null;
-  const stale = isStale(usage.at, now);
+  const stale = hasReset(window.resetsAt, now);
   const percent = `${Math.round(window.utilization * 100)}%`;
   const { quotient, timeLeft } = budgetReading(key, window.utilization, window.resetsAt, now);
   const tone = usageTone(quotient);
   return {
     percent,
     // What the reading deserves, said plainly. `SplitChip` is what refuses to
-    // draw it loud while `stale` holds, so this stays the honest figure.
+    // draw it loud once its window has reset.
     tone,
     stale,
     title: titleFor(
@@ -207,13 +211,20 @@ export function usageChip(
   };
 }
 
-/** Whether a reading taken at `at` is too old to stand behind. */
-function isStale(at: string, now: number): boolean {
-  const age = Date.parse(at);
-  // An unreadable stamp is not a fresh one: without a time, nothing vouches
-  // for the number.
-  if (Number.isNaN(age)) return true;
-  return now - age > STALE_AFTER_MS;
+/** `as of 3h ago` for a reading older than `AGED_AFTER_MS`, else empty. */
+export function asOf(at: string, now: number): string {
+  const age = silentFor(at, now);
+  return age !== null && age > AGED_AFTER_MS ? `as of ${ago(at, now)} ago` : '';
+}
+
+/**
+ * Whether the window a reading belongs to has reset since. Its spend is then a
+ * figure for a window that ended, and says nothing about the current one.
+ *
+ * A window with no reset never reads as reset: nothing says it ended.
+ */
+function hasReset(resetsAt: number, now: number): boolean {
+  return resetsAt > 0 && resetsAt * 1000 <= now;
 }
 
 /**
@@ -223,9 +234,9 @@ function isStale(at: string, now: number): boolean {
  * Both figures are rounded by the same rule, so they are comparable. They are
  * what separates an amber chip from a red one in words, not only in hue.
  *
- * A stale reading says how old it is instead. It cannot vouch for the
- * percentage, so neither a budget figure nor a reset time belongs beside it:
- * both would invite the reader to plan around a figure that has already moved.
+ * An aged reading adds when it was taken. Its figures stay: nothing was spent
+ * since. A reading whose window has reset gives no budget figure and no reset
+ * time. Both would be about a window that ended.
  */
 function titleFor(
   name: string,
@@ -237,14 +248,16 @@ function titleFor(
   timeLeft: number,
 ): string {
   const head = `${name}: ${percent} consumed`;
-  if (stale) return `${head}, as of ${ago(at, now)} ago`;
+  const aged = asOf(at, now);
+  if (stale) return `${head} in a window that has reset${aged && `, ${aged}`}`;
   const resets = resetsIn(resetsAt, now);
   // A window the source gave no reset for says nothing about one, the same way
   // a window with no figure draws no chip. Without a window there is also no
   // budget figure to compare the spend against.
-  if (!resets) return head;
+  if (!resets) return aged ? `${head}, ${aged}` : head;
   const budget = `${Math.round((1 - timeLeft) * 100)}%`;
-  return `${head} compared to ${budget} budget. ${resets} remaining`;
+  const sentence = `${head} compared to ${budget} budget. ${resets} remaining`;
+  return aged ? `${sentence}. Reading ${aged}` : sentence;
 }
 
 /**
