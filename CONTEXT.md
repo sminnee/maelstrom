@@ -459,6 +459,13 @@ next reading. A reading whose window has reset says nothing about the current wi
 _Avoid_: Burn rate, pace percentage. Not **utilisation**, which is the raw spend the source
 reports; the quotient is what that spend means against the time the window actually offers.
 
+**Budget schedule**:
+The share of a window's budget that its time allows for at each instant, from 0 at the window
+start to 1 at the reset. The seven-day schedule follows the **working week**, so it is flat at
+night and rises at half slope at the weekend. The **budget quotient** compares the spend with
+this schedule at the time now. The Budget chart, opened from a seven-day usage chip, draws it.
+_Avoid_: Burn-down, pace line.
+
 **Working week**:
 The weighting the seven-day **budget quotient** measures elapsed time against: 8am to 6pm at full
 rate on weekdays, the same hours at half rate at the weekend, and nothing overnight. Sixty

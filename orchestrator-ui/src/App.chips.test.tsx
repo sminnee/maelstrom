@@ -38,6 +38,29 @@ describe('the usage and agent chips', () => {
   });
 
   it.each([
+    { name: '7-day limit', spent: '24%' },
+    { name: 'Codex 7-day limit', spent: '31%' },
+  ])('opens the Budget chart on its own account from $name', async ({ name, spent }) => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const week = (utilization: number) => ({
+      fiveHour: null,
+      sevenDay: { utilization, resetsAt: Math.floor(Date.now() / 1000) + 86_400 },
+      at: new Date().toISOString(),
+    });
+    await act(async () => {
+      server.change({ kind: 'host', ids: ['agent-host'] }, (world) => {
+        world.host = { ...world.host!, usage: week(0.24), codexUsage: week(0.31) };
+      });
+    });
+    await user.click(
+      await screen.findByRole('button', { name: new RegExp(`^${name}: ${spent} consumed`) }),
+    );
+    const dialog = screen.getByRole('dialog', { name });
+    expect(dialog).toHaveTextContent(new RegExp(`^${name}.*${spent} spent, \\d+% budgeted by now`));
+  });
+
+  it.each([
     // Behind pace, so the 5h chip hides.
     { spent: 0.07, hoursLeft: 1, shown: false },
     // Far ahead of pace.

@@ -1,7 +1,8 @@
 import { useHost } from '../api/host';
 import type { HostUsage } from '../protocol/entities';
 import type { UsageKey } from '../selectors/usage';
-import { isNotable, usageChip } from '../selectors/usage';
+import { isNotable, usageChip, usageFor } from '../selectors/usage';
+import { useAppStore } from '../store/store';
 import { SplitChip } from '../ui/SplitChip';
 import { useNow } from '../ui/useNow';
 
@@ -26,21 +27,24 @@ interface Account {
  * comes while the desk is quiet, but the budget by now still grows, and the
  * window still resets. Without a tick the tone would hold a morning pace all
  * afternoon.
+ *
+ * A click on a seven-day chip opens the Budget chart. See DESIGN.md, "Budget chart".
  */
 export function UsageChips() {
   const { data } = useHost();
   const now = useNow();
+  const openUsage = useAppStore((s) => s.openUsage);
   const host = data?.host ?? undefined;
   const accounts: Account[] = [
     {
       name: '',
-      usage: host?.usage,
+      usage: usageFor(host, ''),
       labels: { fiveHour: '5h', sevenDay: 'week' },
       onlyWhenNotable: [],
     },
     {
       name: 'Codex',
-      usage: host?.codexUsage,
+      usage: usageFor(host, 'Codex'),
       labels: { fiveHour: '5h gpt', sevenDay: 'week gpt' },
       // A second 5-hour chip crowds the bar; show it only ahead of pace.
       onlyWhenNotable: ['fiveHour'],
@@ -64,6 +68,7 @@ export function UsageChips() {
               tone={chip.tone}
               stale={chip.stale}
               title={chip.title}
+              onClick={key === 'sevenDay' ? () => openUsage(account.name) : undefined}
             >
               {chip.percent}
             </SplitChip>

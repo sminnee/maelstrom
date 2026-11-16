@@ -27,6 +27,7 @@ import { ConnectionBanner } from './ConnectionBanner';
 import { FilterBar } from './FilterBar';
 import { HostBanner } from './HostBanner';
 import { GatesOverlay } from './GatesDialog';
+import { UsageOverlay } from './UsageDialog';
 import { ProjectOverlays } from './ProjectOverlays';
 import { type ScreenChrome, ScreenChromeContext } from './screenChromeContext';
 import { SheetHead, TopBar } from './TopBar';
@@ -139,6 +140,7 @@ export function MobileShell() {
         <ProjectOverlays />
         {/* After the project dialogs, so the Gate jobs dialog opens over them. */}
         <GatesOverlay />
+        <UsageOverlay />
         {editingTaskId && <TaskEditor key={editingTaskId} taskId={editingTaskId} />}
         {newWorkOpen && <NewWork />}
       </div>

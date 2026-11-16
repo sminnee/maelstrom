@@ -73,6 +73,9 @@ export interface AppStore {
   /** Open the gate jobs, marking `jobId` when given. */
   openGates(jobId?: string): void;
   closeGates(): void;
+  /** Open the Budget chart on `account`'s seven-day window. Empty is the Claude account. */
+  openUsage(account: string): void;
+  closeUsage(): void;
   dismissWelcome(): void;
 }
 
@@ -159,6 +162,8 @@ export const useAppStore = create<AppStore>()(
       openGates: (jobId) =>
         set((s) => ({ ui: { ...s.ui, gates: { open: true, jobId: jobId ?? null } } })),
       closeGates: () => set((s) => ({ ui: { ...s.ui, gates: { open: false, jobId: null } } })),
+      openUsage: (account) => set((s) => ({ ui: { ...s.ui, usage: { open: true, account } } })),
+      closeUsage: () => set((s) => ({ ui: { ...s.ui, usage: { open: false, account: '' } } })),
       dismissWelcome: () => set((s) => ({ ui: { ...s.ui, welcomeDismissed: true } })),
     }),
     {

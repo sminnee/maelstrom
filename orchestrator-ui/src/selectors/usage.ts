@@ -95,6 +95,31 @@ export interface UsageChip {
   title: string;
 }
 
+/** Where a window starts and resets, in ms, and what it measures elapsed time against. */
+export interface WindowSpan {
+  start: number;
+  end: number;
+  calendar: WorkCalendar | null;
+}
+
+/**
+ * The span of the window that resets at `resetsAt`, in unix seconds. The wire
+ * names the reset but never the start, so the nominal length is what makes the
+ * window's beginning readable.
+ */
+export function windowSpan(key: UsageKey, resetsAt: number): WindowSpan {
+  const end = resetsAt * 1000;
+  return { start: end - LENGTH[key], end, calendar: CALENDAR[key] };
+}
+
+/** One account's reading off the host. `Codex` is the Codex account; any other name is Claude. */
+export function usageFor(
+  host: { usage: HostUsage | null; codexUsage: HostUsage | null } | null | undefined,
+  account: string,
+): HostUsage | null | undefined {
+  return account === 'Codex' ? host?.codexUsage : host?.usage;
+}
+
 /** What one window reads, both halves of it. */
 export interface BudgetReading {
   /** The budget quotient: time left over budget left. `null` when nothing dates the window. */
@@ -125,11 +150,7 @@ export function budgetReading(
   // same way — it reaches the wire intact from Python's `float("nan")`, and
   // would otherwise render a literal `NaN%`.
   if (!(resetsAt > 0) || !Number.isFinite(utilization)) return { quotient: null, timeLeft: 0 };
-  const end = resetsAt * 1000;
-  // The wire names the reset but never the start, so the nominal length is
-  // what makes the window's beginning readable.
-  const start = end - LENGTH[key];
-  const calendar = CALENDAR[key];
+  const { start, end, calendar } = windowSpan(key, resetsAt);
   const fraction = calendar
     ? weightedFractionLeft(start, end, now, calendar)
     : (end - now) / LENGTH[key];
@@ -200,7 +221,7 @@ export function usageChip(
     tone,
     stale,
     title: titleFor(
-      account ? `${account} ${NAMES[key]}` : NAMES[key],
+      windowName(key, account),
       percent,
       window.resetsAt,
       usage.at,
@@ -209,6 +230,11 @@ export function usageChip(
       timeLeft,
     ),
   };
+}
+
+/** The window's name, such as `7-day limit` or `Codex 7-day limit`. Empty `account` is Claude. */
+export function windowName(key: UsageKey, account = ''): string {
+  return account ? `${account} ${NAMES[key]}` : NAMES[key];
 }
 
 /** `as of 3h ago` for a reading older than `AGED_AFTER_MS`, else empty. */
@@ -276,7 +302,12 @@ function resetsIn(resetsAt: number, now: number): string {
   if (resetsAt <= 0) return '';
   const left = resetsAt * 1000 - now;
   if (left <= 0) return 'now';
-  const minutes = Math.floor(left / 60_000);
+  return duration(left);
+}
+
+/** A span of `ms` in `resetsIn`'s steps: `6d 1h`, `2h 40m`, `40m`, or `<1m`. */
+export function duration(ms: number): string {
+  const minutes = Math.floor(ms / 60_000);
   if (minutes < 1) return '<1m';
   const hours = Math.floor(minutes / 60);
   const days = Math.floor(hours / 24);
