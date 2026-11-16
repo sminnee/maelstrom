@@ -566,6 +566,47 @@ version, whatever the last verdict was.
 A free agent's document has a minted id and is not stored. Its plan keeps the rule in
 `_Emitter.previous_version`: a plan re-sent after `changes-requested` is its next version.
 
+### The agent queue
+
+Three requests act on one agent in order: a compaction, an end-session, and a resume. Each agent
+with such work has one **Agent queue**: `Orchestrator._queues`, by agent id, and
+`agent_queue.AgentQueue`. The queue is on the orchestrator, not on `AgentWatch`. A resume
+replaces the watch, and an agent daemon restart ends the stream, but the queue must outlive both.
+
+A queue holds steps, and one runner task runs them in order:
+
+| Step | Runs | Done when |
+| --- | --- | --- |
+| `say` | One turn, through `_tell_now` | The host takes it |
+| `compact` | `/compact`, unless it was already sent | The boundary or the refusal comes, or the backstop |
+| `resume` | The host's `resume`, with a `compact` or `say` step at the head as the child's first turn | The host accepts the spawn |
+| `stop` | `agent.stop` through `handle_command`: a **Terminate** | The operation starts |
+
+A **gated** step waits for the agent's current turn to end. The compaction request and the
+end-session request are gated, because the agent may still be writing the turn. A live turn end
+opens the gates. A turn end in replay drops the gated steps, because the run that read it live
+acted on them.
+
+Each step kind is its own dataclass in `agent_queue.py`: `Say`, `Compact`, `Resume` and `Stop`,
+joined as `AgentStep`. The rules are pure functions over the step list:
+
+- The end wins. When a live turn end opens the gates with a stop queued, each compact not yet
+  sent is dropped: no `/compact` goes to an agent that is stopping. A stop taken out before the
+  turn end, such as a merge's stop that a user message cancels, lets the compact run.
+- A gated compact replaces the gated compact already queued: the last request of a turn wins.
+- Only a `compact` or a `say` step holds turns. `_tell` says a turn now to an agent whose queue
+  holds only a gated stop or a resume, and a `say` step goes ahead of a gated stop. Before it
+  stops, the agent hears what it was told. A tell to an agent not yet resumed is refused.
+- A failed resume drops the rest of the queue. A failed or refused compact keeps the rest, so the
+  turns behind it are still delivered.
+
+Each step that leaves the queue without running is logged, and its waiting caller gets a refusal.
+An agent exit drops the queue: the host refuses a turn to an exited agent. A resume drops the
+queue of the exited life first. A queue with no steps left removes itself.
+
+Queues are kept in memory only. A restart loses the queued turns, and an agent that asked to
+compact gets no reply.
+
 ### A compaction request
 
 A compaction request rides out on `Normalised.compact_request`:
@@ -574,20 +615,20 @@ A compaction request rides out on `Normalised.compact_request`:
 <compact-session min-tokens="200k">Keep the PR number</compact-session>
 ```
 
-`AgentWatch.pending_compact` holds it until the turn's `result`, as a milestone waits. At that
-point `contextTokens` holds the turn's last reading, and the agent is idle and can take a `say`.
-`server._follow_compact` then acts:
+`_follow_compact` puts a gated `compact` step on the queue at the marker. The step runs at the
+turn end, as a milestone waits for it. At that point `contextTokens` holds the turn's last
+reading, and the agent is idle and can take a `say`. The step then acts:
 
 | Condition | What the orchestrator says |
 | --- | --- |
 | `min-tokens` does not read as a count | `session.not_compacted`, `reason="invalid-threshold"` |
 | `contextTokens` below `min-tokens` | `session.not_compacted`, `reason="below-threshold"`: `Session only 123k tokens (minimum 200k), …` |
-| Otherwise | `/compact`, with the body after it, and the hold is marked sent |
+| Otherwise | `/compact`, with the body after it, and the step is marked sent |
 
 `/compact` is a plain turn, not an External event: the harness runs a slash command only when it
 is the whole turn. The replies are External events from the `orchestrator` source.
 
-While the agent's hold is marked sent, the next of two events settles it:
+While a compact step is marked sent, the next of two events settles it:
 
 - A `compact_boundary`, which `Normalised.compacted` reports as (pre, post). The reply is
   `session.compacted`, `pre="312k" post="41k"`. A boundary with no counts gets no figures.
@@ -599,55 +640,50 @@ A `result` does not settle it. The harness queues turns, so the turn that ends n
 queued ahead of `/compact`, such as a PR watch event.
 
 Every outcome sends a reply, because an unattended agent ends its turn after the marker and
-waits. A boundary that comes while no hold is marked sent, such as an autocompact, gets no
-reply: the agent did not ask.
+waits. A boundary that comes while no compact step is marked sent, such as an autocompact, gets
+no reply: the agent did not ask.
 
-A request is parked even in replay, as a milestone is. The turn may end live after a restart,
-and the agent then waits for a reply. A turn end in replay clears the request, because the run
-that read it live acted on it.
+A request is queued even in replay, as a milestone is parked. The turn may end live after a
+restart, and the agent then waits for a reply.
+
+A live turn end with a compact not yet sent waits until the runner sends it. Else the stream
+could read the outcome before the step that waits for it runs. The turns behind the compact do
+not stop the stream.
 
 #### The compaction hold
 
 An External event told to an agent between its marker and the compact's outcome would break the
 compact. Told before the turn ends, the event is queued in the harness ahead of `/compact`.
-Told in the same turn, it joins `/compact`, and the harness then does not run the command. So
-each compacting agent has one **Compaction hold**: `Orchestrator._compact_holds`, by agent id.
-The hold is on the orchestrator, not on `AgentWatch`, because a resume replaces the watch.
+Told in the same turn, it joins `/compact`, and the harness then does not run the command. So a
+compact step at the head of the queue is a **Compaction hold**: the steps behind it wait.
 
-`_tell` puts each turn for an agent with a hold into the hold, and reports the agent as
-delivered. Its callers (the gate watch, the PR watch, document verdicts) treat a refusal as an
-error, and the release will deliver the turn. `_tell_now` skips the hold. The compaction's own
-replies use it, so the agent hears the outcome before the held turns.
+`_tell` adds each turn for an agent whose queue holds turns as a `say` step, and reports the
+agent as delivered. Its callers (the gate watch, the PR watch, document verdicts) treat a refusal
+as an error, and the queue will deliver the turn. `_tell_now` skips the queue. The compaction's
+own replies use it, so the agent hears the outcome before the queued turns.
 
-Three paths open a hold:
+Three paths queue a compact step:
 
-| Opener | When | Reply on the outcome |
+| Path | When | Reply on the outcome |
 | --- | --- | --- |
-| A compaction request | When a live marker is parked, or at a live turn end for one parked in replay | Yes |
-| `agent.say` with `/compact` or `/compact <instructions>` | Before the relay | No: the user asked, not the agent |
-| `agent.resume` with `compact: true` | Before the host starts the child, which gets `/compact` as its first turn | Yes |
+| A compaction request | At the marker, gated on the turn end | Yes |
+| `agent.say` with `/compact` or `/compact <instructions>` | On an agent with no queue. The step sends the relay. On an agent with a queue, the relay goes now, with no step | No: the user asked, not the agent |
+| `agent.resume` with `compact: true` | Behind the `resume` step. The child gets `/compact` as its first turn | Yes |
 
-`_release_hold` starts one drain as a task. The drain tells the reply first, when the agent
-asked, and then the held turns in order. It runs off the watch, so a long hold never stops the
-agent's stream. A turn told during the drain queues behind the held ones. A new opener during
-the drain gets a hold of its own. These events release a hold:
+The runner waits for the outcome off the watch, so a long compaction never stops the agent's
+stream. These events end a compact step:
 
 - The boundary or the refusal, with the reply.
 - A request that ends invalid or below threshold, with its `session.not_compacted` reply.
-- A request that loses to an end-session request. The stop can fail, so the turns are not lost.
-- A host that refuses the `/compact`, the say or the resume.
-- The backstop: `COMPACT_BACKSTOP_SECS`, five minutes after the hold opens.
+- A host that refuses the `/compact` or the say.
+- The backstop: `COMPACT_BACKSTOP_SECS`, five minutes after `/compact` is sent.
 
-An agent exit drops the hold and its turns, with a log line: the host refuses a turn to an
-exited agent.
+A host that refuses the resume drops the whole queue.
 
 The boundary of a resume and compact normally arrives on the new watch after `caught_up`. The old
 life's boundaries replay before `caught_up`, and `_follow_compact` ignores them. Two cases fall
 to the backstop. An outcome that reaches the host's backlog before the new watch attaches is
 replayed and ignored. A child that dies before a poll sees it alive never reaches `_exit`.
-
-Holds are kept in memory only. A restart between the hold opening and the outcome loses the
-held turns, and the agent gets no reply.
 
 ### An end-session request
 
@@ -657,20 +693,19 @@ An end-session request rides out on `Normalised.end_session`:
 <end-session>
 ```
 
-`Orchestrator._pending_ends` holds the agent's id until the turn's `result`, because the agent may
-still be writing that turn. The server holds it, not the watch: an agent daemon restart ends the
-stream, and the next watch must still act on the request. `server._follow_end` then sends `agent.stop` through `handle_command`, as the
-UI's button does. The stop is an ordinary **Terminate**, so the UI shows its operation. A refusal
-is logged.
+`_follow` puts a gated `stop` step on the queue at the marker, because the agent may still be
+writing that turn. At the turn end the step sends `agent.stop` through
+`handle_command`, as the UI's button does. The stop is an ordinary **Terminate**, so the UI shows
+its operation. A refusal is logged.
 
-`_follow_end` runs last on the `result`. The stop cancels the watch, so the turn's milestone is
-recorded first.
+The turn end opens the gates last on the `result`. The stop cancels the watch, so the turn's
+milestone is recorded first.
 
-The request wins over a compaction request in the same turn. `_follow_compact` sends no `/compact`
-while the agent is in `_pending_ends`.
+The request wins over a compaction request in the same turn: the queue drops the compact, and no
+`/compact` goes out.
 
-A request is parked in replay too, and a turn end in replay clears it, as for a compaction
-request. The run that read it live terminated the agent, so a resumed agent is not stopped again.
+A request is queued in replay too, and a turn end in replay drops it, as for a compaction request.
+The run that read it live terminated the agent, so a resumed agent is not stopped again.
 
 #### The conditional end
 
@@ -710,14 +745,18 @@ because the first agent read may have failed.
 
 The PR watch tells `pr.merged` through `_tell_pr_event`. An agent with no condition gets the
 neutral body "PR #N has merged. No action needed." An armed agent gets the body from
-`external_event.pr_merged_ending`. The server adds it to `_pending_ends` and `_merge_ends`
-before the tell, then clears the stored condition once the agent takes the event. `_follow_end`
-then stops the agent at the turn end, as for a plain request. An agent mid-turn when the merge is
+`external_event.pr_merged_ending`. The server queues a gated `Stop` step with `merge=True`
+before the tell, then clears the stored condition once the agent takes the event. The
+step stops the agent at the turn end, as for a plain request. An agent mid-turn when the merge is
 told ends at that turn's end, before it reads the event.
 
-A user message through `_say` before that turn ends cancels the stop: `_merge_ends` marks the end
+The merge tell reaches the agent, because a gated stop holds no turns (see "The agent queue"). So
+`_tell_pr_event` learns whether the host took it.
+
+A user message through `_say` before that turn ends cancels the stop: `merge` marks the stop
 as the merge's, not the agent's. A TUI message shows in the stream only when its turn starts,
-which is after the stop.
+which is after the stop. An agent's own `<end-session>` makes the stop its own, and a user
+message then does not cancel it.
 
 The ledger rule does not change: the merge counts as told when any agent took it. So an armed
 agent that refused the tell, while another agent of the PR took it, is not told again and stays
