@@ -1850,3 +1850,25 @@ def test_a_comm_may_keep_its_own_codename():
     cmd = {"type": "comm.update", "commId": "c1", "fields": {"codename": "Lantern"}}
     assert validate_command(_comm_world(), cmd) is None
 
+
+@pytest.mark.parametrize(
+    ("kind", "body"),
+    [
+        ("task.create", {"title": "Export the orders"}),
+        ("task.loadMany", {"text": "### Export the orders"}),
+    ],
+)
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("northwind/NORT-7", None),
+        # Stale: the notebook skips a source it cannot load.
+        ("northwind/GONE", None),
+        ("NORT-7", "invalid"),
+        ("southwind/NORT-7", "invalid"),
+    ],
+)
+def test_a_source_is_a_qualified_task_id_in_the_project(kind, body, source, expected):
+    world = world_with(tasks=[make_task()], projects=[PROJECT])
+    cmd = {"type": kind, "project": "northwind", "source": source, **body}
+    assert code(validate_command(world, cmd)) == expected

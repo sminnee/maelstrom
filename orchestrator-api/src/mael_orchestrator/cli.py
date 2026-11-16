@@ -63,6 +63,7 @@ from mael_domain.worktree import (
     setup_worktree_for_branch,
 )
 from mael_domain.worktree_close import (
+    branch_comms,
     close_worktree_fully,
     remove_worktree_fully,
     reopen_task_fields,
@@ -221,7 +222,12 @@ def build_orchestrator(
         if fields is None:
             return
         try:
-            await home.create(project, fields)
+            # The comms of the closed tasks, when this server holds them. A
+            # delegated worktree's tasks are its parent's, and give none here.
+            comms = await branch_comms(table, project, fields["branch"])
+            await home.create(
+                project, {**fields, **({"comms": comms} if comms else {})}
+            )
         except Exception:  # noqa: BLE001 — logged with its traceback
             # The worktree is closed. A failed task write must not report
             # that close as failed, which is what raising here would do.

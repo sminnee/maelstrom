@@ -630,7 +630,7 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
 # Block-settable fields that are never CLI flags. ``title`` is the task's
 # positional argument, not an option. ``comms`` is a list, so it is not a
 # string flag: ``task add`` and ``task update`` declare their own repeatable
-# ``--comm``, and the other creating commands inherit the parent task's comms.
+# ``--comm``, and the other creating commands inherit comms (see ``task.create``).
 _NON_OPTION_BLOCK_KEYS = frozenset({"title", "comms"})
 
 
@@ -800,7 +800,7 @@ def task() -> None:
     "--comm",
     "comms",
     multiple=True,
-    help="Comm this task feeds (repeatable; default: the parent task's comms).",
+    help="Comm this task feeds (repeatable; default: the comms of the parent, follows and session tasks).",
 )
 @click.option(
     "-e",
@@ -862,7 +862,7 @@ async def task_add(
         is_template=is_template,
         schedule=schedule,
         trigger=trigger,
-        # `--comm ''` opts out of the parent task's comms.
+        # `--comm ''` opts out of the inherited comms.
         comms=list(dict.fromkeys(c for c in comms if c)) if comms else None,
         edit=edit,
         run=run,
@@ -935,6 +935,9 @@ async def add_task(
         body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
     if from_id is not None:
         body["from"] = f"{proj}/{from_id}"
+    # The session's own task: the new task inherits its comms.
+    if made_by := _session_var("MAEL_TASK_ID", proj):
+        body["source"] = f"{proj}/{made_by}"
     if is_template:
         body["status"] = task_model.STATUS_TEMPLATE
     # With --edit or --cli, the launch runs after the create, not in it.
@@ -1141,6 +1144,11 @@ async def task_load_many(
             "text": text,
             "defaultParent": _default_parent("", proj),
             "launch": run,
+            **(
+                {"source": f"{proj}/{made_by}"}
+                if (made_by := _session_var("MAEL_TASK_ID", proj))
+                else {}
+            ),
         },
     )
     for w in reply["warnings"]:

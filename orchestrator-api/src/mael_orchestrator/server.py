@@ -3386,6 +3386,7 @@ class Orchestrator:
                 command["project"],
                 command["text"],
                 str(command.get("defaultParent", "")),
+                split_task_key(source)[1] if (source := command.get("source")) else "",
             )
         except ValueError as exc:
             return _refused("invalid", str(exc))
@@ -5783,8 +5784,8 @@ class Orchestrator:
             recipients=fields.get("recipients"),
             category=fields.get("category"),
             project=fields.get("project"),
-        )
             codename=fields.get("codename"),
+        )
         closed = fields.get("closed")
         if closed is True:
             await comms_model.close(self.comms, comm_id, now=self.clock())

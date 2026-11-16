@@ -25,7 +25,9 @@ from git_helpers import (
     subjects,
 )
 
+from mael_domain import task as task_model
 from mael_domain.ports import get_port_allocation, record_port_allocation
+from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import (
     CloseResult,
     close_worktree,
@@ -36,6 +38,7 @@ from mael_domain.worktree import (
 )
 from mael_domain.worktree_close import (
     CloseSteps,
+    add_reopen_task,
     close_worktree_fully,
     remove_worktree_fully,
 )
@@ -701,3 +704,22 @@ class TestReopenRoundTrip:
         # can add its own config commit on top.
         assert "wip: uncommitted changes" in subjects(reopened, "-2")
         assert (reopened / "dirty.txt").read_text() == "dirty work\n"
+
+
+async def test_a_reopen_task_feeds_the_comms_of_the_tasks_on_its_branch():
+    # First seen first, with no repeat; a task on another branch gives nothing.
+    table = InMemoryTaskTable()
+    for id, branch, comms in [
+        ("a", "feat/x", ["c1", "c2"]),
+        ("b", "feat/y", ["c9"]),
+        ("c", "feat/x", ["c2", "c3"]),
+    ]:
+        await task_model.create(
+            table, project="p", title=id, id=id, branch=branch, comms=comms
+        )
+    closed = CloseResult(
+        success=True, message="Closed", branch="feat/x", had_unmerged_work=True
+    )
+    reopen = await add_reopen_task(table, "p", closed)
+    assert reopen is not None
+    assert reopen.comms == ["c1", "c2", "c3"]

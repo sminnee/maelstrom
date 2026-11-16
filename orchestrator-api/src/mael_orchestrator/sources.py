@@ -444,9 +444,11 @@ class TaskSource(Protocol):
         ...
 
     async def load_many(
-        self, project: str, text: str, default_parent: str
+        self, project: str, text: str, default_parent: str, source: str = ""
     ) -> tuple[list[tuple[str, str]], list[str]]:
         """Create every block of a marked plan file as one notebook write.
+
+        ``source`` is the notebook id of the task whose session sent the plan.
 
         Returns ``(wire id, title)`` per task, in block order, and the
         parser's warnings.
@@ -839,7 +841,9 @@ class NotebookTaskSource:
         skips ``model.create``'s own generation. ``follows`` holds wire ids,
         and loses the project as ``update``'s does. ``followEnds`` resolves
         against the new task's parent and joins ``follows`` after it. ``from``
-        duplicates that task: the fields given override its recipe.
+        duplicates that task: the fields given override its recipe. ``source``
+        is the wire id of the task whose session made it: the new task inherits
+        its comms.
 
         ``extra`` is written unfiltered, and is the server's own to set — a
         Linear plan's ``post_action``, which the plan names, not the client.
@@ -855,6 +859,8 @@ class NotebookTaskSource:
                 self.table, project, _bare_ref(end), parent
             )
         wanted["follows"] = list(dict.fromkeys(follows))
+        if made_by := fields.get("source"):
+            wanted["source"] = split_task_key(made_by)[1]
         source = fields.get("from")
         if source is None:
             task = await model.create(
@@ -898,11 +904,15 @@ class NotebookTaskSource:
         return [task_key(project, task.id) for task in created]
 
     async def load_many(
-        self, project: str, text: str, default_parent: str
+        self, project: str, text: str, default_parent: str, source: str = ""
     ) -> tuple[list[tuple[str, str]], list[str]]:
         blocks, warnings = model.parse_task_blocks(text)
         created = await model.load_many(
-            self.table, project=project, blocks=blocks, default_parent=default_parent
+            self.table,
+            project=project,
+            blocks=blocks,
+            default_parent=default_parent,
+            source=source,
         )
         return [(task_key(project, t.id), t.title) for t in created], warnings
 

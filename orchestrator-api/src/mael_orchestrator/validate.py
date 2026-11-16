@@ -44,7 +44,7 @@ EDITABLE = (
 
 #: The keys ``task.create`` writes: :data:`EDITABLE`, and the fields only a
 #: new task takes. ``comms`` is here so a task made from a comm is linked in
-#: the same write; left out, a new task inherits its parent task's comms.
+#: the same write; left out, a new task inherits comms (see ``task.create``).
 #: ``status`` is ``template`` or left out. Two more keys are not fields:
 #: ``followEnds`` resolves into ``follows``, and ``from`` names a task to
 #: duplicate.
@@ -253,8 +253,8 @@ def _check_task_refs(
 
     ``follows`` and ``from`` must name tasks the world holds. A ``followEnds``
     entry is ``*`` or an id, which may name no task: the chain of an id that
-    nothing follows ends at the id. ``after`` may be stale, and the notebook
-    ignores a stale one. Every id is qualified and in ``project``, since the
+    nothing follows ends at the id. ``after`` and ``source`` may be stale, and
+    the notebook ignores a stale one. Every id is qualified and in ``project``, since the
     notebook stores a bare one.
     """
     follows = cmd.get("follows")
@@ -263,11 +263,13 @@ def _check_task_refs(
         if value is not None and not isinstance(value, list):
             return _err("invalid", f"{key} must be a list")
     after = cmd.get("after")
+    source = cmd.get("source")
     named = [
         *(follows or []),
         *[e for e in ends or [] if e != "*"],
         *([cmd["from"]] if "from" in cmd else []),
         *([after] if after is not None else []),
+        *([source] if source is not None else []),
     ]
     for task_id in named:
         try:
@@ -341,8 +343,6 @@ def _check_comm_fields(world: World, fields: dict[str, Any]) -> dict[str, str] |
     return None
 
 
-def _check_comm_update(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
-    """An edit of a draft's ``content``, or ``sent: true``. A sent update is fixed."""
 def _check_codename(world: World, comm_id: str, codename: Any) -> dict[str, str] | None:
     """A new **Comm codename**: ``""``, or one or two words no other comm uses."""
     if codename is None or codename == "":
@@ -358,6 +358,8 @@ def _check_codename(world: World, comm_id: str, codename: Any) -> dict[str, str]
     return None
 
 
+def _check_comm_update(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
+    """An edit of a draft's ``content``, or ``sent: true``. A sent update is fixed."""
     comm_id = cmd.get("commId", "")
     comm = world["comms"].get(comm_id)
     if comm is None:
@@ -1140,7 +1142,7 @@ def validate_command(
             return _err("invalid", "Nothing to create")
         if not isinstance(cmd.get("defaultParent", ""), str):
             return _err("invalid", "defaultParent must be a string")
-        return None
+        return _check_task_refs(world, project, cmd)
 
     if kind == "linear.plan":
         error = check_linear_project(world, cmd.get("project", ""))
