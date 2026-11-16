@@ -200,6 +200,7 @@ def comm_entity(
         "closedAt": comm.closed_at,
         "category": comm.category,
         "project": comm.project,
+        "codename": comm.codename,
         "taskIds": comm_task_ids(tasks, comm.id),
         "queued": [_comm_item(e.project, e.task_id, e.step) for e in queued],
         "updates": [comm_update_entity(u) for u in own],

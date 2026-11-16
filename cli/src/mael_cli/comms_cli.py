@@ -115,7 +115,7 @@ async def cmd_new(
     category: str,
     project: str | None,
 ) -> None:
-    """Create a comm and print its id."""
+    """Create a comm and print its id, then its codename when one was made."""
     refuse_with_parent("comms new")
     _check_project(project)
     async with _db() as db:
@@ -134,7 +134,7 @@ async def cmd_new(
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc
-    click.echo(comm.id)
+    click.echo(f"{comm.id} {comm.codename}".rstrip())
 
 
 @comms.command("list")
@@ -159,6 +159,7 @@ async def cmd_list(all_: bool, category: str | None) -> None:
             rows.append(
                 {
                     "ID": comm.id,
+                    "CODENAME": comm.codename,
                     "TITLE": comm.title,
                     "CATEGORY": comm.category,
                     "PROJECT": comm.project,
@@ -169,7 +170,9 @@ async def cmd_list(all_: bool, category: str | None) -> None:
     if not rows:
         click.echo("No comms." if all_ else "No open comms.")
         return
-    draw_table(rows, ["ID", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"])
+    draw_table(
+        rows, ["ID", "CODENAME", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"]
+    )
 
 
 @comms.command("close")
@@ -216,6 +219,14 @@ async def cmd_link(
 @click.option("--clear-to", is_flag=True, help="Remove every recipient.")
 @click.option("--category", default=None, help="Set the category ('' clears it).")
 @click.option("--project", default=None, help="Set the project ('' clears it).")
+@click.option(
+    "--codename",
+    default=None,
+    help=(
+        "Set the codename: one or two words no other comm uses ('' clears it; "
+        "the server names it again when it starts)."
+    ),
+)
 async def cmd_edit(
     comm: str,
     title: str | None,
@@ -224,6 +235,7 @@ async def cmd_edit(
     clear_to: bool,
     category: str | None,
     project: str | None,
+    codename: str | None,
 ) -> None:
     """Change a comm. With no option, edit its content in $EDITOR."""
     refuse_with_parent("comms edit")
@@ -233,7 +245,7 @@ async def cmd_edit(
         current = await store.read(comm)
         if current is None:
             raise click.ClickException(f"Comm not found: {comm}")
-        given = (title, content, category, project)
+        given = (title, content, category, project, codename)
         if all(v is None for v in given) and not recipients and not clear_to:
             # click.edit returns None when the editor closes without a save.
             content = click.edit(current.content)
@@ -248,6 +260,7 @@ async def cmd_edit(
                 recipients=[] if clear_to else (list(recipients) or None),
                 category=category,
                 project=project,
+                codename=codename,
             )
         except ValueError as exc:
             raise click.ClickException(str(exc)) from exc

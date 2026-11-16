@@ -44,4 +44,10 @@ COMMS: tuple[Rung, ...] = (
             "CREATE INDEX comm_updates_comm_id ON comm_updates (comm_id)",
         )
     ),
+    Migration(
+        (
+            # The **Comm codename**: blank until the Task metadata generator makes one.
+            "ALTER TABLE comms ADD COLUMN codename TEXT NOT NULL DEFAULT ''",
+        )
+    ),
 )
