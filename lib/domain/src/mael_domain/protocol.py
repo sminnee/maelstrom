@@ -541,6 +541,7 @@ class Comm(TypedDict):
     ``taskIds`` are the wire ids of the tasks that name it in their ``comms``.
     ``closedAt`` is ``""`` while the comm is open. ``category`` is free text;
     ``project`` is the project a task made from the comm goes to, or ``""``.
+    ``codename`` is the **Comm codename**, or ``""`` before one is made.
     ``queued`` are the steps of those tasks no update holds yet, and
     ``updates`` are its updates, oldest first.
     """
@@ -553,6 +554,7 @@ class Comm(TypedDict):
     closedAt: str
     category: str
     project: str
+    codename: str
     taskIds: list[str]
     queued: list[CommItem]
     updates: list[CommUpdate]

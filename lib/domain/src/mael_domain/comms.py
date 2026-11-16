@@ -5,12 +5,14 @@ See ``CONTEXT.md``, "Comm" and "Comm update". A comm row is kept by
 link change is a task write.
 """
 
+import asyncio
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from mael_common.util import now_iso
 
+from . import comm_codename
 from . import task as task_model
 from .comm_store import (
     DRAFT,
@@ -23,6 +25,7 @@ from .comm_store import (
 )
 from .landing_store import STEPS, StepEvent, TaskStepStore
 from .task import Task
+from .task_metadata_generator import TaskMetadataGenerator
 from .task_table import TaskTable
 
 
@@ -39,6 +42,27 @@ def _title(title: str) -> str:
     return title.strip()
 
 
+async def _codenames(store: CommStore, but: str = "") -> set[str]:
+    """The codenames in use, except the one of comm ``but``."""
+    return {c.codename for c in await store.list() if c.codename and c.id != but}
+
+
+async def _make_codename(
+    store: CommStore,
+    title: str,
+    content: str,
+    generator: TaskMetadataGenerator | None,
+) -> str:
+    """Ask the Task metadata generator for a codename, on a thread: the call blocks."""
+    return await asyncio.to_thread(
+        comm_codename.generate_codename,
+        title,
+        content,
+        await _codenames(store),
+        generator,
+    )
+
+
 async def new(
     store: CommStore,
     title: str,
@@ -47,13 +71,22 @@ async def new(
     now: str | None = None,
     category: str = "",
     project: str = "",
+    generator: TaskMetadataGenerator | None = None,
 ) -> Comm:
-    """Create a comm. Its id is the next ``c<n>``.
+    """Create a comm. Its id is the next ``c<n>``, and it gets a codename.
+
+    The generator runs before the write. The codename is checked again
+    inside it, so a comm made at the same time cannot take the same one: the
+    second comm then keeps a blank codename. ``generator`` defaults to
+    ``default_generator()``.
 
     Raises ``ValueError`` for a blank title.
     """
     title = _title(title)
+    codename = await _make_codename(store, title, content, generator)
     async with store.transact():
+        if codename and comm_codename.is_taken(codename, await _codenames(store)):
+            codename = ""
         comm = Comm(
             id=await store.next_id(),
             title=title,
@@ -62,9 +95,36 @@ async def new(
             created_at=now if now is not None else now_iso(),
             category=category.strip(),
             project=project,
+            codename=codename,
         )
         await store.save(comm)
     return comm
+
+
+async def fill_codenames(
+    store: CommStore, generator: TaskMetadataGenerator | None = None
+) -> list[Comm]:
+    """Give a codename to each comm that has none. Returns the comms named.
+
+    A comm the model cannot name stays blank, to try again at the next call.
+    """
+    named: list[Comm] = []
+    for comm in await store.list():
+        if comm.codename:
+            continue
+        codename = await _make_codename(store, comm.title, comm.content, generator)
+        if not codename:
+            continue
+        async with store.transact():
+            current = await store.read(comm.id)
+            if current is None or current.codename:
+                continue
+            if comm_codename.is_taken(codename, await _codenames(store)):
+                continue
+            current.codename = codename
+            await store.save(current)
+        named.append(current)
+    return named
 
 
 async def edit(
@@ -76,23 +136,38 @@ async def edit(
     recipients: list[str] | None = None,
     category: str | None = None,
     project: str | None = None,
+    codename: str | None = None,
 ) -> Comm:
-    """Change the given fields. ``""`` clears ``category`` or ``project``.
+    """Change the given fields. ``""`` clears ``category``, ``project`` or ``codename``.
 
-    Raises ``KeyError`` for an unknown id and ``ValueError`` for a blank title.
+    A codename is put in Title Case. Raises ``KeyError`` for an unknown id, and
+    ``ValueError`` for a blank title, a malformed codename, or a codename
+    another comm uses.
     """
-    comm = await _load(store, id)
-    if title is not None:
-        comm.title = _title(title)
-    if content is not None:
-        comm.content = content
-    if recipients is not None:
-        comm.recipients = list(recipients)
-    if category is not None:
-        comm.category = category.strip()
-    if project is not None:
-        comm.project = project
-    await store.save(comm)
+    async with store.transact():
+        comm = await _load(store, id)
+        if codename is not None and codename.strip():
+            name = comm_codename.normalise(codename)
+            if not name:
+                raise ValueError(
+                    f"Not a codename: {codename!r}. Use one or two words, letters only."
+                )
+            if comm_codename.is_taken(name, await _codenames(store, but=id)):
+                raise ValueError(f"Codename {name!r} is in use by another comm")
+            comm.codename = name
+        elif codename is not None:
+            comm.codename = ""
+        if title is not None:
+            comm.title = _title(title)
+        if content is not None:
+            comm.content = content
+        if recipients is not None:
+            comm.recipients = list(recipients)
+        if category is not None:
+            comm.category = category.strip()
+        if project is not None:
+            comm.project = project
+        await store.save(comm)
     return comm
 
 

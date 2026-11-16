@@ -1822,3 +1822,31 @@ class TestTaskDocumentCommands:
     )
     def test_a_malformed_command_is_refused(self, cmd, expected):
         assert code(validate_command(self.WORLD, cmd)) == expected
+
+
+def _comm_world():
+    world = world_with()
+    world["comms"]["c1"] = {"id": "c1", "codename": "Lantern"}
+    world["comms"]["c2"] = {"id": "c2", "codename": ""}
+    return world
+
+
+@pytest.mark.parametrize(
+    ("codename", "expected"),
+    [
+        ("Night Owl", None),
+        ("", None),
+        ("lantern", "invalid"),
+        ("Three Word Name", "invalid"),
+        (7, "invalid"),
+    ],
+)
+def test_a_codename_edit_is_one_or_two_words_no_other_comm_uses(codename, expected):
+    cmd = {"type": "comm.update", "commId": "c2", "fields": {"codename": codename}}
+    assert code(validate_command(_comm_world(), cmd)) == expected
+
+
+def test_a_comm_may_keep_its_own_codename():
+    cmd = {"type": "comm.update", "commId": "c1", "fields": {"codename": "Lantern"}}
+    assert validate_command(_comm_world(), cmd) is None
+

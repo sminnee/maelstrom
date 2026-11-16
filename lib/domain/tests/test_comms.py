@@ -1,5 +1,7 @@
 """Tests for mael_domain.comms — a comm, and the tasks that feed it."""
 
+import asyncio
+
 import pytest
 
 from mael_domain import comms
@@ -25,6 +27,59 @@ LATER = "2026-10-09T09:00:00+00:00"
 def comm_store():
     """The model runs on one backend; ``test_comm_store`` holds the two to it."""
     return InMemoryCommStore()
+
+
+class _Names:
+    """A naming model that answers from a list."""
+
+    def __init__(self, *replies: str) -> None:
+        self._replies = list(replies)
+
+    def complete(self, prompt: str, system: str) -> str:
+        return self._replies.pop(0)
+
+
+class TestCodename:
+    async def test_a_new_comm_gets_the_codename_the_model_names(self, comm_store):
+        made = await comms.new(comm_store, "Invoice export", generator=_Names("Kite"))
+        assert made.codename == "Kite"
+        assert (await comm_store.read("c1")).codename == "Kite"
+
+    async def test_a_codename_taken_while_the_model_ran_is_left_blank(self, comm_store):
+        # The model is asked before the write. Another comm takes the name in
+        # the meantime, and the check inside the write catches it.
+        loop = asyncio.get_running_loop()
+
+        class Racing:
+            def complete(self, prompt: str, system: str) -> str:
+                # On the model's thread: the CLI writes a comm meanwhile.
+                taken = Comm(id="c1", title="other", codename="Kite")
+                asyncio.run_coroutine_threadsafe(comm_store.save(taken), loop).result(5)
+                return "Kite"
+
+        made = await comms.new(comm_store, "Invoice export", generator=Racing())
+        assert made.id == "c2"
+        assert made.codename == ""
+
+    async def test_an_edit_sets_clears_and_refuses_a_taken_codename(self, comm_store):
+        await comms.new(comm_store, "One", generator=_Names("Kite"))
+        await comms.new(comm_store, "Two", generator=_Names("Owl"))
+        with pytest.raises(ValueError, match="in use"):
+            await comms.edit(comm_store, "c2", codename="kite")
+        with pytest.raises(ValueError, match="Not a codename"):
+            await comms.edit(comm_store, "c2", codename="a b c")
+        # A comm keeps its own codename through an edit.
+        assert (await comms.edit(comm_store, "c1", codename="KITE")).codename == "Kite"
+        assert (await comms.edit(comm_store, "c2", codename="")).codename == ""
+
+    async def test_fill_codenames_names_only_the_blank_comms(self, comm_store):
+        await comm_store.save(Comm(id="c1", title="One", codename="Kite"))
+        await comm_store.save(Comm(id="c2", title="Two"))
+        await comm_store.save(Comm(id="c3", title="Three"))
+        # c2 is offered the taken name twice and stays blank, to try again.
+        named = await comms.fill_codenames(comm_store, _Names("Kite", "Kite", "Heron"))
+        assert [(c.id, c.codename) for c in named] == [("c3", "Heron")]
+        assert [c.codename for c in await comm_store.list()] == ["Kite", "", "Heron"]
 
 
 class TestNew:

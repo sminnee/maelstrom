@@ -954,6 +954,7 @@ class Orchestrator:
                 )
             ),
             asyncio.create_task(self._poll(self._agent_poll, self.refresh_agents)),
+            asyncio.create_task(self._fill_codenames()),
         ]
         if self._gate_watch is not None:
             self._pollers.append(asyncio.create_task(self._watch_gates()))
@@ -1430,6 +1431,20 @@ class Orchestrator:
         if events:
             await self._prune_desk()
         return True
+
+    async def _fill_codenames(self) -> None:
+        """Give each comm with a blank codename a **Comm codename**.
+
+        Once, at start. The naming calls run on a thread, so the loop does not
+        wait on the model. The next ``refresh_comms`` publishes the change.
+        """
+        try:
+            named = await comms_model.fill_codenames(self.comms)
+        except Exception:
+            log.exception("Comm codename backfill failed")
+            return
+        if named:
+            await self.refresh_comms()
 
     async def refresh_comms(self, *, force: bool = False) -> None:
         """Re-read the comms that moved, and publish them.
@@ -5753,7 +5768,7 @@ class Orchestrator:
             project=command.get("project") or "",
         )
         await self.refresh_comms()
-        return {"ok": True, "result": {"id": comm.id}}
+        return {"ok": True, "result": {"id": comm.id, "codename": comm.codename}}
 
     async def _update_comm(self, command: dict[str, Any]) -> dict[str, Any]:
         """Edit a comm's fields; ``closed`` closes or reopens it."""
@@ -5769,6 +5784,7 @@ class Orchestrator:
             category=fields.get("category"),
             project=fields.get("project"),
         )
+            codename=fields.get("codename"),
         closed = fields.get("closed")
         if closed is True:
             await comms_model.close(self.comms, comm_id, now=self.clock())

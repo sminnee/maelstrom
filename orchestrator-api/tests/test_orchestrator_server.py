@@ -13891,7 +13891,7 @@ def test_a_comm_is_created_edited_linked_and_closed_over_the_routes(harness):
     made, created, edited, linked, after_link, task, closed, listed, again = run(
         scenario()
     )
-    assert made.status == 200 and made.body == {"id": "c1"}
+    assert made.status == 200 and made.body == {"id": "c1", "codename": ""}
     assert created == ["c1"]
     assert edited.status == 200 and linked.status == 200, (edited.body, linked.body)
     assert after_link["recipients"] == ["#ops"]
@@ -13917,6 +13917,43 @@ def test_a_comm_s_category_and_project_round_trip_over_the_routes(harness):
     made, edited = run(scenario())
     assert (made["category"], made["project"]) == ("release", PROJECT)
     assert (edited["category"], edited["project"]) == ("support", "")
+
+
+def test_a_comm_s_codename_is_set_over_the_routes(harness):
+    async def scenario():
+        async with harness.client() as api:
+            await api.post("/api/comms", {"title": "One"})
+            set_ = await api.patch("/api/comms/c1", {"codename": "Night Owl"})
+            return set_, await api.get_json("/api/comms/c1")
+
+    set_, comm = run(scenario())
+    assert set_.status == 200, set_.body
+    assert comm["codename"] == "Night Owl"
+
+
+def test_the_server_start_names_a_comm_with_a_blank_codename(harness, monkeypatch):
+    from mael_domain import task_metadata_generator
+
+    class Namer:
+        def complete(self, prompt: str, system: str) -> str:
+            return "Kestrel"
+
+    run(comms_model.new(harness.comms, "Invoice export", now=NOW))
+    monkeypatch.setattr(task_metadata_generator, "default_generator", Namer)
+
+    async def scenario():
+        await harness.orch.start()
+        try:
+            for _ in range(200):
+                comm = harness.orch.world["comms"].get("c1")
+                if comm and comm["codename"]:
+                    return comm
+                await asyncio.sleep(0.01)
+            return harness.orch.world["comms"].get("c1")
+        finally:
+            await harness.orch.stop()
+
+    assert run(scenario())["codename"] == "Kestrel"
 
 
 def test_a_task_created_with_comms_is_in_the_comm_s_task_ids_at_the_reply(harness):

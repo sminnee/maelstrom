@@ -146,17 +146,33 @@ def _task_comms(task_id: str) -> list[str]:
     return asyncio.run(read())
 
 
-def test_new_prints_the_id_and_list_shows_the_open_comm(invoke):
+class _Names:
+    """A naming model that answers ``Lantern``."""
+
+    def complete(self, prompt: str, system: str) -> str:
+        return "Lantern"
+
+
+def test_new_prints_the_id_and_codename_and_list_shows_the_open_comm(
+    invoke, monkeypatch
+):
+    from mael_domain import task_metadata_generator
+
+    monkeypatch.setattr(task_metadata_generator, "default_generator", _Names)
     made = invoke("new", "Invoice export", "--to", "#cs", "--to", "jo@acme.test")
     assert made.exit_code == 0, made.output
-    assert made.output.strip() == "c1"
+    assert made.output.strip() == "c1 Lantern"
     invoke("link", "c1", "t1", "t2", "--project", "p")
     result = invoke("list")
     assert result.exit_code == 0, result.output
     assert _rows(result.output) == [
-        ["ID", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"],
-        ["c1", "Invoice", "export", "#cs,", "jo@acme.test", "2"],
+        ["ID", "CODENAME", "TITLE", "CATEGORY", "PROJECT", "RECIPIENTS", "TASKS"],
+        ["c1", "Lantern", "Invoice", "export", "#cs,", "jo@acme.test", "2"],
     ]
+
+
+def test_new_with_no_naming_model_prints_the_id_alone(invoke):
+    assert invoke("new", "Invoice export").output.strip() == "c1"
 
 
 def test_list_filters_by_category(invoke):
@@ -251,6 +267,18 @@ def test_edit_sets_each_given_field(invoke):
     assert (_comm("c1").category, _comm("c1").project) == ("release", "p")
     invoke("edit", "c1", "--category", "", "--project", "")
     assert (_comm("c1").category, _comm("c1").project) == ("", "")
+    invoke("edit", "c1", "--codename", "Night Owl")
+    assert _comm("c1").codename == "Night Owl"
+
+
+def test_edit_refuses_a_codename_another_comm_uses(invoke):
+    invoke("new", "One")
+    invoke("new", "Two")
+    invoke("edit", "c1", "--codename", "Lantern")
+    refused = invoke("edit", "c2", "--codename", "lantern")
+    assert refused.exit_code != 0
+    assert "in use" in refused.output
+    assert _comm("c2").codename == ""
 
 
 def test_edit_with_no_option_saves_what_the_editor_returns(invoke):

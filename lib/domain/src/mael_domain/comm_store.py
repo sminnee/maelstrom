@@ -29,7 +29,8 @@ class Comm:
     ``content`` is the request as it came in. ``recipients`` are free strings: a
     Slack channel, an email address, or a note. ``closed_at`` is empty while the
     comm is open. ``category`` is free text; ``project`` is the project a task
-    made from the comm goes to.
+    made from the comm goes to. ``codename`` is the **Comm codename**, blank
+    until one is made.
     """
 
     id: str
@@ -40,6 +41,7 @@ class Comm:
     closed_at: str = ""
     category: str = ""
     project: str = ""
+    codename: str = ""
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,7 @@ class SqliteCommStore(CommStore):
             closed_at=comm.closed_at,
             category=comm.category,
             project=comm.project,
+            codename=comm.codename,
         )
 
     async def next_id(self) -> str:
@@ -310,4 +313,5 @@ def _comm_from_row(row: Any) -> Comm:
         closed_at=row["closed_at"],
         category=row["category"],
         project=row["project"],
+        codename=row["codename"],
     )

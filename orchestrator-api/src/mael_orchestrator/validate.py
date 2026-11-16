@@ -13,6 +13,7 @@ from uuid import UUID
 from mael_agent.agent_wire import MODES as AGENT_MODES
 from mael_agent.harness_model import resolve_execute_model
 from mael_agent.host_ids import owner_of
+from mael_domain import comm_codename
 from mael_domain.attachments import is_bare_name
 from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
@@ -307,7 +308,15 @@ def _wire_edited(fields: dict[str, Any], allowed: tuple[str, ...]) -> list[str]:
 
 
 #: The comm fields ``comm.update`` takes. ``closed`` closes or reopens it.
-COMM_EDITABLE = ("title", "content", "recipients", "category", "project", "closed")
+COMM_EDITABLE = (
+    "title",
+    "content",
+    "recipients",
+    "category",
+    "project",
+    "codename",
+    "closed",
+)
 
 
 def _is_str_list(value: Any) -> bool:
@@ -334,6 +343,21 @@ def _check_comm_fields(world: World, fields: dict[str, Any]) -> dict[str, str] |
 
 def _check_comm_update(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:
     """An edit of a draft's ``content``, or ``sent: true``. A sent update is fixed."""
+def _check_codename(world: World, comm_id: str, codename: Any) -> dict[str, str] | None:
+    """A new **Comm codename**: ``""``, or one or two words no other comm uses."""
+    if codename is None or codename == "":
+        return None
+    if not isinstance(codename, str):
+        return _err("invalid", "codename is text")
+    name = comm_codename.normalise(codename)
+    if not name:
+        return _err("invalid", "A codename is one or two words, letters only")
+    others = {c["codename"] for c in world["comms"].values() if c["id"] != comm_id}
+    if comm_codename.is_taken(name, others):
+        return _err("invalid", f"Codename {name} is in use by another comm")
+    return None
+
+
     comm_id = cmd.get("commId", "")
     comm = world["comms"].get(comm_id)
     if comm is None:
@@ -1008,7 +1032,9 @@ def validate_command(
         closed = fields.get("closed")
         if closed is not None and not isinstance(closed, bool):
             return _err("invalid", "closed is true or false")
-        return _check_comm_fields(world, fields)
+        return _check_codename(world, comm_id, fields.get("codename")) or (
+            _check_comm_fields(world, fields)
+        )
 
     if kind == "comm.draftUpdates":
         return None

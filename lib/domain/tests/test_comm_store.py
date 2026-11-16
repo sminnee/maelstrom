@@ -25,6 +25,7 @@ WHOLE = Comm(
     closed_at=NOW,
     category="release",
     project="maelstrom",
+    codename="Lantern",
 )
 
 
