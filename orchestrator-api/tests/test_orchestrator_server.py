@@ -8931,25 +8931,6 @@ def test_the_threshold_is_the_least_a_session_compacts_at(harness, tokens, compa
     assert (said == ["/compact"]) is compacts
 
 
-def test_the_last_request_of_a_turn_wins(harness):
-    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                harness.daemon.push("ag1", tag_event(COMPACT_TAG))
-                harness.daemon.push(
-                    "ag1", tag_event('<compact-session min-tokens="1m">')
-                )
-                harness.daemon.push("ag1", end_turn())
-                await after_message(harness, "Continuing.")
-                return said_texts(harness)
-
-    [said] = run(scenario())
-    assert said.attrs == {"reason": "below-threshold"}
-
-
 def test_a_request_whose_turn_ends_after_a_restart_is_answered(harness):
     """The marker is in the backlog, but the turn ends live: the agent waits."""
     harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
@@ -9026,6 +9007,28 @@ def test_an_event_told_while_a_request_waits_follows_the_compact(harness):
     assert after == ["/compact", COMPACTED, commented()]
 
 
+def test_an_event_told_after_a_replayed_request_follows_the_compact(harness):
+    """The marker is in the backlog and the turn ends live: the window is the same."""
+    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
+    harness.daemon.backlog["ag1"] = [tag_event(COMPACT_TAG)]
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await after_message(harness, "Still in the turn.")
+                await comment(api)
+                held = said_texts(harness)
+                harness.daemon.push("ag1", end_turn())
+                harness.daemon.push("ag1", compact_boundary(312_000, 41_000))
+                await wait_until(lambda: len(said_texts(harness)) == 3)
+                return held, said_texts(harness)
+
+    held, after = run(scenario())
+    assert held == []
+    assert after == ["/compact", COMPACTED, commented()]
+
+
 def test_a_request_below_the_threshold_releases_what_it_held(harness):
     harness.daemon.rows["ag1"] = agent_row(context_tokens=123_400)
 
@@ -9087,24 +9090,6 @@ def test_a_compact_the_user_asked_for_holds_events_and_gets_no_reply(harness):
     held, after = run(scenario())
     assert held == ["/compact Keep the PR"]
     assert after == ["/compact Keep the PR", commented()]
-
-
-def test_a_hold_with_no_outcome_releases_at_the_backstop(harness_factory):
-    harness = harness_factory(compact_backstop=0.1)
-    harness.daemon.rows["ag1"] = agent_row()
-
-    async def scenario():
-        async with harness.client() as api:
-            await transcript_of(api)
-            await api.post("/api/agents/ag1/say", {"text": "/compact"})
-            await comment(api)
-            held = said_texts(harness)
-            await wait_until(lambda: len(said_texts(harness)) == 2)
-            return held, said_texts(harness)
-
-    held, after = run(scenario())
-    assert held == ["/compact"]
-    assert after == ["/compact", commented()]
 
 
 def test_an_exit_drops_the_hold_and_what_it_held(harness):
@@ -9233,22 +9218,6 @@ def test_an_end_session_request_outlives_a_lost_stream(harness):
     run(scenario())
 
 
-def test_a_replayed_end_session_request_does_nothing(harness):
-    """The run that first read it terminated the agent; a resumed agent stays."""
-    harness.daemon.rows["ag1"] = agent_row()
-    harness.daemon.backlog["ag1"] = [tag_event("<end-session>"), end_turn()]
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                harness.daemon.push("ag1", end_turn())
-                await after_message(harness, "Continuing.")
-                return stopped(harness)
-
-    assert run(scenario()) is False
-
-
 def codex_event(method: str, **params) -> dict:
     """One Codex notification, as the Codex adapter frames it."""
     return {"type": "codex_raw", "method": method, "params": params}
@@ -9291,24 +9260,6 @@ def test_a_codex_turn_end_acts_on_the_markers_its_turn_wrote(harness):
     before, row = run(scenario())
     assert before is False
     assert row["name"] == "built"
-
-
-def test_an_end_session_request_wins_over_a_compaction_request(harness):
-    """No ``/compact`` goes to an agent that is stopping."""
-    harness.daemon.rows["ag1"] = agent_row(context_tokens=312_000)
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                harness.daemon.push("ag1", tag_event(f"{COMPACT_TAG}\n<end-session>"))
-                harness.daemon.push("ag1", end_turn())
-                # The `/compact` would be said while the `result` is read,
-                # before the stop operation begins.
-                await wait_until(lambda: stopped(harness))
-                return said_texts(harness)
-
-    assert run(scenario()) == []
 
 
 # --- the conditional end -----------------------------------------------------

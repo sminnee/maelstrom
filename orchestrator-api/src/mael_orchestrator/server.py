@@ -193,6 +193,7 @@ from mael_domain.worktree_steps import Step, StepHook, StepOutcome, run_sequence
 
 from . import desk as desk_model
 from . import linear_source
+from .agent_queue import AgentQueue, AgentStep, Compact, Resume, Say, Stop
 from .build_queue import BuildHost, BuildQueue, Run, run_process
 from .clients import normal_ip
 from .daemon_bridge import (
@@ -640,31 +641,6 @@ class AgentWatch:
         #: on an ``assistant`` event, but the turn's tokens only reach the
         #: world when its ``result`` lands — so the snapshot waits for that.
         self.pending_milestone: Milestone | None = None
-        #: A compaction request waiting for its turn to end, for the reason a
-        #: milestone waits: the turn's last occupancy reading, and an idle
-        #: agent to send ``/compact`` to.
-        self.pending_compact: CompactRequest | None = None
-
-
-class CompactHold:
-    """One agent's **Compaction hold**: the turns told to it while it compacts.
-
-    See ``docs/dev/orchestrator-server.md``, "The compaction hold".
-    """
-
-    def __init__(self, agent_id: str, *, reply: bool, sent: bool) -> None:
-        self.agent_id = agent_id
-        #: The agent asked, so it is told how the compact went.
-        self.reply = reply
-        #: ``/compact`` was sent and its outcome is not in yet. A boundary
-        #: says it compacted; a refusal says it did not.
-        self.sent = sent
-        #: Each held turn and its attachments, in the order they were told.
-        self.held: list[tuple[ExternalEvent | str, list[dict[str, str]] | None]] = []
-        self.backstop: asyncio.TimerHandle | None = None
-        #: Its drain has started. It still takes turns, which the drain
-        #: delivers, but a new opener gets a hold of its own.
-        self.releasing = False
 
 
 class Cursor:
@@ -868,10 +844,9 @@ class Orchestrator:
         self.live_feedback = LiveFeedbackHub(on_change=self._live_feedback_changed)
         self._child_detach = child_detach
         self._compact_backstop = compact_backstop
-        #: Per agent, the Compaction hold open on it; it outlives a resume's new watch.
-        self._compact_holds: dict[str, CompactHold] = {}
-        #: The drains of released holds, held so a stop can cancel them.
-        self._hold_releases: set[asyncio.Task[None]] = set()
+        #: Per agent with steps to run, its Agent queue. On the server, not on
+        #: the watch: it outlives a resume's new watch and a lost stream.
+        self._queues: dict[str, AgentQueue] = {}
         #: Per subagent, the detach waiting for its grace to pass.
         self._detaches: dict[str, asyncio.Task[None]] = {}
         self._task_poll = task_poll
@@ -899,13 +874,6 @@ class Orchestrator:
         self._prs_due: set[str] = set()
         #: The due PRs with a redelivery in flight.
         self._prs_again: set[str] = set()
-        #: The agents that asked to end the session, until the turn ends. On
-        #: the server, not on the watch: a lost stream must not drop it.
-        self._pending_ends: set[str] = set()
-        #: The agents in `_pending_ends` because a merge met their Conditional
-        #: end, not because they wrote `<end-session>`. A user message takes
-        #: them out again.
-        self._merge_ends: set[str] = set()
         #: Whether the last watch failed, so a lasting failure logs once.
         self._gate_watch_failed = False
         #: The gate tells in flight, kept so a stop can cancel them.
@@ -1018,12 +986,10 @@ class Orchestrator:
             *self._pr_watches,
             *self._gate_tells,
             *self._task_tells,
-            *self._hold_releases,
         ]:
             task.cancel()
-        for hold in self._compact_holds.values():
-            if hold.backstop is not None:
-                hold.backstop.cancel()
+        for queue in list(self._queues.values()):
+            await queue.close()
         await asyncio.gather(
             *self._pollers,
             *watching,
@@ -1032,7 +998,6 @@ class Orchestrator:
             *self._pr_watches,
             *self._gate_tells,
             *self._task_tells,
-            *self._hold_releases,
             return_exceptions=True,
         )
         self._pollers = []
@@ -2457,8 +2422,9 @@ class Orchestrator:
             if agent and agent["worktreeId"]:
                 self._apply_feedback_params(agent["worktreeId"], out.feedback_params)
         if out.end_session:
-            # Parked even in replay, as a compaction request is.
-            self._pending_ends.add(watch.agent_id)
+            # Queued even in replay, as a compaction request is: the turn may
+            # end live.
+            self._enqueue(watch.agent_id, Stop(gated=True))
             if watch.caught_up.is_set():
                 await self.orchestrator_data.update(watch.agent_id, end_on=None)
         elif out.end_on and watch.caught_up.is_set():
@@ -2475,7 +2441,7 @@ class Orchestrator:
             # A message from the TUI or `mael agent say` reaches the agent
             # past `_say`: the stream is the one place every path shows.
             await self._clear_conditional_end(watch.agent_id)
-        await self._follow_compact(watch, out)
+        self._follow_compact(watch, out)
         if out.turn_end and watch.pending_milestone is not None:
             milestone, watch.pending_milestone = watch.pending_milestone, None
             # A replayed marker was recorded by the run that first read it. The
@@ -2484,63 +2450,43 @@ class Orchestrator:
             # 0, because no tokens were spent between the two writes.
             if watch.caught_up.is_set():
                 await self._record_milestone(watch, milestone)
-        # Last: the stop cancels this watch, so the turn's milestone goes first.
-        await self._follow_end(watch, out)
+        # Last: a stop cancels this watch, so the turn's milestone goes first.
+        if out.turn_end and (queue := self._queues.get(watch.agent_id)):
+            await queue.turn_ended(live=watch.caught_up.is_set())
 
     async def _clear_conditional_end(self, agent_id: str) -> None:
         """The user is here again: a Conditional end must not close the session.
 
-        This also cancels an end that a merge already parked.
+        This also cancels an end that a merge already queued.
         """
         await self.orchestrator_data.update(agent_id, end_on=None)
-        if agent_id in self._merge_ends:
-            self._merge_ends.discard(agent_id)
-            self._pending_ends.discard(agent_id)
+        self._cancel_merge_end(agent_id)
 
-    async def _follow_end(self, watch: AgentWatch, out: Normalised) -> None:
-        """Terminate the agent when the turn that asked to end does.
+    def _cancel_merge_end(self, agent_id: str) -> None:
+        """Take out the stop a merge queued, and leave an agent's own stop."""
+        if (queue := self._queues.get(agent_id)) is not None:
+            queue.remove(lambda step: isinstance(step, Stop) and step.merge)
 
-        See ``docs/dev/orchestrator-server.md``, "An end-session request".
-        """
-        if not out.turn_end or watch.agent_id not in self._pending_ends:
-            return
-        self._pending_ends.discard(watch.agent_id)
-        self._merge_ends.discard(watch.agent_id)
-        if not watch.caught_up.is_set():
-            # A replayed turn end was acted on by the run that read it live.
-            return
-        reply = await self.handle_command(
-            {"type": "agent.stop", "agentId": watch.agent_id}
-        )
-        if not reply.get("ok"):
-            log.warning(
-                "agent %s: end-session not acted on: %s",
-                watch.agent_id,
-                reply["error"]["message"],
-            )
-
-    async def _follow_compact(self, watch: AgentWatch, out: Normalised) -> None:
-        """Act on a compaction request, and tell the agent how it went.
+    def _follow_compact(self, watch: AgentWatch, out: Normalised) -> None:
+        """Queue a compaction request, and settle a compact that was sent.
 
         See ``docs/dev/orchestrator-server.md``, "A compaction request".
         """
         agent_id = watch.agent_id
         if out.compact_request is not None:
-            # Parked even in replay, as a milestone is: the turn may end live.
-            # Last wins: a second marker in one turn replaces the first.
-            watch.pending_compact = out.compact_request
-            if watch.caught_up.is_set():
-                # From the marker, not the `/compact`: an event told before
-                # the turn ends would be queued ahead of the `/compact`.
-                self._open_hold(agent_id, reply=True, sent=False)
+            # At the marker: a turn told before the turn end would pass the
+            # `/compact`. In replay too: the turn may end live.
+            self._enqueue(
+                agent_id,
+                Compact(request=out.compact_request, gated=True, reply=True),
+            )
         if not watch.caught_up.is_set():
-            # A replayed turn end was answered by the run that read it live.
-            if out.turn_end:
-                watch.pending_compact = None
+            # A replayed outcome settles no step: the run that read it live did.
             return
-        hold = self._compact_holds.get(agent_id)
-        compacting = hold is not None and hold.sent
-        if compacting and out.compacted is not None:
+        queue = self._queues.get(agent_id)
+        if queue is None:
+            return
+        if out.compacted is not None:
             pre, post = out.compacted
             if pre is None or post is None:
                 event = ExternalEvent(
@@ -2554,76 +2500,150 @@ class Orchestrator:
                     f"Session compacted from {_kilo(pre)} to {_kilo(post)} tokens. "
                     "Continue.",
                 )
-            self._settle_hold(agent_id, event)
-        elif compacting and out.compact_refused is not None:
-            self._settle_hold(
-                agent_id,
+            queue.settle(event)
+        elif out.compact_refused is not None:
+            queue.settle(
                 ExternalEvent(
                     ORCHESTRATOR,
                     SESSION_NOT_COMPACTED,
                     {"reason": "refused"},
                     f"Compaction did not occur: {out.compact_refused} Continue.",
-                ),
+                )
             )
-        elif out.turn_end and watch.pending_compact is not None:
-            request, watch.pending_compact = watch.pending_compact, None
-            if agent_id in self._pending_ends:
-                # The end wins: no `/compact` goes to an agent that is stopping.
-                # Released, not dropped: the stop can fail. A stop drops it.
-                self._release_hold(agent_id)
-            else:
-                await self._request_compact(watch, request)
 
-    async def _request_compact(
-        self, watch: AgentWatch, request: CompactRequest
-    ) -> None:
-        agent_id = watch.agent_id
-        # A request parked in replay whose turn ends live has no hold yet.
-        hold = self._open_hold(agent_id, reply=True, sent=False)
-        if request.invalid is not None:
-            self._settle_hold(
+    def _enqueue(self, agent_id: str, *steps: AgentStep) -> AgentQueue:
+        """Add ``steps`` to the agent's Agent queue, made if it has none."""
+        queue = self._queues.get(agent_id)
+        if queue is None:
+            queue = AgentQueue(
                 agent_id,
-                ExternalEvent(
-                    ORCHESTRATOR,
-                    SESSION_NOT_COMPACTED,
-                    {"reason": "invalid-threshold"},
-                    f'Could not read min-tokens="{request.invalid}", '
-                    "no compaction occurred. Continue.",
-                ),
+                self._run_step,
+                backstop=self._compact_backstop,
+                on_idle=self._queue_idle,
             )
-            return
+            self._queues[agent_id] = queue
+        queue.put(*steps)
+        return queue
+
+    def _queue_idle(self, queue: AgentQueue) -> None:
+        if self._queues.get(queue.agent_id) is queue:
+            del self._queues[queue.agent_id]
+
+    def _drop_queue(self, agent_id: str) -> None:
+        """Discard the agent's queue: no agent will hear it."""
+        queue = self._queues.pop(agent_id, None)
+        if queue is not None:
+            queue.drop()
+
+    async def _run_step(self, queue: AgentQueue, step: AgentStep) -> bool:
+        """Run one step of an Agent queue; whether it went."""
+        agent_id = queue.agent_id
+        match step:
+            case Say():
+                _, refusals = await self._tell_now(
+                    [agent_id], step.turn, step.attachments
+                )
+                for _, refused in refusals:
+                    log.warning(
+                        "agent %s: queued event not delivered: %s",
+                        agent_id,
+                        refused["error"]["message"],
+                    )
+                return not refusals
+            case Stop():
+                reply = await self.handle_command(
+                    {"type": "agent.stop", "agentId": agent_id}
+                )
+                if not reply.get("ok"):
+                    log.warning(
+                        "agent %s: end-session not acted on: %s",
+                        agent_id,
+                        reply["error"]["message"],
+                    )
+                return bool(reply.get("ok"))
+            case Resume():
+                return await self._run_resume(queue, step)
+            case Compact():
+                return await self._run_compact(queue, step)
+
+    async def _run_resume(self, queue: AgentQueue, step: Resume) -> bool:
+        """Start the child, with the next turn step as its first turn."""
+        turn = queue.take_first_turn()
+        payload = dict(step.payload)
+        if isinstance(turn, Compact):
+            payload["text"] = "/compact"
+        elif turn is not None:
+            payload["text"] = (
+                turn.turn if isinstance(turn.turn, str) else render_event(turn.turn)
+            )
+        refused = await self._ask_host(payload)
+        step.finish(refused)
+        return refused is None
+
+    async def _run_compact(self, queue: AgentQueue, step: Compact) -> bool:
+        """Send ``/compact`` unless it went, then wait for its outcome.
+
+        A failed send is a failed step; the turns behind it still go.
+        """
+        agent_id = queue.agent_id
+        if step.request is not None and not step.sent:
+            command = self._compact_command(agent_id, step.request)
+            if isinstance(command, ExternalEvent):
+                await self._tell_of_compact(agent_id, command)
+                return True
+            if command is None:
+                return True
+            step.mark_sent()
+            if not await self._tell_of_compact(agent_id, command):
+                return False
+        elif step.relay is not None and not step.sent:
+            # The user's own `/compact`: its relay reply goes back to them.
+            step.mark_sent()
+            refused = await self._ask_host(step.relay)
+            step.finish(refused)
+            if refused is not None:
+                return False
+        elif not step.sent:
+            return True
+        reply = await queue.outcome(step)
+        if reply is not None and step.reply:
+            await self._tell_of_compact(agent_id, reply)
+        return True
+
+    def _compact_command(
+        self, agent_id: str, request: CompactRequest
+    ) -> str | ExternalEvent | None:
+        """The ``/compact`` a request sends, its refusal, or ``None`` for no agent."""
+        if request.invalid is not None:
+            return ExternalEvent(
+                ORCHESTRATOR,
+                SESSION_NOT_COMPACTED,
+                {"reason": "invalid-threshold"},
+                f'Could not read min-tokens="{request.invalid}", '
+                "no compaction occurred. Continue.",
+            )
         agent = self.world["agents"].get(agent_id)
         if agent is None:
             # No occupancy to read, and no agent to compact.
-            self._release_hold(agent_id)
-            return
+            return None
         tokens = agent["contextTokens"]
         if request.min_tokens is not None and tokens < request.min_tokens:
-            self._settle_hold(
-                agent_id,
-                ExternalEvent(
-                    ORCHESTRATOR,
-                    SESSION_NOT_COMPACTED,
-                    {"reason": "below-threshold"},
-                    f"Session only {_kilo(tokens)} tokens "
-                    f"(minimum {_kilo(request.min_tokens)}), "
-                    "no compaction occurred. Continue.",
-                ),
+            return ExternalEvent(
+                ORCHESTRATOR,
+                SESSION_NOT_COMPACTED,
+                {"reason": "below-threshold"},
+                f"Session only {_kilo(tokens)} tokens "
+                f"(minimum {_kilo(request.min_tokens)}), "
+                "no compaction occurred. Continue.",
             )
-            return
         # A slash command, not an External event: the harness runs it only
         # when the turn is the command and nothing else.
-        if await self._tell_of_compact(
-            agent_id, f"/compact {request.instructions}".rstrip()
-        ):
-            hold.sent = True
-        else:
-            self._release_hold(agent_id)
+        return f"/compact {request.instructions}".rstrip()
 
     async def _tell_of_compact(self, agent_id: str, event: ExternalEvent | str) -> bool:
         """Say one compaction turn to the agent; whether the host took it.
 
-        Past the hold: the agent hears its compaction's own turns first. A
+        Past the queue: the agent hears its compaction's own turns first. A
         refusal is logged, not raised: only the agent waits on it.
         """
         _, refusals = await self._tell_now([agent_id], event)
@@ -2634,85 +2654,6 @@ class Orchestrator:
                 refused["error"]["message"],
             )
         return not refusals
-
-    def _open_hold(self, agent_id: str, *, reply: bool, sent: bool) -> CompactHold:
-        """Hold the agent's External events until its compaction settles.
-
-        An open hold is kept, and takes the stronger of each flag. A hold
-        already releasing is not: its outcome is in, so the new compaction
-        gets a hold of its own.
-        """
-        hold = self._compact_holds.get(agent_id)
-        if hold is None or hold.releasing:
-            hold = CompactHold(agent_id, reply=reply, sent=sent)
-            self._compact_holds[agent_id] = hold
-            hold.backstop = asyncio.get_running_loop().call_later(
-                self._compact_backstop, self._backstop_hold, hold
-            )
-        else:
-            hold.reply = hold.reply or reply
-            hold.sent = hold.sent or sent
-        return hold
-
-    def _backstop_hold(self, hold: CompactHold) -> None:
-        """No outcome came in time: deliver what the hold kept."""
-        if self._compact_holds.get(hold.agent_id) is not hold or hold.releasing:
-            return
-        log.warning("agent %s: compaction hold timed out", hold.agent_id)
-        self._release_hold(hold.agent_id)
-
-    def _settle_hold(self, agent_id: str, reply: ExternalEvent) -> None:
-        """Release the hold, with the compaction's outcome first when the agent asked."""
-        hold = self._compact_holds.get(agent_id)
-        self._release_hold(agent_id, reply if hold is not None and hold.reply else None)
-
-    def _release_hold(self, agent_id: str, reply: ExternalEvent | None = None) -> None:
-        """Start the hold's one drain: ``reply``, then the held turns, in order.
-
-        A task, not inline: the outcome is read on the agent's stream, and a
-        long hold must not stop that stream while each turn goes to the host.
-        """
-        hold = self._compact_holds.get(agent_id)
-        if hold is None or hold.releasing:
-            return
-        hold.releasing = True
-        if hold.backstop is not None:
-            hold.backstop.cancel()
-        task = asyncio.create_task(self._drain_hold(hold, reply))
-        self._hold_releases.add(task)
-        task.add_done_callback(self._hold_releases.discard)
-
-    async def _drain_hold(self, hold: CompactHold, reply: ExternalEvent | None) -> None:
-        if reply is not None:
-            await self._tell_of_compact(hold.agent_id, reply)
-        # Drained while still in place, so a turn told during the drain
-        # queues behind the held ones rather than passing them.
-        while hold.held:
-            event, attachments = hold.held.pop(0)
-            _, refusals = await self._tell_now([hold.agent_id], event, attachments)
-            for _, refused in refusals:
-                log.warning(
-                    "agent %s: held event not delivered: %s",
-                    hold.agent_id,
-                    refused["error"]["message"],
-                )
-        if self._compact_holds.get(hold.agent_id) is hold:
-            del self._compact_holds[hold.agent_id]
-
-    def _drop_hold(self, agent_id: str) -> None:
-        """Close the agent's hold and discard what it kept: no agent will hear it."""
-        hold = self._compact_holds.pop(agent_id, None)
-        if hold is None:
-            return
-        if hold.backstop is not None:
-            hold.backstop.cancel()
-        if hold.held:
-            log.info(
-                "agent %s: %d held event(s) dropped: the agent stopped",
-                agent_id,
-                len(hold.held),
-            )
-        hold.held.clear()
 
     async def _load_documents(self) -> None:
         """Put every markdown Task document in the world, before any agent is read.
@@ -3058,9 +2999,7 @@ class Orchestrator:
         if watch:
             watch.ctx = out.ctx
         self._apply(out.events)
-        self._drop_hold(agent_id)
-        self._pending_ends.discard(agent_id)
-        self._merge_ends.discard(agent_id)
+        self._drop_queue(agent_id)
         await self.orchestrator_data.update(agent_id, end_on=None)
         self._sessions_sent.pop(agent_id, None)
         self._sessions_refused.pop(agent_id, None)
@@ -3275,15 +3214,16 @@ class Orchestrator:
         attachments = _attachment_paths(command.get("attachments"))
         if attachments:
             payload["attachments"] = attachments
-        if not is_compact_command(payload["text"]):
-            return await self._relay(payload)
-        # The user asked, not the agent: held, but no reply.
         agent_id = command["agentId"]
-        self._open_hold(agent_id, reply=False, sent=True)
-        reply = await self._relay(payload)
-        if not reply.get("ok"):
-            self._release_hold(agent_id)
-        return reply
+        queue = self._queues.get(agent_id)
+        if not is_compact_command(payload["text"]) or queue is not None:
+            # An open queue: the `/compact` goes now, with no step of its own.
+            return await self._relay(payload)
+        # The user asked, not the agent: the turns wait, but get no reply.
+        done = asyncio.get_running_loop().create_future()
+        self._enqueue(agent_id, Compact(relay=payload, done=done))
+        refused = await done
+        return refused or {"ok": True, "result": {}}
 
     async def _run_shell(self, command: dict[str, Any]) -> dict[str, Any]:
         """Ask the host to run a shell command in the agent's directory.
@@ -3771,20 +3711,20 @@ class Orchestrator:
 
         The one way a server-originated turn reaches an agent. Every turn but
         a jig instruction is an External event; see orchestrator-server.md.
-        An agent with a Compaction hold open takes the turn into the hold: it
-        counts as delivered, because the release delivers it.
+        An agent whose Agent queue holds turns takes the turn as a ``say``
+        step: it counts as delivered, because the queue delivers it.
         """
         now: list[str] = []
-        held: list[str] = []
+        queued: list[str] = []
         for agent_id in agent_ids:
-            hold = self._compact_holds.get(agent_id)
-            if hold is None:
-                now.append(agent_id)
+            queue = self._queues.get(agent_id)
+            if queue is not None and queue.holds_turns:
+                self._enqueue(agent_id, Say(event, attachments))
+                queued.append(agent_id)
             else:
-                hold.held.append((event, attachments))
-                held.append(agent_id)
+                now.append(agent_id)
         delivered, refusals = await self._tell_now(now, event, attachments)
-        return held + delivered, refusals
+        return queued + delivered, refusals
 
     async def _tell_now(
         self,
@@ -3792,7 +3732,7 @@ class Orchestrator:
         event: ExternalEvent | str,
         attachments: list[dict[str, str]] | None = None,
     ) -> tuple[list[str], list[tuple[str, dict[str, Any]]]]:
-        """Say one turn to each agent now, past any Compaction hold."""
+        """Say one turn to each agent now, past any Agent queue."""
         say: dict[str, Any] = {
             "cmd": "say",
             "text": event if isinstance(event, str) else render_event(event),
@@ -3998,9 +3938,9 @@ class Orchestrator:
             if (await self.orchestrator_data.read(agent_id)).end_on == PR_MERGED
         ]
         plain = [agent_id for agent_id in agent_ids if agent_id not in armed]
-        # Parked before the tell, so a turn the tell starts cannot end first.
-        self._pending_ends.update(armed)
-        self._merge_ends.update(armed)
+        # Queued before the tell, so a turn the tell starts cannot end first.
+        for agent_id in armed:
+            self._enqueue(agent_id, Stop(merge=True, gated=True))
         ending = await self._tell_logged(armed, pr_merged_ending(event), quiet=quiet)
         for agent_id in armed:
             if agent_id in ending:
@@ -4008,8 +3948,7 @@ class Orchestrator:
             else:
                 # Not told, so not ended. A redelivery tells it again, unless
                 # another agent of the PR took the merge: the ledger moves.
-                self._pending_ends.discard(agent_id)
-                self._merge_ends.discard(agent_id)
+                self._cancel_merge_end(agent_id)
         told = await self._tell_logged(plain, event, quiet=quiet)
         return bool(ending or told)
 
@@ -4944,22 +4883,30 @@ class Orchestrator:
         Nothing is synthesised, unlike a stop: the host's own ``list`` is the
         evidence the agent is back, and the operation's refresh reads it.
 
-        With ``compact``, the first turn is ``/compact``, under a Compaction
-        hold opened before the child starts: no event can take the turn first.
+        A ``resume`` step on the Agent queue, so no event takes the child's
+        first turn. With ``compact``, a ``compact`` step follows it, and the
+        child gets ``/compact`` as its first turn. Else a ``say`` step, when
+        there is ``text``, gives the child its first turn.
         """
-        if compact:
-            text = "/compact"
-            self._open_hold(agent_id, reply=True, sent=True)
+        # A step queued for the exited life can never run: a gated one would
+        # wait for a turn end that never comes.
+        self._drop_queue(agent_id)
         payload = build_resume_payload(
             agent_id,
-            text=text,
+            text="",
             system_prompt_file=agent_prompt_file(),
             plugin_dir=core_plugin_dir(),
         )
-        refused = await self._ask_host(payload)
+        done = asyncio.get_running_loop().create_future()
+        resume = Resume(payload, done=done)
+        if compact:
+            self._enqueue(agent_id, resume, Compact(reply=True))
+        elif text:
+            self._enqueue(agent_id, resume, Say(text))
+        else:
+            self._enqueue(agent_id, resume)
+        refused = await done
         if refused:
-            if compact:
-                self._release_hold(agent_id)
             return StepOutcome(blocked=refused["error"]["message"])
         return StepOutcome(messages=[f"Resumed {agent_id}."])
 
