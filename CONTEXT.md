@@ -263,9 +263,21 @@ has a **Comm category** and a project: the project a task made from the comm goe
 - A new comm's project defaults to the **Default project** of its category.
 - A comm links to tasks, and task ↔ comm is many-to-many. The link is the task's `comms`
   field, so a task names the comms it feeds.
-- A new child task gets its parent task's comms, as it gets the parent's branch.
+- A new task gets the comms of every task it is made from: its parent, its follows tasks, and
+  the task whose session made it. A duplicate (`--from`) also gets the comms of the task it
+  copies. A promoted chain gets the planning task's comms. A
+  Reopen-branch task gets the comms of the tasks on its branch. An explicit list wins.
 - You close a comm when everyone is told. A closed comm leaves the open list.
 _Avoid_: outcome, promise, communiqué, notification, announcement, ticket
+
+**Comm codename**:
+A one- or two-word name for a **Comm**, such as `Lantern` or `Night Owl`, unique across all
+comms. The **Task metadata generator** makes it when the comm is made. The UI shows a comm as its codename, in
+the one comm colour.
+- Without an OpenAI key, or when the generator fails twice, the codename stays blank. The UI then
+  shows the comm id in its place. The server tries again for each blank comm when it starts.
+- You can change the codename. A codename another comm uses is refused.
+_Avoid_: nickname, alias, label, tag
 
 **Comm category**:
 Free text that groups comms of one kind, such as `release` or `support`. You pick an existing
@@ -1573,7 +1585,8 @@ unlinks tasks, and shows each linked task's landing strip. The **Draft updates**
 how many tasks the open comms queue. A row with an unsent **Comm update** says `draft`, and the
 editor lists the comm's updates, newest first. Its New task button opens New work on
 the comm's title, content and project, and the task it writes is linked to the comm. The task
-count opens Tasks with the Comm filter set. The **Task editor** links comms too. Each picker
+count opens Tasks with the Comm filter set. A comm's chip shows its **Comm codename**; a click
+on a chip anywhere, such as on a task's node, opens the comm's editor. The **Task editor** links comms too. Each picker
 offers the five comms or tasks this browser viewed or linked most recently, before a search. A person works here; an agent uses
 `mael comms`.
 _Avoid_: Inbox, outbox, notifications tab

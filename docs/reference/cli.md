@@ -443,7 +443,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--template` | Park the new task in `template` status: a reusable, non-actionable recipe. |
 | `--schedule TEXT` | Cron expression. Acted on only for template tasks, e.g. `'0 9 * * 1-5'`. |
 | `--trigger TEXT` | Fire on a finished GitHub Actions run: `gh-action/<workflow>[@<branch>] [<conclusion>,...]`. Acted on only for template tasks. A value that does not parse is refused. See [Fire on a finished build](../guide/scheduled-work.md#fire-on-a-finished-build). |
-| `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the parent task's comms. An id that names no comm is refused. |
+| `--comm TEXT` | A **Comm** this task feeds, such as `c3`. Repeatable. Default: the comms of the parent task, each follows task, and the session's own task (`$MAEL_TASK_ID`). `--comm ''` sets none. An id that names no comm is refused. |
 | `-e`, `--edit` | Open the new task in `$EDITOR` after creating it. |
 | `-r`, `--run` | Launch the task immediately: the server starts it on the agent daemon. Prints the operation id. |
 | `--cli` | With `--run`, run the model CLI in this shell, in the task's worktree, with no server launch. |
@@ -1308,15 +1308,15 @@ agent change comms. A person uses the Comms view of the orchestrator UI.
 
 | Command | Description |
 |---|---|
-| `mael comms new TITLE` | Create a comm and print its id, such as `c1`. |
-| `mael comms list` | Print the open comms: id, title, category, project, recipients and the number of linked tasks. |
+| `mael comms new TITLE` | Create a comm and print its id and its **Comm codename**, such as `c1 Lantern`. |
+| `mael comms list` | Print the open comms: id, codename, title, category, project, recipients and the number of linked tasks. |
 | `mael comms close COMM` | Close a comm. A closed comm leaves the open list. |
 | `mael comms link COMM TASK...` | Link tasks to a comm. All or nothing: an unknown task links none. |
-| `mael comms edit COMM` | Change a comm's title, content, recipients, category or project. |
+| `mael comms edit COMM` | Change a comm's title, content, recipients, category, project or codename. |
 | `mael comms landings` | Print each tracked task's **Landing**: its PR, its status, and each environment's state. |
 
 ```bash
-mael comms new "Invoice export" --to "#cs" --to jo@acme.test --category release   # prints c1
+mael comms new "Invoice export" --to "#cs" --to jo@acme.test --category release   # prints c1 Lantern
 mael task add "Export invoices as CSV" --comm c1               # its children inherit c1
 mael comms link c1 2026-10-08.3 2026-10-08.4                   # link two more tasks
 mael comms edit c1                                             # edit the content in $EDITOR
@@ -1327,6 +1327,8 @@ mael comms list --all
 A link is the task's own `comms` field, so `mael task update --comm` changes it too.
 
 **`mael comms new`**
+
+The **Task metadata generator** (`OPENAI_API_KEY`) makes the codename. Without a key, `new` prints the id alone.
 
 | Option | Description |
 |---|---|
@@ -1362,6 +1364,7 @@ nothing.
 | `--clear-to` | Remove every recipient. |
 | `--category TEXT` | Set the category. `''` clears it. |
 | `--project TEXT` | Set the project. `''` clears it. |
+| `--codename TEXT` | Set the codename: one or two words, put in Title Case. `''` clears it: the id shows in its place until the server starts again and names it. A codename another comm uses is refused. |
 
 An unknown project is refused by `new` and `edit`.
 

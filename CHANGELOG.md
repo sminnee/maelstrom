@@ -20,6 +20,17 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Each comm has a codename, shown as a chip in one comm colour.** The task metadata generator gives a
+  new comm a one- or two-word codename, such as `Lantern`, unique across all comms. A task's
+  node shows its first comm's chip, and `+n` for more, where the phase word was. The expanded
+  card lists every comm. A click on a chip opens the comm. `mael comms edit --codename` changes
+  it. With no OpenAI key, the comm id shows in its place. The server names older comms when
+  it starts.
+- **A new task feeds the comms of every task it is made from.** That is its parent, each
+  follows task, the task whose session made it, and the task `--from` copies. A promoted chain
+  gets the planning task's comms, and a Reopen-branch task gets the comms of the closed
+  branch's tasks.
+
 - **An edit of a task tells its live agent.** A change to a task's title, content, status,
   follows or branch reaches the running agent as a `task.updated` External event, so the agent
   does not work from stale content. A follow on unfinished work sends `task.queued`: the agent

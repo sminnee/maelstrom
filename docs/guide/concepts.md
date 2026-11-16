@@ -175,6 +175,9 @@ desk plus everything running now. Desk draws as a graph, a kanban or a list; the
 to both views. On a phone, the Filters button holds them, or swipe in from the right edge. Swipe a row left to Launch a task that can start, or to Dismiss ended work. Drag a side sheet right to close it. Tasks opens on live work. It also edits a task: its status, title, content and more.
 Comms lists what to tell people outside the team when work lands, and links tasks to each comm.
 A comm has a category and a project. A new comm takes the project its category's comms use most.
+Each comm has a codename, such as `Lantern`, which the task metadata generator makes. A chip in one comm
+colour shows it on each task's node and card. A click on the chip opens the comm. A new task
+feeds the comms of its parent, its follows tasks, and the task whose session made it.
 New task in a comm's editor writes a task linked to it. A task's editor links comms too. The Comm filter shows only the tasks
 linked to one comm, on Desk and Tasks.
 Projects lists each project, and adds one from a git URL, as `mael project add` does. A row opens
