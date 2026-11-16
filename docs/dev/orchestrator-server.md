@@ -1230,7 +1230,7 @@ and a comm notice together.
 
 A link is `PATCH /api/tasks/{project}/{id}` with `comms`. The list replaces the task's own, and
 each id must name a comm the world holds. `task.create` takes `comms` too, so a task made from
-a comm is linked in the same write. Without `comms`, a new task inherits its parent task's comms.
+a comm is linked in the same write. Without `comms`, a new task inherits comms as **Comm** in CONTEXT.md describes.
 
 A comm's `category` and `project` are plain fields of `comm.create` and `comm.update`. `project`
 is `""` or a project the world holds. The **Default project** of a category is derived in the
@@ -1515,7 +1515,7 @@ user takes a task off with **Off desk**.
   no follow key the set splices in after `after`. A draft that will not parse refuses the whole
   set and names the draft.
 - **`task.loadMany`** creates every block of a marked plan file, through `parse_task_blocks` and
-  `task.load_many`. The body is `{project, text, defaultParent, launch}`. The reply lists each task
+  `task.load_many`. The body is `{project, text, defaultParent, source, launch}`. `source` is the sending session's task: each new task inherits its comms. The reply lists each task
   as `{taskId, title}`, and the parser's `warnings`. With `launch`, each new task that waits on
   nothing starts as its own `launch` operation, and its row carries the `operationId`. A launch
   the validator refuses becomes a warning: the tasks exist either way.
@@ -1787,7 +1787,7 @@ without waiting for the poll.
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
 | `GET /api/tasks/{project}/{id}/documents` | `{owned, linked}`: the **Task documents** the task owns and links. Each is `{id, uri, taskId, name, kind, archived, title, version, updatedAt}`, from its latest version |
 | `GET /api/task-documents?ref=` | `{document, versions, version, links, findings}` for one full reference, `<project>:<task-id>:<name>[@v<n>]`. `versions` has no bodies. `version` is the selected one, with `body`. `links` maps each fragment to the linking task ids; `""` is the whole document. `findings` lists a SARIF document's findings, each with the `key` a link names. The ref is a query parameter because a name can hold `/` |
-| `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, category, project, taskIds, queued, updates}`. A queued item is `{taskId, step}`; an update is `{id, commId, createdAt, items, content, state, sentAt}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
+| `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, category, project, codename, taskIds, queued, updates}`. A queued item is `{taskId, step}`; an update is `{id, commId, createdAt, items, content, state, sentAt}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
 | `GET /api/comms/{id}` | The `Comm` |
 | `GET /api/agents` | `{agents: [Agent]}` |
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
@@ -2059,9 +2059,9 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/agents/{id}/resume` | `{text?}` | `agent.resume` | `202 {operationId}` |
 | `POST /api/tasks/{project}/{id}/launch` | `{model?, host?, newSession?}` | `agent.launch` | `202 {operationId}`. `host` names a **Remote host** to delegate to. `newSession` starts a **New session**, which may reopen a done task |
 | `POST /api/tasks/infer` | `{project, draft}` | `task.infer` | `{title, branch, command, mode}` |
-| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, launch?, host?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
+| `POST /api/tasks` | `{project, title?, content?, branch?, command?, mode?, priority?, model?, executeModel?, comms?, parent?, follows?, followEnds?, preAction?, postAction?, status?, schedule?, trigger?, from?, source?, launch?, host?}` | `task.create` | `202 {taskId, operationId}`, or `{taskId}` when every name is typed and there is no launch. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
 | `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |
-| `POST /api/tasks/load-many` | `{project, text, defaultParent?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
+| `POST /api/tasks/load-many` | `{project, text, defaultParent?, source?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}`; a delegated launch adds `executeModel, session, env, taskId, parentUrl` | `agent.start` | `202 {operationId}` |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?, host?}` | `linear.plan` | `202 {operationId}`. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
@@ -2077,8 +2077,8 @@ check being missing, both answer 400 `invalid`.
 | `PUT /api/tasks/{project}/{id}/pr` | `{number, url}` | `task.registerPr` | `{}`. A delegated agent's `gh-pr` link, from its remote host |
 | `DELETE /api/tasks/{project}/{id}/pr` | | `task.withdrawPr` | `{}` |
 | `POST /api/tasks/{project}/{id}/sessions` | `{sessionId}` | `task.addSession` | `{}`. A delegated agent's session after a `/clear`, from its remote host |
-| `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id}` |
-| `PATCH /api/comms/{id}` | any of `{title, content, recipients, closed}` | `comm.update` | `{}` |
+| `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id, codename}` |
+| `PATCH /api/comms/{id}` | any of `{title, content, recipients, category, project, codename, closed}` | `comm.update` | `{}` |
 | `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |
 | `PATCH /api/comms/{id}/updates/{uid}` | any of `{content, sent: true}` | `comm.updateUpdate` | `{}` |
 | `POST /api/desk` | `{id}`, a desk id | `desk.add` | `{}` |
