@@ -113,7 +113,11 @@ from mael_orchestrator.sources import (
     TaskSourceRemote,
     WorktreeOpener,
 )
-from mael_orchestrator.world_build import project_entity, split_task_key
+from mael_orchestrator.world_build import (
+    agent_entity,
+    project_entity,
+    split_task_key,
+)
 
 NOW = "2026-09-01T00:00:00Z"
 ZAP_SARIF = (
@@ -14701,11 +14705,29 @@ def merged(api, agent_id: str, predicate=lambda a: True):
 
 
 def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, images):
-    """The parent stores each version and verdict, and shows the host's copy once."""
+    """The parent stores each version, verdict and final file.
+
+    It shows the host's live copy while the agent lives, then its stored copy.
+    The parent already holds a version, so the host must show the parent's
+    numbers, not its own.
+    """
     (tmp_path / ".drafts").mkdir()
     (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n\n![shot](shot.png)\n")
     (tmp_path / "shot.png").write_bytes(PNG_BYTES)
     table = InMemoryTaskAttachmentTable()
+    run(
+        task_documents.add(
+            table,
+            project=PROJECT,
+            task_id="NORT-7",
+            name=VERIFICATION_PATH,
+            kind="markdown",
+            title="Earlier",
+            body="# Earlier\n",
+            now=NOW,
+            role="verification",
+        )
+    )
     backlog, _rest = split_at_control_response(
         read_fixture("plan-review-with-plan.jsonl")
     )
@@ -14740,7 +14762,9 @@ def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, 
             async with api.transcript_stream("cobalt:new1") as ws:
                 await ws_next(ws)
                 child.claude.push("new1", tag_event(REVIEW_TAG))
-                seen["stored"] = await stored_until(len)
+                seen["stored"] = await stored_until(
+                    lambda rows: rows[0][1].agent_id == "cobalt:new1"
+                )
             listed = await until(api, "/api/documents", has_iteration)
             seen["listed"] = [d for d in listed["documents"] if is_iteration(d)]
             [document] = seen["listed"]
@@ -14751,6 +14775,14 @@ def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, 
             seen["approved"] = await stored_until(
                 lambda rows: rows[0][1].review_status == "approved"
             )
+            # A version added by hand has no agent: the live copy still wins.
+            added = await api.post(
+                "/api/tasks/northwind/NORT-7/documents",
+                {"name": VERIFICATION_PATH, "body": "# By hand\n"},
+            )
+            assert added.status == 200, added.body
+            listed = await api.get_json("/api/documents")
+            seen["by_hand"] = [d["id"] for d in listed["documents"]]
 
             pending = pending_from(backlog)
             child.claude.pending["new1"] = pending
@@ -14759,19 +14791,19 @@ def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, 
                 child.claude.push("new1", event)
             seen["plan"] = await stored_until(lambda rows: len(rows) == 2)
 
-            # The host forgets its document: the parent shows its stored copy.
-            child.harness.orch._apply(
-                [{"type": "remove", "kind": "document", "id": document["id"]}]
-            )
+            # The agent edits its file after the approve, then stops.
+            (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n\nEdited.\n")
+            child.claude.rows["new1"]["state"] = "exited(0)"
+            await child.harness.orch.refresh_agents()
             shown = await until(
                 api,
                 "/api/documents",
                 lambda b: any(
-                    is_iteration(d) and d["source"]["type"] == "stored"
-                    for d in b["documents"]
+                    is_iteration(d) and d["version"] == 4 for d in b["documents"]
                 ),
             )
-            seen["forgotten"] = [d for d in shown["documents"] if is_iteration(d)]
+            seen["gone"] = [d for d in shown["documents"] if is_iteration(d)]
+            seen["versions"] = await table.versions(seen["stored"][0][0].id)
         seen["child"] = await stored(child.harness.orch.document_store)
 
     run(scenario())
@@ -14794,19 +14826,27 @@ def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, 
         "awaiting-review",
     )
     assert seen["child"] == []
-    # (2) The parent's world shows the host's copy only.
-    assert [d["id"] for d in seen["listed"]] == [
-        f"cobalt:{attachment_id('northwind/NORT-7', VERIFICATION_PATH)}"
+    # (2) The parent's world shows the host's copy only, at the parent's number.
+    assert [(d["id"], d["version"]) for d in seen["listed"]] == [
+        (f"cobalt:{attachment_id('northwind/NORT-7', VERIFICATION_PATH)}", 2)
     ]
     # (3) An approve on the host writes the parent's status.
     assert seen["approve"].status == 200, seen["approve"].body
     assert [v.review_status for _, v in seen["approved"]] == ["approved"]
+    assert attachment_id("northwind/NORT-7", VERIFICATION_PATH) not in seen["by_hand"]
     # (4) A plan the delegated agent submits is stored on the parent too.
     names = sorted(r.name for r, _ in seen["plan"])
     assert names == [VERIFICATION_PATH, "plan"]
-    # (5) A forgotten host copy leaves the parent's stored copy.
-    assert [(d["id"], d["status"]) for d in seen["forgotten"]] == [
-        (attachment_id("northwind/NORT-7", VERIFICATION_PATH), "approved")
+    # (5) Once the agent is gone, the parent shows its stored copy only. The
+    # file it edited after the approve is a draft: the user never saw it.
+    assert [(d["id"], d["source"]["type"], d["status"]) for d in seen["gone"]] == [
+        (attachment_id("northwind/NORT-7", VERIFICATION_PATH), "stored", "draft")
+    ]
+    assert [(v.version, v.agent_id, v.review_status) for v in seen["versions"]] == [
+        (1, "", "draft"),
+        (2, "cobalt:new1", "approved"),
+        (3, "", "draft"),  # by hand
+        (4, "", "draft"),  # the file the agent left
     ]
 
 
@@ -15396,6 +15436,16 @@ def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
         {**row, "id": "northwind-delta"},
         {k: v for k, v in row.items() if k != "id"},
     ]
+    # doc1's agent is cobalt's own, and has exited. Only a delegated agent's
+    # document leaves the merge when its agent exits.
+    agents = [
+        agent_entity(
+            agent_row("cobalt:a1", state="exited(0)"),
+            task_id="",
+            project="",
+            worktree_id="",
+        )
+    ]
     documents = [
         {"id": "doc1", "agentId": "cobalt:a1"},
         # Attached to a task, with no agent: the host's own world, not its work.
@@ -15419,7 +15469,9 @@ def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
     app = web.Application()
     app.router.add_get("/api/events", events)
     for kind, (path, key) in MERGED_KINDS.items():
-        rows = {"worktree": worktrees, "document": documents}.get(kind, [])
+        rows = {"worktree": worktrees, "document": documents, "agent": agents}.get(
+            kind, []
+        )
         app.router.add_get(path.partition("?")[0], listing(key, rows))
 
     async def scenario():
