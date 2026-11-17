@@ -273,6 +273,9 @@ class Task:
     # The task's agent sessions, oldest first. Machine-owned: not in the
     # frontmatter. See CONTEXT.md, "Task session id".
     sessions: list["TaskSession"] = field(default_factory=list)
+    # The word the UI shows while the task is open. Machine-owned: not in the
+    # frontmatter. See CONTEXT.md, "Codename".
+    codename: str | None = None
 
     # --- serialization ---
 

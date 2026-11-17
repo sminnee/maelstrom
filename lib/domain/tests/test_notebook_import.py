@@ -72,8 +72,9 @@ class TestTheNotebookImportRung:
         try:
             loaded = await SqliteTaskTable(db).load("maelstrom", "2026-06-11.1")
             assert loaded is not None
-            # The sessions are not in the file; a later rung fills them in.
-            assert replace(loaded, sessions=[]) == A_TASK
+            # The sessions and the codename are not in the file; later rungs
+            # fill them in.
+            assert replace(loaded, sessions=[], codename=None) == A_TASK
         finally:
             db.close()
 
