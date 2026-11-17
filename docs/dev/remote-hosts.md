@@ -69,6 +69,9 @@ It also refuses a `host` with no `launch`.
 
 ## The per-launch parent
 
+This section holds until **Child mode** lands. `docs/adr/0005-child-mode.md` reverses it: a
+server with `parent:` in config holds no task state, and runs no direct agent.
+
 The parent is a fact about one agent, not about the remote host's server. So one server can run
 agents for several parents and its own direct agents at the same time. Config goes one way: only
 the parent's `hosts:` names the remote host.
