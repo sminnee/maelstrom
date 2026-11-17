@@ -810,11 +810,31 @@ class TestStorePresented:
 
         assert settled is None
 
+    def test_a_final_presentation_of_the_stored_file_writes_nothing(self, table):
+        store(table, with_body(presented(status="approved")))
+        final = presented(world_version=None, status="draft", final=True)
+
+        _, version = store(table, replace(with_body(final), body=None))
+
+        [row] = asyncio.run(table.all_documents())
+        assert asyncio.run(table.versions(row.id)) == [version]
+        assert (version.version, version.review_status) == (1, "approved")
+
+    def test_a_final_presentation_of_a_changed_file_is_a_draft(self, table):
+        store(table, with_body(presented(status="approved")))
+        final = presented(world_version=None, status="approved", final=True)
+
+        assert store(table, replace(final, digest="another")) is NEEDS_BODY
+        _, version = store(table, with_body(final, "# Edited\n"), now=LATER)
+
+        assert (version.version, version.review_status) == (2, "draft")
+        assert version.agent_id == ""
+
     def test_a_stored_source_adds_no_version(self, table):
         assert store(table, presented(has_path=False)) is None
 
     def test_the_wire_form_reads_back(self):
-        p = with_body(presented(group=ReviewGroup("g1", "The set", 2)))
+        p = with_body(presented(group=ReviewGroup("g1", "The set", 2), final=True))
 
         assert Presented.from_json(p.to_json()) == p
 

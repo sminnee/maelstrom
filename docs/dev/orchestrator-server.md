@@ -965,15 +965,26 @@ document. See `docs/adr/0001-task-documents.md`.
 
 ### A delegated agent's document on the parent
 
-The remote host keeps the live document: a verdict on it reaches its agent there. The remote
-host's approve sends the verdict through `store_document` too, so the parent's version gets the
-status.
+The parent holds the only record of a delegated agent's document. The remote host stores nothing.
+It keeps its world's document for versions, review groups and a pending plan, and sends each
+change to the parent through `store_document`.
 
-The parent does not show its stored copy while a host shows the live one. `_host_shows` hides a
-row when two things are true: an agent of a host in `hosts:` presented the latest version, and that
-host's merged `document` slice holds the document. When the host's slice changes,
-`_reshow_stored` checks each changed row again. So the stored copy appears when the host forgets
-the document.
+While the presenting agent lives, the file in its worktree wins. The parent shows the remote
+host's live copy and hides its stored row. Once the agent is gone, the parent shows its stored
+row, and drops the host's copy from its merge. One rule decides both, in `_host_shows` and
+`_live_documents`: is the last presenting agent a live agent of a host in `hosts:`?
+
+The last presenting agent is the agent of the latest version that has one. A version added by
+hand with `mael doc add` has no agent, so it does not show the document twice. The parent checks
+again when its merged `agent` slice changes, in `_presenters_changed`.
+
+The remote host sends a document to the parent at three moments:
+
+| Moment | What the parent stores |
+|---|---|
+| Each presented version | The next version, as "Storing a Task document" says. |
+| Each verdict | The status of the stored version. |
+| The agent exits | Nothing, when the file matches the stored version. Otherwise a new `draft` version: the user never saw that text, so it takes no verdict. |
 
 A host numbers a document from 1 until its first store. So a delegated agent's first presentation
 of a document sends no `version`, and `store_presented` tells a new version by its digest. After
@@ -2103,6 +2114,7 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/tasks/{project}/{id}/documents` | `{name, kind?, title?, body}` | `taskDocument.add` | `{uri, version}` |
+| `POST /api/tasks/{project}/{id}/documents/presented` | A `Presented` record (`Presented.to_json`), with `replay` and `verdict` | — | `{state: stored\|needs-body\|none, version?, reviewStatus?}`. A **Remote host**'s `store_document`: see "A delegated agent's document on the parent". An unknown task is `unknown_id`, and a body for another task is `invalid` |
 | `POST /api/task-documents/link` | `{ref, taskId}` | `taskDocument.link` | `{}` |
 | `POST /api/task-documents/unlink` | `{ref, taskId}` | `taskDocument.unlink` | `{}` |
 | `POST /api/task-documents/archive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |

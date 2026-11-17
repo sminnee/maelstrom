@@ -499,16 +499,18 @@ def prepare(cwd: str, path: str, body: str | None = None) -> Prepared | None:
 class Presented:
     """A Task document an agent presented, as the store step reads it.
 
-    ``project`` and ``task_id`` name the task in its own notebook. ``status``
-    and ``world_version`` are the world document's. ``world_version`` is
-    ``None`` when the presenter does not number versions as the store does: a
-    **Delegated agent**'s first presentation of a document. The store then
-    tells a new version by its digest. ``has_path`` is false for
-    a ``stored`` source, which names a document and no file, so it adds no
-    version. ``text_in_event``: the text travels in the agent's event, as a
-    plan's does, so a replay can tell text the store missed by its
-    ``digest``. ``body`` is the text with its media refs settled; a caller
-    sends it only when :func:`store_presented` asks for it.
+    - ``project``, ``task_id``: the task in its own notebook.
+    - ``status``, ``world_version``: the world document's. ``world_version``
+      is ``None`` when the presenter does not number versions as the store
+      does: a **Delegated agent**'s first presentation, or a ``final`` one.
+      The store then tells a new version by its ``digest``.
+    - ``has_path``: false for a ``stored`` source, which names no file, so it
+      adds no version.
+    - ``text_in_event``: the text is in the agent's event, as a plan's is, so
+      a replay can tell text the store missed by its ``digest``.
+    - ``body``: the text with its media refs settled. Sent only when
+      :func:`store_presented` asks for it.
+    - ``final``: the agent has gone, and this is its file as it left it.
     """
 
     project: str
@@ -524,6 +526,7 @@ class Presented:
     text_in_event: bool = False
     digest: str | None = None
     body: str | None = None
+    final: bool = False
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -548,6 +551,7 @@ class Presented:
             "textInEvent": self.text_in_event,
             "digest": self.digest,
             "body": self.body,
+            "final": self.final,
         }
 
     @classmethod
@@ -559,7 +563,11 @@ class Presented:
         """
         try:
             group = data.get("group")
-            flags = data.get("hasPath", True), data.get("textInEvent", False)
+            flags = (
+                data.get("hasPath", True),
+                data.get("textInEvent", False),
+                data.get("final", False),
+            )
             if data["status"] not in REVIEW_STATUSES or not all(
                 isinstance(flag, bool) for flag in flags
             ):
@@ -585,6 +593,7 @@ class Presented:
                 text_in_event=flags[1],
                 digest=_optional_str(data.get("digest")),
                 body=_optional_str(data.get("body")),
+                final=flags[2],
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise InvalidDocument(f"Not a presented document: {exc}") from None
@@ -625,11 +634,16 @@ async def store_presented(
     A new version needs ``presented.body`` and ``presented.digest``. Without
     them the answer is :data:`NEEDS_BODY`, unless the digest and title match
     the latest version.
+
+    A ``final`` presentation is the file the agent left: see "A delegated
+    agent's document on the parent" in the same doc.
     """
     p = presented
     row = await table.read(task_key(p.project, p.task_id), p.name)
     versions = await table.versions(row.id) if row else []
     latest = versions[-1] if versions else None
+    if p.final:
+        return await _store_final(table, p, row, latest, now=now)
     if verdict and (
         latest is None or p.world_version is None or p.world_version > latest.version
     ):
@@ -686,6 +700,41 @@ async def store_presented(
     return row, version
 
 
+async def _store_final(
+    table: TaskAttachmentTable,
+    p: Presented,
+    row: TaskAttachment | None,
+    latest: Version | None,
+    *,
+    now: str,
+) -> Stored:
+    """The file an agent left, stored as :func:`store_presented` says."""
+    if not p.has_path:
+        return None
+    if (
+        row is not None
+        and latest is not None
+        and row.role == p.role
+        and (latest.digest, latest.title) == (p.digest, p.title)
+    ):
+        return row, latest
+    if p.body is None or p.digest is None:
+        return NEEDS_BODY
+    return await add(
+        table,
+        project=p.project,
+        task_id=p.task_id,
+        name=p.name,
+        kind="markdown",
+        title=p.title,
+        body=p.body,
+        now=now,
+        digest=p.digest,
+        review_status="draft",
+        role=p.role,
+    )
+
+
 def _digest(markdown: str, cwd: str) -> str:
     """A digest of ``markdown`` and of the bytes of each media file it names.
 
@@ -731,7 +780,6 @@ def with_attached_media(markdown: str, project: str, bucket: str, cwd: str) -> s
 def without_media(markdown: str) -> str:
     """``markdown`` with each media ref as the prose a refused image leaves.
 
-    A **Delegated agent**'s document goes to its parent as text. Its media
-    stays on the host for now.
+    A **Delegated agent**'s document goes to its parent as text, without media.
     """
     return replace_media(markdown, lambda ref: not_shown(ref.target))
