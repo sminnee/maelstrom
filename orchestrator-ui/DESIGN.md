@@ -529,6 +529,8 @@ Horizontal position is progress first and dependency second:
   No later card sits beside the wire.
   A run of followers reserves the columns it spans. A task that follows nothing fills the first
   free cell.
+- A follows wire between two lanes is drawn, but it places neither node. Each lane is laid out
+  from its own edges.
 - A wire another path already implies is not drawn. The board shows what gates what, not every
   id on disk.
 

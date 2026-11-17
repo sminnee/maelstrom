@@ -389,15 +389,9 @@ describe('the mutation hooks', () => {
   it.each([
     ['a self-edge', ['northwind/NORT-7'], 400, 'invalid'],
     ['a task it does not hold', ['northwind/NOPE'], 404, 'unknown_id'],
-    // Seeded below, so this reaches the cross-project rule rather than
-    // stopping at "no such task" the way an unseeded id would.
-    ['a task in another project', ['contoso/CONT-1'], 400, 'invalid'],
+    ['a task in a project it does not hold', ['contoso/NOPE'], 404, 'unknown_id'],
   ])('refuses a follows naming %s', async (_name, follows, status, code) => {
-    const { server, invalidate, wrapper } = harness();
-    server.world.tasks['contoso/CONT-1'] = makeTask({
-      id: 'contoso/CONT-1',
-      project: 'contoso',
-    });
+    const { invalidate, wrapper } = harness();
     const { result } = renderHook(useUpdateTask, { wrapper });
     const err = await result.current
       .mutateAsync({ taskId: 'northwind/NORT-7' as TaskId, fields: { follows } })

@@ -13,9 +13,8 @@ describe('canConnect', () => {
     expect(canConnect(pair('northwind/NORT-7', 'northwind/NORT-7'))).toBe(false);
   });
 
-  // The server refuses it too; declining here stops the wire ever landing.
-  it('refuses a pair in different projects', () => {
-    expect(canConnect(pair('maelstrom/MAEL-40', 'northwind/NORT-9'))).toBe(false);
+  it('allows two tasks in different projects', () => {
+    expect(canConnect(pair('maelstrom/MAEL-40', 'northwind/NORT-9'))).toBe(true);
   });
 
   it('refuses a half-made connection', () => {

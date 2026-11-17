@@ -1492,11 +1492,7 @@ function command(
         if (followed === task.id) {
           return error(400, 'invalid', 'A task cannot follow itself');
         }
-        const other = world.tasks[followed];
-        if (!other) return notFound(`task ${followed}`);
-        if (other.project !== task.project) {
-          return error(400, 'invalid', `${followed} is in another project`);
-        }
+        if (!world.tasks[followed]) return notFound(`task ${followed}`);
       }
       if (reaches(world, b.follows as string[], task.id)) {
         return error(400, 'invalid', 'That would make a cycle');
