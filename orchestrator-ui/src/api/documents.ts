@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Anchor, Document } from '../protocol/documents';
+import type { Anchor, DocumentDetail } from '../protocol/documents';
 import type { CommentId, DocumentId, TaskId } from '../protocol/ids';
 import type { DocumentRow } from '../selectors/world';
 import { useApi } from './ApiProvider';
@@ -17,21 +17,19 @@ export function useDocuments() {
   });
 }
 
-/** One document with its markdown. */
-export function useDocument(documentId: DocumentId | null) {
+/** One document with its markdown, at `version`, else at its latest. */
+export function useDocument(documentId: DocumentId | null, version?: number) {
   const api = useApi();
+  const query = version === undefined ? '' : `?version=${version}`;
   return useQuery({
-    queryKey: keys.documents.detail(documentId ?? ''),
-    queryFn: ({ signal }) => api.get<Document>(`/api/documents/${documentId}`, { signal }),
+    queryKey: keys.documents.detail(documentId ?? '', version),
+    queryFn: ({ signal }) =>
+      api.get<DocumentDetail>(`/api/documents/${documentId}${query}`, { signal }),
     enabled: documentId !== null,
   });
 }
 
-/**
- * Every document command changes the document and its list row. Every route
- * below answers 501 today, so the invalidation waits for the server to serve
- * them; the shape is here so the hooks land ready.
- */
+/** Every document command changes the document and its list row. */
 function useDocumentMutation<V extends { documentId: DocumentId }, R = unknown>(
   send: (api: ReturnType<typeof useApi>, vars: V) => Promise<R>,
 ) {
@@ -83,5 +81,33 @@ export function useRequestChanges() {
         version: vars.version,
         summary: vars.summary,
       }),
+  );
+}
+
+/** Link `taskId` to the document, or to one heading of it. */
+export function useLinkDocument() {
+  return useDocumentMutation(
+    (api, vars: { documentId: DocumentId; taskId: TaskId; fragment: string }) =>
+      api.post(`/api/documents/${vars.documentId}/link`, {
+        taskId: vars.taskId,
+        fragment: vars.fragment,
+      }),
+  );
+}
+
+export function useUnlinkDocument() {
+  return useDocumentMutation(
+    (api, vars: { documentId: DocumentId; taskId: TaskId; fragment: string }) =>
+      api.post(`/api/documents/${vars.documentId}/unlink`, {
+        taskId: vars.taskId,
+        fragment: vars.fragment,
+      }),
+  );
+}
+
+/** Archive or unarchive. No `by`: any document may be archived (ADR 0001). */
+export function useArchiveDocument() {
+  return useDocumentMutation((api, vars: { documentId: DocumentId; archived: boolean }) =>
+    api.post(`/api/documents/${vars.documentId}/${vars.archived ? 'archive' : 'unarchive'}`),
   );
 }

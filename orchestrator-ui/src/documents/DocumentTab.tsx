@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Comment } from '../protocol/documents';
 import {
   useAddComment,
   useApproveDocument,
+  useArchiveDocument,
   useDocument,
   useRequestChanges,
   useResolveComment,
@@ -10,7 +11,7 @@ import {
 import { ApiError } from '../api/http';
 import { useWorld } from '../api/useWorld';
 import { DecisionCard } from '../decisions/DecisionCard';
-import { Markdown } from '../markdown/Markdown';
+import { HEADING_ID_PREFIX, Markdown } from '../markdown/Markdown';
 import { phaseForTask, phaseLabel } from '../protocol/phase';
 import { groupOf } from '../selectors/documents';
 import { agentsByTask } from '../selectors/graph';
@@ -21,13 +22,16 @@ import { PanelLink } from '../shell/PanelLink';
 import { ScreenSheet } from '../shell/ScreenChrome';
 import { useScreenChrome } from '../shell/screenChromeContext';
 import { useLayoutMode } from '../layout/useLayoutMode';
+import { useGo } from '../nav/useNav';
 import { CommentMargin } from './comments/CommentMargin';
 import { applyHighlights } from './comments/highlights';
 import { useSelectionComment } from './comments/useSelectionComment';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
+import { ReferencedBy } from './ReferencedBy';
 import { ReviewActions } from './ReviewActions';
+import { VersionPicker } from './VersionPicker';
 import styles from './DocumentTab.module.css';
 import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
@@ -37,14 +41,29 @@ import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
  */
 const NO_COMMENTS: Comment[] = [];
 
-/** A rendered document, its comment margin, its review actions, and any question its agent asks. */
-export function DocumentTab({ documentId }: { documentId: string }) {
+/**
+ * A rendered document, its comment margin, its review actions, and any
+ * question its agent asks. With `version` it shows that earlier version, read
+ * only; with none it shows the latest and follows new ones. With `fragment`
+ * it scrolls to that heading.
+ */
+export function DocumentTab({
+  documentId,
+  version,
+  fragment,
+}: {
+  documentId: string;
+  version?: number;
+  fragment?: string;
+}) {
   const addComment = useAddComment();
   const resolveComment = useResolveComment();
   const approveDocument = useApproveDocument();
   const requestChanges = useRequestChanges();
+  const archiveDocument = useArchiveDocument();
+  const go = useGo();
   const { world } = useWorld();
-  const document = useDocument(documentId);
+  const document = useDocument(documentId, version);
   const doc = document.data;
   const task = doc ? world.tasks[doc.taskId] : undefined;
   const agent = doc ? world.agents[doc.agentId] : undefined;
@@ -66,6 +85,22 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     // Re-run when the pending anchor or the rendered text changes.
   }, [pendingAnchor, doc?.markdown]);
 
+  // A fragment no heading of this version has: the note says so, quietly.
+  const [missing, setMissing] = useState<string | null>(null);
+  const scrollTo = useCallback((target: string) => {
+    const heading = body.current?.querySelector(`#${CSS.escape(HEADING_ID_PREFIX + target)}`);
+    heading?.scrollIntoView({ block: 'start' });
+    setMissing(heading ? null : target);
+  }, []);
+  useEffect(() => {
+    if (fragment) scrollTo(fragment);
+    // Again when the shown version, and so the rendered body, changes.
+  }, [fragment, doc?.markdown, scrollTo]);
+
+  /** Show `place` in this tab: a version, a fragment, or the latest with neither. */
+  const show = (place: { version?: number; fragment?: string }) =>
+    go({ panel: documentTab(documentId, place) }, { replace: true });
+
   // Narrowed, so the dock's `DecisionCard` branch keeps a defined agent.
   const waiting = agent !== undefined && agent.pendingRequestIds.length > 0 ? agent : null;
   const phase = task ? phaseForTask(task, agentsByTask(world).get(task.id)) : null;
@@ -79,7 +114,14 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     const gone = document.error instanceof ApiError && document.error.code === 'unknown_id';
     return (
       <div className={styles.empty} role={document.isError ? 'alert' : undefined}>
-        {gone ? (
+        {gone && version !== undefined ? (
+          <>
+            This document has no version {version}.{' '}
+            <AppButton variant="link" onClick={() => show({ fragment })}>
+              show latest
+            </AppButton>
+          </>
+        ) : gone ? (
           `Document ${documentId} is gone.`
         ) : document.isError ? (
           <>
@@ -95,6 +137,10 @@ export function DocumentTab({ documentId }: { documentId: string }) {
     );
   }
 
+  const latest = doc.versions.at(-1)?.version ?? doc.version;
+  // An earlier version is read only: no dock, no comment, no decision.
+  const earlier = version !== undefined && version !== latest;
+
   const header = (
     <header className={styles.header}>
       <div className={styles.line}>
@@ -103,7 +149,15 @@ export function DocumentTab({ documentId }: { documentId: string }) {
         </span>
         {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
         <span className={`${styles.title} wrap`}>{doc.title}</span>
-        <span className={styles.version}>v{doc.version}</span>
+        {doc.versions.length > 1 ? (
+          <VersionPicker
+            versions={doc.versions}
+            shown={doc.version}
+            onPick={(picked) => show({ version: picked, fragment })}
+          />
+        ) : (
+          <span className={styles.version}>v{doc.version}</span>
+        )}
         <span className={styles.status} data-status={doc.status}>
           {describeDocumentStatus(doc.status)}
         </span>
@@ -115,7 +169,30 @@ export function DocumentTab({ documentId }: { documentId: string }) {
             Session
           </PanelLink>
         )}
+        {doc.ref !== null && (
+          <AppButton
+            variant="quiet"
+            icon={actionIcon(doc.archived ? 'reopen' : 'archive')}
+            disabled={archiveDocument.isPending}
+            onClick={() => archiveDocument.mutateAsync({ documentId, archived: !doc.archived })}
+          >
+            {doc.archived ? 'Unarchive' : 'Archive'}
+          </AppButton>
+        )}
       </div>
+      {earlier && (
+        <p className={styles.note} data-testid="earlier-version">
+          Earlier version —{' '}
+          <AppButton variant="link" onClick={() => show({ fragment })}>
+            show latest
+          </AppButton>
+        </p>
+      )}
+      {missing && missing === fragment && (
+        <p className={styles.note} data-testid="missing-fragment">
+          No heading #{missing} in this version
+        </p>
+      )}
       {members.length > 1 && (
         <SiblingNav title={row!.group.title} members={members} documentId={documentId} />
       )}
@@ -126,12 +203,26 @@ export function DocumentTab({ documentId }: { documentId: string }) {
       {chrome ? <ScreenSheet>{header}</ScreenSheet> : header}
       <div className={styles.split}>
         <div className={styles.body} ref={body} data-testid="document-body">
-          <Markdown source={doc.markdown} className={styles.prose} />
+          <div className={styles.column}>
+            <Markdown source={doc.markdown} className={styles.prose} headingIds />
+            {doc.ref !== null && (
+              <ReferencedBy
+                documentId={documentId}
+                ownerTaskId={doc.taskId}
+                links={doc.links}
+                fragments={doc.fragments}
+                onShowFragment={(target) => {
+                  show({ version, fragment: target });
+                  scrollTo(target);
+                }}
+              />
+            )}
+          </div>
         </div>
         {/* The margin is a 220px column beside the prose, which on a phone
             would leave the document unreadable. It draws no comment today —
             the server serves none — so hiding it loses nothing. */}
-        {!narrow && (
+        {!narrow && !earlier && (
           <CommentMargin
             comments={NO_COMMENTS}
             selection={selection}
@@ -154,21 +245,23 @@ export function DocumentTab({ documentId }: { documentId: string }) {
       {/* One dock, below the document, whoever is waiting. An agent's own wait
           answers the agent, never the document — see `orchestrator-ui/DESIGN.md`, "Review
           Dock", and `orchestrator-server.md`, "Commands". */}
-      <div className={styles.dock} data-waiting={waiting || undefined} data-testid="review-dock">
-        {waiting ? (
-          <DecisionCard agent={waiting} variant="dock" inDocumentId={documentId} />
-        ) : (
-          <ReviewActions
-            doc={doc}
-            members={Math.max(members.length, 1)}
-            unresolved={0}
-            onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
-            onRequestChanges={(summary) =>
-              requestChanges.mutateAsync({ documentId, version: doc.version, summary })
-            }
-          />
-        )}
-      </div>
+      {!earlier && (
+        <div className={styles.dock} data-waiting={waiting || undefined} data-testid="review-dock">
+          {waiting ? (
+            <DecisionCard agent={waiting} variant="dock" inDocumentId={documentId} />
+          ) : (
+            <ReviewActions
+              doc={doc}
+              members={Math.max(members.length, 1)}
+              unresolved={0}
+              onApprove={() => approveDocument.mutateAsync({ documentId, version: doc.version })}
+              onRequestChanges={(summary) =>
+                requestChanges.mutateAsync({ documentId, version: doc.version, summary })
+              }
+            />
+          )}
+        </div>
+      )}
       {/* Approving a task set writes to the notebook, so say what it wrote.
           An approve that reports nothing reads as one that did nothing. The
           tasks are not launched: approving a plan and starting work are two

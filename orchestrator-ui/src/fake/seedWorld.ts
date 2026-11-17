@@ -783,6 +783,7 @@ body rather than the query builder.
     tasks: byId,
     agents: keyed(agents),
     documents: keyed(documents),
+    earlierVersions: {},
     attention: keyed(attention),
     comms: {},
     // Two jobs run and one waits, as when worktrees share tangier's slots.

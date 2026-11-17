@@ -87,6 +87,18 @@
   margin-top: var(--u-half);
   font-size: var(--text-sm);
 }
+.versionPicker {
+  font: inherit;
+  color: var(--fg-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+/* An earlier version, or a fragment this version lacks: said once, quietly. */
+.note {
+  margin: var(--u-half) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+}
 .taskTitle {
   flex: 1;
   font-size: var(--text-sm);
@@ -116,10 +128,76 @@
   --table-breakout: 100cqi;
   max-width: var(--measure-prose);
   margin-inline: auto;
-  /* 50vh trailing, so the last paragraph scrolls clear of the bottom edge.
-     On the content, not `.body`: padding is a floor on height, and a `.body`
-     that cannot shrink below 50vh overhangs the dock on a phone. */
+}
+/* The prose and the "Referenced by" list below it. 50vh trailing, so the last
+   paragraph scrolls clear of the bottom edge. On the content, not `.body`:
+   padding is a floor on height, and a `.body` that cannot shrink below 50vh
+   overhangs the dock on a phone. */
+.column {
+  max-width: var(--measure-prose);
+  margin-inline: auto;
   padding-bottom: 50vh;
+}
+/* "Referenced by": the tasks that link the document, below the prose. */
+.referencedBy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  margin-top: var(--prose-gap-loose);
+  padding-top: var(--u-2);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+.referencedHeading {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-muted);
+}
+.none {
+  margin: 0;
+  color: var(--fg-faint);
+}
+.fragmentHead {
+  color: var(--fg-muted);
+}
+.linkList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* One line per task: label, title, then Unlink at the end. */
+.linkRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--u);
+  padding: var(--u-half) 0;
+  border-top: 1px solid var(--border);
+}
+.linkRow:last-child {
+  border-bottom: 1px solid var(--border);
+}
+.linkTask {
+  font-family: var(--mono);
+  color: var(--fg-muted);
+}
+.linkTitle {
+  flex: 1 1 12rem;
+  color: var(--fg);
+}
+.linkForm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--u);
+}
+.linkForm > :first-child {
+  flex: 1 1 14rem;
+}
+.linkError {
+  margin: 0;
+  color: var(--danger);
 }
 .empty {
   padding: var(--u-3);

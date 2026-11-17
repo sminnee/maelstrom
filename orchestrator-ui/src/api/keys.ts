@@ -46,7 +46,11 @@ export const keys = {
   documents: {
     all: () => ['documents'] as const,
     list: () => ['documents', 'list'] as const,
-    detail: (id: string) => ['documents', 'detail', id] as const,
+    /** A version's key extends the document's, so invalidating the document hits each version. */
+    detail: (id: string, version?: number) =>
+      version === undefined
+        ? (['documents', 'detail', id] as const)
+        : (['documents', 'detail', id, version] as const),
   },
   /** The list, and each operation's log: a running one's log grows per step. */
   operations: {

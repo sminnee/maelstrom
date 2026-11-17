@@ -564,7 +564,7 @@ function DocumentEntry({ group: g }: { group: CardGroup }) {
   if (g.members.length === 1) {
     const d = g.members[0]!;
     return (
-      <PanelLink tab={documentTab(d.id)}>
+      <PanelLink tab={documentTab(d.id, { fragment: g.fragment })}>
         {g.linked ? g.title : d.title} v{d.version} · {describeDocumentStatus(g.status)}
         {g.linked && ' · linked'}
       </PanelLink>
