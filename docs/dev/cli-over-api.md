@@ -55,10 +55,10 @@ has two servers. The client chooses by the state a command touches:
 
 | State | Constructor | Server |
 |---|---|---|
-| Tasks | `OrchestratorClient.for_tasks()` | `MAEL_PARENT_URL` when it is set, else `orchestrator_url:` |
+| Tasks, Task documents | `OrchestratorClient.for_tasks()` | `MAEL_PARENT_URL` when it is set, else `orchestrator_url:` |
 | Worktrees, env, agents | `OrchestratorClient.from_config()` | `orchestrator_url:`: the own server, always |
 
-`for_tasks()` serves `task add/show/read/list/status/promote/load-many` and the launch. `mael gh
+`for_tasks()` serves `task add/show/read/list/status/promote/load-many`, `doc *` and the launch. `mael gh
 create-pr` registers its PR on the parent with `PUT /api/tasks/{project}/{id}/pr`. `mael list`,
 `list-all`, `close` and `rm` use `from_config()`.
 
