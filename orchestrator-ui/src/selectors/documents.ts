@@ -1,4 +1,5 @@
-import type { DocumentKind, DocumentStatus } from '../protocol/documents';
+import type { DocumentKind, DocumentLink, DocumentStatus } from '../protocol/documents';
+import type { TaskId } from '../protocol/ids';
 import type { DocumentRow, WorldView } from './world';
 
 /** One review group as a list shows it. */
@@ -36,6 +37,8 @@ export function reviewGroups(documents: readonly DocumentRow[]): ReviewGroup[] {
 export interface CardGroup extends ReviewGroup {
   /** The task links the document; another task owns it. */
   linked: boolean;
+  /** The heading a linked entry names, which its link scrolls to. */
+  fragment?: string;
 }
 
 /** The entries of one heading on the node card. */
@@ -64,6 +67,7 @@ export function linkedEntries(documents: readonly DocumentRow[], taskId: string)
         status: d.status,
         members: [d],
         linked: true,
+        fragment: link.fragment,
       })),
   );
 }
@@ -116,4 +120,26 @@ export function cardDocuments(
 /** The current members of `doc`'s review group, in tag order. */
 export function groupOf(world: WorldView, doc: DocumentRow): DocumentRow[] {
   return groupMembers(Object.values(world.documents), doc.group.id);
+}
+
+/** The tasks that link one place in a document: `fragment` is `''` for the whole. */
+export interface FragmentLinks {
+  fragment: string;
+  taskIds: TaskId[];
+}
+
+/**
+ * `links` grouped by the place each names: the whole document first, then
+ * each fragment in the order of `fragments`, the document's heading order. A
+ * fragment a later version dropped still has its links, so it follows them.
+ */
+export function linksByFragment(
+  links: readonly DocumentLink[],
+  fragments: readonly string[],
+): FragmentLinks[] {
+  const order = ['', ...fragments, ...links.map((l) => l.fragment)];
+  return [...new Set(order)].flatMap((fragment) => {
+    const taskIds = links.filter((l) => l.fragment === fragment).map((l) => l.taskId);
+    return taskIds.length ? [{ fragment, taskIds }] : [];
+  });
 }

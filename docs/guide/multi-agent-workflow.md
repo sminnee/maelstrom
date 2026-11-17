@@ -208,6 +208,12 @@ closes, and after the orchestrator server restarts. The node also lists the docu
 links, each marked `· linked`, and puts archived documents under a closed `Archived (n)` toggle.
 To store a file with no review, run `mael doc add PATH`. See [the CLI reference](../reference/cli.md).
 
+The document tab shows the latest version and follows each new one. Pick an earlier version in
+the header to read it; an earlier version has no review dock. A linked entry on the node opens
+the document at the heading it links. Under the document, "Referenced by" lists the tasks that
+link it, grouped by heading. Unlink a task there, or link another to the whole document or to one
+heading. Archive and Unarchive are in the header.
+
 The session writes a `<milestone>` marker as it passes each stage — `built`, `reviewed`
 and `presented`. Maelstrom writes `planned` itself when you approve a plan, and closes the
 ledger with a `<final>` row for what the agent spent after its last stage. It snapshots the

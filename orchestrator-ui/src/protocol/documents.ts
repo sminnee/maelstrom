@@ -57,6 +57,25 @@ export interface Document {
   links: DocumentLink[];
 }
 
+/** One stored version of a document, as the version picker lists it. */
+export interface DocumentVersion {
+  version: number;
+  title: string;
+  createdAt: string;
+  reviewStatus: DocumentStatus;
+}
+
+/**
+ * One document as its detail route answers it. `ref` names the stored Task
+ * document; a free agent's document has none, and no versions or fragments.
+ * `fragments` are the latest version's heading slugs: a link may name only these.
+ */
+export type DocumentDetail = Document & {
+  ref: string | null;
+  versions: DocumentVersion[];
+  fragments: string[];
+};
+
 /**
  * Where a comment sits. The W3C TextQuoteSelector trio (`quote`, `prefix`,
  * `suffix`) is canonical; `start`/`end` cache offsets into that version's

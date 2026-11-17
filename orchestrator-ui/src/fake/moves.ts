@@ -161,11 +161,43 @@ export function addLinkedAndArchived(server: FakeServer) {
       id: 'stored-setup',
       title: 'Setup',
       taskId: 'NORT-12',
+      markdown: '# Setup\n\n## Install\n\nRun the installer.\n',
       links: [{ taskId: 'NORT-7', fragment: 'install' }],
     }),
   ];
   server.change({ kind: 'document', ids: docs.map((d) => d.id) }, (w) => {
     for (const d of docs) w.documents[d.id] = d;
+  });
+}
+
+/**
+ * NORT-7's stored plan at v2, awaiting review, with v1 behind it: the user
+ * asked for changes to v1. NORT-9 links its `set-up` heading, which v1 lacks.
+ */
+export function addPlanVersions(server: FakeServer) {
+  const v2: Document = {
+    id: 'stored-plan',
+    agentId: 'gone-agent',
+    taskId: 'NORT-7',
+    kind: 'plan',
+    title: 'Rotate tokens',
+    markdown: '# Rotate tokens\n\n## Set up\n\nRotate nightly.\n',
+    version: 2,
+    status: 'awaiting-review',
+    source: { type: 'stored', name: 'plan' },
+    group: { id: 'stored-plan', title: 'Rotate tokens', position: 0 },
+    archived: false,
+    links: [{ taskId: 'NORT-9', fragment: 'set-up' }],
+  };
+  const v1: Document = {
+    ...v2,
+    markdown: '# Rotate tokens\n\nRotate weekly.\n',
+    version: 1,
+    status: 'changes-requested',
+  };
+  server.change({ kind: 'document', ids: [v2.id] }, (w) => {
+    w.documents[v2.id] = v2;
+    w.earlierVersions[v2.id] = [v1];
   });
 }
 

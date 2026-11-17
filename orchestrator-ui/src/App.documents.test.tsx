@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
@@ -6,6 +6,7 @@ import {
   addLinkedAndArchived,
   addNote,
   addPlan,
+  addPlanVersions,
   addStoredVerification,
   addTaskSet,
 } from './fake/moves';
@@ -503,5 +504,124 @@ describe('a document an agent tagged in its own message', () => {
     await waitFor(() =>
       expect(tabs().map((t) => t.getAttribute('data-tab-key'))).not.toContain(key),
     );
+  });
+});
+
+describe('versions, fragments and links in a document tab', () => {
+  // jsdom has no `scrollIntoView`, and `vi.spyOn` needs a method to wrap. The
+  // file's `restoreAllMocks` takes the spy off after each test.
+  let scrolled: MockInstance<Element['scrollIntoView']>;
+  beforeEach(() => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: () => {},
+    });
+    scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+  });
+
+  it('an earlier version reads only, and Show latest goes back to the one under review', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addPlanVersions(server);
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('link', { name: /Rotate tokens v2/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Rotate nightly.'));
+    expect(within(tab).getByTestId('review-dock')).toBeInTheDocument();
+
+    await user.selectOptions(within(tab).getByRole('combobox', { name: 'Version' }), '1');
+
+    await waitFor(() => expect(tab).toHaveTextContent('Rotate weekly.'));
+    expect(within(tab).queryByTestId('review-dock')).not.toBeInTheDocument();
+    expect(within(tab).getByTestId('earlier-version')).toBeInTheDocument();
+
+    await user.click(within(tab).getByRole('button', { name: 'show latest' }));
+
+    await waitFor(() => expect(tab).toHaveTextContent('Rotate nightly.'));
+    expect(within(tab).getByTestId('review-dock')).toBeInTheDocument();
+  });
+
+  it('a linked entry on the card opens its document scrolled to the heading it names', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addLinkedAndArchived(server);
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('link', { name: /Setup #install/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('Run the installer.'));
+
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(scrolled.mock.contexts.at(-1)).toBe(
+      within(tab).getByRole('heading', { name: 'Install' }),
+    );
+    expect(within(tab).queryByTestId('missing-fragment')).not.toBeInTheDocument();
+  });
+
+  it('an earlier version that lacks the linked heading says so', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addPlanVersions(server);
+    clickNode('NORT-9');
+    await user.click(
+      await within(expanded()).findByRole('link', { name: /Rotate tokens #set-up/ }),
+    );
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(scrolled).toHaveBeenCalled());
+    expect(within(tab).queryByTestId('missing-fragment')).not.toBeInTheDocument();
+
+    await user.selectOptions(within(tab).getByRole('combobox', { name: 'Version' }), '1');
+
+    await waitFor(() =>
+      expect(within(tab).getByTestId('missing-fragment')).toHaveTextContent(
+        'No heading #set-up in this version',
+      ),
+    );
+  });
+
+  it('Archive in the header archives the document, and Unarchive undoes it', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addLinkedAndArchived(server);
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('link', { name: /Setup #install/ }));
+    const tab = await screen.findByTestId('document-tab');
+
+    await user.click(await within(tab).findByRole('button', { name: 'Archive' }));
+
+    await within(tab).findByRole('button', { name: 'Unarchive' });
+    expect(server.world.documents['stored-setup']!.archived).toBe(true);
+    await user.click(within(tab).getByRole('button', { name: 'Unarchive' }));
+    await within(tab).findByRole('button', { name: 'Archive' });
+    expect(server.world.documents['stored-setup']!.archived).toBe(false);
+  });
+
+  it('Referenced by unlinks a task, and links another to a heading', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    addLinkedAndArchived(server);
+    clickNode('NORT-7');
+    await user.click(await within(expanded()).findByRole('link', { name: /Setup #install/ }));
+    const tab = await screen.findByTestId('document-tab');
+    const section = await within(tab).findByRole('region', { name: 'Referenced by' });
+    const linked = () =>
+      [...section.querySelectorAll('[data-task-id]')].map((row) => [
+        row.closest('[role="group"]')?.getAttribute('aria-label'),
+        row.getAttribute('data-task-id'),
+      ]);
+    expect(linked()).toEqual([['install', 'NORT-7']]);
+
+    await user.click(within(section).getByRole('button', { name: /Unlink/ }));
+    await waitFor(() => expect(linked()).toEqual([]));
+    expect(server.world.documents['stored-setup']!.links).toEqual([]);
+
+    await user.type(within(section).getByLabelText('Link a task'), 'NORT-9');
+    await user.selectOptions(within(section).getByLabelText('To'), 'install');
+    await user.click(within(section).getByRole('button', { name: 'Link' }));
+
+    await waitFor(() => expect(linked()).toEqual([['install', 'NORT-9']]));
+    expect(server.world.documents['stored-setup']!.links).toEqual([
+      { taskId: 'NORT-9', fragment: 'install' },
+    ]);
   });
 });

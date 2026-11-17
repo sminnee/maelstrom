@@ -1,5 +1,6 @@
 import type { AgentCost, Stage } from '../api/milestones';
 import { groupMembers } from '../selectors/documents';
+import { fakeFragments } from './fragments';
 import { trackedAgents } from '../selectors/worktrees';
 import type { ApiClient } from '../api/http';
 import type { ClientBody } from '../api/client';
@@ -62,6 +63,11 @@ export interface FakeWorld {
   tasks: Record<string, Task>;
   agents: Record<AgentId, Agent>;
   documents: Record<string, Document>;
+  /**
+   * A stored document's earlier versions, oldest first, keyed by its id. The
+   * world document is the latest. A document with no task has no store row.
+   */
+  earlierVersions: Record<string, Document[]>;
   attention: Record<string, Attention>;
   desk: Record<string, DeskEntry>;
   /** Each comm's `taskIds` and `queued` are derived from the tasks; see `deriveComms`. */
@@ -162,6 +168,7 @@ export function emptyFakeWorld(): FakeWorld {
     tasks: {},
     agents: {},
     documents: {},
+    earlierVersions: {},
     attention: {},
     desk: {},
     comms: {},
@@ -769,7 +776,8 @@ function read(path: string, server: FakeServer): Reply {
   m = pathname.match(/^\/api\/documents\/([^/]+)$/);
   if (m) {
     const doc = world.documents[m[1]!];
-    return doc ? ok(doc) : notFound(`document ${m[1]}`);
+    if (!doc) return notFound(`document ${m[1]}`);
+    return documentDetail(world, doc, params.get('version'));
   }
   if (pathname === '/api/desk') return ok({ desk: Object.values(world.desk) });
   if (pathname === '/api/comms') return ok({ comms: Object.values(world.comms) });
@@ -783,6 +791,36 @@ function read(path: string, server: FakeServer): Reply {
   if (pathname === '/api/client') return ok(world.client);
   if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
+}
+
+/**
+ * `GET /api/documents/{id}[?version=<n>]`, as `Orchestrator.document_detail`
+ * answers it.
+ */
+function documentDetail(world: FakeWorld, doc: Document, version: string | null): Reply {
+  if (!doc.taskId) {
+    if (version !== null) return notFound(`document ${doc.id} version ${version}`);
+    return ok({ ...doc, ref: null, versions: [], fragments: [] });
+  }
+  const all = [...(world.earlierVersions[doc.id] ?? []), doc];
+  const shown = version === null ? doc : all.find((d) => d.version === Number(version));
+  if (!shown) return notFound(`document ${doc.id} version ${version}`);
+  const [project, taskId] = doc.taskId.includes('/') ? doc.taskId.split('/', 2) : ['', doc.taskId];
+  const name = doc.source.type === 'stored' ? doc.source.name : doc.kind;
+  return ok({
+    // Links and archived belong to the document, not to one version.
+    ...shown,
+    links: doc.links,
+    archived: doc.archived,
+    ref: `${project}:${taskId}:${name}`,
+    versions: all.map((d) => ({
+      version: d.version,
+      title: d.title,
+      createdAt: '2026-11-12T09:00:00Z',
+      reviewStatus: d.status,
+    })),
+    fragments: fakeFragments(doc.markdown),
+  });
 }
 
 // -- commands --
@@ -1314,6 +1352,32 @@ function command(
     }
     server.change({ kind: 'agent', ids: [agentId] });
     if (cleared.length) server.change({ kind: 'attention', ids: cleared });
+    return ok({});
+  }
+
+  m = pathname.match(/^\/api\/documents\/([^/]+)\/(link|unlink|archive|unarchive)$/);
+  if (m && method === 'POST') {
+    const doc = world.documents[m[1]!];
+    if (!doc?.taskId) return notFound(`document ${m[1]}`);
+    const action = m[2]!;
+    if (action === 'archive' || action === 'unarchive') {
+      world.documents[doc.id] = { ...doc, archived: action === 'archive' };
+      server.change({ kind: 'document', ids: [doc.id] });
+      return ok({ archived: action === 'archive' });
+    }
+    const taskId = str('taskId') ?? '';
+    const fragment = str('fragment') ?? '';
+    if (!(taskId in world.tasks)) return notFound(`task ${taskId}`);
+    if (taskId === doc.taskId) return error(400, 'invalid', `${taskId} owns the document`);
+    if (fragment && !fakeFragments(doc.markdown).includes(fragment)) {
+      return error(400, 'invalid', `The document has no fragment #${fragment}`);
+    }
+    const others = doc.links.filter((l) => l.taskId !== taskId || l.fragment !== fragment);
+    world.documents[doc.id] = {
+      ...doc,
+      links: action === 'link' ? [...others, { taskId, fragment }] : others,
+    };
+    server.change({ kind: 'document', ids: [doc.id] });
     return ok({});
   }
 
