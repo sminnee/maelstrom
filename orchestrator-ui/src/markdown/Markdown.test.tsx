@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Markdown, attentionSegments } from './Markdown';
+import { HEADING_ID_PREFIX, Markdown, attentionSegments } from './Markdown';
 
 const SHOT = '![The failing dialog](/api/files/ag1-2-shot.png)';
 
@@ -207,5 +209,26 @@ describe('a table in a message', () => {
     expect(region).toHaveFocus();
     const table = within(region).getByRole('table');
     expect(within(table).getByRole('columnheader', { name: 'Action' })).toBeInTheDocument();
+  });
+});
+
+/** Shared with the server's fragment test, so a link's fragment finds its heading. */
+const SLUG_CASES: { name: string; markdown: string; slugs: string[] }[] = JSON.parse(
+  readFileSync(resolve(__dirname, '../../../lib/domain/fixtures/heading-slugs.json'), 'utf8'),
+).cases;
+
+describe('heading ids', () => {
+  it.each(SLUG_CASES.map((c) => [c.name, c] as const))(
+    'name each heading as the server names its fragment: %s',
+    (_, { markdown, slugs }) => {
+      const { container } = render(<Markdown source={markdown} headingIds />);
+      const ids = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((h) => h.id);
+      expect(ids).toEqual(slugs.map((slug) => HEADING_ID_PREFIX + slug));
+    },
+  );
+
+  it('are off by default, so a page of messages repeats no id', () => {
+    const { container } = render(<Markdown source="# Set up" />);
+    expect(container.querySelector('h1')).not.toHaveAttribute('id');
   });
 });
