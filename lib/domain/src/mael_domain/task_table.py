@@ -30,7 +30,7 @@ from typing import Any, AsyncGenerator
 
 from .codename import CodenameTaken
 from .state_db.db import StateDb, Txn
-from .task import Task, TaskSession, creation_order
+from .task import Task, TaskSession, creation_order, split_follow_ref
 
 #: The table this store writes, as declared in
 #: :data:`mael_domain.state_db.migrate.TABLES`.
@@ -197,10 +197,15 @@ class TaskTable(ABC):
 
     @abstractmethod
     async def followers(self, project: str, ids: set[str]) -> "list[Task]":
-        """``project``'s tasks that follow any of ``ids``, oldest first.
+        """Every task that follows any of ``project``'s ``ids``, oldest first.
+
+        ``project``'s own tasks match a bare ref, and every other project's
+        tasks match the Qualified id ``project/id``. Another project's bare ref
+        to the same id names its own task, so it does not match.
 
         One query, so a poller that re-reads the followers of the rows that
-        changed does not read the whole project.
+        changed makes one round trip. A qualified ref can be in any project, so
+        the query reads every row's ``follows``, not one project's.
         """
 
     @abstractmethod
@@ -328,7 +333,16 @@ class InMemoryTaskTable(TaskTable):
         return None
 
     async def followers(self, project: str, ids: set[str]) -> "list[Task]":
-        return [t for t in await self.list(project) if ids.intersection(t.follows)]
+        qualified = {f"{project}/{id}" for id in ids}
+        found = [
+            task
+            for task in map(task_from_row, self._rows.values())  # type: ignore[arg-type]
+            if qualified.intersection(
+                "/".join(split_follow_ref(task.project, ref)) for ref in task.follows
+            )
+        ]
+        found.sort(key=creation_order)
+        return found
 
     @asynccontextmanager
     async def transact(self) -> AsyncGenerator[None]:
@@ -490,14 +504,16 @@ class SqliteTaskTable(TaskTable):
     async def followers(self, project: str, ids: set[str]) -> "list[Task]":
         if not ids:
             return []
-        wanted = sorted(ids)
-        marks = ", ".join("?" for _ in wanted)
+        bare = sorted(ids)
+        qualified = [f"{project}/{id}" for id in bare]
+        marks = ", ".join("?" for _ in bare)
         rows = await self._db._call(
             lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE project = ? AND EXISTS ("  # noqa: S608 — the table name is this module's own
-                f" SELECT 1 FROM json_each(follows) WHERE value IN ({marks}))"
+                f"SELECT * FROM {TABLE} WHERE EXISTS ("  # noqa: S608 — the table name is this module's own
+                f" SELECT 1 FROM json_each(follows) WHERE (project = ? AND value IN ({marks}))"
+                f" OR value IN ({marks}))"
                 " ORDER BY created, task_id",
-                (project, *wanted),
+                (project, *bare, *qualified),
             ).fetchall()
         )
         return [task_from_row(row) for row in rows]
