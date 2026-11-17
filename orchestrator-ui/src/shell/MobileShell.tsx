@@ -227,7 +227,12 @@ function Screen({ screen, onClose }: { screen: MobileScreen; onClose: () => void
         ) : screen.kind === 'changes' ? (
           <ChangesTab key={screen.worktreeId} worktreeId={screen.worktreeId} />
         ) : (
-          <DocumentTab key={screen.documentId} documentId={screen.documentId} />
+          <DocumentTab
+            key={screen.documentId}
+            documentId={screen.documentId}
+            version={screen.version}
+            fragment={screen.fragment}
+          />
         )}
       </div>
     </div>

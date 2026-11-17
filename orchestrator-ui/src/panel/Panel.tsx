@@ -99,7 +99,14 @@ function TabBody({ tab }: { tab: Exclude<PanelTab, { kind: 'devenv' }> }) {
     case 'document':
       // Keyed: the tab holds per-document mutation state, so a reused
       // fiber would show one document's created tasks under the next.
-      return <DocumentTab key={tab.documentId} documentId={tab.documentId} />;
+      return (
+        <DocumentTab
+          key={tab.documentId}
+          documentId={tab.documentId}
+          version={tab.version}
+          fragment={tab.fragment}
+        />
+      );
     case 'changes':
       // Keyed: the tab holds the rev it shows, which belongs to one worktree.
       return <ChangesTab key={tab.worktreeId} worktreeId={tab.worktreeId} />;

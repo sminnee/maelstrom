@@ -11,9 +11,15 @@ import { taskLabel, taskLabelTitle } from './taskLabel';
 /** The tab of one kind. */
 export type TabOf<K extends PanelTab['kind']> = Extract<PanelTab, { kind: K }>;
 
-/** Add `tab` unless a tab with its key is open already. Either way it is the one to focus. */
+/**
+ * Add `tab`, or put it in place of the open tab with its key: a document tab
+ * opened again carries its new version and fragment. Either way it is the one
+ * to focus.
+ */
 export function openOrFocusTab(tabs: PanelTab[], tab: PanelTab): PanelTab[] {
-  return tabs.some((t) => t.key === tab.key) ? tabs : [...tabs, tab];
+  return tabs.some((t) => t.key === tab.key)
+    ? tabs.map((t) => (t.key === tab.key ? tab : t))
+    : [...tabs, tab];
 }
 
 /** The tabs and which of them is in view, as the store holds them. */
@@ -165,10 +171,19 @@ export const sessionTab = (agentId: AgentId): TabOf<'session'> => ({
   kind: 'session',
   agentId,
 });
-export const documentTab = (documentId: string): TabOf<'document'> => ({
+/**
+ * One document is one tab, whatever its version and fragment: the key names
+ * the document alone.
+ */
+export const documentTab = (
+  documentId: string,
+  { version, fragment }: { version?: number; fragment?: string } = {},
+): TabOf<'document'> => ({
   key: `document:${documentId}`,
   kind: 'document',
   documentId,
+  ...(version !== undefined && { version }),
+  ...(fragment && { fragment }),
 });
 
 export const changesTab = (worktreeId: WorktreeId): TabOf<'changes'> => ({

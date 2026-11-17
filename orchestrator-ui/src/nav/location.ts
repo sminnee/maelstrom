@@ -134,15 +134,24 @@ export function withLoc(loc: Loc, patch: LocPatch): Loc {
   return next;
 }
 
-/** A segment of a path or a value of the search. `/` and `,` read better left as they are. */
-const encode = (s: string) => encodeURIComponent(s).replace(/%2F/gi, '/').replace(/%2C/gi, ',');
+/**
+ * A segment of a path or a value of the search. `/`, `,` and `@` read better
+ * left as they are: a query value may hold each one.
+ */
+const encode = (s: string) =>
+  encodeURIComponent(s).replace(/%2F/gi, '/').replace(/%2C/gi, ',').replace(/%40/g, '@');
 
 function panelValue(tab: PanelTab): string {
   switch (tab.kind) {
     case 'session':
       return `session/${tab.agentId}`;
     case 'document':
-      return `document/${tab.documentId}`;
+      // `document/<id>[@v<n>][#<fragment>]`, like a reference. An id holds neither mark.
+      return (
+        `document/${tab.documentId}` +
+        (tab.version !== undefined ? `@v${tab.version}` : '') +
+        (tab.fragment ? `#${tab.fragment}` : '')
+      );
     case 'changes':
       return `changes/${tab.worktreeId}`;
     case 'devenv':
@@ -160,8 +169,15 @@ function parsePanel(value: string | null): PanelTab | null {
   switch (kind) {
     case 'session':
       return sessionTab(rest);
-    case 'document':
-      return documentTab(rest);
+    case 'document': {
+      const found = /^([^@#]+)(?:@v(\d+))?(?:#(.+))?$/.exec(rest);
+      if (!found) return null;
+      const [, id, version, fragment] = found;
+      return documentTab(id!, {
+        version: version !== undefined ? Number(version) : undefined,
+        fragment,
+      });
+    }
     case 'changes':
       return changesTab(rest);
     case 'devenv': {

@@ -21,14 +21,15 @@ export function useLocSync() {
   const openTab = useAppStore((s) => s.openTab);
   useEffect(() => showPane(view), [view, showPane]);
 
-  const panelKey = panel?.key ?? null;
-  const hadPanel = useRef(panelKey !== null);
+  // A document tab's version and fragment change under one key, so the whole tab is the dep.
+  const panelState = panel ? JSON.stringify(panel) : null;
+  const hadPanel = useRef(panel !== null);
   useLayoutEffect(() => {
     if (mode === 'narrow') return;
     if (panel) openTab(panel);
     else if (hadPanel.current && mode === 'medium') showPane(view);
     hadPanel.current = panel !== null;
-    // On a move to another tab, not on every new location.
+    // On a move to another tab or another place in one, not on every new location.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panelKey, mode]);
+  }, [panelState, mode]);
 }
