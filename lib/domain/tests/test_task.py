@@ -644,6 +644,17 @@ class TestNextFollower:
         await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
         assert await model.next_follower(store, "p", a.id) is None
 
+    async def test_a_follower_in_another_project_is_not_launched(self, store):
+        """``mael task done`` launches nothing in another project's worktree."""
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(
+            store, project="q", title="b", follows=[f"p/{a.id}"], now=NOW
+        )
+        await model.move(store, "p", a.id, model.STATUS_DONE, now=NOW2)
+        assert await model.next_follower(store, "p", a.id) is None
+        await model.move(store, "q", b.id, model.STATUS_IN_PROGRESS, now=NOW2)
+        assert await model.running_follower(store, "p", a.id) is None
+
     async def test_nothing_follows_returns_none(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
         await model.create(store, project="p", title="b", now=NOW)
@@ -728,6 +739,23 @@ class TestActionable:
         b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         assert await model.is_actionable(await model.load(store, "p", b.id), store)
+
+    async def test_blocked_by_undone_dep_in_another_project(self, store):
+        a = await model.create(store, project="q", title="a", now=NOW)
+        b = await model.create(
+            store, project="p", title="b", follows=[f"q/{a.id}"], now=NOW
+        )
+        assert not await model.is_actionable(await model.load(store, "p", b.id), store)
+        await model.move(store, "q", a.id, "done", now=NOW)
+        assert await model.is_actionable(await model.load(store, "p", b.id), store)
+
+    async def test_a_bare_dep_reads_the_task_s_own_project(self, store):
+        """A done task with the same id in another project does not unblock it."""
+        a = await model.create(store, project="p", title="a", id="x", now=NOW)
+        await model.create(store, project="q", title="a", id="x", now=NOW)
+        await model.move(store, "q", "x", "done", now=NOW)
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        assert not await model.is_actionable(await model.load(store, "p", b.id), store)
 
     async def test_terminal_not_actionable(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
@@ -1090,6 +1118,19 @@ class TestDelete:
         assert (await model.load(store, "p", b.id)).follows == []
         assert (await model.load(store, "p", c.id)).follows == []
 
+    async def test_delete_strips_the_ref_from_another_project(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(
+            store, project="q", title="b", follows=[f"p/{a.id}"], now=NOW
+        )
+        done = await model.create(
+            store, project="q", title="d", follows=[f"p/{a.id}"], now=NOW
+        )
+        await model.move(store, "q", done.id, "done", now=NOW)
+        await model.delete(store, "p", a.id)
+        assert (await model.load(store, "q", b.id)).follows == []
+        assert (await model.load(store, "q", done.id)).follows == [f"p/{a.id}"]
+
     async def test_delete_leaves_an_unrelated_task_alone(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
         b = await model.create(store, project="p", title="b", now=NOW)
@@ -1144,6 +1185,19 @@ class TestRename:
         await model.rename(store, "p", a.id, "new-id")
         assert (await model.load(store, "p", c.id)).follows == ["new-id", b.id]
 
+    async def test_rename_rewrites_follows_in_another_project(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        b = await model.create(
+            store, project="q", title="b", follows=[f"p/{a.id}"], now=NOW
+        )
+        done = await model.create(
+            store, project="q", title="d", follows=[f"p/{a.id}"], now=NOW
+        )
+        await model.move(store, "q", done.id, "done", now=NOW)
+        await model.rename(store, "p", a.id, "new-id")
+        assert (await model.load(store, "q", b.id)).follows == ["p/new-id"]
+        assert (await model.load(store, "q", done.id)).follows == [f"p/{a.id}"]
+
     async def test_rename_reparents_child(self, store):
         parent = await model.create(store, project="p", title="parent", now=NOW)
         child = await model.create(
@@ -1189,12 +1243,15 @@ class TestRename:
         """The row re-keys, and both kinds of reference follow it."""
         a = await model.create(store, project="p", title="a", now=NOW)
         b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
-        child = await model.create(store, project="p", title="c", parent=a.id, now=NOW)
+        child = await model.create(
+            store, project="p", title="c", parent=a.id, follows=[a.id], now=NOW
+        )
         await model.rename(store, "p", a.id, "new-id")
         assert await store.load("p", a.id) is None
         assert (await model.load(store, "p", b.id)).follows == ["new-id"]
-        # The child kept its own id but got re-parented.
-        assert (await model.load(store, "p", child.id)).parent == "new-id"
+        # The child kept its own id, and both of its references moved.
+        renamed_child = await model.load(store, "p", child.id)
+        assert (renamed_child.parent, renamed_child.follows) == ("new-id", ["new-id"])
 
 
 # --- load / list ---
@@ -1434,6 +1491,12 @@ class TestCommInheritance:
             store, project="p", title="c", parent=parent.id, comms=[], now=NOW
         )
         assert child.comms == []
+
+    async def test_a_follow_of_another_project_s_task_inherits_its_comms(self):
+        store = InMemoryTaskTable()
+        await model.create(store, project="q", title="o", id="o", comms=["c3"], now=NOW)
+        t = await model.create(store, project="p", title="c", follows=["q/o"], now=NOW)
+        assert t.comms == ["c3"]
 
     async def test_a_virtual_parent_gives_no_comms(self):
         store = InMemoryTaskTable()

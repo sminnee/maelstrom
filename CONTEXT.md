@@ -150,7 +150,8 @@ _Avoid_: Epic, group
 **Follows**:
 The ordering relationship. A task becomes actionable only once every id it follows reaches
 `done`. Follows is the one way to make a task wait, and it is independent of parent.
-`mael task follow` adds follows to a task that already exists.
+`mael task follow` adds follows to a task that already exists. A task can follow a task in
+another project by its **Qualified id**.
 _Avoid_: Depends-on, blocked-by
 
 **Parked task**:

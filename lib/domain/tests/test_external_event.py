@@ -418,6 +418,7 @@ STATUSES = {
     "northwind/NORT-2": "todo",
     "northwind/NORT-3": "in-progress",
     "northwind/NORT-4": "cancelled",
+    "contoso/CONT-1": "todo",
 }
 
 
@@ -467,8 +468,10 @@ class TestTaskEditEvent:
             (["northwind/NORT-4"], "NORT-4"),
             (["northwind/NORT-9"], "NORT-9"),
             (["northwind/NORT-1", "northwind/NORT-2"], "NORT-2"),
+            # Another project's task keeps its project.
+            (["contoso/CONT-1"], "contoso/CONT-1"),
         ],
-        ids=["open", "cancelled", "unknown", "only-the-unfinished"],
+        ids=["open", "cancelled", "unknown", "only-the-unfinished", "other-project"],
     )
     def test_a_new_follow_on_unfinished_work_queues_the_task(self, follows, queued):
         event = _edit(_task(), _task(follows=follows, content="More."))

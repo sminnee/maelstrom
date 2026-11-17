@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
-from .task import is_done, is_terminal
+from .task import follow_ref, is_done, is_terminal, split_follow_ref
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -386,8 +386,9 @@ def task_edit_event(
     if not changed:
         return None
     task_key, task_id = new["id"], new["notebookId"]
+    project = task_key.partition("/")[0]
     unfinished = [
-        dep.rpartition("/")[2]
+        follow_ref(project, *split_follow_ref(project, dep))
         for dep in new["follows"]
         if dep not in old["follows"] and not is_done(status_of(dep) or "")
     ]

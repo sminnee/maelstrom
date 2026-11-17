@@ -247,17 +247,31 @@ class TestTaskTableContract:
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None and loaded.follows == []
 
-    async def test_followers_are_the_project_s_tasks_that_follow_any_id(self, table):
+    async def test_followers_are_every_task_that_follows_any_id(self, table):
         await table.save(a_task(id="f1", follows=["a"], created="2026-06-11T09:00:02"))
         await table.save(
             a_task(id="f2", follows=["x", "b"], created="2026-06-11T09:00:01")
         )
+        await table.save(
+            a_task(
+                id="f3",
+                project="other",
+                follows=["maelstrom/a"],
+                created="2026-06-11T09:00:03",
+            )
+        )
         await table.save(a_task(id="no", follows=["c"]))
+        # Another project's bare ``a`` is its own task, not maelstrom's.
         await table.save(a_task(id="away", project="other", follows=["a"]))
+        await table.save(a_task(id="wrong", project="other", follows=["third/a"]))
 
         found = await table.followers("maelstrom", {"a", "b"})
 
-        assert [t.id for t in found] == ["f2", "f1"]
+        assert [(t.project, t.id) for t in found] == [
+            ("maelstrom", "f2"),
+            ("maelstrom", "f1"),
+            ("other", "f3"),
+        ]
         assert await table.followers("maelstrom", set()) == []
 
     async def test_a_transaction_commits_every_write(self, table):

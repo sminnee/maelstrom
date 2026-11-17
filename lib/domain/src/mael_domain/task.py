@@ -216,6 +216,25 @@ def is_safe_id(id: str) -> bool:
     return re.fullmatch(r"[A-Za-z0-9._-]+", id) is not None
 
 
+def split_follow_ref(own_project: str, ref: str) -> tuple[str, str]:
+    """Return the ``(project, id)`` that a stored ``follows`` ref names.
+
+    A ref with a ``/`` is a Qualified id in another project. A bare ref names a
+    task in ``own_project``. :func:`is_safe_id` forbids ``/`` in an id, so the
+    two forms cannot collide.
+    """
+    project, sep, id = ref.rpartition("/")
+    return (project, id) if sep else (own_project, ref)
+
+
+def follow_ref(own_project: str, project: str, id: str) -> str:
+    """Return the stored ``follows`` ref for task ``project/id``.
+
+    The ref is bare when the task is in ``own_project``, else the Qualified id.
+    """
+    return id if project == own_project else f"{project}/{id}"
+
+
 # --- Task dataclass ---
 
 
@@ -620,7 +639,7 @@ async def is_actionable(task: Task, table: "TaskTable") -> bool:
     if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
         return False
     for dep in task.follows:
-        found = await table.load(task.project, dep)
+        found = await table.load(*split_follow_ref(task.project, dep))
         if found is None or not is_done(found.status):
             return False
     return True
@@ -1246,8 +1265,13 @@ async def load_many(
             parent = str(args.get("parent", "")) or default_parent
             follows: list[str] = []
             for f in _coerce_follows(args.get("follow")):
-                # Intra-file ref wins; otherwise treat as a real id.
-                follows.append(created[f].id if f in created else f)
+                # Intra-file ref wins; otherwise treat as a real id, stored
+                # bare when it names this project.
+                follows.append(
+                    created[f].id
+                    if f in created
+                    else follow_ref(project, *split_follow_ref(project, f))
+                )
             for end_id in _coerce_follows(args.get("follow-end")):
                 follows.extend(await resolve_follow_end(table, project, end_id, parent))
             deduped = list(dict.fromkeys(follows))
@@ -1531,10 +1555,11 @@ async def delete(table: "TaskTable", project: str, id: str) -> Task:
     deleted = await load(table, project, id)
     async with table.transact():
         await table.delete(project, id)
-        for dep in await list_tasks(table, project=project):
-            if dep.id == id or is_terminal(dep.status) or id not in dep.follows:
+        for dep in await table.followers(project, {id}):
+            if is_terminal(dep.status):
                 continue
-            dep.follows = [f for f in dep.follows if f != id]
+            ref = follow_ref(dep.project, project, id)
+            dep.follows = [f for f in dep.follows if f != ref]
             await table.save(dep)
     return deleted
 
@@ -1577,20 +1602,24 @@ async def rename(
         await table.save(task)
 
         # Fix cross-references in non-terminal tasks: rewrite follows (old->new)
-        # and re-parent direct children (old->new). The renamed task itself
-        # never references its old id, so skip it.
-        for dep in await list_tasks(table, project=project):
-            if dep.id == new_id or is_terminal(dep.status):
+        # in any project, and re-parent direct children (old->new), which are
+        # always in this project. The renamed task never references its old id.
+        changed: dict[tuple[str, str], Task] = {}
+        for dep in await table.followers(project, {old_id}):
+            if is_terminal(dep.status):
                 continue
-            changed = False
-            if old_id in dep.follows:
-                dep.follows = [new_id if f == old_id else f for f in dep.follows]
-                changed = True
-            if dep.parent == old_id:
-                dep.parent = new_id
-                changed = True
-            if changed:
-                await table.save(dep)
+            old_ref = follow_ref(dep.project, project, old_id)
+            new_ref = follow_ref(dep.project, project, new_id)
+            dep.follows = [new_ref if f == old_ref else f for f in dep.follows]
+            changed[(dep.project, dep.id)] = dep
+        for dep in await list_tasks(table, project=project):
+            if dep.id == new_id or is_terminal(dep.status) or dep.parent != old_id:
+                continue
+            dep = changed.get((dep.project, dep.id), dep)
+            dep.parent = new_id
+            changed[(dep.project, dep.id)] = dep
+        for dep in changed.values():
+            await table.save(dep)
     return task
 
 
@@ -1664,12 +1693,14 @@ async def _inherited_comms(
 ) -> list[str]:
     """The comms of every task in ``sources``, first seen first, with no repeat.
 
-    A blank id, a virtual one, and a task that does not exist give nothing.
+    A ``sources`` entry is a stored ref: a follows ref may name another
+    project's task. A blank id, a virtual one, and a task that does not exist
+    give nothing.
     """
     comms: list[str] = []
-    for id in dict.fromkeys(s for s in sources if s):
+    for ref in dict.fromkeys(s for s in sources if s):
         try:
-            task = await load(table, project, id)
+            task = await load(table, *split_follow_ref(project, ref))
         except (KeyError, ValueError):
             continue
         comms.extend(c for c in task.comms if c not in comms)
@@ -2084,7 +2115,9 @@ async def next_follower(
     to a single parent, so no ``parent`` filter is applied.
     """
     candidates = [
-        t for t in await table.followers(project, {done_id}) if t.status == STATUS_TODO
+        t
+        for t in await table.followers(project, {done_id})
+        if t.project == project and t.status == STATUS_TODO
     ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     for t in candidates:
@@ -2109,7 +2142,7 @@ async def running_follower(
     candidates = [
         t
         for t in await table.followers(project, {done_id})
-        if t.status == STATUS_IN_PROGRESS
+        if t.project == project and t.status == STATUS_IN_PROGRESS
     ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
     return candidates[0] if candidates else None
