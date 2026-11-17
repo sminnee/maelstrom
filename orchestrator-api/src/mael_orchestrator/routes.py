@@ -794,7 +794,8 @@ async def _add_task_document(request: web.Request) -> web.StreamResponse:
 async def _store_presented_document(request: web.Request) -> web.Response:
     """Store a document a **Delegated agent** presented on a **Remote host**.
 
-    The host calls it through its **Task home**. See ``docs/dev/remote-hosts.md``.
+    The host calls it through its **Task home**. See "A delegated agent's
+    document on the parent" in ``docs/dev/orchestrator-server.md``.
     """
     orch = await _ready_with_tasks(request)
     task_id = _task_id(request)

@@ -606,6 +606,11 @@ async def _github_call_as_a_step(
         raise CloseBlocked(ran.blocked or "GitHub did not answer")
 
 
+def _is_live(agent: Agent | None) -> bool:
+    """Whether ``agent`` is in the world and has not exited."""
+    return agent is not None and agent["state"] != "exited"
+
+
 def _totals_of(agent: Agent) -> tuple[int, int, float]:
     """What an agent has spent: own tokens, subagent tokens, dollars."""
     return agent["totalTokens"], agent["subagentTokens"], agent["costUsd"]
@@ -714,6 +719,9 @@ class Orchestrator:
         #: stored version. Before its first store, a host numbers a document
         #: from 1, which says nothing about the parent's versions.
         self._parent_numbered: set[str] = set()
+        #: Each stored document's last presenting agent, by store id: see
+        #: :meth:`_host_shows`.
+        self._presenters: dict[str, str] = {}
         #: Opens the worktree an agent starts in, and writes its ``.env``.
         self.opener = opener if opener is not None else WorktreeOpener()
         #: This server's ids: each one it makes carries the prefix.
@@ -782,6 +790,8 @@ class Orchestrator:
         self._closed_prs: set[str] = set()
         #: The PR checks in flight, kept so a stop can cancel them.
         self._pr_watches: set[asyncio.Task[None]] = set()
+        #: The stores of each file a delegated agent left: see :meth:`_exit`.
+        self._exit_syncs: set[asyncio.Task[None]] = set()
         self.clock = clock
         self.executor = executor
         #: Kept for a worktree operation that is not a sequence. The five that
@@ -992,6 +1002,7 @@ class Orchestrator:
             *detaching,
             *reading,
             *self._pr_watches,
+            *self._exit_syncs,
             *self._gate_tells,
             *self._task_tells,
         ]:
@@ -1004,6 +1015,7 @@ class Orchestrator:
             *detaching,
             *reading,
             *self._pr_watches,
+            *self._exit_syncs,
             *self._gate_tells,
             *self._task_tells,
             return_exceptions=True,
@@ -1993,24 +2005,57 @@ class Orchestrator:
             table = self.world[key]
             shown = {i: table[i] for i in old if i in table}
             host.slices[kind] = new
-            self._apply(diff_kind(kind, shown, new))
             if kind == "document":
-                await self._reshow_stored(host, set(old) | set(new))
+                new = self._live_documents(new)
+            self._apply(diff_kind(kind, shown, new))
             if kind == "agent":
+                await self._presenters_changed(host, old, new)
                 for agent_id, agent in new.items():
                     if agent_id not in old and not agent["parent"]:
                         await self._join_desk(agent_id)
 
-    async def _reshow_stored(self, host: RemoteHost, document_ids: set[str]) -> None:
-        """Show or hide the stored copy of each document ``host`` shows or forgot.
+    def _live_documents(self, documents: dict[str, Any]) -> dict[str, Any]:
+        """The documents of a host's slice that this server shows.
 
-        See :meth:`_host_shows`.
+        A document of an agent this server delegated shows only while the
+        agent lives: then this server shows its stored copy. A document of the
+        host's own agent always shows. One whose agent this server has not
+        merged waits for it. See :meth:`_host_shows`.
         """
-        space = IdSpace(host.name)
-        for document_id in sorted(document_ids):
-            row = await self.document_store.get(space.strip(document_id))
-            if row is not None:
-                await self._show_stored(row)
+        agents = self.world["agents"]
+
+        def shown(document: dict[str, Any]) -> bool:
+            agent = agents.get(document["agentId"])
+            if agent is None:
+                return False
+            return _is_live(agent) or not self._delegated_here(agent)
+
+        return {i: d for i, d in documents.items() if shown(d)}
+
+    async def _presenters_changed(
+        self, host: RemoteHost, old: dict[str, Any], new: dict[str, Any]
+    ) -> None:
+        """Swap the live and the stored copies of each document whose agent came or went.
+
+        ``old`` and ``new`` are ``host``'s agent slice before and after a
+        reading. See :meth:`_host_shows`.
+        """
+        changed = {
+            i
+            for i in set(old) | set(new)
+            if _is_live(old.get(i)) != _is_live(new.get(i))
+        }
+        if not changed:
+            return
+        documents = host.slices.get("document", {})
+        table = self.world["documents"]
+        shown = {i: table[i] for i in documents if i in table}
+        self._apply(diff_kind("document", shown, self._live_documents(documents)))
+        for row_id, agent_id in sorted(self._presenters.items()):
+            if agent_id in changed:
+                row = await self.document_store.get(row_id)
+                if row is not None:
+                    await self._show_stored(row)
 
     def _merged_agent(self, agent: Agent) -> Agent:
         """A remote host's agent as this server shows it.
@@ -2706,18 +2751,25 @@ class Orchestrator:
     async def _host_shows(self, row: TaskAttachment) -> bool:
         """Whether a **Remote host** shows ``row``'s live document, so this server must not.
 
-        True when the latest version came from an agent of a host in ``hosts:``,
-        and that host's merged slice holds the document. See
-        ``docs/dev/orchestrator-server.md``, "A delegated agent's document on the parent".
+        True while the last presenting agent lives on a host in ``hosts:``. See
+        ``docs/dev/orchestrator-server.md``, "A delegated agent's document on
+        the parent".
+
+        It also notes the row's presenter, so :meth:`_presenters_changed` can
+        check the row again. Every stored row this server shows or hides
+        passes through here first.
         """
         versions = await self.document_store.versions(row.id)
-        if not versions:
-            return False
-        host = self.remote_hosts.get(owner_of(versions[-1].agent_id))
-        if host is None:
-            return False
-        space = IdSpace(host.name)
-        return any(space.strip(i) == row.id for i in host.slices.get("document", {}))
+        presenter = next((v.agent_id for v in reversed(versions) if v.agent_id), "")
+        if presenter:
+            self._presenters[row.id] = presenter
+        return self._presenter_live(presenter)
+
+    def _presenter_live(self, agent_id: str) -> bool:
+        """Whether ``agent_id`` is a live agent of a host in ``hosts:``."""
+        return owner_of(agent_id) in self.remote_hosts and _is_live(
+            self.world["agents"].get(agent_id)
+        )
 
     async def _stored_entity(
         self, row: TaskAttachment, version: Version | None = None
@@ -2782,8 +2834,25 @@ class Orchestrator:
             except Exception:  # noqa: BLE001 — see the docstring
                 log.exception("storing document %s failed", document["id"])
 
+    async def _sync_on_exit(self, documents: list[Document]) -> None:
+        """Store each file a delegated agent left, as it left it.
+
+        See :func:`~mael_domain.task_documents.store_presented`. A failure is
+        logged: no agent is left to tell.
+        """
+        for document in documents:
+            try:
+                await self._store_document(document, replay=False, final=True)
+            except Exception:  # noqa: BLE001 — see the docstring
+                log.exception("storing the final %s failed", document["id"])
+
     async def _store_document(
-        self, document: Document, *, replay: bool, verdict: bool = False
+        self,
+        document: Document,
+        *,
+        replay: bool,
+        verdict: bool = False,
+        final: bool = False,
     ) -> None:
         """Store ``document`` as its Task document, then show what the store holds.
 
@@ -2829,7 +2898,8 @@ class Orchestrator:
             status=document["status"],
             world_version=(
                 document["version"]
-                if not delegated or document["id"] in self._parent_numbered
+                if not final
+                and (not delegated or document["id"] in self._parent_numbered)
                 else None
             ),
             agent_id=document["agentId"],
@@ -2837,6 +2907,7 @@ class Orchestrator:
             has_path=bool(path),
             text_in_event=text is not None,
             digest=prepared.digest if prepared else None,
+            final=final,
         )
         home = self._home(agent)
 
@@ -2912,11 +2983,7 @@ class Orchestrator:
             now=self.clock(),
         )
         row = await self.document_store.read(key, presented.name)
-        # The host's live copy is on its way in its document slice. Showing the
-        # stored copy first would show the document twice until it lands.
-        shown = row is not None and self.ids.own(row.id) in self.world["documents"]
-        from_host = owner_of(presented.agent_id) in self.remote_hosts
-        if isinstance(stored, StoredDocument) and row and (shown or not from_host):
+        if isinstance(stored, StoredDocument) and row:
             await self._show_stored(row)
         return stored_document_json(stored)
 
@@ -3112,6 +3179,13 @@ class Orchestrator:
         # Held rather than read again below, because `_close_ledger` runs after
         # the state flips and the world no longer carries them.
         totals = _totals_of(agent)
+        # Read before the exit: a delegated agent's documents go to its parent
+        # once more, and the exit must not race their removal.
+        left = (
+            [d for d in self.world["documents"].values() if d["agentId"] == agent_id]
+            if self._delegated(agent)
+            else []
+        )
         watch = self._watches.get(agent_id)
         ctx = watch.ctx if watch else context_for_agent(agent_id)
         out = mark_exited(self.state.state, ctx, exit_code, self.clock())
@@ -3132,6 +3206,12 @@ class Orchestrator:
         # poll loop run concurrently: closing the ledger before the flip would
         # let two of them through and write the closing row twice.
         await self._close_ledger(agent_id, totals)
+        if left:
+            # In the background: a parent that does not answer must not hold
+            # the poll or the stream that saw the exit.
+            sync = asyncio.create_task(self._sync_on_exit(left))
+            self._exit_syncs.add(sync)
+            sync.add_done_callback(self._exit_syncs.discard)
         if watch and watch.task and not from_stream:
             watch.task.cancel()
 
