@@ -12,6 +12,7 @@ import re
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +45,15 @@ KINDS = ("markdown", "sarif")
 ROLES = ("plan", *TAG_KINDS)
 #: The name a task's plan is stored under. Only the server writes it.
 PLAN_NAME = "plan"
+#: A version's review status: the world document's ``status``.
+REVIEW_STATUSES = (
+    "draft",
+    "awaiting-review",
+    "approved",
+    "changes-requested",
+    "superseded",
+    "stale",
+)
 
 
 class TaskDocumentError(ValueError):
@@ -200,7 +210,7 @@ async def add(
     already has adds no version, and returns that version: its review status
     is not written here, but its agent and group are. ``digest`` stands in for
     the body's own when the caller hashes more than the text, as
-    :func:`attach` does with media. An archived document still takes versions.
+    :func:`prepare` does with media. An archived document still takes versions.
 
     ``role`` replaces the document's role when given. A new document without
     one is ``other``.
@@ -315,14 +325,6 @@ async def _presented_by(
     if moved != version:
         await table.add_version(moved)
     return moved
-
-
-async def holds(
-    table: TaskAttachmentTable, document: TaskAttachment, body: str, cwd: str
-) -> bool:
-    """Whether a version of ``document`` holds ``body`` as it stands now."""
-    digest = await asyncio.to_thread(_digest, body, cwd)
-    return any(v.digest == digest for v in await table.versions(document.id))
 
 
 async def set_status(
@@ -467,65 +469,221 @@ async def archive(
     return changed
 
 
-async def attach(
-    table: TaskAttachmentTable,
-    *,
-    project: str,
-    task_id: str,
-    cwd: str,
-    path: str,
-    title: str,
-    now: str,
-    name: str | None = None,
-    body: str | None = None,
-    review_status: str = "draft",
-    role: str | None = None,
-    agent_id: str = "",
-    group: ReviewGroup | None = None,
-) -> tuple[TaskAttachment, Version] | None:
-    """Add the markdown at ``path`` as the next version of the task's document.
+@dataclass(frozen=True)
+class Prepared:
+    """A presented markdown file as it stands: its text, and its digest.
 
-    ``name`` defaults to ``path``. ``None`` means the file cannot be read, and
-    nothing is added. A document already stored as it stands returns the
-    version it has, and adds no version, as :func:`add` says.
+    The digest takes the bytes of every media file the text names, so a
+    recording made again under the same name is a new version.
+    """
 
-    "As it stands" covers the media too. The digest takes the bytes of every
-    file the body names, so a recording made again under the same name is a
-    new version.
+    source: str
+    digest: str
+
+
+def prepare(cwd: str, path: str, body: str | None = None) -> Prepared | None:
+    """Read the markdown at ``path`` and hash it. ``None``: it cannot be read.
 
     ``body`` is the markdown when the caller already holds it. A plan's file is
-    outside the worktree, so its text comes from the document and ``path`` is
-    only where it was. Media refs resolve against ``cwd`` in both cases.
+    outside the worktree, so its text comes from the document. Media refs
+    resolve against ``cwd`` in both cases. Blocking: run it off the loop, as a
+    video is tens of megabytes to hash.
     """
     source = body if body is not None else read_worktree_file(cwd, path)
     if source is None:
         return None
-    name = name or path
-    # Off the loop: a video is tens of megabytes to hash and to copy.
-    digest = await asyncio.to_thread(_digest, source, cwd)
-    document = await table.read(task_key(project, task_id), name)
-    if document is not None and (role is None or role == document.role):
-        versions = await table.versions(document.id)
-        if versions and (versions[-1].digest, versions[-1].title) == (digest, title):
-            return document, await _presented_by(table, versions[-1], agent_id, group)
-    attached_body = await asyncio.to_thread(
-        _with_attached_media, source, project, task_id, cwd
+    return Prepared(source, _digest(source, cwd))
+
+
+@dataclass(frozen=True)
+class Presented:
+    """A Task document an agent presented, as the store step reads it.
+
+    ``project`` and ``task_id`` name the task in its own notebook. ``status``
+    and ``world_version`` are the world document's. ``world_version`` is
+    ``None`` when the presenter does not number versions as the store does: a
+    **Delegated agent**'s first presentation of a document. The store then
+    tells a new version by its digest. ``has_path`` is false for
+    a ``stored`` source, which names a document and no file, so it adds no
+    version. ``text_in_event``: the text travels in the agent's event, as a
+    plan's does, so a replay can tell text the store missed by its
+    ``digest``. ``body`` is the text with its media refs settled; a caller
+    sends it only when :func:`store_presented` asks for it.
+    """
+
+    project: str
+    task_id: str
+    name: str
+    role: str
+    title: str
+    status: str
+    world_version: int | None
+    agent_id: str = ""
+    group: ReviewGroup | None = None
+    has_path: bool = True
+    text_in_event: bool = False
+    digest: str | None = None
+    body: str | None = None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "project": self.project,
+            "taskId": self.task_id,
+            "name": self.name,
+            "role": self.role,
+            "title": self.title,
+            "status": self.status,
+            "worldVersion": self.world_version,
+            "agentId": self.agent_id,
+            "group": (
+                {
+                    "id": self.group.id,
+                    "title": self.group.title,
+                    "position": self.group.position,
+                }
+                if self.group
+                else None
+            ),
+            "hasPath": self.has_path,
+            "textInEvent": self.text_in_event,
+            "digest": self.digest,
+            "body": self.body,
+        }
+
+    @classmethod
+    def from_json(cls, data: dict[str, Any]) -> "Presented":
+        """The :meth:`to_json` form, read back.
+
+        Raises:
+            InvalidDocument: A field is missing or of the wrong type.
+        """
+        try:
+            group = data.get("group")
+            flags = data.get("hasPath", True), data.get("textInEvent", False)
+            if data["status"] not in REVIEW_STATUSES or not all(
+                isinstance(flag, bool) for flag in flags
+            ):
+                raise ValueError("a status or flag of the wrong value")
+            world_version = data["worldVersion"]
+            return cls(
+                project=str(data["project"]),
+                task_id=str(data["taskId"]),
+                name=str(data["name"]),
+                role=str(data["role"]),
+                title=str(data["title"]),
+                status=str(data["status"]),
+                world_version=None if world_version is None else int(world_version),
+                agent_id=str(data.get("agentId") or ""),
+                group=(
+                    ReviewGroup(
+                        str(group["id"]), str(group["title"]), int(group["position"])
+                    )
+                    if group
+                    else None
+                ),
+                has_path=flags[0],
+                text_in_event=flags[1],
+                digest=_optional_str(data.get("digest")),
+                body=_optional_str(data.get("body")),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise InvalidDocument(f"Not a presented document: {exc}") from None
+
+
+def _optional_str(value: object) -> str | None:
+    return None if value is None else str(value)
+
+
+class NeedsBody(Enum):
+    """:func:`store_presented` must add a version, and was given no body."""
+
+    NEEDS_BODY = "needs-body"
+
+
+NEEDS_BODY = NeedsBody.NEEDS_BODY
+
+#: What :func:`store_presented` did: the document and the version it holds
+#: now, ``None`` for nothing to store, or :data:`NEEDS_BODY`.
+Stored = tuple[TaskAttachment, Version] | None | NeedsBody
+
+
+async def store_presented(
+    table: TaskAttachmentTable,
+    presented: Presented,
+    *,
+    replay: bool,
+    verdict: bool,
+    now: str,
+) -> Stored:
+    """Store a presented document: add a version, write the status, or nothing.
+
+    The rules are the table in ``docs/dev/orchestrator-server.md``, "Storing a
+    Task document". ``verdict``: the call only settles a review, so it writes a
+    status and never adds a version. A replay keeps the stored latest version,
+    unless the text travels in the event and no version has its digest.
+
+    A new version needs ``presented.body`` and ``presented.digest``. Without
+    them the answer is :data:`NEEDS_BODY`, unless the digest and title match
+    the latest version.
+    """
+    p = presented
+    row = await table.read(task_key(p.project, p.task_id), p.name)
+    versions = await table.versions(row.id) if row else []
+    latest = versions[-1] if versions else None
+    if verdict and (
+        latest is None or p.world_version is None or p.world_version > latest.version
+    ):
+        # The user settled text the store does not hold, such as the
+        # placeholder of a file that could not be read.
+        return None
+    missed = (
+        replay
+        and p.text_in_event
+        and p.digest is not None
+        and all(v.digest != p.digest for v in versions)
     )
-    return await add(
-        table,
-        project=project,
-        task_id=task_id,
-        name=name,
-        kind="markdown",
-        title=title,
-        body=attached_body,
-        now=now,
-        digest=digest,
-        review_status=review_status,
-        role=role,
-        agent_id=agent_id,
-        group=group,
-    )
+    if (
+        row is not None
+        and latest is not None
+        and not missed
+        and (
+            replay
+            or not p.has_path
+            or (p.world_version is not None and p.world_version <= latest.version)
+        )
+    ):
+        stored = row, latest
+    elif not p.has_path:
+        return None
+    elif (
+        row is not None
+        and latest is not None
+        and row.role == p.role
+        and (latest.digest, latest.title) == (p.digest, p.title)
+    ):
+        stored = row, await _presented_by(table, latest, p.agent_id, p.group)
+    elif p.body is None or p.digest is None:
+        return NEEDS_BODY
+    else:
+        stored = await add(
+            table,
+            project=p.project,
+            task_id=p.task_id,
+            name=p.name,
+            kind="markdown",
+            title=p.title,
+            body=p.body,
+            now=now,
+            digest=p.digest,
+            review_status=p.status,
+            role=p.role,
+            agent_id=p.agent_id,
+            group=p.group,
+        )
+    row, version = stored
+    if not replay and version.review_status != p.status:
+        version = await set_status(table, row, p.status) or version
+    return row, version
 
 
 def _digest(markdown: str, cwd: str) -> str:
@@ -547,8 +705,10 @@ def _digest(markdown: str, cwd: str) -> str:
     return digest.hexdigest()
 
 
-def _with_attached_media(markdown: str, project: str, bucket: str, cwd: str) -> str:
+def with_attached_media(markdown: str, project: str, bucket: str, cwd: str) -> str:
     """``markdown`` with each media ref copied into the bucket and re-pointed.
+
+    Blocking: it copies files.
 
     A ref that cannot be attached becomes the prose a refused image leaves, so the
     reader is told which file is missing. The log holds the reason.
@@ -566,3 +726,12 @@ def _with_attached_media(markdown: str, project: str, bucket: str, cwd: str) -> 
         return markdown_ref(ref.alt, token)
 
     return replace_media(markdown, attached)
+
+
+def without_media(markdown: str) -> str:
+    """``markdown`` with each media ref as the prose a refused image leaves.
+
+    A **Delegated agent**'s document goes to its parent as text. Its media
+    stays on the host for now.
+    """
+    return replace_media(markdown, lambda ref: not_shown(ref.target))

@@ -899,8 +899,11 @@ builds the world's document from the store.
 ```
 agent                 normaliser              server                  store
   | <doc-file> or plan   |                       |                        |
-  |--------------------->| upsert document ----->| attach() ------------->| media into the bucket
-  |                      |                       |   or set_status()      | version, or its status
+  |--------------------->| upsert document ----->| home.store_document -->| version, or its status
+  |                      |                       |<-- needs-body ---------|
+  |                      |                       | read the file, digest->| same digest: no version
+  |                      |                       |<-- needs-body ---------|
+  |                      |                       | media into the bucket->| the next version
   |                      |                       |<-- stored version -----|
   |                      |                       | upsert the document    |
   |                      |                       | built from the store   |
@@ -908,7 +911,9 @@ agent                 normaliser              server                  store
   |                      |                       |<-- every row, at start-|
 ```
 
-`_store_document` reads each document upsert of a task:
+`_store_document` reads each document upsert of a task. It sends a `Presented` record to the
+agent's **Task home**: the local store, or the parent's for a **Delegated agent**. The home calls
+`task_documents.store_presented`, which applies this table:
 
 | Upsert | Live event | Replayed event |
 | --- | --- | --- |
@@ -927,27 +932,52 @@ file that could not be read, not the file's text.
 | A `<doc-file>` file | Read from the worktree file | The file's worktree-relative path |
 | A plan | The document's markdown | `plan` |
 
+`store_presented` asks for the body only when it must add a version. The first call carries no
+body, and a draft file's call carries no digest either. When the answer is `needs-body`, the server
+reads the file and sends the digest. When the digest and title match the latest version, no version
+is added and no media is copied. That version's agent and group move, and the status is written.
+Otherwise the server sends the body as well. So a restart replays every document without reading
+every file, and a delegated replay sends no bodies to the parent.
+
+A plan's text is in its event, so its first call carries the digest. See "A replay only repairs".
+
 The document row stores the **Document role**, the document's kind. Each version stores its
 review status, its agent and its **Review group**. A restart then rebuilds the whole document:
 the approve can tell the agent, and the group still settles as one.
 
-`attach` does three things:
+The body step has three parts:
 
-1. It takes a digest of the source body and of the bytes of each media file the body names. When
-   the latest version has the same digest and title, `attach` adds no version. It moves that
-   version's agent and group, and the server then writes its status.
-   A recording made again under the same name changes the digest, so it is a new version.
-2. It copies each media file into the bucket with `attachments.save_media`, which accepts an image
-   or a video up to 50 MB. The bucket filename carries a digest of the bytes, so an unchanged file
-   is stored once and two files of one name do not collide.
-3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token and adds the version. A file that is refused
-   becomes "could not be shown" prose, and the log holds the reason.
+1. `task_documents.prepare` reads the file and takes a digest of the text and of the bytes of each
+   media file the text names. A recording made again under the same name changes the digest, so it
+   is a new version.
+2. `with_attached_media` copies each media file into the bucket with `attachments.save_media`,
+   which accepts an image or a video up to 50 MB. The bucket filename carries a digest of the
+   bytes, so an unchanged file is stored once and two files of one name do not collide.
+3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token. A file that is refused becomes "could not
+   be shown" prose, and the log holds the reason. A delegated agent's body goes to the parent
+   through `without_media`, which makes every ref that prose.
 
-`attach` returns `None` only when the document's file cannot be read. The world's document then
-keeps the "could not be read" prose the normaliser gave it.
+`prepare` returns `None` only when the document's file cannot be read. Nothing is stored, and the
+world's document keeps the "could not be read" prose the normaliser gave it.
 
 The document's id is a digest of `(task_key, name)`. Every version is kept, and no code removes a
 document. See `docs/adr/0001-task-documents.md`.
+
+### A delegated agent's document on the parent
+
+The remote host keeps the live document: a verdict on it reaches its agent there. The remote
+host's approve sends the verdict through `store_document` too, so the parent's version gets the
+status.
+
+The parent does not show its stored copy while a host shows the live one. `_host_shows` hides a
+row when two things are true: an agent of a host in `hosts:` presented the latest version, and that
+host's merged `document` slice holds the document. When the host's slice changes,
+`_reshow_stored` checks each changed row again. So the stored copy appears when the host forgets
+the document.
+
+A host numbers a document from 1 until its first store. So a delegated agent's first presentation
+of a document sends no `version`, and `store_presented` tells a new version by its digest. After
+the store, `_show_presented` gives the host's document the parent's version and status.
 
 ### A replay only repairs
 
