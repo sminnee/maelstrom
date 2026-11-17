@@ -6,6 +6,7 @@ import { phaseForTask } from '../protocol/phase';
 import { agentsByTask, isLive } from './graph';
 import type { PanelTab } from '../store/uiSlice';
 import { worktreeName } from './worktrees';
+import { taskLabel, taskLabelTitle } from './taskLabel';
 
 /** The tab of one kind. */
 export type TabOf<K extends PanelTab['kind']> = Extract<PanelTab, { kind: K }>;
@@ -214,6 +215,10 @@ export interface TabAttribution {
 const phaseOf = (world: WorldView, task: TaskRow | undefined): Phase | null =>
   task ? phaseForTask(task, agentsByTask(world).get(task.id)) : null;
 
+/** A tab's tooltip: the task's title, and the id beside a codename. */
+const tabTitle = (task: TaskRow | undefined): string =>
+  !task ? '' : task.codename ? `${task.title} · ${taskLabelTitle(task)}` : task.title;
+
 /** Which task (and phase) a tab belongs to, so two tabs from two agents are told apart. */
 export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution {
   switch (tab.kind) {
@@ -221,11 +226,11 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
       const agent = world.agents[tab.agentId];
       const task = taskForTab(world, tab);
       return {
-        id: task?.notebookId || agent?.taskId || tab.agentId,
+        id: (task && taskLabel(task)) || agent?.taskId || tab.agentId,
         phase: phaseOf(world, task),
         agentId: tab.agentId,
         label: '',
-        title: task?.title ?? '',
+        title: tabTitle(task),
       };
     }
     case 'document': {
@@ -234,13 +239,13 @@ export function tabAttribution(world: WorldView, tab: PanelTab): TabAttribution 
       return {
         // `tab.documentId` is the last resort, as `tab.agentId` is for a
         // session: a tab the world can tell nothing about still names itself.
-        id: task?.notebookId || doc?.taskId || doc?.agentId || tab.documentId,
+        id: (task && taskLabel(task)) || doc?.taskId || doc?.agentId || tab.documentId,
         phase: phaseOf(world, task),
         agentId: doc?.agentId ?? null,
         // `||`, not `??`: a document's title is agent-authored, so an empty
         // one is possible, and a label-less document tab reads as a session.
         label: doc?.title || 'Document',
-        title: task?.title ?? '',
+        title: tabTitle(task),
       };
     }
     case 'changes': {

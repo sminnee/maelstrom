@@ -16,7 +16,7 @@ import type { MessageItem, TranscriptItem } from '../protocol/transcript';
 import type { GraphNode } from '../selectors/graph';
 import { followsReach } from '../selectors/follows';
 import { cardPr } from '../selectors/cardPr';
-import { agentsOfTask, nodeIdLine, nodeTitle, nodeWorktree } from '../selectors/graph';
+import { agentsOfTask, nodeIdLine, nodeIdTitle, nodeTitle, nodeWorktree } from '../selectors/graph';
 import { type CardGroup, cardDocuments, documentsByKind } from '../selectors/documents';
 import { describeDocumentStatus } from '../selectors/status';
 import { sessionMeta } from '../selectors/agents';
@@ -48,6 +48,7 @@ import { NextChains } from '../worktrees/NextChains';
 import { useAppStore } from '../store/store';
 import { StepMeter } from '../ui/StepMeter';
 import styles from './NodeCard.module.css';
+import { taskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * How long a working agent may be silent before its age is worth colouring.
@@ -199,7 +200,7 @@ function WorkCardBody({
                 {task.project}
               </span>
             )}
-            <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+            <span className={`${styles.id} truncate`} title={nodeIdTitle(node)}>
               {nodeIdLine(node)}
             </span>
             {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
@@ -530,8 +531,10 @@ function FollowsGroup({
               {t.title}
             </span>
             <span className={styles.meta}>
-              <span data-testid="follows-id">{t.notebookId}</span> ·{' '}
-              <span data-testid="follows-status">{t.status}</span>
+              <span data-testid="follows-id" title={taskLabelTitle(t)}>
+                {taskLabel(t)}
+              </span>{' '}
+              · <span data-testid="follows-status">{t.status}</span>
             </span>
             <DeskToggle taskId={t.id} onDesk={onDesk} variant="quiet" />
           </div>

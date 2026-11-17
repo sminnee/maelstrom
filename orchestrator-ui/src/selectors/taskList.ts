@@ -36,7 +36,7 @@ export function listTasks(world: WorldView, filters: Filters, listFilters: ListF
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
     .filter((t) => !filters.comm || t.comms.includes(filters.comm))
     .filter((t) => listFilters.statuses.length === 0 || listFilters.statuses.includes(t.status))
-    .filter((t) => matchesText([t.id, t.notebookId, t.title], filters))
+    .filter((t) => matchesText([t.id, t.notebookId, t.codename ?? '', t.title], filters))
     .sort(
       (a, b) =>
         a.project.localeCompare(b.project) ||

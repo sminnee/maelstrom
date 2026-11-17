@@ -29,6 +29,7 @@ import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
 import { ReviewActions } from './ReviewActions';
 import styles from './DocumentTab.module.css';
+import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * The server serves no comments yet, so the margin holds none: the composer
@@ -97,7 +98,9 @@ export function DocumentTab({ documentId }: { documentId: string }) {
   const header = (
     <header className={styles.header}>
       <div className={styles.line}>
-        <span className={`${styles.task} wrap`}>{doc.taskId}</span>
+        <span className={`${styles.task} wrap`} title={task ? taskLabelTitle(task) : undefined}>
+          {task ? qualifiedTaskLabel(task) : doc.taskId}
+        </span>
         {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
         <span className={`${styles.title} wrap`}>{doc.title}</span>
         <span className={styles.version}>v{doc.version}</span>

@@ -10,6 +10,7 @@ import { AppButton } from '../ui/AppButton';
 import { NextChains } from '../worktrees/NextChains';
 import { useTick } from './useTick';
 import styles from './OperationLog.module.css';
+import { useWorld } from '../api/useWorld';
 
 /**
  * One operation's log: a head that says what it is and where, then a block per
@@ -75,18 +76,26 @@ export function OperationLog({
 
 /** What the operation acted on, as a link to its card when it has one. */
 function TargetLink({ op, onTarget }: { op: Operation; onTarget: () => void }) {
-  const { label, card } = operationTarget(op);
-  if (!card) return <span className={`${styles.target} truncate`}>{label}</span>;
-  return <CardLink card={card} label={label} onTarget={onTarget} />;
+  const { world } = useWorld();
+  const { label, title, card } = operationTarget(op, world.tasks);
+  if (!card)
+    return (
+      <span className={`${styles.target} truncate`} title={title}>
+        {label}
+      </span>
+    );
+  return <CardLink card={card} label={label} title={title} onTarget={onTarget} />;
 }
 
 function CardLink({
   card,
   label,
+  title,
   onTarget,
 }: {
   card: NonNullable<ReturnType<typeof operationTarget>['card']>;
   label: string;
+  title: string;
   onTarget: () => void;
 }) {
   const to = useHrefFor({ card });
@@ -96,6 +105,7 @@ function CardLink({
       to={to}
       state={linkState}
       className={`${styles.target} truncate`}
+      title={title}
       onClick={(e) => {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.button !== 0) return;
         e.preventDefault();

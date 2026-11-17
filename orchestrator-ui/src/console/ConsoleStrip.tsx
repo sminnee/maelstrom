@@ -7,6 +7,7 @@ import { StepMeter } from '../ui/StepMeter';
 import { usePresence } from '../ui/usePresence';
 import { useOperationList, useStripOperations } from './useConsole';
 import styles from './ConsoleStrip.module.css';
+import { useWorld } from '../api/useWorld';
 
 /** How many entries each layout has room for before the rest fold into `+N more`. */
 const ROOM: Record<LayoutMode, number> = { wide: 3, medium: 2, narrow: 1 };
@@ -56,6 +57,8 @@ export function ConsoleStrip({ covered = false }: { covered?: boolean }) {
 
 function Entry({ op, onOpen }: { op: Operation; onOpen: () => void }) {
   const step = currentStep(op);
+  const { world } = useWorld();
+  const target = operationTarget(op, world.tasks);
   return (
     <button
       type="button"
@@ -66,7 +69,9 @@ function Entry({ op, onOpen }: { op: Operation; onOpen: () => void }) {
     >
       <StepMeter op={op} />
       <span className={`${styles.words} truncate`}>{operationLine(op)}</span>
-      <span className={`${styles.target} nowrap`}>{operationTarget(op).label}</span>
+      <span className={`${styles.target} nowrap`} title={target.title}>
+        {target.label}
+      </span>
       {step && <span className={`${styles.step} nowrap`}>{step.name}</span>}
     </button>
   );

@@ -18,6 +18,7 @@ import type { TaskDraft } from './TaskFields';
 import { TaskFields } from './TaskFields';
 import { actionIcon } from '../ui/actionIcons';
 import styles from './TaskEditor.module.css';
+import { taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * Edits one task's fields. The list holds slim rows, so the editor fetches
@@ -157,7 +158,7 @@ function TaskForm({ task }: { task: Task }) {
 
   return (
     <Dialog label={task.title} onClose={leave}>
-      <DialogHeader title={task.notebookId} onClose={leave}>
+      <DialogHeader title={taskLabelTitle(task)} onClose={leave}>
         <AppButton disabled={prevId === undefined} onClick={() => go(prevId)}>
           {actionIcon('pagePrevious')}
           Prev

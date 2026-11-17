@@ -221,7 +221,7 @@ Agent status control, which the top bar's agents chip also steps through. Its Ha
 the tasks with a **Registered PR**: the cards that draw a PR chip. Tasks has a status
 control. Desk and Tasks share one Search text, `filters.text`
 (`?q=`).
-A task matches by its id, notebook id or title; a free agent by its id or its drawn title. Every
+A task matches by its id, notebook id, codename or title; a free agent by its id or its drawn title. Every
 `deriveGraph` reader follows it, so the attention chip and the New work project radios narrow
 too. The field commits the text after a 200ms pause, so a keystroke does not re-derive every view.
 The field takes a text the URL changes under it, such as one Back returns to.
@@ -398,7 +398,8 @@ A link is the task's own `comms` field. So the Link picker and each Unlink write
 `comms/TaskComms.tsx` links comms the same way. The `comm` notice that follows refetches the
 comm, with its new `taskIds`. `comms` stays off `TaskEdit`, so it is never in the task form's
 diff. Both pickers pass `recent` to `ui/ComboBox.tsx`: an empty field offers the five ids that
-`ui/recent.ts` holds for this browser. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
+`ui/recent.ts` holds for this browser. A task picker's row shows the task's codename through
+`ComboOption.display`, and typing matches it. A pick still fills the field with the id. Close comm and Reopen comm write `closed` through `useUpdateComm`. Close comm also closes the
 editor, so it is disabled while the form holds unsaved edits.
 
 The toolbar's **Draft updates** button reads its count from `queueSize` in `selectors/comms.ts`:
@@ -631,8 +632,9 @@ left. A refused close loses those tabs too: the tabs close before the server ans
 dev env tabs stay open for other work there. A node that leaves the desk another way, by `mael`
 or from another window, closes no tabs: the user can still be reading them.
 
-A node shows the bare notebook id, because its lane already names the project. A panel tab
-shows the bare id too, because the panel sidebar beside the strip names the project.
+A node shows its task's **Codename**, else its bare notebook id, because its lane already names
+the project. A panel tab does the same, because the panel sidebar beside the strip names the
+project. A codename's tooltip names the id. `selectors/taskLabel.ts` holds the rule.
 
 An agent with no task shows its own agent id in that same slot, on the node and on the tab both —
 the **Failover id** rule, which `CONTEXT.md` defines.
@@ -848,7 +850,7 @@ The panel holds four tab kinds: session, document, changes and dev env. It is th
 it shows in a slot as a main view does; see "The three layouts". A panel off screen is hidden with
 the `hidden` attribute; `shell/AppShell.tsx` says why not an unmount. A panel link opens a tab, and
 shows the panel too; `shell/PanelLink.tsx` says why links, not buttons. Every session and document tab carries a phase chip and
-its task id, so two agents' tabs are told apart. A node card lists every document its task owns,
+its task's codename or id, so two agents' tabs are told apart. A node card lists every document its task owns,
 whatever raised it — a plan review, a tag the agent wrote in its own message, or `mael doc add`. A
 free agent's card lists the documents of that agent. The card lists them under a heading per
 kind — Plans, Verifications, then Other — and by review group under each heading
@@ -897,7 +899,7 @@ A shift-click on a top bar item keeps its own meaning: it moves the item's ancho
 `panel/WorktreeBar.tsx` sits above the strip and draws the group's worktree controls from
 `worktrees/WorktreeControls.tsx`, as the worktree area does. It leaves out the `Changes` link,
 because the **Tab picker** offers it. After the branch, `panel/TaskLink.tsx` opens the task
-dialog: one task shows its id and title, and several show `N tasks ▾` with a menu of them.
+dialog: one task shows its codename, else its id, and its title, and several show `N tasks ▾` with a menu of them.
 
 **The tab picker.** `panel/TabPicker.tsx` is the `+` after the last tab. It sits outside the
 `tablist`, so the arrow keys pass over it. Its menu lists `Changes`, then a `Sessions` heading,
@@ -913,7 +915,7 @@ hold the rules. The task link reads the same `worktreeWork`:
   rules. An owned document comes before a linked one, and each shows once. An archived document
   is left out.
 - Sessions are newest first.
-- A row starts with its task id or agent id only when the worktree has more than one desk entry.
+- A row starts with its task's codename, else its task id or agent id, only when the worktree has more than one desk entry.
 - A closed worktree offers no `Changes`. A "no worktree" group gets no `+`.
 
 An open tab stays in the menu with a check and `aria-current`, so the menu keeps its shape. Each

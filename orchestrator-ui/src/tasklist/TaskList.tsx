@@ -21,6 +21,7 @@ import { StatusPicker } from '../ui/StatusPicker';
 import { BulkActions } from './BulkActions';
 import { DeskToggle } from './DeskToggle';
 import styles from './TaskList.module.css';
+import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /** Every task in the world, each with its desk toggle. */
 export function TaskList() {
@@ -124,7 +125,7 @@ export function TaskList() {
               <td>
                 <input
                   type="checkbox"
-                  aria-label={`Select ${task.id}`}
+                  aria-label={`Select ${qualifiedTaskLabel(task)}`}
                   checked={ticked.has(task.id)}
                   onChange={() => toggle(task.id)}
                 />
@@ -136,11 +137,12 @@ export function TaskList() {
                     to={toHref(withLoc(loc, { card: { kind: 'task', id: task.id } }))}
                     state={linkState}
                     className={styles.idLink}
+                    title={taskLabelTitle(task)}
                   >
-                    {task.id}
+                    {qualifiedTaskLabel(task)}
                   </Link>
                 ) : (
-                  task.id
+                  <span title={taskLabelTitle(task)}>{qualifiedTaskLabel(task)}</span>
                 )}
               </td>
               <td>
