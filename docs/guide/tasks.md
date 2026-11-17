@@ -85,6 +85,7 @@ now".
 
 ```bash
 mael task follow <id>...                  # the current task waits on each id
+mael task follow <project>/<id>           # the current task waits on another project's task
 mael task follow <id> --task <follower>   # another task waits on <id>
 mael task unfollow <id>                   # the current task stops waiting on <id>
 ```

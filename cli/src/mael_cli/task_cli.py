@@ -484,6 +484,13 @@ def _notebook_id(wire_id: str) -> str:
     return wire_id.rpartition("/")[2]
 
 
+def _follow_label(project: str, wire_id: str) -> str:
+    """The label of a followed task: bare in ``project``, else the wire id."""
+    return task_model.follow_ref(
+        project, *task_model.split_follow_ref(project, wire_id)
+    )
+
+
 async def register_pr(
     task_id: str | None, number: int, url: str, project: str | None = None
 ) -> str:
@@ -930,7 +937,7 @@ async def add_task(
     if comms is not None:
         body["comms"] = comms
     if follows:
-        body["follows"] = [f"{proj}/{f}" for f in follows]
+        body["follows"] = [_qualified(proj, f) for f in follows]
     if follow_ends:
         body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
     if from_id is not None:
@@ -971,8 +978,11 @@ async def add_task(
 
 
 def _qualified(project: str, task_id: str) -> str:
-    """The wire id of ``task_id``; the ``*`` wildcard stays as it is."""
-    return task_id if task_id == "*" else f"{project}/{task_id}"
+    """The wire id of ``task_id`` in ``project``.
+
+    The ``*`` wildcard, and an id that is already qualified, stay as written.
+    """
+    return task_id if task_id == "*" or "/" in task_id else f"{project}/{task_id}"
 
 
 def _launch_on_server(project: str, task_id: str) -> str:
@@ -1105,7 +1115,7 @@ async def task_promote(
         "overrides": {k: v for k, v in overrides.items() if v is not None},
     }
     if follows:
-        body["follows"] = [f"{proj}/{f}" for f in follows]
+        body["follows"] = [_qualified(proj, f) for f in follows]
     if follow_ends:
         body["followEnds"] = [_qualified(proj, f) for f in follow_ends]
     if after := _session_var("MAEL_TASK_ID", proj):
@@ -1695,7 +1705,8 @@ async def task_show(id: str, project: str | None) -> None:
     if t["parent"]:
         click.echo(f"parent:  {t['parent']}")
     if t["follows"]:
-        click.echo(f"follows: {', '.join(_notebook_id(f) for f in t['follows'])}")
+        labels = (_follow_label(t["project"], f) for f in t["follows"])
+        click.echo(f"follows: {', '.join(labels)}")
     if t.get("schedule"):
         zone = t.get("scheduleZone", "")
         click.echo(f"schedule: {t['schedule']}" + (f" ({zone})" if zone else ""))
@@ -1836,7 +1847,7 @@ def _change_follows(
         path = f"/api/tasks/{quote(proj, safe='')}/{quote(task_id, safe='')}"
         OrchestratorClient.for_tasks().patch(path, {"follows": after, **_sender()})
     t: TaskDetail = _task_call(proj, task_id)
-    follows = ", ".join(_notebook_id(f) for f in t["follows"]) or "nothing"
+    follows = ", ".join(_follow_label(proj, f) for f in t["follows"]) or "nothing"
     click.echo(f"{task_id} follows: {follows}")
     if not t["actionable"] and not task_model.is_terminal(t["status"]):
         click.echo("The task now waits on unfinished work.")
