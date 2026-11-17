@@ -1,5 +1,7 @@
 import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { PluggableList } from 'unified';
+import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import { QuietBlock } from './QuietBlock';
@@ -76,13 +78,16 @@ export type ResolveSrc = (src: string) => string;
 const MarkdownContent = memo(function MarkdownContent({
   source,
   resolveSrc,
+  headingIds,
 }: {
   source: string;
   resolveSrc?: ResolveSrc;
+  headingIds?: boolean;
 }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
+      rehypePlugins={headingIds ? REHYPE_SLUG : undefined}
       components={{
         img: ({ src: ref, alt }) => {
           if (typeof ref !== 'string') return null;
@@ -116,27 +121,50 @@ const MarkdownContent = memo(function MarkdownContent({
   );
 });
 
+/** Before each heading id, so a heading such as `Root` cannot take an id the app uses. */
+export const HEADING_ID_PREFIX = 'doc-';
+
+/** Stable, so the memo does not re-parse. */
+const REHYPE_SLUG: PluggableList = [[rehypeSlug, { prefix: HEADING_ID_PREFIX }]];
+
 /** Render agent markdown, including its user-attention ranks. */
 export function Markdown({
   source,
   className,
   resolveSrc,
+  headingIds,
   ...rest
 }: {
   source: string;
   className?: string;
   /** Maps each image ref; pass a stable function, or the memo re-parses. */
   resolveSrc?: ResolveSrc;
+  /**
+   * Give each heading its GitHub slug as an id, after `HEADING_ID_PREFIX`,
+   * as the server's fragments name it. Off by default: a page of many messages would repeat ids. Each
+   * attention segment is its own tree, so a duplicate heading in a later
+   * segment restarts its `-1` count; documents rarely carry attention tags.
+   */
+  headingIds?: boolean;
 } & Omit<React.HTMLAttributes<HTMLDivElement>, 'className' | 'children'>) {
   return (
     <div className={[styles.markdown, className].filter(Boolean).join(' ')} {...rest}>
       {attentionSegments(source).map((segment, index) =>
         segment.attention === 'low' ? (
           <QuietBlock key={index}>
-            <MarkdownContent source={segment.source} resolveSrc={resolveSrc} />
+            <MarkdownContent
+              source={segment.source}
+              resolveSrc={resolveSrc}
+              headingIds={headingIds}
+            />
           </QuietBlock>
         ) : (
-          <MarkdownContent key={index} source={segment.source} resolveSrc={resolveSrc} />
+          <MarkdownContent
+            key={index}
+            source={segment.source}
+            resolveSrc={resolveSrc}
+            headingIds={headingIds}
+          />
         ),
       )}
     </div>
