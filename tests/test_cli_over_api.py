@@ -425,6 +425,29 @@ def test_follow_parks_the_current_task_on_many_ids(table, start_server, monkeypa
     assert status_of(table, "NORT-1") == model.STATUS_IN_PROGRESS
 
 
+def test_follow_takes_a_task_in_another_project(table, start_server, monkeypatch):
+    """A Qualified id posts unchanged; the reply shows it qualified."""
+    seed(table, title="Working", id="NORT-1", status=model.STATUS_IN_PROGRESS)
+    asyncio.run(model.create(table, project=OTHER_PROJECT, title="API", id="ACME-4"))
+    start_server(
+        InMemoryWorktreeSource(
+            projects=[
+                project_entity({"name": PROJECT}),
+                project_entity({"name": OTHER_PROJECT}),
+            ]
+        )
+    )
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-1")
+
+    result = mael_task("follow", f"{OTHER_PROJECT}/ACME-4", "--project", PROJECT)
+
+    assert result.exit_code == 0, result.output
+    assert result.output == (
+        "NORT-1 follows: acme/ACME-4\nThe task now waits on unfinished work.\n"
+    )
+    assert follows_of(table, "NORT-1") == ["acme/ACME-4"]
+
+
 def seed_follower(table: InMemoryTaskTable) -> None:
     """NORT-3 follows the done NORT-1; NORT-2 is open."""
     seed(table, title="Done", id="NORT-1", status=model.STATUS_DONE)

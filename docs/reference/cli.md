@@ -367,7 +367,7 @@ The task notebook. See [tasks.md](../guide/tasks.md).
 | `mael task read ID` | Print the task as markdown, rendered from its row. |
 | `mael task edit ID` | Open the task in `$EDITOR` (default `vi`). Writes it back if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
-| `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until each one is done. |
+| `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until each one is done. An id in another project is `<project>/<id>`. |
 | `mael task unfollow IDS...` | Make a task stop following each of `IDS`. |
 | `mael task rm ID` | Delete a task and strip it from any dependents' `follows` lists. |
 | `mael task log ID MSG` | Append a line to a task's log. |
@@ -436,7 +436,7 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
 | `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: `opus`, applied when the task launches. |
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
-| `--follow TEXT` | Id this task follows. Repeatable. |
+| `--follow TEXT` | Id this task follows. Repeatable. An id in another project is `<project>/<id>`. |
 | `--follow-end TEXT` | Follow the end leaves of the given id's follows-chain. Repeatable. Quote `"*"`. |
 | `--content-file TEXT` | File whose contents become the task's Content section. `-` reads stdin. |
 | `--from TEXT` | Seed the new task by duplicating this task's recipe. Other flags override. |
@@ -491,7 +491,7 @@ Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branc
 
 | Option | Description |
 |---|---|
-| `--follow TEXT` | Id the first new task follows, instead of the splice. Repeatable. |
+| `--follow TEXT` | Id the first new task follows, instead of the splice. Repeatable. An id in another project is `<project>/<id>`. |
 | `--follow-end TEXT` | The first new task follows the end leaves of the given id's follows-chain, instead of the splice. Repeatable. Quote `"*"`. |
 
 ```bash
