@@ -172,17 +172,18 @@ from mael_domain.task import (
 )
 from mael_domain.task import permission_mode_for as model_permission_mode
 from mael_domain.task_attachments import (
-    InMemoryTaskAttachmentTable,
     TaskAttachment,
     TaskAttachmentTable,
     Version,
     task_key,
 )
 from mael_domain.task_documents import (
+    NEEDS_BODY,
     PLAN_NAME,
+    NeedsBody,
+    Prepared,
+    Presented,
     ReviewGroup,
-    attach,
-    set_status,
 )
 from mael_domain.task_launch import LaunchBlocked, check_not_live, check_synced
 from mael_domain.task_metadata_generator import lead_with_number
@@ -231,12 +232,14 @@ from .remote_hosts import MERGED_KINDS, HostUnreachable, RemoteHost, owns
 from .sources import (
     CloseBlocked,
     LaunchClaim,
+    StoredDocument,
     TaskHome,
     TaskHomes,
     TaskSource,
     TaskSourceRemote,
     WorktreeOpener,
     WorktreeSource,
+    stored_document_json,
 )
 from .transcript_log import (
     TRANSCRIPT_RING,
@@ -663,7 +666,6 @@ class Orchestrator:
         desk: DeskStore | None = None,
         milestones: MilestoneStore | None = None,
         agent_records: AgentStore | None = None,
-        document_store: TaskAttachmentTable | None = None,
         landings: Landings | None = None,
         comms: CommStore | None = None,
         comm_updates: CommUpdateStore | None = None,
@@ -704,6 +706,10 @@ class Orchestrator:
         #: Where each agent's task work goes: see "The task seam" in
         #: ``docs/dev/remote-hosts.md``.
         self.homes = TaskHomes(tasks)
+        #: The delegated agents' documents whose world version is the parent's
+        #: stored version. Before its first store, a host numbers a document
+        #: from 1, which says nothing about the parent's versions.
+        self._parent_numbered: set[str] = set()
         #: Opens the worktree an agent starts in, and writes its ``.env``.
         self.opener = opener if opener is not None else WorktreeOpener()
         #: This server's ids: each one it makes carries the prefix.
@@ -730,11 +736,7 @@ class Orchestrator:
         self.agent_records = agent_records
         #: The Task documents — see ``CONTEXT.md``, "Task document". The world
         #: reads them once, at start.
-        self.document_store = (
-            document_store
-            if document_store is not None
-            else InMemoryTaskAttachmentTable()
-        )
+        self.document_store: TaskAttachmentTable = tasks.documents
         #: Each task's landing — see ``CONTEXT.md``, "Landing". Synced in the
         #: worktree read.
         self.landings = landings if landings is not None else Landings()
@@ -1987,10 +1989,23 @@ class Orchestrator:
             shown = {i: table[i] for i in old if i in table}
             host.slices[kind] = new
             self._apply(diff_kind(kind, shown, new))
+            if kind == "document":
+                await self._reshow_stored(host, set(old) | set(new))
             if kind == "agent":
                 for agent_id, agent in new.items():
                     if agent_id not in old and not agent["parent"]:
                         await self._join_desk(agent_id)
+
+    async def _reshow_stored(self, host: RemoteHost, document_ids: set[str]) -> None:
+        """Show or hide the stored copy of each document ``host`` shows or forgot.
+
+        See :meth:`_host_shows`.
+        """
+        space = IdSpace(host.name)
+        for document_id in sorted(document_ids):
+            row = await self.document_store.get(space.strip(document_id))
+            if row is not None:
+                await self._show_stored(row)
 
     def _merged_agent(self, agent: Agent) -> Agent:
         """A remote host's agent as this server shows it.
@@ -2679,9 +2694,25 @@ class Orchestrator:
         events: list[ServerEvent] = []
         for row in await self.document_store.all_documents():
             entity = await self._stored_entity(row)
-            if entity is not None:
+            if entity is not None and not await self._host_shows(row):
                 events.append({"type": "upsert", "kind": "document", "entity": entity})
         self._apply(events)
+
+    async def _host_shows(self, row: TaskAttachment) -> bool:
+        """Whether a **Remote host** shows ``row``'s live document, so this server must not.
+
+        True when the latest version came from an agent of a host in ``hosts:``,
+        and that host's merged slice holds the document. See
+        ``docs/dev/orchestrator-server.md``, "A delegated agent's document on the parent".
+        """
+        versions = await self.document_store.versions(row.id)
+        if not versions:
+            return False
+        host = self.remote_hosts.get(owner_of(versions[-1].agent_id))
+        if host is None:
+            return False
+        space = IdSpace(host.name)
+        return any(space.strip(i) == row.id for i in host.slices.get("document", {}))
 
     async def _stored_entity(
         self, row: TaskAttachment, version: Version | None = None
@@ -2709,9 +2740,21 @@ class Orchestrator:
     async def _show_stored(
         self, row: TaskAttachment, version: Version | None = None
     ) -> None:
-        """Make the world's document agree with the store."""
+        """Make the world's document agree with the store.
+
+        A document a **Remote host** shows is not shown twice: see
+        :meth:`_host_shows`.
+        """
         entity = await self._stored_entity(row, version)
-        if entity is not None and entity != self.world["documents"].get(entity["id"]):
+        if entity is None:
+            return
+        if await self._host_shows(row):
+            if entity["id"] in self.world["documents"]:
+                self._apply(
+                    [{"type": "remove", "kind": "document", "id": entity["id"]}]
+                )
+            return
+        if entity != self.world["documents"].get(entity["id"]):
             self._apply([{"type": "upsert", "kind": "document", "entity": entity}])
 
     async def _store_documents(
@@ -2739,82 +2782,138 @@ class Orchestrator:
     ) -> None:
         """Store ``document`` as its Task document, then show what the store holds.
 
-        A free agent's document is not stored. Whether an upsert adds a version
-        or writes a status follows the table in ``docs/dev/orchestrator-server.md``,
-        "Storing a Task document". A settled stored status retires the review
-        item a replayed tag raised again.
+        A free agent's document is not stored. A **Delegated agent**'s is stored
+        on its parent, through its **Task home**. The rules are
+        :func:`~mael_domain.task_documents.store_presented`. A settled stored
+        status retires the review item a replayed tag raised again.
         """
-        task = self.world["tasks"].get(document["taskId"])
-        if task is None or self._delegated(
-            self.world["agents"].get(document["agentId"])
-        ):
-            # A delegated agent's task is on its parent, which keeps no
-            # attachment from another host yet.
-            return
+        agent = self.world["agents"].get(document["agentId"])
+        delegated = self._delegated(agent)
+        if delegated:
+            if not document["taskId"]:
+                return
+            project, notebook_id = split_task_key(document["taskId"])
+        else:
+            task = self.world["tasks"].get(document["taskId"])
+            if task is None:
+                return
+            project, notebook_id = task["project"], task["notebookId"]
         source = document["source"]
-        body: str | None = None
+        text: str | None = None
         if source.get("type") == "draft_file":
             path = name = str(source["filename"])
         elif document["kind"] == "plan" and source.get("type") == "plan_review":
             path, name = str(source.get("planFilePath") or PLAN_NAME), PLAN_NAME
-            body = document["markdown"]
+            text = document["markdown"]
         elif source.get("type") == "stored":
             path, name = "", str(source["name"])
         else:
             return
-        project, notebook_id = task["project"], task["notebookId"]
-        row = await self.document_store.read(task_key(project, notebook_id), name)
-        versions = await self.document_store.versions(row.id) if row else []
-        latest = versions[-1] if versions else None
-        if verdict and (latest is None or document["version"] > latest.version):
-            # The user settled text the store does not hold, such as the
-            # placeholder of a file that could not be read.
-            return
-        # A plan's text travels in its event, so a replay can tell a plan the
-        # server missed from one it stored.
-        missed = (
-            replay
-            and row is not None
-            and body is not None
-            and not await task_documents.holds(
-                self.document_store, row, body, self._agent_cwd(document)
-            )
+        cwd = self._agent_cwd(document)
+        # A plan's text is in the event, so its digest is cheap and a replay
+        # needs it. A file is read only when the store asks for it.
+        prepared: Prepared | None = None
+        if text is not None:
+            prepared = await asyncio.to_thread(task_documents.prepare, cwd, path, text)
+        presented = Presented(
+            project=project,
+            task_id=notebook_id,
+            name=name,
+            role=document["kind"],
+            title=document["title"],
+            status=document["status"],
+            world_version=(
+                document["version"]
+                if not delegated or document["id"] in self._parent_numbered
+                else None
+            ),
+            agent_id=document["agentId"],
+            group=ReviewGroup(**document["group"]),
+            has_path=bool(path),
+            text_in_event=text is not None,
+            digest=prepared.digest if prepared else None,
         )
-        stored: tuple[TaskAttachment, Version] | None
-        if (
-            row is not None
-            and latest is not None
-            and not missed
-            and (replay or document["version"] <= latest.version or not path)
-        ):
-            stored = row, latest
-        else:
-            if not path:
-                return
-            stored = await attach(
-                self.document_store,
-                project=project,
-                task_id=notebook_id,
-                cwd=self._agent_cwd(document),
-                path=path,
-                name=name,
-                title=document["title"],
-                now=self.clock(),
-                body=body,
-                review_status=document["status"],
-                role=document["kind"],
-                agent_id=document["agentId"],
-                group=ReviewGroup(**document["group"]),
+        home = self._home(agent)
+
+        async def store(presented: Presented) -> StoredDocument | None | NeedsBody:
+            return await home.store_document(
+                presented, replay=replay, verdict=verdict, now=self.clock()
             )
-        # None: the file could not be read. The document says so, and it stays.
-        if stored is None:
+
+        stored = await store(presented)
+        if stored is NEEDS_BODY and prepared is None:
+            prepared = await asyncio.to_thread(task_documents.prepare, cwd, path)
+            if prepared is None:
+                # The file could not be read. The document says so, and it stays.
+                return
+            presented = replace(presented, digest=prepared.digest)
+            stored = await store(presented)
+        if stored is NEEDS_BODY and prepared is not None:
+            if delegated:
+                body = task_documents.without_media(prepared.source)
+            else:
+                body = await asyncio.to_thread(
+                    task_documents.with_attached_media,
+                    prepared.source,
+                    project,
+                    notebook_id,
+                    cwd,
+                )
+            stored = await store(replace(presented, body=body))
+        if not isinstance(stored, StoredDocument):
             return
-        row, version = stored
-        if not replay and version.review_status != document["status"]:
-            version = await set_status(self.document_store, row, document["status"])
-        await self._show_stored(row, version)
-        if version is not None and version.review_status != "awaiting-review":
-            self._retire_review(self.ids.own(row.id))
+        if delegated:
+            document_id = document["id"]
+            self._show_presented(document, stored)
+        else:
+            row = await self.document_store.read(task_key(project, notebook_id), name)
+            if row is None:
+                return
+            document_id = self.ids.own(row.id)
+            await self._show_stored(row)
+        if stored.review_status != "awaiting-review":
+            self._retire_review(document_id)
+
+    def _show_presented(self, document: Document, stored: StoredDocument) -> None:
+        """Give a delegated agent's world document the version its parent stored."""
+        current = self.world["documents"].get(document["id"])
+        if current is None:
+            return
+        self._parent_numbered.add(document["id"])
+        shown: Document = {
+            **current,
+            "version": stored.version,
+            "status": stored.review_status,
+        }
+        if shown != current:
+            self._apply([{"type": "upsert", "kind": "document", "entity": shown}])
+
+    async def store_presented(self, key: str, data: dict[str, Any]) -> dict[str, Any]:
+        """Store a document a **Delegated agent** presented on a **Remote host**.
+
+        The parent's side of :meth:`RemoteTaskSource.store_document`. The reply
+        is ``{state: stored|needs-body|none, version?, reviewStatus?}``.
+
+        Raises:
+            TaskDocumentError: ``data`` is not a presented document of task ``key``.
+        """
+        presented = Presented.from_json(data)
+        if task_key(presented.project, presented.task_id) != key:
+            raise task_documents.InvalidDocument(f"Not a document of task {key}")
+        stored = await self.homes.local.store_document(
+            presented,
+            replay=bool(data.get("replay")),
+            verdict=bool(data.get("verdict")),
+            now=self.clock(),
+        )
+        row = await self.document_store.read(key, presented.name)
+        # The host's live copy is on its way in its document slice. Showing the
+        # stored copy first would show the document twice until it lands.
+        shown = row is not None and self.ids.own(row.id) in self.world["documents"]
+        from_host = owner_of(presented.agent_id) in self.remote_hosts
+        if isinstance(stored, StoredDocument) and row and (shown or not from_host):
+            await self._show_stored(row)
+        return stored_document_json(stored)
 
     def _agent_cwd(self, document: Document) -> str:
         """The working directory of the agent that presented ``document``."""

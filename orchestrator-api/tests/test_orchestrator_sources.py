@@ -24,6 +24,7 @@ from mael_domain.agent_store import SqliteAgentStore, new_agent_record
 from mael_domain.github_model import PrStatus, RateLimited
 from mael_domain.list_all import ProjectPrs
 from mael_domain.state_db.migrate import open_state_db
+from mael_domain.task_documents import NEEDS_BODY, Presented
 from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
 from mael_domain.worktree import WorktreeSetup
@@ -34,9 +35,11 @@ from mael_orchestrator.sources import (
     NotebookTaskSource,
     PrStateCache,
     RemoteTaskSource,
+    StoredDocument,
     TaskHomes,
     TaskSourceRemote,
     WorktreeOpener,
+    stored_document_json,
 )
 
 PROJECT = "northwind"
@@ -696,6 +699,48 @@ async def test_a_remote_pr_call_reaches_the_tasks_pr_route(method):
         {"number": 118, "url": "https://gh/pr/118"} if method == "PUT" else None
     )
     assert sent[0] == (method, path, expected_body)
+
+
+DOCUMENT_PATH = "/api/tasks/northwind/NORT-7/documents/presented"
+
+
+@pytest.mark.parametrize("expected", [NEEDS_BODY, StoredDocument(2, "approved"), None])
+async def test_a_remote_store_posts_the_presented_document_and_reads_the_reply(
+    expected,
+):
+    reply = stored_document_json(expected)
+    presented = Presented(
+        project=PROJECT,
+        task_id="NORT-7",
+        name=".drafts/pr.md",
+        role="pr",
+        title="The PR",
+        status="awaiting-review",
+        world_version=1,
+        agent_id="cobalt:ag1",
+        digest="d1",
+        body="# The PR\n",
+    )
+    async with a_parent({("POST", DOCUMENT_PATH): (200, reply)}) as (source, sent):
+        stored = await source.store_document(
+            presented, replay=True, verdict=False, now="2026-11-17T10:00:00Z"
+        )
+    assert stored == expected
+    # The parent stamps its own time.
+    assert sent == [
+        (
+            "POST",
+            DOCUMENT_PATH,
+            {**presented.to_json(), "replay": True, "verdict": False},
+        )
+    ]
+
+
+async def test_a_remote_store_for_a_task_the_parent_lacks_raises_key_error():
+    presented = Presented(PROJECT, "NORT-8", "a.md", "other", "A", "draft", 1)
+    async with a_parent({}) as (source, _sent):
+        with pytest.raises(KeyError):
+            await source.store_document(presented, replay=False, verdict=False, now="")
 
 
 async def test_a_remote_source_whose_parent_is_away_raises_remote():

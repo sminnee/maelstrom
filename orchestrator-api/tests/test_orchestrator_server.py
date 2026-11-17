@@ -162,6 +162,7 @@ class Harness:
             lambda: list(self.projects),
             version=lambda: str(self.version),
             landings=over.get("landings"),
+            documents=over.pop("document_store", None),
         )
         self.comms = InMemoryCommStore()
         self.worktrees = InMemoryWorktreeSource(
@@ -14652,12 +14653,13 @@ class Cobalt:
 
 
 @asynccontextmanager
-async def cobalt_and_parent(store, cobalt_path: Path):
+async def cobalt_and_parent(store, cobalt_path: Path, documents=None):
     """``cobalt`` served on loopback, and a served parent that lists it in ``hosts:``.
 
     Yields the child, the parent's harness, the parent's API client, and the
     child's port. The parent's URL is the ``parentUrl`` it sends.
     ``child.served`` stops the child, as a host that goes to sleep.
+    ``documents`` is the parent's Task document table.
     """
     db = open_state_db(":memory:")
     await db.migrate()
@@ -14666,7 +14668,7 @@ async def cobalt_and_parent(store, cobalt_path: Path):
         port = await served.enter_async_context(child.serve())
         child.served = served
         link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
-        parent = Harness(store, remote_hosts={"cobalt": link})
+        parent = Harness(store, remote_hosts={"cobalt": link}, document_store=documents)
         api = await stack.enter_async_context(parent.client())
         parent.orch.own_url = str(api.session._base_url).rstrip("/")
         await until(api, "/api/host", online)
@@ -14695,6 +14697,140 @@ def merged(api, agent_id: str, predicate=lambda a: True):
         "/api/agents",
         lambda b: any(a["id"] == agent_id and predicate(a) for a in b["agents"]),
     )
+
+
+def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, images):
+    """The parent stores each version and verdict, and shows the host's copy once."""
+    (tmp_path / ".drafts").mkdir()
+    (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n\n![shot](shot.png)\n")
+    (tmp_path / "shot.png").write_bytes(PNG_BYTES)
+    table = InMemoryTaskAttachmentTable()
+    backlog, _rest = split_at_control_response(
+        read_fixture("plan-review-with-plan.jsonl")
+    )
+    seen: dict = {}
+
+    def is_iteration(document) -> bool:
+        return document["title"] == "Login flow"
+
+    def has_iteration(body) -> bool:
+        return any(is_iteration(d) for d in body["documents"])
+
+    async def stored_until(predicate):
+        async with asyncio.timeout(5):
+            while not predicate(found := await stored(table)):
+                await asyncio.sleep(0.02)
+        return found
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path, table) as (child, parent, api, _):
+            await parent.add_task_async("NORT-7", session=session_of("NORT-7"))
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            await merged(api, "cobalt:new1", lambda a: a["taskId"])
+
+            async with api.transcript_stream("cobalt:new1") as ws:
+                await ws_next(ws)
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                seen["stored"] = await stored_until(len)
+            listed = await until(api, "/api/documents", has_iteration)
+            seen["listed"] = [d for d in listed["documents"] if is_iteration(d)]
+            [document] = seen["listed"]
+            seen["approve"] = await api.post(
+                f"/api/documents/{document['id']}/approve",
+                {"version": document["version"]},
+            )
+            seen["approved"] = await stored_until(
+                lambda rows: rows[0][1].review_status == "approved"
+            )
+
+            pending = pending_from(backlog)
+            child.claude.pending["new1"] = pending
+            child.claude.rows["new1"]["state"] = pending.wait_kind
+            for event in backlog:
+                child.claude.push("new1", event)
+            seen["plan"] = await stored_until(lambda rows: len(rows) == 2)
+
+            # The host forgets its document: the parent shows its stored copy.
+            child.harness.orch._apply(
+                [{"type": "remove", "kind": "document", "id": document["id"]}]
+            )
+            shown = await until(
+                api,
+                "/api/documents",
+                lambda b: any(
+                    is_iteration(d) and d["source"]["type"] == "stored"
+                    for d in b["documents"]
+                ),
+            )
+            seen["forgotten"] = [d for d in shown["documents"] if is_iteration(d)]
+        seen["child"] = await stored(child.harness.orch.document_store)
+
+    run(scenario())
+
+    # (1) The host's document lands in the parent's store, its media as prose.
+    [(row, version)] = seen["stored"]
+    assert (
+        row.task_key,
+        row.name,
+        row.role,
+        version.body,
+        version.agent_id,
+        version.review_status,
+    ) == (
+        "northwind/NORT-7",
+        VERIFICATION_PATH,
+        "verification",
+        "# Login flow\n\n_`shot.png` could not be shown._\n",
+        "cobalt:new1",
+        "awaiting-review",
+    )
+    assert seen["child"] == []
+    # (2) The parent's world shows the host's copy only.
+    assert [d["id"] for d in seen["listed"]] == [
+        f"cobalt:{attachment_id('northwind/NORT-7', VERIFICATION_PATH)}"
+    ]
+    # (3) An approve on the host writes the parent's status.
+    assert seen["approve"].status == 200, seen["approve"].body
+    assert [v.review_status for _, v in seen["approved"]] == ["approved"]
+    # (4) A plan the delegated agent submits is stored on the parent too.
+    names = sorted(r.name for r, _ in seen["plan"])
+    assert names == [VERIFICATION_PATH, "plan"]
+    # (5) A forgotten host copy leaves the parent's stored copy.
+    assert [(d["id"], d["status"]) for d in seen["forgotten"]] == [
+        (attachment_id("northwind/NORT-7", VERIFICATION_PATH), "approved")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "code"),
+    [
+        ("NORT-8", {}, "unknown_id"),
+        # A host may store only on the task it names in the path.
+        ("NORT-7", {"taskId": "NORT-9"}, "invalid"),
+        ("NORT-7", {"status": "None"}, "invalid"),
+    ],
+)
+def test_the_presented_document_route_refuses_what_it_cannot_store(
+    harness, path, body, code
+):
+    harness.add_task("NORT-7")
+    wire = task_documents.Presented(
+        PROJECT, "NORT-7", "a.md", "other", "A", "draft", 1
+    ).to_json()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                f"/api/tasks/{PROJECT}/{path}/documents/presented", {**wire, **body}
+            )
+
+    reply = run(scenario())
+
+    assert reply.body["error"]["code"] == code
+    assert run(stored(harness.orch.document_store)) == []
 
 
 def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_parent(

@@ -143,6 +143,9 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
     app.router.add_get("/api/tasks/{project}/{id}/documents", _task_documents)
     app.router.add_post("/api/tasks/{project}/{id}/documents", _add_task_document)
+    app.router.add_post(
+        "/api/tasks/{project}/{id}/documents/presented", _store_presented_document
+    )
     app.router.add_get("/api/task-documents", _task_document)
     app.router.add_post("/api/task-documents/link", _link_task_document)
     app.router.add_post("/api/task-documents/unlink", _unlink_task_document)
@@ -726,6 +729,25 @@ async def _add_task_document(request: web.Request) -> web.StreamResponse:
     return await _command(
         request, lambda body: {**body, "type": "taskDocument.add", "taskId": task_id}
     )
+
+
+async def _store_presented_document(request: web.Request) -> web.Response:
+    """Store a document a **Delegated agent** presented on a **Remote host**.
+
+    The host calls it through its **Task home**. See ``docs/dev/remote-hosts.md``.
+    """
+    orch = await _ready_with_tasks(request)
+    task_id = _task_id(request)
+    if task_id not in orch.world["tasks"]:
+        return error_response("unknown_id", f"No task {task_id}")
+    try:
+        body = await _body(request)
+        return web.json_response(await orch.store_presented(task_id, body))
+    except _BadBody as exc:
+        return error_response("invalid", str(exc))
+    except task_documents.TaskDocumentError as exc:
+        refusal = task_document_refusal(exc)["error"]
+        return error_response(refusal["code"], refusal["message"])
 
 
 async def _link_task_document(request: web.Request) -> web.StreamResponse:
