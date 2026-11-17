@@ -10,9 +10,15 @@ SQLite backend's own tests for cuts, notices and the revision counter.
 
 import pytest
 
+from mael_domain.codename import CodenameTaken
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task import Task, TaskSession
-from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable, TaskTable, row_id
+from mael_domain.task_table import (
+    InMemoryTaskTable,
+    SqliteTaskTable,
+    TaskTable,
+    row_id,
+)
 
 
 def a_task(id: str = "2026-06-11.1", **fields) -> Task:
@@ -81,6 +87,38 @@ class TestTaskTableContract:
         task = a_task()
         await table.save(task)
         assert await table.load("maelstrom", task.id) == task
+
+    async def test_a_codename_round_trips_and_none_stays_none(self, table):
+        await table.save(a_task("a", codename="falcon"))
+        await table.save(a_task("b", codename=None))
+        a, b = await table.load("maelstrom", "a"), await table.load("maelstrom", "b")
+        assert a is not None and a.codename == "falcon"
+        assert b is not None and b.codename is None
+
+    async def test_held_codenames_reads_every_project(self, table):
+        await table.save(a_task("a", project="alpha", codename="falcon"))
+        await table.save(a_task("a", project="bravo", codename="quartz"))
+        await table.save(a_task("b", project="bravo", codename=None))
+        assert await table.held_codenames() == {"falcon", "quartz"}
+
+    async def test_a_second_holder_of_a_codename_is_refused(self, table):
+        """Unique across projects, so the UI can show one with no prefix."""
+        await table.save(a_task("a", project="alpha", codename="falcon"))
+        with pytest.raises(CodenameTaken):
+            await table.save(a_task("b", project="bravo", codename="falcon"))
+        assert await table.load("bravo", "b") is None
+
+    async def test_a_holder_saves_its_own_codename_again(self, table):
+        await table.save(a_task("a", codename="falcon"))
+        await table.save(a_task("a", codename="falcon", title="Renamed"))
+        loaded = await table.load("maelstrom", "a")
+        assert loaded is not None and loaded.title == "Renamed"
+
+    async def test_any_number_of_tasks_hold_no_codename(self, table):
+        """The partial index admits many ``NULL`` rows."""
+        for id in ("a", "b", "c"):
+            await table.save(a_task(id, codename=None))
+        assert len(await table.list("maelstrom")) == 3
 
     async def test_a_withdrawal_loads_as_a_bool(self, table):
         """SQLite hands back 1, which ``==`` cannot tell from ``True``."""
