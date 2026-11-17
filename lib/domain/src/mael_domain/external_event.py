@@ -51,6 +51,7 @@ SESSION_COMPACTED = "session.compacted"
 SESSION_NOT_COMPACTED = "session.not_compacted"
 TASK_UPDATED = "task.updated"
 TASK_QUEUED = "task.queued"
+DOCUMENT_NOT_STORED = "document.not_stored"
 
 #: The task fields whose change tells the task's agent. See "Task edits" in
 #: ``docs/dev/orchestrator-server.md``.

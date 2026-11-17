@@ -185,6 +185,7 @@ tag says the turn is from outside, the attributes are its facts, and the body is
 | `gate` | `gate.passed`, `gate.failed`, `gate.cancelled` | The gate watch |
 | `orchestrator` | `session.compacted`, `session.not_compacted` | A compaction request |
 | `orchestrator` | `task.updated`, `task.queued` | A task edit |
+| `orchestrator` | `document.not_stored` | A delegated agent's presentation the parent did not store |
 
 **One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
 agent in turn, and answers who took it and who refused. `_tell_worktree` wraps it for the
@@ -989,6 +990,19 @@ The remote host sends a document to the parent at three moments:
 A host numbers a document from 1 until its first store. So a delegated agent's first presentation
 of a document sends no `version`, and `store_presented` tells a new version by its digest. After
 the store, `_show_presented` gives the host's document the parent's version and status.
+
+A store that fails is never silent:
+
+- A presented version that does not reach the parent: the agent gets a `document.not_stored`
+  External event, and presents again. Its session goes on.
+- A verdict that does not reach the store: the approve or the request-changes is refused,
+  `unreachable` for a parent that does not answer. Nothing changes in the world, and the user can
+  try again. This holds for a local store too. A delegated verdict on a document the parent holds
+  no version of is refused the same way.
+- The final store when the agent exits: logged, because no agent is left to tell.
+
+A parent document call times out after 5 s, so a parent that hangs holds the agent's stream only
+briefly.
 
 ### A replay only repairs
 
@@ -2257,7 +2271,9 @@ the refusal and the user has to tell the agent. **Request changes** moves them
 to `changes-requested` and relays the summary to the agent once, as an `agent.say` naming the
 group title, so the agent hears what to fix. The relay comes first: a summary the host refuses
 never reached the agent, so the group stays awaiting a review nobody has answered. Both retire the
-attention items the members raised.
+attention items the members raised. Both store the status before the world changes, and a store
+that fails refuses the command. For request changes the agent has then heard the summary, and
+hears it again on a retry. The other order would leave a stored verdict the agent never heard.
 Neither touches the notebook. Both **refuse a plan document**: a plan review is the agent's own
 wait, ended by `agent.approve` or `agent.deny` on the request it blocks. Settling the document
 instead would flip its status, retire the attention item pointing the user at it, and leave the
