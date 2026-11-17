@@ -163,6 +163,18 @@ describe('deriveGraph', () => {
     expect(graph.edges).toEqual([{ id: 'T1->T2', source: 'T1', target: 'T2' }]);
   });
 
+  // The wire crosses lanes; the layout keeps it out of each lane's placement.
+  it('a follow of a task in another project is an edge too', () => {
+    const world = drawnWorld({
+      tasks: [
+        makeTask({ id: 'T1', project: 'p1' }),
+        makeTask({ id: 'T2', project: 'p2', follows: ['T1'] }),
+      ],
+    });
+    const graph = deriveGraph(world, unfiltered);
+    expect(graph.edges).toEqual([{ id: 'T1->T2', source: 'T1', target: 'T2' }]);
+  });
+
   it('a done task is a done node, and a working agent makes a working node', () => {
     const world = drawnWorld({
       tasks: [

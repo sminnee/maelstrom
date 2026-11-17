@@ -501,8 +501,10 @@ never a node's agent and never a node: it is reached through its parent's sessio
 
 The canvas also rewires. Each node carries two anchors, hidden until the node is hovered or
 focused and lit on every node while a wire is dragged, and a drag between them writes the
-target's `follows` — the direction an edge is built in, followed to follower. A drag across projects or onto the node itself is declined before it lands, and the
-server refuses the same pair again along with a cycle. Nothing is optimistic: the wire appears
+target's `follows` — the direction an edge is built in, followed to follower. A drag between two
+lanes writes a follow of another project's task. A drag onto the node itself, or to or from a
+free agent, is declined before it lands, and the server refuses a self-follow again along with a
+cycle. Nothing is optimistic: the wire appears
 when the refetched world carries it, so a refusal simply leaves the board as it was. `follows` is
 the one field the canvas writes that the task editor does not, so it is not part of the editor's
 draft. Hovering a wire draws it thicker and darker, and offers the button that cuts it, which

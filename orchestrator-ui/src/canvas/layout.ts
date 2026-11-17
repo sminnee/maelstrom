@@ -83,7 +83,8 @@ export function layoutSwimlanes(graph: Graph): Layout {
   for (const edge of graph.edges) followsOf.get(edge.target)?.push(edge.source);
 
   // Each lane is scored on its own: the engine sees one lane, so it never
-  // needs a notion of groups. A cross-lane edge falls out as an unknown id.
+  // needs a notion of groups. A cross-lane edge, a follow of another
+  // project's task, is drawn but falls out here as an unknown id.
   const columnsPerGroup = new Map(
     graph.groups.map((group) => [
       group.id,

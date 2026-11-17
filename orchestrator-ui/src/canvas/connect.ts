@@ -10,18 +10,16 @@ export interface ConnectionEnds {
  * Whether a drag between these two may be written.
  *
  * The same rules the server applies, checked here so the wire never lands
- * rather than landing and reverting on the next read. A task only ever follows
- * a task beside it in its own notebook, and a self-edge would strand the task:
- * nothing it follows could ever be done.
+ * rather than landing and reverting on the next read. A task may follow a task
+ * in another project's lane. A self-edge would strand the task: nothing it
+ * follows could ever be done.
  *
  * A free agent draws on the board but is no task, so its bare id has no
  * project and no `follows` to write.
  */
 export function canConnect({ source, target }: ConnectionEnds): boolean {
   if (!source || !target || source === target) return false;
-  const from = projectOf(source);
-  const to = projectOf(target);
-  return from !== '' && from === to;
+  return projectOf(source) !== '' && projectOf(target) !== '';
 }
 
 /** The project half of a qualified task id, or `''` when it carries none. */
