@@ -172,10 +172,18 @@ shows the qualified id when it must tell two projects' tasks apart, and the bare
 something else on screen already names the project, such as a node in its lane or a panel tab
 under the panel sidebar.
 
+**Codename**:
+The one word the orchestrator UI shows for an open task, such as `falcon`, in place of its id.
+A task holds a codename if and only if its status is `todo` or `in-progress`. No two tasks hold
+the same codename, in any project. A task gives its codename back when it closes, and draws a
+new one if it opens again. The id stays the key for the CLI, routes and storage, so the tooltip
+on a codename names the id.
+_Avoid_: Nickname, alias, handle
+
 **Failover id**:
-The rule that fills an id slot from the next source down. An agent with no task shows its own
-agent id where a task would show its id, in the same slot and the same register. The slot is
-one field, so a free agent's node and tab name themselves as plainly as a task's do, and
+The rule that fills an id slot from the next source down: a task's **Codename**, then its task
+id, then, for an agent with no task, its agent id, in the same slot and the same register. The
+slot is one field, so a free agent's node and tab name themselves as plainly as a task's do, and
 nothing marks a free agent as lacking a task.
 _Avoid_: Fallback id, placeholder id
 
