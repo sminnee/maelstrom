@@ -1,7 +1,8 @@
-"""The Task document store's contract, and what ``attach`` copies where.
+"""The Task document store's contract, the store rules, and the media copy.
 
-The table contract runs against both backends. ``attach`` runs against a real
-temp worktree and a temp task repo, because what it does is copy files.
+The table contract and the store rules run against both backends. ``prepare``
+and the media copy run against a real temp worktree and a temp task repo,
+because what they do is read and copy files.
 """
 
 import asyncio
@@ -22,7 +23,7 @@ from mael_domain.task_attachments import (
     Version,
     attachment_id,
 )
-from mael_domain.task_documents import DocumentRef, attach
+from mael_domain.task_documents import NEEDS_BODY, DocumentRef, Presented, ReviewGroup
 
 PNG = b"\x89PNG\r\n\x1a\n\x00\x00fakepngdata"
 WEBM = b"\x1a\x45\xdf\xa3\x00\x00fakewebmdata, longer than the picture"
@@ -544,20 +545,6 @@ def worktree(tmp_path):
     return root
 
 
-def attach_verification(table, worktree, now=NOW, **over):
-    args = {
-        "project": "northwind",
-        "task_id": "2026-09-22.1",
-        "cwd": str(worktree),
-        "path": ".drafts/verification.md",
-        "title": "Login flow",
-        "now": now,
-    }
-    args.update(over)
-    attached = asyncio.run(attach(table, **args))
-    return attached[1] if attached else None
-
-
 def bucket_names(tasks) -> list[str]:
     bucket = tasks / "northwind" / "images" / "2026-09-22.1"
     return sorted(p.name for p in bucket.iterdir()) if bucket.exists() else []
@@ -567,15 +554,63 @@ def write_verification(worktree, body: str) -> None:
     (worktree / ".drafts" / "verification.md").write_text(body)
 
 
-class TestAttach:
+def digest_of(worktree, body: str | None = None) -> str:
+    prepared = docs.prepare(str(worktree), ".drafts/verification.md", body)
+    assert prepared is not None
+    return prepared.digest
+
+
+def verification_text(worktree) -> str:
+    return (worktree / ".drafts" / "verification.md").read_text()
+
+
+def attached(worktree, body: str | None = None) -> str:
+    """The verification file's text with its media copied into the bucket."""
+    source = body if body is not None else verification_text(worktree)
+    return docs.with_attached_media(source, "northwind", "2026-09-22.1", str(worktree))
+
+
+class TestPrepare:
+    """The digest takes the text and the bytes of each media file it names."""
+
+    def test_the_same_file_again_has_the_same_digest(self, worktree):
+        assert digest_of(worktree) == digest_of(worktree)
+
+    def test_a_recording_made_again_under_the_same_name_changes_the_digest(
+        self, worktree
+    ):
+        """The markdown did not change; the evidence did."""
+        before = digest_of(worktree)
+        (worktree / "docs" / "flow.webm").write_bytes(WEBM + b", recorded again")
+
+        assert digest_of(worktree) != before
+
+    def test_a_media_file_that_appears_later_changes_the_digest(self, worktree):
+        write_verification(worktree, "![n](docs/new.png)\n")
+        before = digest_of(worktree)
+        (worktree / "docs" / "new.png").write_bytes(PNG)
+
+        assert digest_of(worktree) != before
+
+    def test_a_document_that_cannot_be_read_is_none(self, worktree):
+        assert docs.prepare(str(worktree), ".drafts/missing.md") is None
+
+    def test_a_given_body_is_used_without_reading_the_path(self, worktree):
+        """A plan's file is outside the worktree; the document holds its text."""
+        prepared = docs.prepare(
+            str(worktree), "/Users/dev/.claude/plans/a.md", "# Plan\n"
+        )
+
+        assert prepared is not None and prepared.source == "# Plan\n"
+
+
+class TestWithAttachedMedia:
     def test_media_lands_in_the_bucket_and_the_body_carries_tokens(
         self, tasks, worktree
     ):
-        attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        body = attached(worktree)
 
-        assert attached is not None
-        assert attached.attachment_id == attachment_id(KEY, ".drafts/verification.md")
-        assert attached.body == (
+        assert body == (
             "# Login flow\n\n"
             f"![The dashboard]({{{{MAEL_TASK_DIR}}}}/images/2026-09-22.1/{SHOT})\n\n"
             f"![The flow]({{{{MAEL_TASK_DIR}}}}/images/2026-09-22.1/{FLOW})\n"
@@ -584,78 +619,21 @@ class TestAttach:
         assert (bucket / SHOT).read_bytes() == PNG
         assert (bucket / FLOW).read_bytes() == WEBM
 
-    def test_the_same_document_again_writes_nothing(self, tasks, worktree):
-        """A stream replay shows the path again, so the version must hold."""
-        table = InMemoryTaskAttachmentTable()
-        first = attach_verification(table, worktree)
+    def test_an_unchanged_file_is_stored_once(self, tasks, worktree):
+        attached(worktree)
+        attached(worktree, "Now with one picture.\n\n![The dashboard](docs/shot.png)\n")
 
-        again = attach_verification(table, worktree, now=LATER)
-
-        assert again == first
-        assert (again.version, again.created_at) == (1, NOW)
-
-    def test_a_changed_body_is_the_next_version(self, tasks, worktree):
-        table = InMemoryTaskAttachmentTable()
-        attach_verification(table, worktree)
-        write_verification(
-            worktree, "Now with one picture.\n\n![The dashboard](docs/shot.png)\n"
-        )
-
-        attached = attach_verification(table, worktree, now=LATER)
-
-        assert attached is not None and attached.version == 2
-        # The picture did not change, so the bucket holds it once.
         assert bucket_names(tasks) == [FLOW, SHOT]
-
-    def test_an_earlier_body_again_is_the_next_version(self, tasks, worktree):
-        table = InMemoryTaskAttachmentTable()
-        first = attach_verification(table, worktree)
-        attach_verification(table, worktree, body="Reworked.\n")
-
-        again = attach_verification(table, worktree)
-
-        assert again is not None and again.version == 3
-        assert again.body == first.body
-
-    def test_a_changed_title_is_the_next_version(self, tasks, worktree):
-        table = InMemoryTaskAttachmentTable()
-        attach_verification(table, worktree)
-
-        attached = attach_verification(table, worktree, title="Sign-in flow", now=LATER)
-
-        assert attached is not None
-        assert (attached.version, attached.title) == (2, "Sign-in flow")
-
-    def test_a_recording_made_again_under_the_same_name_is_the_next_version(
-        self, tasks, worktree
-    ):
-        """The markdown did not change; the evidence did."""
-        table = InMemoryTaskAttachmentTable()
-        attach_verification(table, worktree)
-        again = WEBM + b", recorded again"
-        (worktree / "docs" / "flow.webm").write_bytes(again)
-
-        attached = attach_verification(table, worktree, now=LATER)
-
-        assert attached is not None and attached.version == 2
-        [added] = set(bucket_names(tasks)) - {FLOW, SHOT}
-        assert (
-            tasks / "northwind" / "images" / "2026-09-22.1" / added
-        ).read_bytes() == (again)
-        assert f"/images/2026-09-22.1/{added})" in attached.body
 
     def test_two_files_of_one_name_are_each_stored_once(self, tasks, worktree):
         """Playwright names every recording ``video.webm``."""
         for name, data in (("a", WEBM + b"-a"), ("b", WEBM + b"-b")):
             (worktree / name).mkdir()
             (worktree / name / "video.webm").write_bytes(data)
-        table = InMemoryTaskAttachmentTable()
-        write_verification(worktree, "![a](a/video.webm) ![b](b/video.webm)\n")
-        attach_verification(table, worktree)
+        attached(worktree, "![a](a/video.webm) ![b](b/video.webm)\n")
         first = bucket_names(tasks)
-        write_verification(worktree, "Again. ![a](a/video.webm) ![b](b/video.webm)\n")
 
-        attach_verification(table, worktree, now=LATER)
+        attached(worktree, "Again. ![a](a/video.webm) ![b](b/video.webm)\n")
 
         assert len(first) == 2
         assert bucket_names(tasks) == first
@@ -663,41 +641,35 @@ class TestAttach:
     @pytest.mark.parametrize("ext", [".mp4", ".mov"])
     def test_an_iso_media_file_keeps_its_own_extension(self, tasks, worktree, ext):
         (worktree / "docs" / f"clip{ext}").write_bytes(MP4)
-        write_verification(worktree, f"![c](docs/clip{ext})\n")
 
-        attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        attached(worktree, f"![c](docs/clip{ext})\n")
 
         [name] = bucket_names(tasks)
         assert name.startswith("clip-") and name.endswith(ext)
 
     def test_a_file_that_is_not_media_is_refused(self, tasks, worktree):
         (worktree / "docs" / "notes.txt").write_text("just text")
-        write_verification(worktree, "![n](docs/notes.txt)\n")
 
-        attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        body = attached(worktree, "![n](docs/notes.txt)\n")
 
-        assert attached is not None
-        assert attached.body == "_`docs/notes.txt` could not be shown._\n"
+        assert body == "_`docs/notes.txt` could not be shown._\n"
         assert not (tasks / "northwind").exists()
 
     def test_an_iso_image_is_not_taken_for_a_video(self, tasks, worktree):
         """HEIC shares the ``ftyp`` box with MP4, and no ``<video>`` plays it."""
         (worktree / "docs" / "photo.heic").write_bytes(HEIC)
-        write_verification(worktree, "![p](docs/photo.heic)\n")
 
-        attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        body = attached(worktree, "![p](docs/photo.heic)\n")
 
-        assert attached is not None
-        assert attached.body == "_`docs/photo.heic` could not be shown._\n"
+        assert body == "_`docs/photo.heic` could not be shown._\n"
 
     def test_a_file_over_the_cap_is_refused(self, tasks, worktree, monkeypatch):
         monkeypatch.setattr(attachments, "MAX_MEDIA_BYTES", len(WEBM) - 1)
         assert len(PNG) < len(WEBM)
 
-        attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        body = attached(worktree)
 
-        assert attached is not None
-        assert attached.body == (
+        assert body == (
             "# Login flow\n\n"
             f"![The dashboard]({{{{MAEL_TASK_DIR}}}}/images/2026-09-22.1/{SHOT})\n\n"
             "_`docs/flow.webm` could not be shown._\n"
@@ -705,31 +677,160 @@ class TestAttach:
 
     def test_a_path_outside_the_worktree_is_refused(self, tasks, worktree):
         (worktree.parent / "secret.png").write_bytes(PNG)
-        write_verification(worktree, "![s](../secret.png)\n")
 
-        attached = attach_verification(InMemoryTaskAttachmentTable(), worktree)
+        body = attached(worktree, "![s](../secret.png)\n")
 
-        assert attached is not None
-        assert attached.body == "_`../secret.png` could not be shown._\n"
+        assert body == "_`../secret.png` could not be shown._\n"
 
-    def test_a_document_that_cannot_be_read_is_not_attached(self, tasks, worktree):
-        table = InMemoryTaskAttachmentTable()
-
-        attached = attach_verification(table, worktree, path=".drafts/missing.md")
-
-        assert attached is None
-        assert asyncio.run(table.all_documents()) == []
-
-    def test_a_given_body_is_attached_without_reading_the_path(self, tasks, worktree):
-        """A plan's file is outside the worktree; the document holds its text."""
-        attached = attach_verification(
-            InMemoryTaskAttachmentTable(),
-            worktree,
-            path="/Users/dev/.claude/plans/a.md",
-            name="plan",
-            title="Plan",
-            body="# Plan\n\nDo the thing.\n",
+    def test_without_media_makes_every_ref_prose(self, worktree):
+        assert docs.without_media(verification_text(worktree)) == (
+            "# Login flow\n\n_`docs/shot.png` could not be shown._\n\n"
+            "_`docs/flow.webm` could not be shown._\n"
         )
 
-        assert attached is not None
-        assert attached.body == "# Plan\n\nDo the thing.\n"
+
+def presented(**over) -> Presented:
+    fields = {
+        "project": "northwind",
+        "task_id": "2026-09-22.1",
+        "name": ".drafts/verification.md",
+        "role": "verification",
+        "title": "Login flow",
+        "status": "awaiting-review",
+        "world_version": 1,
+        "agent_id": "cobalt:ag1",
+    }
+    fields.update(over)
+    return Presented(**fields)
+
+
+def store(table, p: Presented, *, replay=False, verdict=False, now=NOW):
+    return asyncio.run(
+        docs.store_presented(table, p, replay=replay, verdict=verdict, now=now)
+    )
+
+
+def with_body(p: Presented, body: str = "# Login flow\n") -> Presented:
+    return replace(p, body=body, digest=f"digest of {body}")
+
+
+class TestStorePresented:
+    """The table in ``docs/dev/orchestrator-server.md``, "Storing a Task document"."""
+
+    def test_a_new_document_asks_for_its_body_then_is_version_one(self, table):
+        assert store(table, presented()) is NEEDS_BODY
+
+        row, version = store(table, with_body(presented()))
+
+        assert (row.role, version.version) == ("verification", 1)
+        assert (version.review_status, version.agent_id) == (
+            "awaiting-review",
+            "cobalt:ag1",
+        )
+
+    def test_a_new_presentation_with_a_new_body_is_the_next_version(self, table):
+        store(table, with_body(presented()))
+        again = presented(world_version=2)
+
+        assert store(table, replace(again, digest="another")) is NEEDS_BODY
+        _, version = store(table, with_body(again, "# Changed\n"), now=LATER)
+
+        assert (version.version, version.body) == (2, "# Changed\n")
+
+    def test_the_same_digest_again_needs_no_body_and_adds_no_version(self, table):
+        store(table, with_body(presented()))
+        group = ReviewGroup("g1", "The set", 2)
+        again = replace(
+            with_body(presented(world_version=2, agent_id="cobalt:ag2", group=group)),
+            body=None,
+        )
+
+        _, version = store(table, again)
+
+        assert version.version == 1
+        assert (version.agent_id, version.group_id) == ("cobalt:ag2", "g1")
+
+    def test_a_status_change_writes_the_status_on_the_latest(self, table):
+        store(table, with_body(presented()))
+
+        _, version = store(table, presented(status="approved"))
+
+        assert (version.version, version.review_status) == (1, "approved")
+
+    def test_a_replay_keeps_the_latest_and_its_status(self, table):
+        store(table, with_body(presented()))
+
+        _, version = store(
+            table, presented(world_version=5, status="draft"), replay=True
+        )
+
+        assert (version.version, version.review_status) == (1, "awaiting-review")
+
+    def test_a_replayed_plan_the_store_missed_asks_for_its_body(self, table):
+        plan = presented(name="plan", role="plan", text_in_event=True)
+        store(table, with_body(plan))
+
+        held = store(table, with_body(plan), replay=True)
+        missed = store(table, replace(plan, digest="a later plan"), replay=True)
+
+        assert held is not NEEDS_BODY and held[1].version == 1
+        assert missed is NEEDS_BODY
+
+    def test_a_verdict_on_text_the_store_does_not_hold_writes_nothing(self, table):
+        store(table, with_body(presented()))
+
+        settled = store(
+            table, presented(world_version=2, status="approved"), verdict=True
+        )
+
+        assert settled is None
+        [row] = asyncio.run(table.all_documents())
+        [version] = asyncio.run(table.versions(row.id))
+        assert version.review_status == "awaiting-review"
+
+    def test_an_unnumbered_presentation_is_told_new_by_its_digest(self, table):
+        """A delegated agent's first presentation numbers from 1."""
+        store(table, with_body(presented(status="approved")))
+        store(table, with_body(presented(world_version=2), "# Second\n"))
+        unnumbered = presented(world_version=None, agent_id="cobalt:ag2")
+
+        same = store(table, replace(with_body(unnumbered, "# Second\n"), body=None))
+        assert store(table, replace(unnumbered, digest="another")) is NEEDS_BODY
+        _, new = store(table, with_body(unnumbered, "# Third\n"))
+
+        assert same is not NEEDS_BODY and same[1].version == 2
+        assert (new.version, new.review_status) == (3, "awaiting-review")
+
+    def test_a_verdict_on_an_unnumbered_document_writes_nothing(self, table):
+        store(table, with_body(presented()))
+
+        settled = store(
+            table, presented(world_version=None, status="approved"), verdict=True
+        )
+
+        assert settled is None
+
+    def test_a_stored_source_adds_no_version(self, table):
+        assert store(table, presented(has_path=False)) is None
+
+    def test_the_wire_form_reads_back(self):
+        p = with_body(presented(group=ReviewGroup("g1", "The set", 2)))
+
+        assert Presented.from_json(p.to_json()) == p
+
+    @pytest.mark.parametrize(
+        "change",
+        [
+            {"name": None},
+            {"status": "None"},
+            {"hasPath": "false"},
+            {"worldVersion": "one"},
+        ],
+    )
+    def test_a_wire_form_of_the_wrong_shape_is_refused(self, change):
+        wire = {**presented().to_json(), **change}
+        if change.get("name", "") is None:
+            del wire["name"]
+
+        with pytest.raises(docs.InvalidDocument):
+            Presented.from_json(wire)
