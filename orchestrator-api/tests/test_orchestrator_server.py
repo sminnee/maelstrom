@@ -12391,6 +12391,40 @@ def test_a_settled_review_raises_no_item_after_a_restart(attach_harness):
     assert reviews == []
 
 
+@pytest.mark.parametrize(
+    ("verdict", "body"),
+    [("approve", {}), ("request-changes", {"summary": "Fix the title."})],
+)
+def test_a_verdict_the_store_refuses_changes_nothing(
+    attach_harness, monkeypatch, verdict, body
+):
+    harness = attach_harness()
+
+    async def refuse(self, presented, **kwargs):
+        raise ValueError("the table is read-only")
+
+    async def scenario():
+        async with harness.client() as api:
+            harness.daemon.push("ag1", tag_event(REVIEW_TAG))
+            await attach_settled(api, harness)
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            monkeypatch.setattr(NotebookTaskSource, "store_document", refuse)
+            reply = await api.post(
+                f"/api/documents/{row['id']}/{verdict}",
+                {"version": row["version"], **body},
+            )
+            shown = await api.get_json(f"/api/documents/{row['id']}")
+            return reply, shown
+
+    reply, shown = run(scenario())
+
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert "read-only" in reply.body["error"]["message"]
+    assert shown["status"] == "awaiting-review"
+    [(_, version)] = run(stored(attach_harness.table))
+    assert version.review_status == "awaiting-review"
+
+
 def test_approving_a_file_that_could_not_be_read_stores_nothing(attach_harness):
     """The user saw the placeholder, so the file's text is not stored as approved."""
     harness = attach_harness()
@@ -14850,13 +14884,82 @@ def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, 
     ]
 
 
+def test_a_parent_that_does_not_store_a_delegated_document_is_not_silent(
+    store, tmp_path, images, monkeypatch
+):
+    """A presentation the parent missed is told; a verdict it missed is refused."""
+    (tmp_path / ".drafts").mkdir()
+    (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n")
+    table = InMemoryTaskAttachmentTable()
+    real = RemoteTaskSource.store_document
+    away = [True]
+
+    async def store_document(self, presented, **kwargs):
+        if away[0]:
+            raise TaskSourceRemote(self.base_url)
+        return await real(self, presented, **kwargs)
+
+    monkeypatch.setattr(RemoteTaskSource, "store_document", store_document)
+    seen: dict = {}
+
+    def told(calls) -> list[str]:
+        return [c["text"] for c in calls if "document.not_stored" in c.get("text", "")]
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path, document_store=table) as (
+            child,
+            parent,
+            api,
+            _,
+        ):
+            await parent.add_task_async("NORT-7", session=session_of("NORT-7"))
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            await merged(api, "cobalt:new1", lambda a: a["taskId"])
+            async with api.transcript_stream("cobalt:new1") as ws:
+                await ws_next(ws)
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                async with asyncio.timeout(5):
+                    while not told(child.claude.calls):
+                        await asyncio.sleep(0.02)
+                seen["told"] = told(child.claude.calls)
+
+                away[0] = False
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                async with asyncio.timeout(5):
+                    while not await stored(table):
+                        await asyncio.sleep(0.02)
+            listed = await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["title"] == "Login flow" for d in b["documents"]),
+            )
+            [document] = [d for d in listed["documents"] if d["title"] == "Login flow"]
+            away[0] = True
+            seen["approve"] = await api.post(
+                f"/api/documents/{document['id']}/approve",
+                {"version": document["version"]},
+            )
+            seen["stored"] = await stored(table)
+
+    run(scenario())
+
+    [text] = seen["told"]
+    assert "Login flow was not stored on the parent" in text
+    assert seen["approve"].status == 502
+    assert "not stored" in seen["approve"].body["error"]["message"]
+    assert [v.review_status for _, v in seen["stored"]] == ["awaiting-review"]
+
+
 @pytest.mark.parametrize(
     ("path", "body", "code"),
     [
         ("NORT-8", {}, "unknown_id"),
         # A host may store only on the task it names in the path.
         ("NORT-7", {"taskId": "NORT-9"}, "invalid"),
-        ("NORT-7", {"status": "None"}, "invalid"),
+        ("NORT-7", {"verdict": "false"}, "invalid"),
     ],
 )
 def test_the_presented_document_route_refuses_what_it_cannot_store(

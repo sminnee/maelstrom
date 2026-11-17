@@ -776,6 +776,16 @@ class TestStorePresented:
         assert held is not NEEDS_BODY and held[1].version == 1
         assert missed is NEEDS_BODY
 
+    def test_a_verdict_writes_the_status_and_adds_no_version(self, table):
+        store(table, with_body(presented()))
+        settled = replace(presented(status="approved"), digest="another")
+
+        _, version = store(table, settled, verdict=True)
+
+        [row] = asyncio.run(table.all_documents())
+        assert asyncio.run(table.versions(row.id)) == [version]
+        assert (version.version, version.review_status) == (1, "approved")
+
     def test_a_verdict_on_text_the_store_does_not_hold_writes_nothing(self, table):
         store(table, with_body(presented()))
 

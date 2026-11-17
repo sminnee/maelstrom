@@ -1050,6 +1050,10 @@ def stored_document_json(stored: "StoredDocument | None | NeedsBody") -> dict[st
 
 #: How long one call to a parent's task API may take.
 PARENT_CALL_SECS = 30.0
+#: How long one Task document call to a parent may take. A presentation
+#: holds the agent's stream while it runs, so a parent that hangs must not
+#: hold it for long.
+DOCUMENT_CALL_SECS = 5.0
 
 
 class RemoteTaskSource:
@@ -1066,9 +1070,7 @@ class RemoteTaskSource:
     def session(self) -> aiohttp.ClientSession:
         """One client session, made on first use so it binds the running loop."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=PARENT_CALL_SECS)
-            )
+            self._session = aiohttp.ClientSession()
         return self._session
 
     async def close(self) -> None:
@@ -1076,7 +1078,12 @@ class RemoteTaskSource:
             await self._session.close()
 
     async def _call(
-        self, method: str, path: str, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        timeout: float = PARENT_CALL_SECS,
     ) -> dict[str, Any] | None:
         """The parent's JSON reply; ``None`` for a ``404``.
 
@@ -1085,7 +1092,10 @@ class RemoteTaskSource:
         """
         try:
             async with self.session().request(
-                method, f"{self.base_url}{path}", json=body
+                method,
+                f"{self.base_url}{path}",
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
                 reply = await response.json()
         except (aiohttp.ClientError, OSError, asyncio.TimeoutError, ValueError) as exc:
@@ -1160,14 +1170,17 @@ class RemoteTaskSource:
         """
         path = f"/api/tasks/{presented.project}/{presented.task_id}/documents/presented"
         body = {**presented.to_json(), "replay": replay, "verdict": verdict}
-        reply = await self._call("POST", path, body)
+        reply = await self._call("POST", path, body, timeout=DOCUMENT_CALL_SECS)
         if reply is None:
             raise KeyError(task_key(presented.project, presented.task_id))
         state = reply.get("state")
         if state == "needs-body":
             return NEEDS_BODY
         if state == "stored":
-            return StoredDocument(int(reply["version"]), str(reply["reviewStatus"]))
+            try:
+                return StoredDocument(int(reply["version"]), str(reply["reviewStatus"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise TaskSourceRemote(self.base_url) from exc
         return None
 
 
