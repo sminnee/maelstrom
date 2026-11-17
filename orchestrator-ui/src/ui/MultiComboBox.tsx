@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ComboOption } from './ComboBox';
+import { optionMatches } from './optionMatches';
 import styles from './MultiComboBox.module.css';
 import { useComboBoxOffer } from './useComboBoxOffer';
 
@@ -39,9 +40,7 @@ export function MultiComboBox({
     return options.filter((o) => {
       if (value.includes(o.value)) return false;
       if (!needle) return true;
-      return (
-        o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle)
-      );
+      return optionMatches(o, needle);
     });
   }, [options, value, text]);
 
@@ -183,7 +182,7 @@ export function MultiComboBox({
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(option)}
             >
-              <span className={styles.value}>{option.value}</span>
+              <span className={styles.value}>{option.display ?? option.value}</span>
               {option.label && (
                 <span className={`${styles.label} truncate`} title={option.label}>
                   {option.label}
