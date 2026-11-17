@@ -344,6 +344,8 @@ export interface TaskLogEntry {
 export interface Task {
   id: TaskId;
   notebookId: string;
+  /** The word the UI shows while the task is open; `null` when it holds none. See CONTEXT.md, "Codename". */
+  codename: string | null;
   project: ProjectId;
   title: string;
   status: TaskStatus;

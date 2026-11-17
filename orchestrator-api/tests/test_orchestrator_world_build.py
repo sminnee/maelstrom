@@ -56,9 +56,11 @@ Do the export.
 
 def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     task = model.Task.from_markdown(TASK_MD, status="in-progress")
+    task.codename = "falcon"
     entity = task_entity(task, actionable=False)
     assert entity["id"] == "northwind/NORT-7.2"
     assert entity["notebookId"] == "NORT-7.2"
+    assert entity["codename"] == "falcon"
     assert entity["project"] == "northwind"
     assert entity["status"] == "in-progress"
     assert entity["command"] == "plan-task"

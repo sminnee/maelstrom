@@ -2320,6 +2320,7 @@ function makeNewTask(
   return {
     id,
     notebookId: id.split('/')[1]!,
+    codename: null,
     project,
     title,
     content: str('content'),
