@@ -19,7 +19,7 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping
 from concurrent.futures import Executor
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -5680,6 +5680,56 @@ class Orchestrator:
             ),
         }
 
+    async def document_detail(
+        self, document_id: str, version: int | None = None
+    ) -> dict[str, Any] | None:
+        """The world document ``document_id`` at ``version``, else as the world holds it.
+
+        A stored document adds its ``ref``, its ``versions`` and the
+        ``fragments`` of its latest version. A document with no store row, a
+        free agent's, has ``ref: null`` and only the world's version.
+        ``None``: no such document or version.
+        """
+        current = self.world["documents"].get(document_id)
+        row = await self.document_store.get(self.ids.strip(document_id))
+        versions = await self.document_store.versions(row.id) if row else []
+        if row is None or not versions:
+            if current is None or version is not None:
+                return None
+            return {**current, "ref": None, "versions": [], "fragments": []}
+        if version is None:
+            entity = current
+        else:
+            found = next((v for v in versions if v.version == version), None)
+            entity = await self._stored_entity(row, found) if found else None
+        if entity is None:
+            return None
+        return {
+            **entity,
+            "ref": str(task_documents.ref_of(row)),
+            "versions": [_version_json(v) for v in versions],
+            "fragments": task_documents.fragments(row.kind, versions[-1].body),
+        }
+
+    async def _command_ref(self, command: dict[str, Any]) -> task_documents.DocumentRef:
+        """The document a command names: ``ref``, or ``documentId`` and ``fragment``.
+
+        Raises:
+            TaskDocumentError: ``ref`` does not parse, or ``documentId`` names
+                no stored document.
+        """
+        if "ref" in command:
+            return task_documents.parse_ref(
+                str(command["ref"]), project=None, task_id=None
+            )
+        document_id = str(command["documentId"])
+        row = await self.document_store.get(self.ids.strip(document_id))
+        if row is None:
+            raise task_documents.DocumentNotFound(f"No document {document_id}")
+        return replace(
+            task_documents.ref_of(row), fragment=command.get("fragment") or None
+        )
+
     async def _task_document_json(self, row: TaskAttachment) -> dict[str, Any]:
         versions = await self.document_store.versions(row.id)
         latest = versions[-1] if versions else None
@@ -5722,7 +5772,7 @@ class Orchestrator:
         return {"ok": True, "result": {"uri": uri, "version": version.version}}
 
     async def _link_task_document(self, command: dict[str, Any]) -> dict[str, Any]:
-        """``taskDocument.link`` or ``.unlink``: the task in ``taskId``, to ``ref``."""
+        """``taskDocument.link`` or ``.unlink``: the task in ``taskId``, to the document."""
         project, _, task_id = str(command["taskId"]).partition("/")
         change = (
             task_documents.link
@@ -5730,9 +5780,7 @@ class Orchestrator:
             else task_documents.unlink
         )
         try:
-            ref = task_documents.parse_ref(
-                str(command["ref"]), project=None, task_id=None
-            )
+            ref = await self._command_ref(command)
             await change(self.document_store, ref, project=project, task_id=task_id)
         except task_documents.TaskDocumentError as exc:
             return task_document_refusal(exc)
@@ -5742,11 +5790,9 @@ class Orchestrator:
         return {"ok": True, "result": {}}
 
     async def _archive_task_document(self, command: dict[str, Any]) -> dict[str, Any]:
-        """Archive or unarchive ``ref``. ``by``, when given, must be its owner."""
+        """Archive or unarchive the document. ``by``, when given, must be its owner."""
         try:
-            ref = task_documents.parse_ref(
-                str(command["ref"]), project=None, task_id=None
-            )
+            ref = await self._command_ref(command)
             row = await task_documents.archive(
                 self.document_store,
                 ref,

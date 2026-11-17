@@ -1794,7 +1794,7 @@ without waiting for the poll.
 | `GET /api/agents/{id}/milestones` | The agent's `AgentCost`: its totals, and a `stages` list saying what each stage cost. Served through `agent_cost.build_cost_report`, the report `mael agent cost` prints. An agent that reached no stage gets that report with `stages: []`, not a 404 |
 | `GET /api/attention?open=1` | `{attention: [Attention]}`; `open` keeps only items not yet cleared |
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
-| `GET /api/documents/{id}` | The `Document`, `markdown` included |
+| `GET /api/documents/{id}` | The `Document`, `markdown` included. `?version=<n>` reads that stored version, with its media URLs and plan transform; an unknown version is `unknown_id`. A stored document adds `ref`, `versions` (no bodies) and `fragments`, the latest version's. A free agent's document has `ref: null`, no versions and no fragments. The id route forwards to a **Remote host**, which the `task-documents` routes do not |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier's last sample found no live process. Empty on a server with no tangier |
 | `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
@@ -2086,6 +2086,10 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/desk/{deskId}/dismiss` | `{chain, worktreeId?}` | `desk.dismiss` | `202 {operationId}` |
 | `POST /api/documents/{id}/approve` | `{version}` | `document.approve` | `{taskIds}` |
 | `POST /api/documents/{id}/request-changes` | `{version, summary}` | `document.requestChanges` | `{}` |
+| `POST /api/documents/{id}/link` | `{taskId, fragment?}` | `taskDocument.link` with `documentId` | `{}`. A fragment the latest version lacks is `invalid` |
+| `POST /api/documents/{id}/unlink` | `{taskId, fragment?}` | `taskDocument.unlink` with `documentId` | `{}` |
+| `POST /api/documents/{id}/archive` | `{by?}` | `taskDocument.archive` with `documentId` | `{archived}`. With no `by`, any document may be archived: see ADR 0001 |
+| `POST /api/documents/{id}/unarchive` | `{by?}` | `taskDocument.archive` with `documentId` | `{archived}` |
 | `POST /api/worktrees/{id}/close` | | `worktree.close` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/force-close` | | `worktree.forceClose` | `202 {operationId}` |
 | `POST /api/worktrees/{id}/trash` | | `worktree.trash` | `202 {operationId}` |
