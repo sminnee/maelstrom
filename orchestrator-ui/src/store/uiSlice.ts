@@ -6,7 +6,8 @@ import type { AgentId, DocumentId, OperationId, WorktreeId } from '../protocol/i
  */
 export type PanelTab =
   | { key: string; kind: 'session'; agentId: AgentId }
-  | { key: string; kind: 'document'; documentId: DocumentId }
+  /** `version` is an earlier version to read. `fragment` is a heading slug to scroll to. */
+  | { key: string; kind: 'document'; documentId: DocumentId; version?: number; fragment?: string }
   | { key: string; kind: 'changes'; worktreeId: WorktreeId }
   | { key: string; kind: 'devenv'; worktreeId: WorktreeId; service: string };
 

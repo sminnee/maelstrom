@@ -1864,6 +1864,7 @@ as its detail screen and the panel tab as a screen over it.
 | `/desk/<mode>/task/<task id>` | A task's card. A task id can hold `/`, so it takes every segment left |
 | `/desk/<mode>/agent/<agent id>`, `/desk/<mode>/worktree/<worktree id>` | A free agent's card, a **Worktree card** |
 | `?panel=session/<agent>` | The active tab; also `document/<doc>`, `changes/<wt>`, `devenv/<wt>/<service>` |
+| `?panel=document/<doc>@v<n>#<fragment>` | A document tab at one earlier version and one **Fragment**, as a reference names them. Each part is optional; with no `@v<n>` the tab reads the latest version and follows new ones. The tab key is `document:<doc>` alone, so opening the document again replaces the version and fragment of its open tab |
 | `?project= &branch= &agents= &status= &q= &comm= &closed=1` | The filters. `status=all` is every status |
 | `?zone=done` | The deck list's zone tab. The old `notStarted` reads as `todo` |
 | `?edit=<task id>`, `?new=1` | The task editor, the new-work form |

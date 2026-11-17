@@ -23,6 +23,16 @@ describe('the URL of a location', () => {
     ['/desk/graph/agent/a%2Fb', { card: { kind: 'agent', id: 'a/b' } }],
     ['/desk/graph?panel=session/c3e8f1b5', { panel: sessionTab('c3e8f1b5') }],
     ['/desk/graph?panel=document/doc-1', { panel: documentTab('doc-1') }],
+    // A version and a fragment, like a reference. The `#` is the value's, not the URL's.
+    [
+      '/desk/graph?panel=document/doc-1@v2%23set-up',
+      { panel: documentTab('doc-1', { version: 2, fragment: 'set-up' }) },
+    ],
+    ['/desk/graph?panel=document/doc-1@v2', { panel: documentTab('doc-1', { version: 2 }) }],
+    [
+      '/desk/graph?panel=document/doc-1%23set-up',
+      { panel: documentTab('doc-1', { fragment: 'set-up' }) },
+    ],
     [
       '/tasks?panel=changes/northwind-delta',
       { view: 'list', panel: changesTab('northwind-delta') },

@@ -32,6 +32,14 @@ describe('openOrFocusTab', () => {
     expect(twice).toHaveLength(1);
     expect(openOrFocusTab(twice, sessionTab('agent-1'))).toHaveLength(2);
   });
+
+  it('puts a document tab opened again at its new version and fragment', () => {
+    const open = [documentTab('doc-1', { version: 1 }), sessionTab('agent-1')];
+    expect(openOrFocusTab(open, documentTab('doc-1', { fragment: 'set-up' }))).toEqual([
+      { key: 'document:doc-1', kind: 'document', documentId: 'doc-1', fragment: 'set-up' },
+      sessionTab('agent-1'),
+    ]);
+  });
 });
 
 describe('closeTabs', () => {
