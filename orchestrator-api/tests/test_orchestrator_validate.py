@@ -537,9 +537,46 @@ def test_unknown_id_for_a_follows_naming_no_task():
     assert code(validate_command(world, cmd)) == "unknown_id"
 
 
-def test_invalid_for_a_follows_crossing_projects():
+CONTOSO = {"id": "contoso", "name": "contoso"}
+
+
+def test_accepts_a_follows_naming_another_projects_task():
     world = world_with(
-        tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")]
+        projects=[CONTOSO],
+        tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
+    )
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": ["contoso/CONT-1"]},
+    }
+    assert validate_command(world, cmd) is None
+
+
+@pytest.mark.parametrize("followed", ["contoso/CONT-9", "acme/CONT-1"])
+def test_unknown_id_for_a_follows_naming_no_task_in_another_project(followed):
+    world = world_with(
+        projects=[CONTOSO],
+        tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
+    )
+    cmd = {
+        "type": "task.update",
+        "taskId": "northwind/NORT-7",
+        "fields": {"follows": [followed]},
+    }
+    assert code(validate_command(world, cmd)) == "unknown_id"
+
+
+def test_invalid_for_a_follows_that_closes_a_cycle_across_projects():
+    """CONT-1 already follows NORT-7, so NORT-7 may not follow CONT-1 back."""
+    world = world_with(
+        projects=[CONTOSO],
+        tasks=[
+            make_task(),
+            make_task(
+                id="contoso/CONT-1", project="contoso", follows=["northwind/NORT-7"]
+            ),
+        ],
     )
     cmd = {
         "type": "task.update",
@@ -729,6 +766,14 @@ def test_a_create_may_wire_parent_follows_actions_and_a_template():
     assert validate_command(world, cmd) is None
 
 
+def test_a_create_may_follow_another_project_s_task():
+    world = world_with(
+        projects=[PROJECT, CONTOSO],
+        tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
+    )
+    assert validate_command(world, _create(follows=["contoso/CONT-1"])) is None
+
+
 def test_a_create_from_another_task_needs_no_title():
     world = world_with(projects=[PROJECT], tasks=[make_task()])
     cmd = _create(title="", content="", **{"from": "northwind/NORT-7"})
@@ -745,8 +790,12 @@ def test_a_create_from_another_task_needs_no_title():
         ({"follows": ["northwind/NOPE"]}, "unknown_id"),
         # The notebook stores a bare id, which only a qualified one names.
         ({"follows": ["NORT-7"]}, "invalid"),
-        ({"follows": ["acme/NORT-7"]}, "invalid"),
+        # A follows may name another known project; nothing else crosses.
+        ({"follows": ["acme/NORT-7"]}, "unknown_id"),
+        ({"from": "acme/NORT-7"}, "invalid"),
+        ({"after": "acme/NORT-7"}, "invalid"),
         ({"followEnds": ["NORT-7"]}, "invalid"),
+        ({"followEnds": ["acme/NORT-7"]}, "invalid"),
         ({"preAction": None}, "invalid"),
     ],
 )

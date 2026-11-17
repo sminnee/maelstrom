@@ -107,8 +107,8 @@ def task_entity(
     schedule zone's label from the config, set only on a task with a
     ``schedule``.
 
-    ``follows`` is qualified with the task's own project: a task only ever
-    follows a task beside it in the notebook. ``parent`` is left bare, because
+    ``follows`` is all wire ids: a bare notebook ref takes the task's own
+    project, and a Qualified id names another project's task. ``parent`` is left bare, because
     it is often virtual and names no real task.
     """
     return {
@@ -122,7 +122,9 @@ def task_entity(
         "mode": task.mode,
         "branch": task.branch or model.default_branch(task.id, task.parent),
         "parent": task.parent,
-        "follows": [task_key(task.project, f) for f in task.follows],
+        "follows": [
+            task_key(*model.split_follow_ref(task.project, f)) for f in task.follows
+        ],
         "priority": task.priority,
         "model": task.model,
         "executeModel": task.execute_model,
