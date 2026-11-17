@@ -50,7 +50,7 @@ import { StepMeter } from '../ui/StepMeter';
 import { useCommsById } from '../api/comms';
 import { CommChip } from '../comms/CommChip';
 import styles from './NodeCard.module.css';
-import { taskLabel, taskLabelTitle } from '../selectors/taskLabel';
+import { qualifiedTaskLabel, taskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * How long a working agent may be silent before its age is worth colouring.
@@ -491,6 +491,7 @@ function FollowsSection({ taskId }: { taskId: string }) {
   const { world } = useWorld();
   const [showTerminal, setShowTerminal] = useState(false);
   const { before, after } = followsReach(world.tasks, taskId);
+  const project = world.tasks[taskId]?.project ?? '';
   if (before.length === 0 && after.length === 0) return null;
   const terminal = [...before, ...after].filter((t) => isTerminal(t.status)).length;
   // Terminal rows fold, not drop: a row's desk toggle is how the card puts a task on the desk.
@@ -498,8 +499,13 @@ function FollowsSection({ taskId }: { taskId: string }) {
     showTerminal ? tasks : tasks.filter((t) => !isTerminal(t.status));
   return (
     <div className={styles.follows} data-testid="node-follows">
-      <FollowsGroup heading="Follows" tasks={shown(before)} desk={world.desk} />
-      <FollowsGroup heading="Followed by" tasks={shown(after)} desk={world.desk} />
+      <FollowsGroup heading="Follows" tasks={shown(before)} project={project} desk={world.desk} />
+      <FollowsGroup
+        heading="Followed by"
+        tasks={shown(after)}
+        project={project}
+        desk={world.desk}
+      />
       {terminal > 0 && (
         <AppButton
           variant="link"
@@ -514,13 +520,16 @@ function FollowsSection({ taskId }: { taskId: string }) {
   );
 }
 
+/** One follows list. A row in another project than the node's shows the project too. */
 function FollowsGroup({
   heading,
   tasks,
+  project,
   desk,
 }: {
   heading: string;
   tasks: TaskRow[];
+  project: string;
   desk: Record<string, DeskEntry>;
 }) {
   if (tasks.length === 0) return null;
@@ -536,7 +545,7 @@ function FollowsGroup({
             </span>
             <span className={styles.meta}>
               <span data-testid="follows-id" title={taskLabelTitle(t)}>
-                {taskLabel(t)}
+                {t.project === project ? taskLabel(t) : qualifiedTaskLabel(t)}
               </span>{' '}
               · <span data-testid="follows-status">{t.status}</span>
             </span>

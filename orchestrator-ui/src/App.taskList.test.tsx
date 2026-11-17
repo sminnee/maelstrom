@@ -278,6 +278,13 @@ describe('the task list', () => {
     // A task cannot follow itself, and cannot offer what it already follows.
     expect(within(editor).queryByRole('option', { name: /Watch the migration PR/ })).toBeNull();
     expect(within(editor).queryByRole('option', { name: /Migrate to Postgres 16/ })).toBeNull();
+    // Another project's open task is offered after this project's; a done one is not.
+    const names = within(editor)
+      .getAllByRole('option')
+      .map((o) => o.textContent ?? '');
+    const other = names.findIndex((n) => n.includes('Shape the orchestrator UI'));
+    expect(other).toBeGreaterThan(names.findIndex((n) => n.includes('Rotate auth tokens')));
+    expect(within(editor).queryByRole('option', { name: /Task index cache/ })).toBeNull();
   });
 
   it('writes the follows list when an offered task is chosen', async () => {

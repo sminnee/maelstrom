@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import type { TaskEdit } from '../api/types';
 import { useWorld } from '../api/useWorld';
-import { TASK_STATUSES, type TaskStatus } from '../protocol/entities';
+import { isTerminal, TASK_STATUSES, type TaskStatus } from '../protocol/entities';
 import type { TaskId } from '../protocol/ids';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
@@ -288,9 +288,11 @@ export function TaskAdvancedFields({
 }
 
 /**
- * Every sibling task in the same project the task may follow, as a
- * multi-select. Excludes the task's own id, mirroring `canConnect`'s
- * no-self-edge rule (see `canvas/connect.ts`).
+ * Every task the task may follow, as a multi-select: the tasks of its own
+ * project first, then the open tasks of every other project, by project. A
+ * task already followed stays listed, so its chip keeps its label. Excludes the
+ * task's own id, mirroring `canConnect`'s no-self-edge rule (see
+ * `canvas/connect.ts`).
  *
  * Uses the same write semantics as the canvas wire — `followsAfterConnect` /
  * `followsAfterDisconnect` — so picking an option here and dragging a wire
@@ -314,10 +316,12 @@ export function TaskFollowsField({
   // would fold their text into the field's accessible name.
   const followsId = useId();
   const { world } = useWorld();
-  const siblings = Object.values(world.tasks).filter(
-    (t) => t.project === project && t.id !== taskId,
-  );
-  const options: ComboOption[] = siblings.map((t) => ({
+  const all = Object.values(world.tasks).filter((t) => t.id !== taskId);
+  const siblings = all.filter((t) => t.project === project);
+  const elsewhere = all
+    .filter((t) => t.project !== project && (!isTerminal(t.status) || follows.includes(t.id)))
+    .sort((a, b) => a.project.localeCompare(b.project));
+  const options: ComboOption[] = [...siblings, ...elsewhere].map((t) => ({
     value: t.id,
     label: t.title,
     display: qualifiedTaskLabel(t),
