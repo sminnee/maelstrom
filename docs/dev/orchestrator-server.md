@@ -1750,9 +1750,12 @@ The wire therefore qualifies it: a task's `id` is `<project>/<notebook id>`, bui
 and split back by `split_task_key`. The bare id travels beside it as `notebookId`, because the
 launch and the agent link both need the notebook's own id.
 
-A task's `follows` entries are qualified with the task's own project, since a task only follows
-a task beside it in the notebook. Its `parent` is left bare: nothing in the UI resolves a parent,
-and a parent is often virtual, naming no real task.
+The notebook stores a `follows` entry bare when the followed task is in the task's own project,
+and as a **Qualified id** when it is in another project. `is_safe_id` forbids `/` in an id, so the
+two forms cannot collide. `split_follow_ref` and `follow_ref` convert between the two. `world_build`
+qualifies every entry on the way out, so the wire `follows` holds only qualified ids. A task's
+`parent` is left bare: nothing in the UI resolves a parent, and a parent is often virtual, naming
+no real task.
 
 A desk id names what its entry stands for — see `CONTEXT.md`, "Desk". `desk_id_for_task`,
 `desk_id_for_agent` and `split_desk_id` build and split one, mirrored in

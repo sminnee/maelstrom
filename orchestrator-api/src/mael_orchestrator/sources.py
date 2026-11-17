@@ -212,6 +212,11 @@ def _bare_ref(task_id: str) -> str:
     return task_id if task_id == "*" else split_task_key(task_id)[1]
 
 
+def _follow_ref(project: str, task_id: str) -> str:
+    """The stored ``follows`` ref of wire id ``task_id`` for a task in ``project``."""
+    return model.follow_ref(project, *split_task_key(task_id))
+
+
 def _rename_wire_fields(
     fields: dict[str, Any], allowed: tuple[str, ...]
 ) -> dict[str, Any]:
@@ -694,17 +699,20 @@ class NotebookTaskSource:
 
         A follower's ``actionable`` reads its followed tasks' statuses, so it
         moves when they do, though its own row does not. One query per project
-        with a change.
+        with a change. A follower can be in a different project from the task it
+        follows, so every changed project is asked, and a follower is kept when
+        its own project is in ``wanted``.
         """
         seen = {(t.project, t.id) for t in changed}
         by_project: dict[str, set[str]] = {}
         for task in changed:
-            if task.project in wanted:
-                by_project.setdefault(task.project, set()).add(task.id)
+            by_project.setdefault(task.project, set()).add(task.id)
         found: list[model.Task] = []
         for project, ids in sorted(by_project.items()):
             for task in await self.table.followers(project, ids):
-                if (project, task.id) not in seen:
+                key = (task.project, task.id)
+                if task.project in wanted and key not in seen:
+                    seen.add(key)
                     found.append(task)
         return found
 
@@ -792,10 +800,10 @@ class NotebookTaskSource:
         """
         project, notebook_id = split_task_key(task_id)
         wanted = _rename_wire_fields(fields, EDITABLE)
-        # The notebook stores a bare id; ``world_build`` qualifies it on the way
-        # out, so a wire id has to lose its project again here.
+        # The notebook stores an own-project ref bare; ``world_build`` qualifies
+        # it on the way out, so a wire id loses its project again here.
         if "follows" in wanted:
-            wanted["follows"] = [split_task_key(f)[1] for f in wanted["follows"]]
+            wanted["follows"] = [_follow_ref(project, f) for f in wanted["follows"]]
         if "comms" in wanted:
             wanted["comms"] = list(dict.fromkeys(wanted["comms"]))
         await model.update(self.table, project, notebook_id, **wanted)
@@ -839,7 +847,7 @@ class NotebookTaskSource:
         Only the keys in :data:`~mael_orchestrator.validate.CREATABLE` are
         taken from ``fields``. ``branch`` is one of them, so an explicit branch
         skips ``model.create``'s own generation. ``follows`` holds wire ids,
-        and loses the project as ``update``'s does. ``followEnds`` resolves
+        stored as ``update`` stores them. ``followEnds`` resolves
         against the new task's parent and joins ``follows`` after it. ``from``
         duplicates that task: the fields given override its recipe. ``source``
         is the wire id of the task whose session made it: the new task inherits
@@ -853,7 +861,7 @@ class NotebookTaskSource:
         wanted = _rename_wire_fields(fields, CREATABLE)
         wanted.update(extra or {})
         parent = str(wanted.get("parent", ""))
-        follows = [split_task_key(f)[1] for f in wanted.pop("follows", [])]
+        follows = [_follow_ref(project, f) for f in wanted.pop("follows", [])]
         for end in fields.get("followEnds") or []:
             follows += await model.resolve_follow_end(
                 self.table, project, _bare_ref(end), parent
@@ -897,7 +905,9 @@ class NotebookTaskSource:
             drafts=drafts,
             parent=parent,
             overrides=_rename_wire_fields(overrides or {}, model.PROMOTABLE_FIELDS),
-            follows=None if follows is None else [_bare_ref(f) for f in follows],
+            follows=None
+            if follows is None
+            else [_follow_ref(project, f) for f in follows],
             follow_ends=[_bare_ref(f) for f in follow_ends or []],
             after=after,
         )

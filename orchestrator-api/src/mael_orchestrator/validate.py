@@ -220,25 +220,22 @@ def check_linear_project(world: World, project: str) -> dict[str, str] | None:
 def _check_follows(world: World, task_id: str, follows: Any) -> dict[str, str] | None:
     """The refusal for rewiring ``task_id`` to follow ``follows``, or ``None``.
 
-    The write replaces the whole list, so every id is checked. A task only ever
-    follows a task beside it in its own notebook, and a cycle would strand both
-    ends: neither could ever become actionable.
+    The write replaces the whole list, so every id is checked. A followed task
+    may be in another project. A cycle would strand both ends: neither
+    could ever become actionable.
 
     The id's own shape is checked before the world is consulted, so one bad id
     reports the same refusal whatever else the world happens to hold.
     """
     if not isinstance(follows, list):
         return _err("invalid", "follows must be a list")
-    project, _ = split_task_key(task_id)
     for followed in follows:
         if followed == task_id:
             return _err("invalid", "A task cannot follow itself")
         try:
-            followed_project, _ = split_task_key(str(followed))
+            split_task_key(str(followed))
         except ValueError:
             return _err("invalid", f"Not a qualified task id: {followed}")
-        if followed_project != project:
-            return _err("invalid", f"{followed} is in another project")
         if followed not in world["tasks"]:
             return _err("unknown_id", f"No task {followed}")
     if _reaches(world, follows, task_id):
@@ -254,7 +251,8 @@ def _check_task_refs(
     ``follows`` and ``from`` must name tasks the world holds. A ``followEnds``
     entry is ``*`` or an id, which may name no task: the chain of an id that
     nothing follows ends at the id. ``after`` and ``source`` may be stale, and
-    the notebook ignores a stale one. Every id is qualified and in ``project``, since the
+    the notebook ignores a stale one. Every id is qualified. A ``follows`` id
+    may name another project; every other id is in ``project``, since the
     notebook stores a bare one.
     """
     follows = cmd.get("follows")
@@ -264,19 +262,19 @@ def _check_task_refs(
             return _err("invalid", f"{key} must be a list")
     after = cmd.get("after")
     source = cmd.get("source")
-    named = [
-        *(follows or []),
+    in_project = [
         *[e for e in ends or [] if e != "*"],
         *([cmd["from"]] if "from" in cmd else []),
         *([after] if after is not None else []),
         *([source] if source is not None else []),
     ]
-    for task_id in named:
+    for task_id in [*(follows or []), *in_project]:
         try:
-            task_project, _ = split_task_key(str(task_id))
+            split_task_key(str(task_id))
         except ValueError:
             return _err("invalid", f"Not a qualified task id: {task_id}")
-        if task_project != project:
+    for task_id in in_project:
+        if split_task_key(str(task_id))[0] != project:
             return _err("invalid", f"{task_id} is in another project")
     for task_id in [*(follows or []), *([cmd["from"]] if "from" in cmd else [])]:
         if task_id not in world["tasks"]:

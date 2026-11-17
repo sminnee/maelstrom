@@ -36,7 +36,7 @@ command: plan-task
 mode: auto
 branch: feat/orders
 parent: NORT-7
-follows: [NORT-7.1]
+follows: [NORT-7.1, contoso/CONT-1]
 created: "2026-09-01T00:00:00"
 updated: "2026-09-02T00:00:00"
 priority: high
@@ -65,7 +65,8 @@ def test_task_entity_mirrors_the_frontmatter_and_derives_actionable():
     assert entity["status"] == "in-progress"
     assert entity["command"] == "plan-task"
     assert entity["actionable"] is False
-    assert entity["follows"] == ["northwind/NORT-7.1"]
+    # A bare ref takes the task's own project; a Qualified id passes through.
+    assert entity["follows"] == ["northwind/NORT-7.1", "contoso/CONT-1"]
     assert entity["parent"] == "NORT-7"
     assert entity["priority"] == "high"
     assert entity["model"] == "claude-opus-5"

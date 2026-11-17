@@ -246,6 +246,28 @@ async def test_a_follower_that_changed_too_is_read_once(table):
     ]
 
 
+async def test_a_follower_in_another_project_moves_with_its_followed_task(table):
+    """``contoso``'s CONT-1 follows NORT-7; finishing NORT-7 must re-read it."""
+    await model.create(table, project=PROJECT, title="First", id="NORT-7")
+    await model.create(
+        table,
+        project="contoso",
+        title="Second",
+        id="CONT-1",
+        follows=[f"{PROJECT}/NORT-7"],
+    )
+    source = NotebookTaskSource(table, lambda: [PROJECT, "contoso"])
+    before = await table.revision()
+
+    await model.move(table, PROJECT, "NORT-7", model.STATUS_DONE)
+    changed = await source.read_since(before)
+
+    assert {t["id"]: t["actionable"] for t in changed.tasks} == {
+        f"{PROJECT}/NORT-7": False,
+        "contoso/CONT-1": True,
+    }
+
+
 async def test_a_task_outside_the_read_projects_is_left_out(table):
     """The source reads the projects it was given, partial or not."""
     await model.create(table, project=PROJECT, title="Mine", id="NORT-7")
@@ -297,6 +319,22 @@ async def test_create_renames_the_wire_s_execute_model_key(table):
     _, notebook_id = wire_id.split("/", 1)
     task = await model.load(table, PROJECT, notebook_id)
     assert task.execute_model == "claude:sonnet"
+
+
+async def test_update_and_create_store_an_own_project_follow_bare(table):
+    """The notebook keeps an own-project ref bare and another project's qualified."""
+    await model.create(table, project=PROJECT, title="First", id="NORT-7")
+    await model.create(table, project="contoso", title="Other", id="CONT-1")
+    await model.create(table, project=PROJECT, title="Second", id="NORT-8")
+    source = a_source(table)
+    follows = [f"{PROJECT}/NORT-7", "contoso/CONT-1"]
+
+    await source.update(f"{PROJECT}/NORT-8", {"follows": follows})
+    wire_id = await source.create(PROJECT, {"title": "Third", "follows": follows})
+
+    created = await model.load(table, PROJECT, wire_id.split("/", 1)[1])
+    updated = await model.load(table, PROJECT, "NORT-8")
+    assert updated.follows == created.follows == ["NORT-7", "contoso/CONT-1"]
 
 
 def test_a_row_id_is_already_the_wire_id_for_a_task():
