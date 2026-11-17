@@ -385,7 +385,13 @@ def fragments(kind: str, body: str) -> list[str]:
 
 
 def heading_slug(text: str) -> str:
-    """A heading's anchor, as GitHub makes it."""
+    """A heading's anchor, as GitHub makes it.
+
+    A link keeps only its text. ``_x_`` emphasis keeps its
+    underscores, where GitHub drops them: telling it from ``snake_case`` needs
+    a markdown parser. ``heading-slugs.json`` holds the cases that agree.
+    """
+    text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     slug = re.sub(r"[^\w\- ]", "", text.strip().lower())
     return slug.replace(" ", "-")
 

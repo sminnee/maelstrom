@@ -1,0 +1,58 @@
+{
+  "about": "Markdown bodies and the heading ids GitHub gives them. The server's fragments (task_documents.fragments) and the browser's heading ids (Markdown headingIds, rehype-slug) must both equal these.",
+  "cases": [
+    {
+      "name": "plain",
+      "markdown": "# Set up\n",
+      "slugs": [
+        "set-up"
+      ]
+    },
+    {
+      "name": "duplicate",
+      "markdown": "# Set up\n\n## Set up\n\n### Set up\n",
+      "slugs": [
+        "set-up",
+        "set-up-1",
+        "set-up-2"
+      ]
+    },
+    {
+      "name": "punctuation",
+      "markdown": "## What's new?\n\n## C++ & Rust: a (short) tour!\n",
+      "slugs": [
+        "whats-new",
+        "c--rust-a-short-tour"
+      ]
+    },
+    {
+      "name": "inline code and emphasis",
+      "markdown": "## The `mael doc` command\n\n## **Bold** and *soft*\n",
+      "slugs": [
+        "the-mael-doc-command",
+        "bold-and-soft"
+      ]
+    },
+    {
+      "name": "link",
+      "markdown": "## See [the guide](https://example.com/guide)\n",
+      "slugs": [
+        "see-the-guide"
+      ]
+    },
+    {
+      "name": "unicode",
+      "markdown": "## Über café\n",
+      "slugs": [
+        "über-café"
+      ]
+    },
+    {
+      "name": "closing hashes and code fences",
+      "markdown": "# Top #\n\n```\n# not a heading\n~~~\n# still code\n```\n\n~~~\n# tilde code\n~~~\n",
+      "slugs": [
+        "top"
+      ]
+    }
+  ]
+}

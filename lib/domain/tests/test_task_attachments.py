@@ -5,6 +5,7 @@ temp worktree and a temp task repo, because what it does is copy files.
 """
 
 import asyncio
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -416,20 +417,18 @@ class TestResolve:
             asyncio.run(docs.resolve(table, ref(text)))
 
 
-class TestFragments:
-    def test_markdown_fragments_are_github_heading_slugs(self):
-        body = (
-            "# Set up\n\nText.\n\n## What's new?\n\n"
-            "```\n# not a heading\n~~~\n# still code\n```\n\n"
-            "~~~\n# tilde code\n~~~\n\n## Set up\n### Set up ###\n"
-        )
+#: Shared with the UI's heading-id test, so a link's fragment finds its heading.
+SLUG_CASES = json.loads(
+    (Path(__file__).parents[1] / "fixtures" / "heading-slugs.json").read_text()
+)["cases"]
 
-        assert docs.fragments("markdown", body) == [
-            "set-up",
-            "whats-new",
-            "set-up-1",
-            "set-up-2",
-        ]
+
+class TestFragments:
+    @pytest.mark.parametrize(
+        "case", SLUG_CASES, ids=[case["name"] for case in SLUG_CASES]
+    )
+    def test_markdown_fragments_are_github_heading_slugs(self, case):
+        assert docs.fragments("markdown", case["markdown"]) == case["slugs"]
 
     def test_sarif_fragments_are_finding_keys(self):
         keys = docs.fragments("sarif", ZAP)
