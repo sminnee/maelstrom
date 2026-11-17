@@ -7,6 +7,7 @@ import { agentsOfTask, worktreeHolders } from './graph';
 import { describeDocumentStatus } from './status';
 import { changesTab, documentTab, sessionTab, worktreeForTab, type TabOf } from './tabs';
 import type { DocumentRow, WorldView } from './world';
+import { taskLabel } from './taskLabel';
 
 /** One tab the **Tab picker** offers. */
 export interface Offer {
@@ -27,7 +28,7 @@ interface CardDocument {
 
 /** One desk entry's part of a worktree. */
 export interface DeskWork {
-  /** The id a row shows: the task's notebook id, or the free agent's own id. */
+  /** The name a row shows: the task's label, or the free agent's own id. See `taskLabel`. */
   owner: string;
   task: TaskRow | null;
   /** The card's sessions that open in the worktree. */
@@ -75,13 +76,16 @@ export function worktreeWork(world: WorldView, worktree: Worktree): DeskWork[] {
     ].filter(({ doc }) => !doc.archived && here(documentTab(doc.id)));
     if (sessions.length + documents.length === 0 && !holders.has(deskId)) continue;
     work.push({
-      owner: task ? task.notebookId || task.id : agent!.id,
+      owner: task ? taskLabel(task) || task.id : agent!.id,
       task: task ?? null,
       sessions,
       documents,
     });
   }
-  return work.sort((a, b) => a.owner.localeCompare(b.owner, undefined, { numeric: true }));
+  // Sorted by id, not by `owner`: a codename is random, so a chain such as
+  // `k3f9.1, k3f9.2, k3f9.10` would lose its order.
+  const idOf = (w: DeskWork) => (w.task ? w.task.notebookId || w.task.id : w.owner);
+  return work.sort((a, b) => idOf(a).localeCompare(idOf(b), undefined, { numeric: true }));
 }
 
 const documentLabel = ({ doc, title }: CardDocument) =>

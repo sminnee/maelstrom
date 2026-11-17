@@ -1,6 +1,7 @@
 import type { Operation, OperationKind, OperationStep } from '../protocol/entities';
 import type { AgentId, OperationId, TaskId, WorktreeId } from '../protocol/ids';
 import type { GraphNode } from './graph';
+import { qualifiedTaskLabel, taskLabelTitle, type Labelled } from './taskLabel';
 
 /** What each kind of **Operation** is called, as the head of a line about it. */
 export const KIND_NAMES: Record<OperationKind, string> = {
@@ -53,20 +54,40 @@ export function operationLine(op: Operation): string {
   return `${KIND_NAMES[op.kind]} ${op.state} · ${reason}`;
 }
 
+/** The tasks `operationTarget` can name by their label. */
+type LabelledTasks = Readonly<Record<string, Labelled>>;
+
 /**
  * What an operation acts on: its worktree, else its task, else its agent. A
  * launch knows none of them at first, so it names its project and links nowhere.
+ *
+ * A task in `tasks` shows its label, and `title` names its id; one the world
+ * does not hold shows its id.
  */
-export function operationTarget(op: Operation): {
+export function operationTarget(
+  op: Operation,
+  tasks: LabelledTasks,
+): {
   label: string;
+  title: string;
   card: { kind: 'worktree' | 'task' | 'agent'; id: string } | null;
 } {
+  const plain = (label: string, card: ReturnType<typeof operationTarget>['card']) => ({
+    label,
+    title: label,
+    card,
+  });
   if (op.worktreeId !== null) {
-    return { label: op.worktreeId, card: { kind: 'worktree', id: op.worktreeId } };
+    return plain(op.worktreeId, { kind: 'worktree', id: op.worktreeId });
   }
-  if (op.taskId !== null) return { label: op.taskId, card: { kind: 'task', id: op.taskId } };
-  if (op.agentId !== null) return { label: op.agentId, card: { kind: 'agent', id: op.agentId } };
-  return { label: op.project, card: null };
+  if (op.taskId !== null) {
+    const task = tasks[op.taskId];
+    const card = { kind: 'task' as const, id: op.taskId };
+    if (!task) return plain(op.taskId, card);
+    return { label: qualifiedTaskLabel(task), title: taskLabelTitle(task), card };
+  }
+  if (op.agentId !== null) return plain(op.agentId, { kind: 'agent', id: op.agentId });
+  return plain(op.project, null);
 }
 
 const newestFirst = (a: Operation, b: Operation) => b.startedAt.localeCompare(a.startedAt);
@@ -94,6 +115,7 @@ export function filterOperations(
   ops: readonly Operation[],
   filter: ConsoleFilter,
   text: string,
+  tasks: LabelledTasks,
 ): Operation[] {
   const needle = text.trim().toLowerCase();
   return ops.filter(
@@ -102,7 +124,7 @@ export function filterOperations(
       (!needle ||
         [
           operationLine(op),
-          operationTarget(op).label,
+          operationTarget(op, tasks).label,
           KIND_NAMES[op.kind],
           op.taskId ?? '',
           op.agentId ?? '',

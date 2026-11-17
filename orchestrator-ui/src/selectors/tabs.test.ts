@@ -350,6 +350,28 @@ describe('tabAttribution', () => {
     });
   });
 
+  // The tooltip names the id beside a codename, for a CLI command.
+  it("a session tab names its task's codename, and the tooltip names the id", () => {
+    const named = worldWith({
+      tasks: [
+        makeTask({
+          id: 'northwind/NORT-7',
+          notebookId: 'NORT-7',
+          codename: 'falcon',
+          command: 'plan-next-step',
+        }),
+      ],
+      agents: [makeAgent({ id: 'agent-1', taskId: 'northwind/NORT-7' })],
+    });
+    expect(tabAttribution(named, sessionTab('agent-1'))).toEqual({
+      id: 'falcon',
+      phase: 'plan',
+      agentId: 'agent-1',
+      label: '',
+      title: 'Add order export · falcon · NORT-7',
+    });
+  });
+
   // The task's own agent decides, as on the canvas: an old run's tab and the
   // document it wrote draw what the card draws.
   it("reads a plan-mode task's phase through the task's live agent", () => {

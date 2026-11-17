@@ -3,7 +3,7 @@ import { useDocuments } from '../api/documents';
 import { useOwnHost } from '../api/host';
 import { driftLabel } from '../protocol/progress';
 import type { GraphNode } from '../selectors/graph';
-import { nodeIdLine, nodeTitle } from '../selectors/graph';
+import { nodeIdLine, nodeIdTitle, nodeTitle } from '../selectors/graph';
 import { phaseLabel } from '../protocol/phase';
 import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
@@ -102,7 +102,7 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         )}
       </div>
       <div className={styles.meta}>
-        <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+        <span className={`${styles.id} truncate`} title={nodeIdTitle(node)}>
           {nodeIdLine(node)}
         </span>
         <PrChip pr={cardPr(node)} className={styles.pr} />

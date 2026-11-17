@@ -20,6 +20,7 @@ import { clockTime } from '../protocol/time';
 import { StepMeter } from '../ui/StepMeter';
 import { isTyping, useGoToTarget, useMarkSeenOnShow, useOperationList } from './useConsole';
 import styles from './Console.module.css';
+import { useWorld } from '../api/useWorld';
 
 const FILTERS: { filter: ConsoleFilter; label: string }[] = [
   { filter: 'running', label: 'Running' },
@@ -50,6 +51,7 @@ export function Console({
   ref?: React.Ref<HTMLElement>;
 }) {
   const ops = useOperationList();
+  const { world } = useWorld();
   const selectedId = useAppStore((s) => s.ui.console.selected);
   const height = useAppStore((s) => s.ui.console.height);
   const select = useAppStore((s) => s.selectOperation);
@@ -69,6 +71,7 @@ export function Console({
     consoleOrder(ops, (op) => held.has(op.id) || isPinned(op)),
     filter,
     text,
+    world.tasks,
   );
   const selected = listed.find((op) => op.id === selectedId) ?? listed[0] ?? null;
   useMarkSeenOnShow(open ? selected : null);
@@ -209,6 +212,7 @@ function OperationList({
   onSelect: (op: Operation) => void;
 }) {
   const now = useTick(ops.some((op) => op.state === 'running'));
+  const { world } = useWorld();
   return (
     <ul
       ref={ref}
@@ -233,7 +237,12 @@ function OperationList({
         >
           <StepMeter op={op} />
           <span className={`${styles.line} truncate`}>{operationLine(op)}</span>
-          <span className={`${styles.target} truncate`}>{operationTarget(op).label}</span>
+          <span
+            className={`${styles.target} truncate`}
+            title={operationTarget(op, world.tasks).title}
+          >
+            {operationTarget(op, world.tasks).label}
+          </span>
           <time className={`${styles.when} nowrap`} dateTime={op.startedAt}>
             {clockTime(op.startedAt, now)}
           </time>

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Operation, OperationStep } from '../protocol/entities';
-import { boxWords, unitOperation, unitWords, type Unit } from './operations';
+import {
+  boxWords,
+  filterOperations,
+  operationTarget,
+  unitOperation,
+  unitWords,
+  type Unit,
+} from './operations';
+import { makeTask } from '../fake/fixtures';
 
 const step = (name: string, state: OperationStep['state'], words = ''): OperationStep => ({
   name,
@@ -109,5 +117,32 @@ describe('boxWords', () => {
 
   it('reads an environment run as env while it runs', () => {
     expect(boxWords(op({ id: 'op1', kind: 'env' }))).toBe('env 1/1');
+  });
+});
+
+describe('operationTarget', () => {
+  const task = makeTask({
+    id: 'northwind/k3f9',
+    notebookId: 'k3f9',
+    project: 'northwind',
+    codename: 'falcon',
+  });
+  const onTask = op({ id: 'op-1', worktreeId: null, taskId: 'northwind/k3f9' });
+
+  it("names a task the world holds by its label, and links to the task's card", () => {
+    expect(operationTarget(onTask, { [task.id]: task })).toEqual({
+      label: 'northwind/falcon',
+      title: 'falcon · k3f9',
+      card: { kind: 'task', id: 'northwind/k3f9' },
+    });
+  });
+
+  it('names a task the world does not hold by its id', () => {
+    expect(operationTarget(onTask, {}).label).toBe('northwind/k3f9');
+  });
+
+  it("lets the console's text filter match the codename", () => {
+    expect(filterOperations([onTask], 'all', 'falcon', { [task.id]: task })).toEqual([onTask]);
+    expect(filterOperations([onTask], 'all', 'falcon', {})).toEqual([]);
   });
 });
