@@ -12118,12 +12118,15 @@ def test_a_free_agents_verification_is_not_attached(attach_harness):
                 [row] = body["documents"]
                 await attach_settled(api, harness)
                 doc = await api.get_json(f"/api/documents/{row['id']}")
-                return doc, await stored(attach_harness.table)
+                earlier = await api.get(f"/api/documents/{row['id']}?version=1")
+                return doc, earlier.status, await stored(attach_harness.table)
 
-    doc, rows = run(scenario())
+    doc, earlier, rows = run(scenario())
 
     assert rows == []
     assert "/api/files/" in doc["markdown"]
+    assert (doc["ref"], doc["versions"], doc["fragments"]) == (None, [], [])
+    assert earlier == 404
 
 
 def test_a_document_of_any_kind_is_stored_under_its_role(attach_harness):
@@ -12740,10 +12743,12 @@ def test_a_replayed_old_denial_leaves_a_later_approved_plan_approved(store, imag
     ]
 
 
-def test_a_link_and_an_archive_show_on_the_world_document(attach_harness):
+def test_the_id_routes_link_unlink_and_archive_a_stored_document(attach_harness):
     harness = attach_harness(agent=False)
     harness.add_task("NORT-8")
-    uri = f"{PROJECT}:NORT-7:notes.md"
+    nort8 = f"{PROJECT}/NORT-8"
+    doc_id = attachment_id(f"{PROJECT}/NORT-7", "notes.md")
+    route = f"/api/documents/{doc_id}"
 
     async def scenario():
         async with harness.client() as api:
@@ -12755,28 +12760,108 @@ def test_a_link_and_an_archive_show_on_the_world_document(attach_harness):
                     "role": "review",
                 },
             )
-            await api.post(
-                "/api/task-documents/link",
-                {"ref": f"{uri}#install", "taskId": f"{PROJECT}/NORT-8"},
-            )
-            await api.post("/api/task-documents/archive", {"ref": uri})
+            await api.post(f"{route}/link", {"taskId": nort8, "fragment": "install"})
+            await api.post(f"{route}/link", {"taskId": nort8})
+            bad = await api.post(f"{route}/link", {"taskId": nort8, "fragment": "nope"})
+            await api.post(f"{route}/unlink", {"taskId": nort8})
+            await api.post(f"{route}/archive", {})
+            archived = (await api.get_json("/api/documents"))["documents"]
+            await api.post(f"{route}/unarchive", {})
             as_plan = await api.post(
                 f"/api/tasks/{PROJECT}/NORT-7/documents",
                 {"name": "mine.md", "body": "# Mine\n", "role": "plan"},
             )
-            return as_plan, (await api.get_json("/api/documents"))["documents"]
+            return bad, as_plan, archived, await api.get_json(route)
 
-    as_plan, [doc] = run(scenario())
+    bad, as_plan, [archived], doc = run(scenario())
 
-    assert (doc["id"], doc["kind"], doc["status"], doc["archived"]) == (
-        attachment_id(f"{PROJECT}/NORT-7", "notes.md"),
+    assert (archived["id"], archived["kind"], archived["archived"]) == (
+        doc_id,
         "review",
-        "draft",
         True,
     )
-    assert doc["links"] == [{"taskId": f"{PROJECT}/NORT-8", "fragment": "install"}]
+    assert doc["archived"] is False
+    assert doc["links"] == [{"taskId": nort8, "fragment": "install"}]
+    # The latest version has no such heading.
+    assert bad.status == 400
     # Only an agent's submission is the task's plan.
     assert as_plan.status == 400
+
+
+def test_a_stored_document_reads_at_an_earlier_version(attach_harness):
+    harness = attach_harness(agent=False)
+    doc_id = attachment_id(f"{PROJECT}/NORT-7", "notes.md")
+    for body, status in (
+        ("# Notes\n\n![Shot]({{MAEL_TASK_DIR}}/images/a.png)\n", "changes-requested"),
+        ("# Notes\n\n## Set up\n\n## Set up\n", "awaiting-review"),
+    ):
+        run(
+            task_documents.add(
+                attach_harness.table,
+                project=PROJECT,
+                task_id="NORT-7",
+                name="notes.md",
+                kind="markdown",
+                title="Notes",
+                body=body,
+                now="2026-10-02T00:00:00Z",
+                review_status=status,
+            )
+        )
+
+    async def scenario():
+        async with harness.client() as api:
+            route = f"/api/documents/{doc_id}"
+            return (
+                await api.get_json(route),
+                await api.get_json(f"{route}?version=1"),
+                await api.get(f"{route}?version=3"),
+            )
+
+    latest, first, missing = run(scenario())
+
+    assert (latest["version"], latest["status"]) == (2, "awaiting-review")
+    assert (first["version"], first["status"]) == (1, "changes-requested")
+    assert first["markdown"] == (
+        f"# Notes\n\n![Shot](/api/attachments/{PROJECT}/a.png)\n"
+    )
+    assert first["ref"] == latest["ref"] == f"{PROJECT}:NORT-7:notes.md"
+    assert [(v["version"], v["reviewStatus"]) for v in first["versions"]] == [
+        (1, "changes-requested"),
+        (2, "awaiting-review"),
+    ]
+    # The fragments are the latest version's, whichever version is read.
+    assert first["fragments"] == ["notes", "set-up", "set-up-1"]
+    assert missing.status == 404
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "body", "status"),
+    [
+        ("GET", "/api/documents/{doc}?version=x", None, 400),
+        ("GET", "/api/documents/{doc}?version=²", None, 400),
+        ("POST", "/api/documents/nope/archive", {}, 404),
+        ("POST", "/api/documents/{doc}/link", {"ref": "a:b:c", "taskId": "x"}, 404),
+    ],
+)
+def test_a_document_request_that_names_nothing_is_refused(
+    attach_harness, method, path, body, status
+):
+    """A bad version, a document with no store row, or a task that is not there."""
+    harness = attach_harness(agent=False)
+    path = path.format(doc=attachment_id(f"{PROJECT}/NORT-7", "notes.md"))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.post(
+                f"/api/tasks/{PROJECT}/NORT-7/documents",
+                {"name": "notes.md", "body": "# Notes\n", "role": "review"},
+            )
+            if method == "GET":
+                return await api.get(path)
+            return await api.post(path, body)
+
+    assert run(scenario()).status == status
 
 
 def test_a_stored_document_takes_the_server_s_id_prefix(store, images):
@@ -12800,12 +12885,15 @@ def test_a_stored_document_takes_the_server_s_id_prefix(store, images):
     async def scenario():
         async with harness.client() as api:
             [row] = (await api.get_json("/api/documents"))["documents"]
-            return row, await api.get(f"/api/documents/{row['id']}")
+            route = f"/api/documents/{row['id']}"
+            await api.post(f"{route}/archive", {})
+            return row, await api.get_json(f"{route}?version=1")
 
     row, detail = run(scenario())
 
     stored_id = attachment_id(f"{PROJECT}/NORT-7", "notes.md")
-    assert (row["id"], detail.status) == (f"cobalt:{stored_id}", 200)
+    assert row["id"] == f"cobalt:{stored_id}"
+    assert (detail["id"], detail["archived"]) == (row["id"], True)
 
 
 def test_a_sarif_document_is_not_seeded_as_a_world_document(store, images):

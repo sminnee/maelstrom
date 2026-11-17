@@ -734,8 +734,12 @@ def _check_task_document(world: World, cmd: dict[str, Any]) -> dict[str, str] | 
             if not isinstance(cmd.get(field, ""), str):
                 return _err("invalid", f"{field} is a string")
         return None
-    if not isinstance(cmd.get("ref"), str):
-        return _err("invalid", "ref is a document reference")
+    if "ref" in cmd and ("documentId" in cmd or "fragment" in cmd):
+        return _err("invalid", "A ref names its own document and #fragment")
+    if not isinstance(cmd.get("ref", cmd.get("documentId")), str):
+        return _err("invalid", "ref is a document reference, or documentId an id")
+    if not isinstance(cmd.get("fragment", ""), str):
+        return _err("invalid", "fragment is a string")
     if kind == "taskDocument.archive" and not isinstance(cmd.get("archived"), bool):
         return _err("invalid", "archived is true or false")
     return None

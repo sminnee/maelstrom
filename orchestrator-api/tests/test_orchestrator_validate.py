@@ -1768,6 +1768,12 @@ class TestTaskDocumentCommands:
             {"type": "taskDocument.unlink", "taskId": "northwind/NORT-8", "ref": REF},
             {"type": "taskDocument.archive", "ref": REF, "archived": True},
             {
+                "type": "taskDocument.unlink",
+                "taskId": "northwind/NORT-8",
+                "documentId": "doc1",
+                "fragment": "set-up",
+            },
+            {
                 "type": "taskDocument.archive",
                 "ref": REF,
                 "archived": False,
@@ -1805,6 +1811,24 @@ class TestTaskDocumentCommands:
             ),
             ({"type": "taskDocument.link", "ref": REF}, "unknown_id"),
             ({"type": "taskDocument.link", "taskId": "northwind/NORT-8"}, "invalid"),
+            (
+                {
+                    "type": "taskDocument.link",
+                    "taskId": "northwind/NORT-8",
+                    "documentId": "doc1",
+                    "fragment": 3,
+                },
+                "invalid",
+            ),
+            (
+                {
+                    "type": "taskDocument.link",
+                    "taskId": "northwind/NORT-8",
+                    "ref": REF,
+                    "fragment": "set-up",
+                },
+                "invalid",
+            ),
             (
                 {"type": "taskDocument.archive", "ref": REF, "archived": "yes"},
                 "invalid",

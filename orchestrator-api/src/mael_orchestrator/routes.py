@@ -227,6 +227,10 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_delete("/api/desk/{desk_id:.+}", _desk_remove)
     app.router.add_post("/api/desk/{desk_id:.+}/dismiss", _dismiss)
     app.router.add_post("/api/documents/{id}/approve", _approve_document)
+    app.router.add_post("/api/documents/{id}/link", _link_document)
+    app.router.add_post("/api/documents/{id}/unlink", _unlink_document)
+    app.router.add_post("/api/documents/{id}/archive", _archive_document)
+    app.router.add_post("/api/documents/{id}/unarchive", _unarchive_document)
     app.router.add_post("/api/documents/{id}/request-changes", _request_changes)
     for method, path in _NOT_IMPLEMENTED:
         app.router.add_route(method, path, _not_implemented)
@@ -828,11 +832,17 @@ async def _documents(request: web.Request) -> web.Response:
 
 
 async def _document(request: web.Request) -> web.Response:
+    """One document, at ``?version=<n>`` or as the world holds it."""
     orch = await _ready(request)
     document_id = request.match_info["id"]
-    doc = orch.world["documents"].get(document_id)
+    raw = request.query.get("version")
+    if raw is not None and not raw.isdecimal():
+        return error_response("invalid", f"version is a number: {raw!r}")
+    version = int(raw) if raw is not None else None
+    doc = await orch.document_detail(document_id, version)
     if doc is None:
-        return error_response("unknown_id", f"No document {document_id}")
+        at = f" version {version}" if version is not None else ""
+        return error_response("unknown_id", f"No document {document_id}{at}")
     return web.json_response(doc)
 
 
@@ -1643,6 +1653,53 @@ async def _approve_document(request: web.Request) -> web.StreamResponse:
             "type": "document.approve",
             "documentId": document_id,
             "version": body.get("version"),
+        },
+    )
+
+
+async def _link_document(request: web.Request) -> web.StreamResponse:
+    """Link ``taskId`` to the document, or to one ``fragment`` of it."""
+    return await _document_link(request, "taskDocument.link")
+
+
+async def _unlink_document(request: web.Request) -> web.StreamResponse:
+    return await _document_link(request, "taskDocument.unlink")
+
+
+async def _document_link(request: web.Request, kind: str) -> web.StreamResponse:
+    """A link command on the document the path names. The body names no document."""
+    document_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": kind,
+            "documentId": document_id,
+            "taskId": body.get("taskId"),
+            "fragment": body.get("fragment") or "",
+        },
+    )
+
+
+async def _archive_document(request: web.Request) -> web.StreamResponse:
+    """Archive the document. With no ``by``, any document may be archived (ADR 0001)."""
+    return await _document_archive(request, archived=True)
+
+
+async def _unarchive_document(request: web.Request) -> web.StreamResponse:
+    return await _document_archive(request, archived=False)
+
+
+async def _document_archive(
+    request: web.Request, *, archived: bool
+) -> web.StreamResponse:
+    document_id = request.match_info["id"]
+    return await _command(
+        request,
+        lambda body: {
+            "type": "taskDocument.archive",
+            "documentId": document_id,
+            "archived": archived,
+            "by": body.get("by"),
         },
     )
 
