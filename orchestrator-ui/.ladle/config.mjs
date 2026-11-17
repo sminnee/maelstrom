@@ -4,7 +4,6 @@ export default {
   hmrHost: process.env.DEV_HOST,
   stories: 'src/**/*.stories.{js,jsx,ts,tsx}',
   // The app follows the OS scheme, so a story must be viewable in both without
-  // a rebuild. Ladle's own theme control switches the `prefers-color-scheme`
-  // the iframe reports.
+  // a rebuild. `components.tsx` points the tokens' scheme blocks at this control.
   addons: { theme: { enabled: true, defaultState: 'dark' }, width: { enabled: true } },
 };
