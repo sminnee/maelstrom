@@ -290,8 +290,9 @@ EOF
 The new task has no parent, so it roots its own chain in the other project. `mael task add`
 takes `$MAEL_TASK_PARENT` as the default parent only when `-p` names the session's own project.
 
-A follow cannot cross projects. When one project needs the other's change first, such as an API,
-a schema, or a release, the content of both tasks says so.
+Do not draft or promote across projects. When this project needs the other's change first, such
+as an API, a schema, or a release, the task here follows the other project's task:
+`mael task follow <project>/<id>`. The content of both tasks says so too.
 
 ## Setting up a project
 

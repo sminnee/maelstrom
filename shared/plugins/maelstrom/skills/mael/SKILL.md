@@ -36,7 +36,7 @@ Task documents:
 
 When the current task cannot go on until another task is done:
 
-1. Run `mael task follow <id>...`. It acts on the current task.
+1. Run `mael task follow <id>...`. It acts on the current task. A task in another project is `<project>/<id>`.
 2. Commit the work in progress.
 3. End the session. When the system prompt teaches `<end-session>`, write it and end your turn.
 

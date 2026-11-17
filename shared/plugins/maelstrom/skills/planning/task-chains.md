@@ -87,4 +87,4 @@ EOF
 
 When the other project has its own Linear issue, add `-P linear.<ID> --pre-action linear.in-progress`. Without a Linear parent, the pre-action does nothing.
 
-Do not draft, promote, or follow across projects. When one project needs the other's change first (an API, a schema, a release), say so in the content of both tasks.
+Do not draft or promote across projects. When this project's work needs the other project's change first (an API, a schema, a release), the task here follows it: `mael task follow <project>/<id>`. Say so in the content of both tasks too.
