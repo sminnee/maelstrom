@@ -189,6 +189,8 @@ body says what to do: do it. The sources are:
 - `orchestrator`: `session.compacted`, `session.not_compacted`, and news about your task.
   - `task.updated`: someone edited the task. The `fields` attribute names the changed fields.
   - `task.queued`: the task now follows unfinished work, so it is parked.
+  - `document.not_stored`: a document you presented was not stored on the parent server.
+    Present it again.
 - `gate`: a gate job in your worktree ended. The `job` attribute is its number.
   - `gate.passed`: every gate passed.
   - `gate.failed`: a gate failed. A `--fail-fast` job that stopped at a failure is also

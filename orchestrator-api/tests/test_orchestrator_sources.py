@@ -29,6 +29,7 @@ from mael_domain.task_launch import LaunchBlocked
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable
 from mael_domain.worktree import WorktreeSetup
 from mael_domain.worktree_steps import StepHook
+from mael_orchestrator import sources
 from mael_orchestrator.sources import (
     CloseBlocked,
     ListAllWorktreeSource,
@@ -603,16 +604,22 @@ def test_an_agent_with_no_parent_works_on_this_servers_tasks(table):
 
 
 @asynccontextmanager
-async def a_parent(replies: dict[tuple[str, str], tuple[int, dict]]):
+async def a_parent(
+    replies: dict[tuple[str, str], tuple[int, dict]], *, hang: bool = False
+):
     """A stub **Parent server** that answers each ``(method, path)`` from ``replies``.
 
     Yields a :class:`RemoteTaskSource` on it, and the bodies it was sent.
+    ``hang``: the parent takes each request and answers only after 1 s.
     """
     sent: list[tuple[str, str, object]] = []
 
     async def answer(request: web.Request) -> web.Response:
         body = await request.json() if request.can_read_body else None
         sent.append((request.method, request.path, body))
+        if hang:
+            # Not forever: the runner's cleanup waits for each handler.
+            await asyncio.sleep(1)
         status, reply = replies.get((request.method, request.path), (404, {}))
         return web.json_response(reply, status=status)
 
@@ -743,6 +750,18 @@ async def test_a_remote_store_for_a_task_the_parent_lacks_raises_key_error():
             await source.store_document(presented, replay=False, verdict=False, now="")
 
 
+async def test_a_document_call_to_a_parent_that_hangs_gives_up(monkeypatch):
+    """A presentation holds the agent's stream, so it must not wait long."""
+    monkeypatch.setattr(sources, "DOCUMENT_CALL_SECS", 0.05)
+    presented = Presented(PROJECT, "NORT-7", "a.md", "other", "A", "draft", 1)
+    async with a_parent({}, hang=True) as (source, _sent):
+        async with asyncio.timeout(2):
+            with pytest.raises(TaskSourceRemote):
+                await source.store_document(
+                    presented, replay=False, verdict=False, now=""
+                )
+
+
 async def test_a_remote_source_whose_parent_is_away_raises_remote():
     source = RemoteTaskSource("http://127.0.0.1:1")
     try:
@@ -782,7 +801,6 @@ async def test_started_stores_a_codex_thread_only(
 
 async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
     """The link lands on its own row, and the others get ``''``."""
-    from mael_orchestrator import sources
 
     async def list_all(*_args, **_kwargs):
         rows = [
@@ -820,7 +838,6 @@ async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
     ],
 )
 async def test_a_worktree_row_carries_its_ssh_target(monkeypatch, login, expected):
-    from mael_orchestrator import sources
 
     async def list_all(*_args, **_kwargs):
         rows = [{"name": "alpha", "path": "/p/alpha"}]
@@ -854,7 +871,6 @@ async def _source_that_read(monkeypatch, pr, merge_pr=None, head="deadbee", **po
     """A source whose PR read saw ``pr`` on feat/orders, in a worktree whose
     local ``HEAD`` is ``head``. ``pr`` ``None`` is a branch with no PR.
     ``ports`` are the source's other callables."""
-    from mael_orchestrator import sources
 
     async def head_sha(_path):
         return head

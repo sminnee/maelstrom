@@ -68,6 +68,7 @@ from mael_domain.external_event import (
     CHANGES_COMMENTED,
     DOCUMENT_APPROVED,
     DOCUMENT_CHANGES_REQUESTED,
+    DOCUMENT_NOT_STORED,
     JIG,
     JIG_CONTROLS,
     JIG_MONKEYPATCH,
@@ -312,6 +313,29 @@ def _kilo(tokens: int) -> str:
 
 def _refused(code: str, message: str) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message}}
+
+
+def _not_stored_reason(exc: Exception) -> str:
+    """Why a Task document store failed, as a user or an agent reads it."""
+    if isinstance(exc, TaskSourceRemote):
+        return f"{exc} and it did not answer"
+    if isinstance(exc, KeyError):
+        return f"the parent has no task {exc.args[0] if exc.args else ''}".rstrip()
+    return str(exc) or type(exc).__name__
+
+
+def _verdict_refusal(exc: Exception) -> dict[str, Any]:
+    """The refusal of a verdict the store did not take.
+
+    A parent that does not answer is ``unreachable``. A parent with no such
+    task is ``unknown_id``. Any other refusal carries its own message.
+    """
+    message = f"The verdict was not stored: {_not_stored_reason(exc)}"
+    if isinstance(exc, TaskSourceRemote):
+        return _refused("unreachable", message)
+    if isinstance(exc, KeyError):
+        return _refused("unknown_id", message)
+    return _refused("invalid", message)
 
 
 async def _start_update_job() -> subprocess.CompletedProcess:
@@ -2810,24 +2834,44 @@ class Orchestrator:
             self._apply([{"type": "upsert", "kind": "document", "entity": entity}])
 
     async def _store_documents(
-        self, events: list[ServerEvent], *, replay: bool, verdict: bool = False
+        self, events: list[ServerEvent], *, replay: bool
     ) -> None:
         """Store each task document that ``events`` upserts.
 
-        ``verdict``: the upserts only settle a review, so they write a status
-        and never add a version.
-
-        A failure is logged and goes no further: the document is still in the
-        world, and a stream must not stop because the store refused a file.
+        A failure goes no further: the document is still in the world, and a
+        stream must not stop because the store refused a file. A **Delegated
+        agent** whose presentation did not reach its parent hears of it, so
+        it can present again. Any other failure is logged.
         """
         for event in events:
             if event.get("type") != "upsert" or event.get("kind") != "document":
                 continue
             document: Document = event["entity"]  # type: ignore[typeddict-item]
             try:
-                await self._store_document(document, replay=replay, verdict=verdict)
-            except Exception:  # noqa: BLE001 — see the docstring
+                await self._store_document(document, replay=replay)
+            except Exception as exc:  # noqa: BLE001 — see the docstring
                 log.exception("storing document %s failed", document["id"])
+                agent = self.world["agents"].get(document["agentId"])
+                if not replay and self._delegated(agent):
+                    await self._tell_not_stored(document, exc)
+
+    async def _tell_not_stored(self, document: Document, exc: Exception) -> None:
+        """Tell a delegated agent its parent did not store ``document``."""
+        title = document["group"]["title"] or document["title"]
+        event = ExternalEvent(
+            ORCHESTRATOR,
+            DOCUMENT_NOT_STORED,
+            {"title": title},
+            f"{title} was not stored on the parent: {_not_stored_reason(exc)}. "
+            "Present it again.",
+        )
+        _, refusals = await self._tell([document["agentId"]], event)
+        for agent_id, refused in refusals:
+            log.warning(
+                "agent %s: not-stored event not delivered: %s",
+                agent_id,
+                refused["error"]["message"],
+            )
 
     async def _sync_on_exit(self, documents: list[Document]) -> None:
         """Store each file a delegated agent left, as it left it.
@@ -2848,24 +2892,30 @@ class Orchestrator:
         replay: bool,
         verdict: bool = False,
         final: bool = False,
-    ) -> None:
+    ) -> StoredDocument | None:
         """Store ``document`` as its Task document, then show what the store holds.
 
         A free agent's document is not stored. A **Delegated agent**'s is stored
         on its parent, through its **Task home**. The rules are
         :func:`~mael_domain.task_documents.store_presented`. A settled stored
         status retires the review item a replayed tag raised again.
+        ``verdict`` and ``final``: see ``store_presented``.
+
+        Returns what the store holds, or ``None`` when it stored nothing.
+
+        Raises:
+            Exception: The store failed. Its kind is the **Task home**'s.
         """
         agent = self.world["agents"].get(document["agentId"])
         delegated = self._delegated(agent)
         if delegated:
             if not document["taskId"]:
-                return
+                return None
             project, notebook_id = split_task_key(document["taskId"])
         else:
             task = self.world["tasks"].get(document["taskId"])
             if task is None:
-                return
+                return None
             project, notebook_id = task["project"], task["notebookId"]
         source = document["source"]
         text: str | None = None
@@ -2877,7 +2927,7 @@ class Orchestrator:
         elif source.get("type") == "stored":
             path, name = "", str(source["name"])
         else:
-            return
+            return None
         cwd = self._agent_cwd(document)
         # A plan's text is in the event, so its digest is cheap and a replay
         # needs it. A file is read only when the store asks for it.
@@ -2912,11 +2962,16 @@ class Orchestrator:
             )
 
         stored = await store(presented)
+        if verdict and delegated and stored is None:
+            raise task_documents.InvalidDocument(
+                f"the parent holds no version of {document['title']}. "
+                "Ask the agent to present it again"
+            )
         if stored is NEEDS_BODY and prepared is None:
             prepared = await asyncio.to_thread(task_documents.prepare, cwd, path)
             if prepared is None:
                 # The file could not be read. The document says so, and it stays.
-                return
+                return None
             presented = replace(presented, digest=prepared.digest)
             stored = await store(presented)
         if stored is NEEDS_BODY and prepared is not None:
@@ -2932,18 +2987,19 @@ class Orchestrator:
                 )
             stored = await store(replace(presented, body=body))
         if not isinstance(stored, StoredDocument):
-            return
+            return None
         if delegated:
             document_id = document["id"]
             self._show_presented(document, stored)
         else:
             row = await self.document_store.read(task_key(project, notebook_id), name)
             if row is None:
-                return
+                return stored
             document_id = self.ids.own(row.id)
             await self._show_stored(row)
         if stored.review_status != "awaiting-review":
             self._retire_review(document_id)
+        return stored
 
     def _show_presented(self, document: Document, stored: StoredDocument) -> None:
         """Give a delegated agent's world document the version its parent stored."""
@@ -2971,11 +3027,11 @@ class Orchestrator:
         presented = Presented.from_json(data)
         if task_key(presented.project, presented.task_id) != key:
             raise task_documents.InvalidDocument(f"Not a document of task {key}")
+        replay, verdict = data.get("replay", False), data.get("verdict", False)
+        if not isinstance(replay, bool) or not isinstance(verdict, bool):
+            raise task_documents.InvalidDocument("replay and verdict must be booleans")
         stored = await self.homes.local.store_document(
-            presented,
-            replay=bool(data.get("replay")),
-            verdict=bool(data.get("verdict")),
-            now=self.clock(),
+            presented, replay=replay, verdict=verdict, now=self.clock()
         )
         row = await self.document_store.read(key, presented.name)
         if isinstance(stored, StoredDocument) and row:
@@ -3638,7 +3694,14 @@ class Orchestrator:
             created, refused = await self._promote_drafts(document, members)
             if refused:
                 return refused
-        await self._settle_group(members, "approved")
+        try:
+            await self._settle_group(members, "approved")
+        except Exception as exc:  # noqa: BLE001 — the user sees the refusal
+            log.exception("storing the approval of %s failed", document["id"])
+            # The tasks exist and the drafts are gone, so a retry cannot
+            # promote again. The agent must hear of the tasks.
+            if not created:
+                return _verdict_refusal(exc)
         await self._tell_agent_of_approval(document, created)
         return {"ok": True, "result": {"taskIds": created}}
 
@@ -3779,7 +3842,8 @@ class Orchestrator:
 
         The relay comes first: a summary the host refuses never reached the
         agent, so the group has to stay where the user left it, awaiting a
-        review nobody has answered.
+        review nobody has answered. A store that then fails refuses too: see
+        "Commands" in ``docs/dev/orchestrator-server.md``.
         """
         document = self.world["documents"][command["documentId"]]
         title = document["group"]["title"]
@@ -3793,7 +3857,11 @@ class Orchestrator:
         _, refusals = await self._tell([document["agentId"]], event)
         if refusals:
             return refusals[0][1]
-        await self._settle_group(self._group_members(document), "changes-requested")
+        try:
+            await self._settle_group(self._group_members(document), "changes-requested")
+        except Exception as exc:  # noqa: BLE001 — the user sees the refusal
+            log.exception("storing the changes request of %s failed", document["id"])
+            return _verdict_refusal(exc)
         return {"ok": True, "result": {}}
 
     async def _comment_on_changes(self, command: dict[str, Any]) -> dict[str, Any]:
@@ -4387,11 +4455,25 @@ class Orchestrator:
 
         The document is the server's own table, not the host's, so the change
         is applied here rather than awaited on a stream. A task's member writes
-        the status of its stored version too.
+        the status of its stored version first, so a verdict the store did not
+        take changes nothing in the world. In a group, the members stored
+        before a failure stay settled. A retry stores the rest.
+
+        Raises:
+            Exception: The store failed: see :func:`_verdict_refusal`.
         """
+        for d in members:
+            await self._store_document(
+                {**d, "status": status}, replay=False, verdict=True
+            )
+        documents = self.world["documents"]
         ids = {d["id"] for d in members}
         events: list[ServerEvent] = [
-            {"type": "upsert", "kind": "document", "entity": {**d, "status": status}}
+            {
+                "type": "upsert",
+                "kind": "document",
+                "entity": {**documents.get(d["id"], d), "status": status},
+            }
             for d in members
         ]
         for item in self.world["attention"].values():
@@ -4404,7 +4486,6 @@ class Orchestrator:
                     }
                 )
         self._apply(events)
-        await self._store_documents(events, replay=False, verdict=True)
 
     # -- operations --
 
