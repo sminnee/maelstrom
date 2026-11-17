@@ -1,14 +1,20 @@
 import { useMemo } from 'react';
 import styles from './ComboBox.module.css';
 import { useComboBoxOffer } from './useComboBoxOffer';
+import { optionMatches } from './optionMatches';
 
 /** How many recent options an empty field offers. */
 const RECENT_SHOWN = 5;
 
-/** One row of the offer. `label` names the value; the field shows the value alone. */
+/**
+ * One row of the offer. `label` names the value; the field shows the value alone.
+ * `display`, when given, is what the row shows in place of `value`, such as a
+ * task's codename for its id. Typing matches it too.
+ */
 export interface ComboOption {
   value: string;
   label?: string;
+  display?: string;
 }
 
 /**
@@ -59,13 +65,7 @@ export function ComboBox({
         .slice(0, RECENT_SHOWN);
       return first.length > 0 ? [first, true] : [options, false];
     }
-    return [
-      options.filter(
-        (o) =>
-          o.value.toLowerCase().includes(needle) || (o.label ?? '').toLowerCase().includes(needle),
-      ),
-      false,
-    ];
+    return [options.filter((o) => optionMatches(o, needle)), false];
   }, [options, value, recent]);
 
   const {
@@ -190,7 +190,7 @@ export function ComboBox({
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(option)}
             >
-              <span className={styles.value}>{option.value}</span>
+              <span className={styles.value}>{option.display ?? option.value}</span>
               {option.label && (
                 <span className={`${styles.label} truncate`} title={option.label}>
                   {option.label}
