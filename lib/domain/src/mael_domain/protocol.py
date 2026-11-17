@@ -386,6 +386,9 @@ class Task(TypedDict):
 
     id: str
     notebookId: str
+    #: The word the UI shows while the task is open; ``None`` when it holds
+    #: none. See CONTEXT.md, "Codename".
+    codename: str | None
     project: str
     title: str
     status: str
@@ -435,6 +438,9 @@ class TaskRow(TypedDict):
 
     id: str
     notebookId: str
+    #: The word the UI shows while the task is open; ``None`` when it holds
+    #: none. See CONTEXT.md, "Codename".
+    codename: str | None
     project: str
     title: str
     status: str

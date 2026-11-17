@@ -67,6 +67,7 @@ export function makeTask(over: Partial<Task> = {}): Task {
   return {
     id: 'NORT-7',
     notebookId: 'NORT-7',
+    codename: null,
     project: 'northwind',
     title: 'Add order export',
     status: 'todo',
