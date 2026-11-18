@@ -16,7 +16,6 @@ def make_task(**over):
     task = {
         "id": "NORT-7",
         "notebookId": "NORT-7",
-        "codename": None,
         "project": "northwind",
         "title": "Add order export",
         "status": "todo",
