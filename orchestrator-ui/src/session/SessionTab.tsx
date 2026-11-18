@@ -22,6 +22,7 @@ import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { AgentControls } from './AgentControls';
 import { awaitCompact } from './awaitCompact';
+import { decisionCall } from './cards/decision';
 import { DECLINE_REASON } from './cards/QuestionPrompt';
 import { MessageInput } from './MessageInput';
 import { useSendMessage } from './useSendMessage';
@@ -148,10 +149,12 @@ export function SessionTab({ agentId, controls }: { agentId: string; controls?: 
             onAnswer: (requestId, answers) => answerAsync({ agentId, requestId, answers }),
             onDecline: (requestId) => denyAsync({ agentId, requestId, reason: DECLINE_REASON }),
             onDeclineAndStop: () => interruptAsync({ agentId }),
-            onDecide: (requestId, decision, reason) =>
-              decision === 'deny'
-                ? denyAsync({ agentId, requestId, reason })
-                : approveAsync({ agentId, requestId, remember: decision === 'remember' }),
+            onDecide: (requestId, decision, reason) => {
+              const call = decisionCall(decision, reason);
+              return call.act === 'deny'
+                ? denyAsync({ agentId, requestId, reason: call.reason })
+                : approveAsync({ agentId, requestId, remember: call.remember });
+            },
           },
     [isChild, agentId, answerAsync, denyAsync, approveAsync, interruptAsync],
   );

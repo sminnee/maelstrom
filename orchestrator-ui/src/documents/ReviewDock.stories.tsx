@@ -18,7 +18,8 @@ export default { title: 'Documents / Review dock' };
  *
  * Approve must sit in the same place, drawn the same way, in every story.
  * Switching between them is how that is read. Type in the field: the one
- * button turns from Approve, in accent, to Deny or Decline, in Fault Rose.
+ * button turns from Approve, in accent, to Deny or Decline, in Fault Rose. A
+ * plan review shows two instead: Ask, plain, then Change, in Fault Rose.
  */
 
 /** The two wait kinds the dock draws as a band. */

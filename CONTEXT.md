@@ -612,6 +612,11 @@ continues its turn. **Decline & stop** is an **Interrupt** instead: it denies ev
 ends the turn. Either way the question is declined, which is a settled state, not a stale one.
 _Avoid_: Skip, dismiss, cancel
 
+**Ask**:
+The UI's word for a `deny` of a plan review whose reason is a question. The UI wraps the question
+so the agent answers in chat and stays in plan mode. Beside it, the plan review calls its plain `deny` **Change**.
+_Avoid_: Query, comment
+
 **Stale prompt**:
 A prompt whose wait ended, and which nobody answered through the orchestrator. The tool was
 approved in the cmux pane, by `mael agent approve`, or by auto-accept; the host resolves the

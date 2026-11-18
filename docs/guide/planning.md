@@ -86,6 +86,18 @@ Most work is clear enough to name up front, but the detail is best decided next 
 - **A `plan-next-step` tail is the exception.** Add one only when it is genuinely unclear what
   remains after the named tasks.
 
+### Answering a plan review
+
+A task's plan mode ends with a plan review: the agent waits on `ExitPlanMode` until you answer.
+The plan's tab and the expanded node show the review. With an empty field, the review offers
+**Approve**. Type in the field, and it offers two acts instead:
+
+- **Change** sends the text as a request for changes. The agent edits the plan and submits it
+  again.
+- **Ask** sends the text as a question. The agent answers in chat, stays in plan mode, and does
+  not submit the plan again until you tell it to. The panel opens the agent's session tab, so you
+  can read the answer and reply there.
+
 ## Drafting tasks
 
 `mael task draft` writes a draft file. It takes the same recipe flags as `mael task add`:

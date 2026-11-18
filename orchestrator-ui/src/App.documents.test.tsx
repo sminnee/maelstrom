@@ -20,6 +20,7 @@ import {
   worktreeRow,
   paneItem,
 } from './test/appHelpers';
+import { askReason } from './session/cards/decision';
 import { clickNode, renderApp, selectText } from './test/renderApp';
 
 afterEach(() => {
@@ -167,6 +168,45 @@ describe('review in a document tab', () => {
     expect(within(tab).queryByRole('button', { name: 'Decline' })).toBeNull();
     // In the plan's own tab the link leads nowhere.
     expect(within(dock).queryByRole('link', { name: 'Read the plan' })).toBeNull();
+  });
+
+  /** Open NORT-7's plan, and type `text` into its dock. */
+  async function askInDock(user: ReturnType<typeof userEvent.setup>, text: string) {
+    clickNode('NORT-7');
+    await user.click(within(expanded()).getByRole('link', { name: /Plan v1/ }));
+    const dock = within(await screen.findByTestId('document-tab')).getByTestId('review-dock');
+    await user.type(within(dock).getByRole('textbox', { name: 'Change or question' }), text);
+    await user.click(within(dock).getByRole('button', { name: 'Ask' }));
+    return dock;
+  }
+
+  const selectedTab = () => within(tabStrip()).getByRole('tab', { selected: true });
+
+  it('Ask sends the question as a deny that keeps the plan, and opens the session', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    await askInDock(user, 'Why two stores?');
+
+    await waitFor(() => expect(selectedTab()).toHaveAttribute('data-tab-key', 'session:a1f3c9e2'));
+    expect(server.requests.find((r) => r.path.endsWith('/deny'))?.body).toEqual({
+      requestId: 'req-nort7-plan',
+      reason: askReason('Why two stores?'),
+    });
+  });
+
+  it('a refused Ask shows Failed and stays on the plan', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/POST \/api\/agents\/[^/]+\/deny$/, {
+      status: 409,
+      code: 'stale_request',
+      message: 'Request is no longer pending',
+    });
+    const dock = await askInDock(user, 'Why two stores?');
+
+    const failed = await within(dock).findByRole('button', { name: 'Failed' });
+    expect(failed).toHaveAttribute('title', 'Request is no longer pending');
+    expect(selectedTab()).toHaveAttribute('data-tab-key', 'document:doc-nort7-plan');
   });
 });
 

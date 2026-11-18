@@ -4,15 +4,19 @@ import type { PendingRequest } from '../api/agents';
 import { useAgentStream } from '../live/useAgentStream';
 import type { Agent } from '../protocol/entities';
 import type { MessageItem, PlanReviewItem, TranscriptItem } from '../protocol/transcript';
-import { documentTab } from '../selectors/tabs';
+import { useLayoutMode } from '../layout/useLayoutMode';
+import { useGo } from '../nav/useNav';
+import { documentTab, sessionTab } from '../selectors/tabs';
 import { recentMessages } from '../selectors/transcript';
-import { DecideRow, type Decision } from '../session/cards/DecideRow';
+import { DecideRow } from '../session/cards/DecideRow';
+import { decisionCall, type Decision } from '../session/cards/decision';
 import { PermissionPrompt } from '../session/cards/PermissionPrompt';
 import { DECLINE_REASON, QuestionPrompt } from '../session/cards/QuestionPrompt';
 import { RecentMessages } from '../session/RecentMessages';
 import { PanelLink } from '../shell/PanelLink';
 import { AppButton } from '../ui/AppButton';
 import { useExpandableClamp } from '../ui/useExpandableClamp';
+import { useAppStore } from '../store/store';
 import cards from '../session/cards/cards.module.css';
 import styles from './DecisionCard.module.css';
 
@@ -73,12 +77,23 @@ function OneDecision({
   const deny = useDeny();
   const answer = useAnswer();
   const interrupt = useInterrupt();
+  const go = useGo();
+  const openTab = useAppStore((s) => s.openTab);
+  const narrow = useLayoutMode() === 'narrow';
   const requestId = wait.requestId;
   const before = recentMessages(items, { before: requestId });
-  const decide = (decision: Decision, reason: string) =>
-    decision === 'deny'
-      ? deny.mutateAsync({ agentId: agent.id, requestId, reason })
-      : approve.mutateAsync({ agentId: agent.id, requestId, remember: decision === 'remember' });
+  const decide = async (decision: Decision, reason: string) => {
+    const call = decisionCall(decision, reason);
+    if (call.act === 'approve')
+      return approve.mutateAsync({ agentId: agent.id, requestId, remember: call.remember });
+    await deny.mutateAsync({ agentId: agent.id, requestId, reason: call.reason });
+    if (decision !== 'ask') return;
+    // As `PanelLink` does: the location may name the tab already, while the
+    // panel is hidden or the tab is split.
+    const tab = sessionTab(agent.id);
+    go({ panel: tab });
+    if (!narrow) openTab(tab);
+  };
 
   return (
     <section
@@ -238,7 +253,7 @@ function PlanReview({
           'The plan is ready.'
         )}
       </div>
-      <DecideRow onDecide={onDecide} />
+      <DecideRow onDecide={onDecide} planReview />
     </div>
   );
 }

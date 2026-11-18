@@ -1311,6 +1311,10 @@ reader wrote. The colour and the label change together, so the change is seen be
 Every approval in the dock reads the same way, whether it answers the agent or the document. The
 tab order is the visual order: the field, then the button.
 
+A plan review is the one exception to one act. With a comment, it shows two buttons: Ask, then
+Change, its name for Deny. The reader writes first, then says what the comment is. Ask is the
+plain secondary button, because a question is not a negative act. Change keeps Fault Rose.
+
 The context is offered, not spent. `Before this · 3` leads the band and opens the rail as a sheet
 over the document rather than pushing it — the document never reflows for a decision. The sheet
 overlaps content it is not part of, so the Overlap Test earns it the card lift. Escape closes it.
