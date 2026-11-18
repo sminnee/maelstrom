@@ -180,11 +180,19 @@ export function NewWork() {
   const seed = useAppStore((s) => s.ui.newWorkSeed);
   const clearSeed = useAppStore((s) => s.clearNewWorkSeed);
   // A comm's seed keeps prose the user typed; prose another comm seeded, untouched, goes. A comm
-  // with no project keeps the held project.
+  // with no project keeps the held project. A filter seed sets only where the work goes. A new
+  // project drops a held branch the seed does not name: it was another project's branch.
   useEffect(() => {
     if (!seed) return;
     setCaptured((was) => {
       if (seed.kind === 'agent') return { ...was, ...seed };
+      if (seed.kind === 'filters')
+        return {
+          ...was,
+          project: seed.project || was.project,
+          branch: seed.branch || (seed.project && seed.project !== was.project ? '' : was.branch),
+          comms: [...was.comms, ...seed.comms.filter((id) => !was.comms.includes(id))],
+        };
       const own = was.draft.trim() !== '' && was.draft !== was.seededDraft;
       return {
         ...was,

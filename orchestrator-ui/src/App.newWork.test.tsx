@@ -627,6 +627,80 @@ describe('new work', () => {
     expect(chosen).toContain('maelstrom');
   });
 
+  describe('the filter defaults', () => {
+    /** Hold `held` as the form's draft, then open the form from **New**. */
+    async function openOn(url: string, held: object, scenario?: 'comms') {
+      const user = userEvent.setup();
+      const app = await renderApp({ url, ...(scenario ? { scenario } : {}) });
+      localStorage.setItem(retainedKey.newWork(), JSON.stringify(held));
+      return { user, server: app.server, form: await openNewWork(user) };
+    }
+
+    /** Type prose, Save, and return the task the form wrote. */
+    async function save(
+      user: ReturnType<typeof userEvent.setup>,
+      form: HTMLElement,
+      server: FakeServer,
+    ) {
+      await user.type(within(form).getByLabelText('What needs doing?'), 'Fix the header');
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+      return waitFor(() => createdTask(server));
+    }
+
+    it('sets the project over the held one, and keeps the held kind', async () => {
+      const { form } = await openOn('/desk?project=northwind', {
+        project: 'maelstrom',
+        kind: 'agent',
+      });
+      expect(within(form).getByRole('radio', { name: 'northwind' })).toBeChecked();
+      expect(within(form).getByRole('radio', { name: 'Free agent' })).toBeChecked();
+    });
+
+    it('sets the branch a Branch filter names', async () => {
+      const { user, server, form } = await openOn(
+        '/desk?project=maelstrom&branch=maelstrom/feat/orchestrator-ui',
+        {},
+      );
+      expect((await save(user, form, server)).branch).toBe('feat/orchestrator-ui');
+    });
+
+    it("drops a held branch when the filter moves the project: it was the other project's", async () => {
+      const { user, server, form } = await openOn('/desk?project=northwind', {
+        project: 'maelstrom',
+        branch: 'feat/x',
+      });
+      expect(within(form).getByLabelText('Branch')).toHaveValue('');
+      const sent = await save(user, form, server);
+      expect(sent.id).toMatch(/^northwind\//);
+      expect(sent.branch).not.toBe('feat/x');
+    });
+
+    it('links the comm a Comm filter names', async () => {
+      const { user, server, form } = await openOn('/desk?comm=c2', {}, 'comms');
+      expect(within(form).getByTestId('new-work-comms')).toHaveTextContent('c2');
+      expect((await save(user, form, server)).comms).toEqual(['c2']);
+    });
+
+    it('adds the filter comm to a held one, and keeps the held prose', async () => {
+      const { form } = await openOn(
+        '/desk?comm=c2',
+        { draft: 'Tell sales', comms: ['c1'] },
+        'comms',
+      );
+      expect(within(form).getByLabelText('What needs doing?')).toHaveValue('Tell sales');
+      const linked = within(form).getByTestId('new-work-comms');
+      expect(linked).toHaveTextContent('c1');
+      expect(linked).toHaveTextContent('c2');
+    });
+
+    it('links a held comm once when the filter names it too', async () => {
+      const { form } = await openOn('/desk?comm=c2', { comms: ['c2'] }, 'comms');
+      expect(
+        within(within(form).getByTestId('new-work-comms')).getAllByRole('listitem'),
+      ).toHaveLength(1);
+    });
+  });
+
   describe('the project radios', () => {
     it('offers a radio per project in the canvas view, and several when several are drawn', async () => {
       const user = userEvent.setup();

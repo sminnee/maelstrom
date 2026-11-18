@@ -1,3 +1,4 @@
+import type { NewWorkSeed } from '../store/uiSlice';
 /**
  * Which agents the Desk shows. `planned` is a task that has not launched one.
  * `has-pr` is a task with a Registered PR: the cards that draw a PR chip.
@@ -28,6 +29,22 @@ export interface Filters {
 }
 
 export const branchKey = (project: string, branch: string) => `${project}/${branch}`;
+
+/**
+ * The new-work seed the filters in force give, or `null` when they name no project, branch or
+ * comm. A branch key splits at its first `/`: a project name has none, a branch name can.
+ */
+export function filterSeed(filters: Filters): Extract<NewWorkSeed, { kind: 'filters' }> | null {
+  if (!filters.project && !filters.branch && !filters.comm) return null;
+  const [branchProject = '', ...rest] = filters.branch?.split('/') ?? [];
+  const branch = rest.join('/');
+  return {
+    kind: 'filters',
+    project: filters.project ?? branchProject,
+    branch,
+    comms: filters.comm ? [filters.comm] : [],
+  };
+}
 
 export function noFilters(): Filters {
   return { project: null, branch: null, agentStatus: 'all', text: '', comm: null };

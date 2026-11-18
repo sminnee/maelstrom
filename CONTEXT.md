@@ -260,6 +260,7 @@ has a **Comm category** and a project: the project a task made from the comm goe
   the task whose session made it. A duplicate (`--from`) also gets the comms of the task it
   copies. A promoted chain gets the planning task's comms. A
   Reopen-branch task gets the comms of the tasks on its branch. An explicit list wins.
+- New work opened under a Comm filter links the task to that comm.
 - You close a comm when everyone is told. A closed comm leaves the open list.
 _Avoid_: outcome, promise, communiqué, notification, announcement, ticket
 

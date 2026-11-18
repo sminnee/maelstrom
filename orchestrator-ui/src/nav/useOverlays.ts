@@ -3,6 +3,7 @@ import type { NewWorkSeed } from '../store/uiSlice';
 import type { ProjectId, TaskId } from '../protocol/ids';
 import { currentLoc, useRouter } from './router';
 import type { ProjectTab } from './location';
+import { filterSeed } from '../selectors/filters';
 import { useGo, useLoc } from './useNav';
 
 /**
@@ -40,14 +41,17 @@ export function useEditor() {
  * the store: a URL carries where the user is, not a draft.
  */
 export function useNewWork() {
-  const { newWork } = useLoc();
+  const { newWork, filters } = useLoc();
   const go = useGo();
   const setSeed = useAppStore((s) => s.setNewWorkSeed);
   return {
     newWorkOpen: newWork,
-    /** Open the form, on `seed` if given. A surface that opens it also closes its card. */
+    /**
+     * Open the form, on `seed` if given, else on the filters in force. A surface that opens it
+     * with a seed also closes its card.
+     */
     open: (seed?: NewWorkSeed) => {
-      setSeed(seed ?? null);
+      setSeed(seed ?? filterSeed(filters));
       go({ newWork: true, ...(seed ? { card: null } : {}) });
     },
     close: () => {
