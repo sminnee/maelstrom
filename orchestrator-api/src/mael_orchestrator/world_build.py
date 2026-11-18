@@ -114,7 +114,6 @@ def task_entity(
     return {
         "id": task_key(task.project, task.id),
         "notebookId": task.id,
-        "codename": task.codename,
         "project": task.project,
         "title": task.title,
         "status": task.status,
