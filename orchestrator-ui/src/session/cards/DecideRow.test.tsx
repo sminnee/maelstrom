@@ -79,6 +79,33 @@ describe('DecideRow', () => {
     expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled();
   });
 
+  describe('on a plan review', () => {
+    const planField = () => screen.getByRole('textbox', { name: 'Change or question' });
+
+    it('offers Approve alone while the field is empty', () => {
+      render(<DecideRow onDecide={vi.fn()} planReview />);
+      expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Approve']);
+    });
+
+    it('offers Ask, then Change, for a comment', async () => {
+      render(<DecideRow onDecide={vi.fn()} planReview />);
+      await userEvent.type(planField(), 'why?');
+      expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Ask', 'Change']);
+    });
+
+    it('sends Ask as ask and Change as deny, each trimmed', async () => {
+      const onDecide = vi.fn();
+      render(<DecideRow onDecide={onDecide} planReview />);
+      await userEvent.type(planField(), '  why two stores?  ');
+      await userEvent.click(screen.getByRole('button', { name: 'Ask' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Change' }));
+      expect(onDecide.mock.calls).toEqual([
+        ['ask', 'why two stores?'],
+        ['deny', 'why two stores?'],
+      ]);
+    });
+  });
+
   // The dock lays a band out by this hook, from a stylesheet in another
   // directory. Renaming it here would silently return both docked routes to
   // their card shape.

@@ -1,5 +1,6 @@
 import type { PermissionRequestItem } from '../../protocol/transcript';
-import { DecideRow, type Decision } from './DecideRow';
+import { DecideRow } from './DecideRow';
+import type { Decision } from './decision';
 import { ToolInput } from './ToolCallCard';
 import styles from './cards.module.css';
 

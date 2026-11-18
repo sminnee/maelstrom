@@ -25,6 +25,7 @@ import {
   ListFilter,
   Link2,
   Link2Off,
+  MessageCircleQuestionMark,
   MessageSquarePlus,
   OctagonX,
   PanelRight,
@@ -56,6 +57,7 @@ import {
 const ICONS = {
   approve: Check,
   archive: Archive,
+  ask: MessageCircleQuestionMark,
   back: ArrowLeft,
   close: X,
   closeWorktree: FolderX,

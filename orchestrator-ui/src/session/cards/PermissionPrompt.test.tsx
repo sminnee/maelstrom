@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { makePermissionRequest as item } from '../../fake/fixtures';
 import { PermissionPrompt } from './PermissionPrompt';
 
@@ -7,6 +8,13 @@ describe('PermissionPrompt', () => {
   it('shows the decide row while the request is open', () => {
     render(<PermissionPrompt item={item()} onDecide={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Approve' })).toBeInTheDocument();
+  });
+
+  // Ask is for a plan review: a question about a tool call is rare.
+  it('offers Deny alone for a comment, with no Ask', async () => {
+    render(<PermissionPrompt item={item()} onDecide={vi.fn()} />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Deny reason' }), 'why?');
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Deny']);
   });
 
   it('offers remember only when the agent sent a label', () => {
