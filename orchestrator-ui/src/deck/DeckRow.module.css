@@ -132,8 +132,8 @@
 .worktree {
   flex: 0 1 auto;
 }
-/* In a narrow kanban column the names share the first line and truncate, and a chip or the
-   phase that does not fit drops to a second line rather than run past the edge. A list row
+/* In a narrow kanban column the names share the first line and truncate, and a chip that does
+   not fit drops to a second line rather than run past the edge. A list row
    has no container, so this never applies there. */
 @container (max-width: 220px) {
   .open {
@@ -155,14 +155,6 @@
 .pr {
   flex: none;
   align-self: center;
-}
-.phase {
-  margin-left: auto;
-  flex: none;
-  font-family: var(--font);
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--phase);
 }
 .drift {
   flex: none;
@@ -231,9 +223,6 @@
    where the status row carries `--fg` and steps down with the rest. */
 .row[data-state='stopped'] .title {
   color: var(--fg-muted);
-}
-.row[data-state='stopped'] .phase {
-  color: var(--phase-dormant);
 }
 .row[data-state='queued'] {
   opacity: 0.65;

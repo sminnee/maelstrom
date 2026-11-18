@@ -176,7 +176,8 @@ to both views. On a phone, the Filters button holds them, or swipe in from the r
 Comms lists what to tell people outside the team when work lands, and links tasks to each comm.
 A comm has a category and a project. A new comm takes the project its category's comms use most.
 Each comm has a codename, such as `Lantern`, which the task metadata generator makes. A chip in one comm
-colour shows it on each task's node and card. A click on the chip opens the comm. A new task
+colour shows it on each task's node, card, and kanban and list row. A click on the chip on a node
+or card opens the comm. A new task
 feeds the comms of its parent, its follows tasks, and the task whose session made it.
 New task in a comm's editor writes a task linked to it. A task's editor links comms too. The Comm filter shows only the tasks
 linked to one comm, on Desk and Tasks.
