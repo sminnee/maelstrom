@@ -14,8 +14,7 @@ import { cardOf, useCard } from '../nav/useCard';
 import { useUnitOperation } from '../console/useConsole';
 import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { StepMeter } from '../ui/StepMeter';
-import { useCommsById } from '../api/comms';
-import { CommChip } from '../comms/CommChip';
+import { CommChips } from '../comms/CommChip';
 import styles from './TaskNode.module.css';
 
 export type TaskFlowNode = Node<
@@ -109,31 +108,10 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
         <PrChip pr={cardPr(node)} className={styles.pr} />
         <MergeRequestChip mr={node.worktree?.mergeRequest} className="nodrag nopan" />
         {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} className="nodrag nopan" />}
-        <NodeComms ids={node.task?.comms ?? []} />
+        <CommChips ids={node.task?.comms ?? []} />
       </div>
       {op && <StepMeter op={op} variant="edge" />}
       <Handle type="source" position={Position.Left} className={styles.handle} />
     </div>
-  );
-}
-
-/**
- * The comms the task feeds, at the meta row's end: the first as a chip, and `+n` for the rest.
- */
-function NodeComms({ ids }: { ids: readonly string[] }) {
-  const byId = useCommsById();
-  const [first, ...rest] = ids;
-  if (first === undefined) return null;
-  const comm = byId.get(first) ?? { id: first, codename: '', title: '' };
-  const others = rest.map((id) => byId.get(id)?.codename || id).join(', ');
-  return (
-    <span className={styles.comms}>
-      <CommChip comm={comm} />
-      {rest.length > 0 && (
-        <span className={styles.more} title={others}>
-          +{rest.length}
-        </span>
-      )}
-    </span>
   );
 }

@@ -1,3 +1,4 @@
+import { useCommsById } from '../api/comms';
 import type { Comm } from '../protocol/entities';
 import { useCommDetail } from '../nav/useOverlays';
 import { commLabel } from '../selectors/comms';
@@ -30,5 +31,26 @@ export function CommChip({
     >
       <span className="truncate">{label}</span>
     </button>
+  );
+}
+
+/**
+ * The comms a task feeds, at the end of a row: the first as a chip, and `+n` for the rest.
+ */
+export function CommChips({ ids }: { ids: readonly string[] }) {
+  const byId = useCommsById();
+  const [first, ...rest] = ids;
+  if (first === undefined) return null;
+  const comm = byId.get(first) ?? { id: first, codename: '', title: '' };
+  const others = rest.map((id) => byId.get(id)?.codename || id).join(', ');
+  return (
+    <span className={styles.comms}>
+      <CommChip comm={comm} />
+      {rest.length > 0 && (
+        <span className={styles.more} title={others}>
+          +{rest.length}
+        </span>
+      )}
+    </span>
   );
 }

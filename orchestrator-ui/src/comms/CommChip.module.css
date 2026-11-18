@@ -27,3 +27,19 @@
 .chip:hover {
   background: color-mix(in srgb, var(--comm) calc(var(--comm-fill) + 10%), transparent);
 }
+
+/* The comms, at the row's end. A long codename gives way before the id does. */
+.comms {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--u-half);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  margin-left: auto;
+  align-self: center;
+}
+.more {
+  flex: none;
+  color: var(--comm-text);
+}
