@@ -164,8 +164,7 @@
 .reason {
   flex-basis: 100%;
   white-space: pre-wrap;
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
+  line-height: var(--leading-prose);
 }
 .deferred {
   display: flex;

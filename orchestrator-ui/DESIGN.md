@@ -1285,6 +1285,11 @@ while a settled permission is a yes/no on a piece of machinery, never a message.
 permission into the settled-question wash — the two are answering different questions about what
 happened.
 
+**A settled plan review** is a line, and the reason under it is the operator's voice. A Change
+or an Ask is a message the operator typed, so its text takes the operator's wash at the reading
+rank. An Ask shows the question alone, not the instruction the UI wrapped around it, and the
+line reads "asked" in place of "deny".
+
 ### Review Dock
 
 The band under a document, holding whatever waits on the operator there. One dock, one place,

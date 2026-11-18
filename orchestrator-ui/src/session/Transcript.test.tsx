@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { Transcript } from './Transcript';
 import type * as AgentMessageModule from './cards/AgentMessage';
+import { askReason } from './cards/decision';
 import { classifyToolCall } from './toolCards';
 import { makePlanReview } from '../fake/fixtures';
 import { goldenItems } from '../test/goldens';
@@ -290,6 +291,29 @@ describe('Transcript', () => {
     render(<Transcript truncatedBefore={false} items={[makePlanReview({ stale: true })]} />);
     expect(screen.getByText('no longer pending')).toBeInTheDocument();
     expect(screen.queryByText('awaiting review')).toBeNull();
+  });
+
+  it("a denied plan review shows the operator's reason", () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[makePlanReview({ decision: 'deny', reason: 'Split the store first.' })]}
+      />,
+    );
+    expect(screen.getByText('deny')).toBeInTheDocument();
+    expect(screen.getByTestId('plan-reason')).toHaveTextContent('Split the store first.');
+  });
+
+  it('an asked plan review shows the question alone, as asked', () => {
+    render(
+      <Transcript
+        truncatedBefore={false}
+        items={[makePlanReview({ decision: 'deny', reason: askReason('Why two stores?') })]}
+      />,
+    );
+    expect(screen.getByText('asked')).toBeInTheDocument();
+    expect(screen.queryByText('deny')).toBeNull();
+    expect(screen.getByTestId('plan-reason')).toHaveTextContent(/^youWhy two stores\?$/);
   });
 
   it('a gap says how many events the host dropped there', () => {
