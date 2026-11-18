@@ -1588,7 +1588,8 @@ how many tasks the open comms queue. A row with an unsent **Comm update** says `
 editor lists the comm's updates, newest first. Its New task button opens New work on
 the comm's title, content and project, and the task it writes is linked to the comm. The task
 count opens Tasks with the Comm filter set. A comm's chip shows its **Comm codename**; a click
-on a chip anywhere, such as on a task's node, opens the comm's editor. The **Task editor** links comms too. Each picker
+on a chip on a task's node or card opens the comm's editor. On a kanban or list row the chip is
+text, because the row is itself a link. The **Task editor** links comms too. Each picker
 offers the five comms or tasks this browser viewed or linked most recently, before a search. A person works here; an agent uses
 `mael comms`.
 _Avoid_: Inbox, outbox, notifications tab

@@ -429,6 +429,21 @@ describe('the comm chips', () => {
     expect(node('NORT-12')).toHaveTextContent('+2');
   });
 
+  const row = (taskId: string) =>
+    document.querySelector(`[data-testid="deck-row"][data-task-id="${taskId}"]`) as HTMLElement;
+
+  it.each(['list', 'kanban'])(
+    "ends a %s row with its comm's codename, in place of the phase word",
+    async (mode) => {
+      await renderApp({ scenario: 'comms', url: `/desk/${mode}` });
+      await waitFor(() => expect(row('NORT-12')).not.toBeNull());
+      // The row is a link, so its chip is text, not a button.
+      expect(row('NORT-12')).toHaveTextContent('Night Owl');
+      expect(within(row('NORT-12')).queryByRole('button', { name: 'Night Owl' })).toBeNull();
+      expect(row('NORT-12')).not.toHaveTextContent(/SHAPE|PLAN|BUILD|LAND/);
+    },
+  );
+
   it('opens the comm from a chip, over the desk, and leaves the node as it was', async () => {
     const user = userEvent.setup();
     const { router } = await renderApp({ scenario: 'comms' });

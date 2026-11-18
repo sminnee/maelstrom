@@ -24,8 +24,12 @@
   /* A button, but a chip: it takes the chip height, not a control's. */
   min-height: 0;
 }
-.chip:hover {
+/* Only a button chip washes on hover: a static chip takes no click. */
+button.chip:hover {
   background: color-mix(in srgb, var(--comm) calc(var(--comm-fill) + 10%), transparent);
+}
+.static {
+  cursor: inherit;
 }
 
 /* The comms, at the row's end. A long codename gives way before the id does. */

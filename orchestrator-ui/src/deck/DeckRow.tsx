@@ -5,7 +5,6 @@ import { useDocuments } from '../api/documents';
 import { useOwnHost } from '../api/host';
 import { worktreeName } from '../selectors/worktrees';
 import { driftLabel } from '../protocol/progress';
-import { phaseLabel } from '../protocol/phase';
 import type { GraphNode } from '../selectors/graph';
 import { nodeIdLine, nodeIdTitle, nodeTitle } from '../selectors/graph';
 import { cardPr } from '../selectors/cardPr';
@@ -14,6 +13,7 @@ import { PanelLink } from '../shell/PanelLink';
 import { GateLozenge } from '../shell/GateLozenge';
 import { PrChip } from '../shell/PrChip';
 import { MergeRequestChip } from '../shell/MergeRequestChip';
+import { CommChips } from '../comms/CommChip';
 import { useSwipeAction } from '../gesture/useSwipeAction';
 import { useUnitOperation } from '../console/useConsole';
 import { nodeUnit, unitWords } from '../selectors/operations';
@@ -135,7 +135,7 @@ export function DeckRow({
           <PrChip pr={cardPr(node)} link={false} className={styles.pr} />
           <MergeRequestChip mr={node.worktree?.mergeRequest} interactive={false} />
           {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} interactive={false} />}
-          {node.phase && <span className={styles.phase}>{phaseLabel(node.phase)}</span>}
+          <CommChips ids={node.task?.comms ?? []} interactive={false} />
         </span>
       </Link>
       {/* The badge sits outside the row's own link: it opens the document
