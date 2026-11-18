@@ -71,27 +71,6 @@ The id is the tie-break. `creation_order` in `task.py` is that key. `mael task n
 list`, `TaskTable.list` and the task list in the orchestrator UI all use this order. A child
 therefore sorts by the time it was created, not next to its parent.
 
-## Codenames
-
-Each open task holds a **Codename** (see `CONTEXT.md`): one word, such as `falcon`, that the
-orchestrator UI shows in place of the id. A template holds none, because it never closes and
-would hold its word forever.
-
-- **The word list** is `lib/domain/src/mael_domain/codenames.txt`: 1000 words of 3 to 7
-  lowercase letters. `test_codename.py` holds the list to that shape.
-- **Where the rule is kept**: `create()` and `move()` in `task.py`. Every write path that sets a
-  status goes through one of the two. `rename`, `update` and `edit_in_editor` write the whole
-  row, so the codename stays as it was.
-- **Uniqueness** is global, not per project: the `tasks_codename` partial unique index on the
-  `tasks` table. So the UI can show a codename with no project in front.
-- **The retry**: a draw reads the held words, then saves. When another writer saves the same
-  word first, the save raises `CodenameTaken` and the draw runs again, up to 5 times. After that,
-  the task saves with no codename.
-- **When no word is free**, the task saves with no codename and the UI shows its id.
-
-The CLI stays on ids. The codename is not in the task markdown, so `mael task edit` and a draft
-cannot set it.
-
 ## `follows` vs `parent`
 
 They are orthogonal:

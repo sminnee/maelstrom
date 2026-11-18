@@ -10,7 +10,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-from ...codename import pick_codename
 from ..paths import notebook_path
 from ..types import Migration, PythonMigration, Rung
 from .notebook_md import import_notebook
@@ -81,25 +80,9 @@ def _store_sessions(conn: sqlite3.Connection, root: Path | None) -> None:
     conn.execute("ALTER TABLE tasks DROP COLUMN session_id")
 
 
-def _assign_codenames(conn: sqlite3.Connection, root: Path | None) -> None:
-    """Give each open task a free codename, oldest first.
-
-    So the UI shows codenames at once after the upgrade. When every word is
-    held, the rest keep ``NULL`` and the UI shows their ids. The rows keep
-    their revision, because a rung must not bump the counter. See
-    :class:`~mael_domain.state_db.types.PythonMigration`.
-    """
-    del root
-    held: set[str] = set()
-    for (id,) in conn.execute(
-        "SELECT id FROM tasks WHERE status IN ('todo', 'in-progress') "
-        "AND codename IS NULL ORDER BY created, id"
-    ).fetchall():
-        codename = pick_codename(held)
-        if codename is None:
-            return
-        held.add(codename)
-        conn.execute("UPDATE tasks SET codename = ? WHERE id = ?", (codename, id))
+def _skip_codenames(conn: sqlite3.Connection, root: Path | None) -> None:
+    """Do nothing: the task codename word list is gone."""
+    del conn, root
 
 
 #: The columns rung 1's ``CREATE TABLE`` declares, in its order. Frozen: a rung
@@ -204,7 +187,7 @@ TASKS: tuple[Rung, ...] = (
     # The ``blocked`` status is gone: follows are the one way to make a task
     # wait. See CONTEXT.md, "Parked task".
     Migration(("UPDATE tasks SET status = 'todo' WHERE status = 'blocked'",)),
-    # Each open task holds a codename. See CONTEXT.md, "Codename".
+    # Each open task held a codename. A later rung drops it.
     Migration(
         (
             "ALTER TABLE tasks ADD COLUMN codename TEXT",
@@ -213,7 +196,14 @@ TASKS: tuple[Rung, ...] = (
         )
     ),
     PythonMigration(
-        run=_assign_codenames,
-        description="give each open task a codename",
+        run=_skip_codenames,
+        description="formerly gave each open task a codename; now a no-op",
+    ),
+    # Task codenames are gone.
+    Migration(
+        (
+            "DROP INDEX IF EXISTS tasks_codename",
+            "ALTER TABLE tasks DROP COLUMN codename",
+        )
     ),
 )
