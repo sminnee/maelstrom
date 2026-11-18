@@ -7,7 +7,7 @@ import { worktreeName } from '../selectors/worktrees';
 import { driftLabel } from '../protocol/progress';
 import { phaseLabel } from '../protocol/phase';
 import type { GraphNode } from '../selectors/graph';
-import { nodeIdLine, nodeIdTitle, nodeTitle } from '../selectors/graph';
+import { nodeIdLine, nodeTitle } from '../selectors/graph';
 import { cardPr } from '../selectors/cardPr';
 import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
@@ -124,7 +124,7 @@ export function DeckRow({
               {node.task.project}
             </span>
           )}
-          <span className={`${styles.id} truncate`} title={nodeIdTitle(node)}>
+          <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
             {nodeIdLine(node)}
           </span>
           {node.worktree && (

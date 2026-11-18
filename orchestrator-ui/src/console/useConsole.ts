@@ -127,7 +127,7 @@ export function useGoToTarget() {
         return;
       }
       showPane('desk');
-      const { card } = operationTarget(op, {});
+      const { card } = operationTarget(op);
       if (card) go({ card });
     },
     [narrow, go, showPane, closeConsole],

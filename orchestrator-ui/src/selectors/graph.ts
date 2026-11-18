@@ -20,7 +20,6 @@ import type { AgentStatusFilter, Filters } from './filters';
 import { branchKey, matchesText, searching } from './filters';
 import { byName, trackedAgents, worktreeName } from './worktrees';
 import { hasRegisteredPr } from './cardPr';
-import { taskLabel, taskLabelTitle } from './taskLabel';
 
 /**
  * What a node stands for: a notebook task, an agent with no task, or an
@@ -97,20 +96,15 @@ export function nodeTitle(node: GraphNode, ownPrefix = ''): string {
 }
 
 /**
- * The id a node shows, bare because the lane already names the project: a
- * task's codename, else its notebook id, else the free agent's own id — the
- * **Failover id** rule in `CONTEXT.md`.
+ * The id a node shows: a task's bare notebook id, because the lane already
+ * names the project, else the free agent's own id — the **Failover id** rule
+ * in `CONTEXT.md`.
  *
  * An agent id is already 8 characters, so nothing here truncates.
  */
 export function nodeIdLine(node: GraphNode): string {
   if (node.operation) return node.operation.id;
-  return node.task ? taskLabel(node.task) : node.id;
-}
-
-/** The tooltip on a node's id line: a codename also names the task id. */
-export function nodeIdTitle(node: GraphNode): string {
-  return node.task && !node.operation ? taskLabelTitle(node.task) : nodeIdLine(node);
+  return node.task ? node.task.notebookId : node.id;
 }
 
 /**
@@ -220,7 +214,7 @@ function filteredTasks(world: WorldView, filters: Filters): TaskRow[] {
     .filter((t) => !filters.project || t.project === filters.project)
     .filter((t) => !filters.branch || branchKey(t.project, t.branch) === filters.branch)
     .filter((t) => !filters.comm || t.comms.includes(filters.comm))
-    .filter((t) => matchesText([t.id, t.notebookId, t.codename ?? '', t.title], filters))
+    .filter((t) => matchesText([t.id, t.notebookId, t.title], filters))
     .sort((a, b) => a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
 }
 

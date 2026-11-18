@@ -100,8 +100,6 @@ function worktree(
 
 interface TaskSpec {
   id: string;
-  /** The task's **Codename**; none when not given. */
-  codename?: string;
   project: string;
   title: string;
   status: Task['status'];
@@ -126,7 +124,6 @@ export function task(spec: TaskSpec): Task {
     // One project space, so a notebook id is already unique here; the real
     // server qualifies its own with the project.
     notebookId: spec.id,
-    codename: spec.codename ?? null,
     project: spec.project,
     title: spec.title,
     status: spec.status,
@@ -392,7 +389,6 @@ export function seedWorld(): Seed {
     }),
     task({
       id: 'MAEL-40.1',
-      codename: 'falcon',
       project: 'maelstrom',
       title: 'Restamp the index on HEAD change',
       status: 'in-progress',
@@ -414,7 +410,6 @@ export function seedWorld(): Seed {
     }),
     task({
       id: 'MAEL-52',
-      codename: 'quartz',
       project: 'maelstrom',
       title: 'Shape the orchestrator UI',
       status: 'in-progress',

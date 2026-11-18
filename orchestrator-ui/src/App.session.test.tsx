@@ -167,8 +167,6 @@ describe('the session tab', () => {
     const user = userEvent.setup();
     await renderApp();
     clickNode('MAEL-52');
-    // The node names the task by its codename.
-    expect(within(expanded()).getByTestId('node-id-line')).toHaveTextContent(/^quartz/);
     await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
     expect(screen.getAllByTestId('question-prompt')).toHaveLength(1);
     expect(within(expanded()).getByTestId('question-prompt')).toBeInTheDocument();

@@ -182,7 +182,7 @@ export function MultiComboBox({
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(option)}
             >
-              <span className={styles.value}>{option.display ?? option.value}</span>
+              <span className={styles.value}>{option.value}</span>
               {option.label && (
                 <span className={`${styles.label} truncate`} title={option.label}>
                   {option.label}
