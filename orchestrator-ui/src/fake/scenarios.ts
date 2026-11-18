@@ -23,6 +23,7 @@ import {
   onDesk,
   worldWith,
 } from './fixtures';
+import { askReason } from '../session/cards/decision';
 import { faultKey } from './operations';
 import { comm, seedWorld, T, task, type Seed } from './seedWorld';
 import { defaultLoc, toHref, withLoc, type LocPatch } from '../nav/location';
@@ -567,6 +568,24 @@ function asks(): Seed {
       description: 'Drop the database',
       decision: 'deny',
       reason: 'Never on this host.',
+    },
+    {
+      id: 'ask-plan-changed',
+      ts: T(10),
+      type: 'plan_review',
+      requestId: 'req-ask-plan-changed',
+      documentId: null,
+      decision: 'deny',
+      reason: 'Keep the export behind a flag until the backfill lands.',
+    },
+    {
+      id: 'ask-plan-asked',
+      ts: T(8),
+      type: 'plan_review',
+      requestId: 'req-ask-plan-asked',
+      documentId: null,
+      decision: 'deny',
+      reason: askReason('Why stream the export rather than batch it?'),
     },
     {
       id: 'ask-plan',

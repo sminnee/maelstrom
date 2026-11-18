@@ -9,8 +9,8 @@
  * What the operator said. Once the neutral box goes this wash is the only thing
  * telling the two apart, so it keeps its own padding and radius.
  *
- * One declaration: a user turn and a settled question are both the operator
- * speaking, and two copies of a color-mix drift.
+ * One declaration: a user turn, a settled question and a plan review's reason
+ * are all the operator speaking, and two copies of a color-mix drift.
  */
 .message[data-role='user'],
 .settled {

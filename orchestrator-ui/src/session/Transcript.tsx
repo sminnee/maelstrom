@@ -7,7 +7,7 @@ import { documentTab } from '../selectors/tabs';
 import { PanelLink } from '../shell/PanelLink';
 import { AgentMessage } from './cards/AgentMessage';
 import { BashCard } from './cards/BashCard';
-import type { Decision } from './cards/DecideRow';
+import { askedQuestion, type Decision } from './cards/decision';
 import { PermissionPrompt } from './cards/PermissionPrompt';
 import { QuestionPrompt } from './cards/QuestionPrompt';
 import { ResultLine } from './cards/ResultLine';
@@ -244,6 +244,7 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
       );
     case 'plan_review': {
       const documentId = item.documentId;
+      const asked = askedQuestion(item.reason);
       return (
         <div
           className={styles.plan}
@@ -253,9 +254,17 @@ function Card({ item, handlers }: { item: TranscriptItem; handlers: TranscriptHa
           <span>Plan review</span>
           {documentId && <PanelLink tab={documentTab(documentId)}>Plan</PanelLink>}
           <span className={styles.decision}>
-            {item.decision ?? (item.stale ? 'no longer pending' : 'awaiting review')}
+            {asked !== null
+              ? 'asked'
+              : (item.decision ?? (item.stale ? 'no longer pending' : 'awaiting review'))}
           </span>
-          {item.reason && <div className={styles.reason}>{item.reason}</div>}
+          {item.reason && (
+            // The operator's words, so they take the operator's wash.
+            <div className={`${styles.reason} ${cards.settled}`} data-testid="plan-reason">
+              <span className="srOnly">you</span>
+              {asked ?? item.reason}
+            </div>
+          )}
         </div>
       );
     }

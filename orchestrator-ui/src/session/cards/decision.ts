@@ -12,6 +12,12 @@ export const askReason = (question: string) =>
   'Answer the question in chat. Do not edit the plan file or call ExitPlanMode again ' +
   `until the user asks you to.\n\nQuestion: ${question}`;
 
+/** The question an Ask sent, read back from a deny reason; null for any other reason. */
+export function askedQuestion(reason: string | undefined): string | null {
+  const wrapper = askReason('');
+  return reason?.startsWith(wrapper) ? reason.slice(wrapper.length) : null;
+}
+
 /**
  * What a decision sends to the agent: a deny with its reason, or an approve.
  * Every caller maps through here, so a new decision cannot fall through to approve.
