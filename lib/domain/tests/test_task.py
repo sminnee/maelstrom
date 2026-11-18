@@ -5,7 +5,6 @@ import re
 import pytest
 
 from mael_domain import task as model
-from mael_domain.codename import CODENAMES, pick_codename
 from mael_domain.task import Task
 from mael_domain.task_table import InMemoryTaskTable
 
@@ -819,105 +818,6 @@ class TestMove:
     async def test_move_missing_task(self, store):
         with pytest.raises(KeyError):
             await model.move(store, "p", "nope", "in-progress", now=NOW)
-
-
-class TestCodename:
-    """An open task holds a codename; a closed one or a template holds none."""
-
-    @staticmethod
-    async def _hold(store, words) -> None:
-        """Give each of ``words`` to a task in another project."""
-        for i, word in enumerate(words):
-            await store.save(Task(id=f"h{i}", title="", project="held", codename=word))
-
-    async def test_a_new_task_gets_a_codename(self, store):
-        t = await model.create(store, project="p", title="a", now=NOW)
-        assert t.codename in CODENAMES
-        assert (await model.load(store, "p", t.id)).codename == t.codename
-
-    async def test_two_open_tasks_never_share_one(self, store):
-        """Every word but two is held, so the two new tasks take one each."""
-        await self._hold(store, CODENAMES[:-2])
-        a = await model.create(store, project="p", title="a", now=NOW)
-        b = await model.create(store, project="q", title="b", now=NOW)
-        assert {a.codename, b.codename} == set(CODENAMES[-2:])
-
-    async def test_a_template_gets_none_until_it_moves_to_todo(self, store):
-        t = await model.create(
-            store, project="p", title="a", status=model.STATUS_TEMPLATE, now=NOW
-        )
-        assert t.codename is None
-        moved = await model.move(store, "p", t.id, model.STATUS_TODO, now=NOW2)
-        assert moved.codename in CODENAMES
-
-    async def test_starting_a_task_keeps_its_codename(self, store):
-        t = await model.create(store, project="p", title="a", now=NOW)
-        moved = await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW2)
-        assert moved.codename == t.codename
-
-    @pytest.mark.parametrize("closed", [model.STATUS_DONE, model.STATUS_CANCELLED])
-    async def test_closing_gives_it_back_and_reopening_draws_again(self, store, closed):
-        t = await model.create(store, project="p", title="a", now=NOW)
-        done = await model.move(store, "p", t.id, closed, now=NOW2)
-        assert done.codename is None
-        assert t.codename not in await store.held_codenames()
-        # Another task takes the word while this one is closed.
-        await self._hold(store, [t.codename])
-        reopened = await model.move(store, "p", t.id, model.STATUS_TODO, now=NOW2)
-        assert reopened.codename in CODENAMES
-        assert reopened.codename != t.codename
-
-    async def test_a_task_gets_none_when_every_word_is_held(self, store):
-        """The UI shows the id instead: the Failover id rule."""
-        await self._hold(store, CODENAMES)
-        t = await model.create(store, project="p", title="a", now=NOW)
-        assert t.codename is None
-        assert (await model.load(store, "p", t.id)).codename is None
-
-    async def test_a_word_taken_first_by_another_writer_is_drawn_again(
-        self, store, monkeypatch
-    ):
-        """The first read is stale, so the first word clashes on save."""
-        first = min(CODENAMES)
-        await self._hold(store, [first])
-        reads = []
-        real = store.held_codenames
-
-        async def stale_once():
-            reads.append(1)
-            return set() if len(reads) == 1 else await real()
-
-        monkeypatch.setattr(store, "held_codenames", stale_once)
-        monkeypatch.setattr(
-            model, "pick_codename", lambda held: pick_codename(held, choose=min)
-        )
-        t = await model.create(store, project="p", title="a", now=NOW)
-        assert t.codename == min(set(CODENAMES) - {first})
-        assert len(reads) == 2
-
-    async def test_a_task_saves_with_none_after_the_last_clash(
-        self, store, monkeypatch
-    ):
-        await self._hold(store, CODENAMES[:1])
-
-        async def always_stale():
-            return set()
-
-        monkeypatch.setattr(store, "held_codenames", always_stale)
-        monkeypatch.setattr(
-            model,
-            "pick_codename",
-            lambda held: pick_codename(held, choose=lambda w: w[0]),
-        )
-        t = await model.create(store, project="p", title="a", now=NOW)
-        assert t.codename is None
-        assert (await model.load(store, "p", t.id)).codename is None
-
-    async def test_a_rename_keeps_the_codename(self, store):
-        t = await model.create(store, project="p", title="a", now=NOW)
-        renamed = await model.rename(store, "p", t.id, "new-id", now=NOW2)
-        assert (await model.load(store, "p", "new-id")).codename == t.codename
-        assert renamed.codename == t.codename
 
 
 class TestRegisterPr:
@@ -2398,10 +2298,8 @@ class TestEditInEditor:
         # The row stays canonical and the edit reached the Content section.
         reloaded = await model.load(store, "p", t.id)
         assert "edited" in reloaded.content
-        # The sessions and the codename are not in the markdown, so the save
-        # must not wipe them.
+        # The sessions are not in the markdown, so the save must not wipe them.
         assert reloaded.sessions == [model.TaskSession("c-1", "claude")]
-        assert reloaded.codename is not None and reloaded.codename == t.codename
 
     async def test_noop_save_writes_nothing(self, store, tmp_path):
         t = await model.create(store, project="p", title="orig", now=NOW)

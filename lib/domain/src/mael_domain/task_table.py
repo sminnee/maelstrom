@@ -28,7 +28,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
-from .codename import CodenameTaken
 from .state_db.db import StateDb, Txn
 from .task import Task, TaskSession, creation_order, split_follow_ref
 
@@ -60,8 +59,6 @@ _SCALARS = (
     "trigger",
     "content",
     "log",
-    # ``None`` is SQL ``NULL``: the partial unique index admits any number.
-    "codename",
 )
 
 
@@ -147,14 +144,6 @@ def task_from_row(row: sqlite3.Row) -> Task:
     return task
 
 
-def _codename_clash(rows: dict[str, dict[str, Any]], task: Task) -> bool:
-    """Whether a row other than ``task``'s holds ``task``'s codename."""
-    key = row_id(task.project, task.id)
-    return task.codename is not None and any(
-        row["codename"] == task.codename and id != key for id, row in rows.items()
-    )
-
-
 class TaskTable(ABC):
     """The task notebook, as rows keyed by project and id.
 
@@ -182,10 +171,6 @@ class TaskTable(ABC):
     @abstractmethod
     async def delete(self, project: str, id: str) -> None:
         """Remove one task. Removing what is absent changes nothing."""
-
-    @abstractmethod
-    async def held_codenames(self) -> set[str]:
-        """Every codename a task holds, in every project."""
 
     @abstractmethod
     async def find_by_session_id(self, session_id: str) -> Task | None:
@@ -289,8 +274,6 @@ class InMemoryTaskTable(TaskTable):
         stored = self._rows.get(id)
         if stored is not None and _without_revision(stored) == columns:
             return
-        if _codename_clash(self._rows, task):
-            raise CodenameTaken(task.codename)
         self._revision += 1
         self._rows[id] = {**columns, "revision": self._revision}
         # A saved id is present again, so an earlier removal of it is stale.
@@ -304,13 +287,6 @@ class InMemoryTaskTable(TaskTable):
 
     async def revision(self) -> int:
         return self._revision
-
-    async def held_codenames(self) -> set[str]:
-        return {
-            row["codename"]
-            for row in self._rows.values()
-            if row["codename"] is not None
-        }
 
     async def changed_since(self, since: int) -> TaskChanges:
         tasks = [
@@ -463,14 +439,7 @@ class SqliteTaskTable(TaskTable):
                 # A write that changed nothing must not bump the counter: an
                 # idle poll relies on that never happening.
                 return
-            try:
-                txn.upsert(TABLE, id, **columns)
-            except sqlite3.IntegrityError as exc:
-                # The ``tasks_codename`` partial unique index: another writer
-                # saved the same word first.
-                if "tasks.codename" in str(exc):
-                    raise CodenameTaken(task.codename) from exc
-                raise
+            txn.upsert(TABLE, id, **columns)
 
     async def delete(self, project: str, id: str) -> None:
         """Remove the row. A task that is not there is a no-op."""
@@ -479,14 +448,6 @@ class SqliteTaskTable(TaskTable):
             if await self._db.read(TABLE, key) is None:
                 return
             txn.delete(TABLE, key)
-
-    async def held_codenames(self) -> set[str]:
-        rows = await self._db._call(
-            lambda conn: conn.execute(
-                f"SELECT codename FROM {TABLE} WHERE codename IS NOT NULL"  # noqa: S608 — the table name is this module's own
-            ).fetchall()
-        )
-        return {row["codename"] for row in rows}
 
     async def find_by_session_id(self, session_id: str) -> Task | None:
         if not session_id:

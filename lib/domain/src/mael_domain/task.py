@@ -39,7 +39,6 @@ from mael_common.shell import run_cmd
 from mael_common.util import now_iso
 
 from . import task_metadata_generator
-from .codename import CodenameTaken, pick_codename
 from .state_db.paths import attachments_root
 
 if TYPE_CHECKING:
@@ -293,9 +292,6 @@ class Task:
     # The task's agent sessions, oldest first. Machine-owned: not in the
     # frontmatter. See CONTEXT.md, "Task session id".
     sessions: list["TaskSession"] = field(default_factory=list)
-    # The word the UI shows while the task is open. Machine-owned: not in the
-    # frontmatter. See CONTEXT.md, "Codename".
-    codename: str | None = None
 
     # --- serialization ---
 
@@ -583,36 +579,6 @@ def is_terminal(status: str) -> bool:
     return status in (STATUS_DONE, STATUS_CANCELLED)
 
 
-def holds_codename(status: str) -> bool:
-    """Whether a task in ``status`` holds a codename. See CONTEXT.md, "Codename"."""
-    return status in (STATUS_TODO, STATUS_IN_PROGRESS)
-
-
-#: How many times a save draws again when another writer took the word first.
-_CODENAME_ATTEMPTS = 5
-
-
-async def _save_with_codename(table: "TaskTable", task: Task) -> None:
-    """Save ``task``, holding a codename while it is open.
-
-    See ``docs/dev/tasks.md``, "Codenames".
-    """
-    if not holds_codename(task.status):
-        task.codename = None
-    elif task.codename is None:
-        for _ in range(_CODENAME_ATTEMPTS):
-            task.codename = pick_codename(await table.held_codenames())
-            if task.codename is None:
-                break
-            try:
-                await table.save(task)
-                return
-            except CodenameTaken:
-                continue
-        task.codename = None
-    await table.save(task)
-
-
 async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
     """Return whether a **New session** may start on ``task`` now.
 
@@ -806,7 +772,7 @@ async def create(
         content=content,
         status=status,
     )
-    await _save_with_codename(table, task)
+    await table.save(task)
     return task
 
 
@@ -1351,7 +1317,7 @@ async def move(
         return task
     task.status = new_status
     task.updated = now if now is not None else now_iso()
-    await _save_with_codename(table, task)
+    await table.save(task)
     return task
 
 
@@ -1535,7 +1501,6 @@ async def edit_in_editor(
     edited.project = task.project
     # The sessions are not in the markdown, so the edit cannot hold them.
     edited.sessions = task.sessions
-    edited.codename = task.codename
     edited.updated = now_iso()
     await table.save(edited)
     return edited, True

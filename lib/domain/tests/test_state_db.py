@@ -10,13 +10,11 @@ from pathlib import Path
 import pytest
 
 from mael_domain.agent_store import SqliteAgentStore
-from mael_domain.codename import CODENAMES
 from mael_domain.notebook_root import NOTEBOOK_ROOT_UNSET_MESSAGE
 from mael_domain.state_db import migrate as state_db_migrate
 from mael_domain.state_db.db import StateDb
 from mael_domain.state_db.migrate import main as migrate_main
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.state_db.migrations import tasks as tasks_ladder
 from mael_domain.state_db.migrations.desk import DESK
 from mael_domain.state_db.types import (
     Migration,
@@ -136,11 +134,6 @@ class TestLadderInjection:
             await db.check()
         finally:
             db.close()
-
-
-#: The tasks ladder's length before the codename rungs: the cut an older
-#: database stands at in the codename tests.
-BEFORE_CODENAMES = 12
 
 
 class TestTheShippedLadders:
@@ -300,76 +293,32 @@ class TestTheShippedLadders:
         finally:
             db.close()
 
-    async def test_an_older_database_gives_each_open_task_a_codename(self, tmp_path):
+    async def test_the_drop_rung_removes_the_codename_and_keeps_the_task(
+        self, tmp_path
+    ):
         db = open_state_db(tmp_path / "state.db")
         try:
             full = db.ladders["tasks"]
-            db.ladders["tasks"] = full[:BEFORE_CODENAMES]
+            db.ladders["tasks"] = full[:13]  # up to the rung before the drop
             await db.migrate()
             await db.write_all(
                 [
-                    Write("tasks", f"p/{status}", {"title": "T", "status": status})
-                    for status in (
-                        "todo",
-                        "in-progress",
-                        "done",
-                        "cancelled",
-                        "template",
+                    Write(
+                        "tasks",
+                        "p/1",
+                        {"title": "T", "status": "todo", "codename": "falcon"},
                     )
                 ]
-                + [Write("tasks", "q/todo", {"title": "T", "status": "todo"})]
             )
 
             db.ladders["tasks"] = full
             await db.migrate()
 
-            rows = {
-                row["id"]: row["codename"]
-                for row in await db._call(
-                    lambda conn: conn.execute(
-                        "SELECT id, codename FROM tasks"
-                    ).fetchall()
-                )
-            }
-            assert {key: word in CODENAMES for key, word in rows.items()} == {
-                "p/todo": True,
-                "p/in-progress": True,
-                "q/todo": True,
-                "p/done": False,
-                "p/cancelled": False,
-                "p/template": False,
-            }
-            held = [word for word in rows.values() if word is not None]
-            assert len(set(held)) == len(held)
-        finally:
-            db.close()
-
-    async def test_the_codenames_rung_leaves_the_rest_null_when_words_run_out(
-        self, tmp_path, monkeypatch
-    ):
-        # One word in the list: the oldest task takes it.
-        monkeypatch.setattr(
-            tasks_ladder, "pick_codename", lambda held: None if held else "falcon"
-        )
-        db = open_state_db(tmp_path / "state.db")
-        try:
-            full = db.ladders["tasks"]
-            db.ladders["tasks"] = full[:BEFORE_CODENAMES]
-            await db.migrate()
-            await db.write_all(
-                [
-                    Write("tasks", "p/old", {"status": "todo", "created": "1"}),
-                    Write("tasks", "p/new", {"status": "todo", "created": "2"}),
-                ]
-            )
-
-            db.ladders["tasks"] = full
-            await db.migrate()
-
-            table = SqliteTaskTable(db)
-            old, new = await table.load("p", "old"), await table.load("p", "new")
-            assert old is not None and new is not None
-            assert (old.codename, new.codename) == ("falcon", None)
+            row = await db.read("tasks", "p/1")
+            assert row is not None and "codename" not in row.keys()
+            task = await SqliteTaskTable(db).load("p", "1")
+            assert task is not None
+            assert (task.title, task.status) == ("T", "todo")
         finally:
             db.close()
 

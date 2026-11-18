@@ -2,17 +2,13 @@
 
 from contextlib import ExitStack
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
 from mael_cli.cli import cli
-from mael_cli.mv_project_cli import _rewrite_path_string, migrate_tasks
-from mael_domain import task as task_model
+from mael_cli.mv_project_cli import _rewrite_path_string
 from mael_domain.mv_project import build_move_plan
-from mael_domain.state_db.migrate import open_state_db
-from mael_domain.task_table import SqliteTaskTable
 
 
 class _FakeWorktree:
@@ -465,23 +461,3 @@ class TestRewritePathString:
         result = _rewrite_path_string(str(tmp_path / "old2" / "x"), plan)
 
         assert result == str(tmp_path / "old2" / "x")
-
-
-class TestMigrateTasks:
-    """The task re-key, against a real table."""
-
-    async def test_an_open_task_keeps_its_codename(self):
-        """The old row goes before the new one lands, or the unique index refuses it."""
-        db = open_state_db(":memory:")
-        await db.migrate()
-        table = SqliteTaskTable(db)
-        try:
-            t = await task_model.create(table, project="old", title="a", branch="b")
-            plan = SimpleNamespace(old_name="old", new_name="new")
-            with patch("mael_cli.mv_project_cli.open_task_table", return_value=table):
-                assert await migrate_tasks(plan) == 1  # type: ignore[arg-type]
-            moved = await table.load("new", t.id)
-            assert moved is not None and moved.codename == t.codename
-            assert t.codename is not None
-        finally:
-            db.close()
