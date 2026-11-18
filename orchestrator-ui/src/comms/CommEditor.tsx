@@ -24,7 +24,6 @@ import { useRecent } from '../ui/recent';
 import { TextArea } from '../ui/TextArea';
 import { useNow } from '../ui/useNow';
 import styles from './CommEditor.module.css';
-import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 interface Draft {
   title: string;
@@ -421,7 +420,7 @@ function LinkedTasks({ comm }: { comm: Comm }) {
       Object.values(world.tasks)
         .filter((t) => !t.comms.includes(comm.id) && t.status !== 'cancelled')
         .sort((a, b) => a.id.localeCompare(b.id))
-        .map((t) => ({ value: t.id, label: t.title, display: qualifiedTaskLabel(t) })),
+        .map((t) => ({ value: t.id, label: t.title })),
     [world.tasks, comm.id],
   );
   const target = options.some((o) => o.value === picked.trim())
@@ -440,15 +439,13 @@ function LinkedTasks({ comm }: { comm: Comm }) {
         <ul className={styles.taskList}>
           {linked.map((task) => (
             <li key={task.id} className={styles.task} data-task-id={task.id}>
-              <span className={`${styles.taskId} nowrap`} title={taskLabelTitle(task)}>
-                {qualifiedTaskLabel(task)}
-              </span>
+              <span className={`${styles.taskId} nowrap`}>{task.id}</span>
               <span className={`${styles.taskTitle} wrap`}>{task.title}</span>
               <LandingStrip task={task} />
               <AppButton
                 variant="quiet"
                 icon={actionIcon('unlink')}
-                aria-label={`Unlink ${qualifiedTaskLabel(task)}`}
+                aria-label={`Unlink ${task.id}`}
                 onClick={() =>
                   setComms(
                     task,

@@ -4,12 +4,7 @@ import { noFilters } from './filters';
 import { makeAgent, makeTask, onDesk, worldWith } from '../fake/fixtures';
 
 const tasks = [
-  makeTask({
-    id: 'northwind/NORT-7',
-    notebookId: 'NORT-7',
-    codename: 'falcon',
-    title: 'Add order export',
-  }),
+  makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', title: 'Add order export' }),
   makeTask({
     id: 'northwind/NORT-9',
     notebookId: 'NORT-9',
@@ -70,11 +65,10 @@ describe('listTasks', () => {
     expect(rows({ statuses: ['done'] })).toEqual(['northwind/NORT-9']);
   });
 
-  it('matches the shared text against the id, the notebook id, the codename and the title', () => {
+  it('matches the shared text against the id, the notebook id and the title', () => {
     expect(anyStatus({}, { text: 'NORT-9' })).toEqual(['northwind/NORT-9']);
     expect(anyStatus({}, { text: 'order export' })).toEqual(['northwind/NORT-7']);
     expect(anyStatus({}, { text: 'maelstrom/' })).toEqual(['maelstrom/MAEL-1']);
-    expect(anyStatus({}, { text: 'falc' })).toEqual(['northwind/NORT-7']);
   });
 
   it('matches text whatever its case', () => {

@@ -15,7 +15,6 @@ import styles from '../ui/Dialog.module.css';
 import { MultiComboBox } from '../ui/MultiComboBox';
 import { TextArea } from '../ui/TextArea';
 import { PlanningLevelField } from './PlanningLevelField';
-import { qualifiedTaskLabel } from '../selectors/taskLabel';
 
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
@@ -324,7 +323,6 @@ export function TaskFollowsField({
   const options: ComboOption[] = [...siblings, ...elsewhere].map((t) => ({
     value: t.id,
     label: t.title,
-    display: qualifiedTaskLabel(t),
   }));
 
   // Diffed against the current list and routed through the same

@@ -17,9 +17,6 @@ template       a reusable recipe; never actionable itself
 
 Changing a task's status changes one field. The id is stable across the change.
 
-In the orchestrator UI, an open task shows its **Codename**, one word such as `falcon`, in place
-of its id. Hover over the codename to see the id. `mael` commands take the id, not the codename.
-
 Use `mael task read` to read a task and `mael task edit` to change one.
 
 ```bash

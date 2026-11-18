@@ -1271,7 +1271,7 @@ describe('follows relations on the expanded node', () => {
     await user.click(showFinished(1));
     clickNode('MAEL-40.2');
     expect(showFinished(1)).toBeInTheDocument();
-    expect(listed('Follows').map((r) => r.id)).toEqual(['falcon']);
+    expect(listed('Follows').map((r) => r.id)).toEqual(['MAEL-40.1']);
   });
 
   it('puts a task off the desk on it, and the canvas draws its node', async () => {

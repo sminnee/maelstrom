@@ -7,7 +7,6 @@ import { useAnchorName } from '../ui/useAnchorName';
 import { usePopoverMenu } from '../ui/usePopoverMenu';
 import menuStyles from '../ui/popoverMenu.module.css';
 import styles from './TaskLink.module.css';
-import { taskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * The worktree bar's way to the task dialog. One task shows its id and
@@ -30,9 +29,7 @@ export function TaskLink({ worktree }: { worktree: Worktree }) {
         title={only.title}
         onClick={() => open(only.id)}
       >
-        <span className={styles.id} title={taskLabelTitle(only)}>
-          {taskLabel(only) || only.id}
-        </span>
+        <span className={styles.id}>{only.notebookId || only.id}</span>
         <span className={`${styles.title} truncate`}>{only.title}</span>
       </button>
     );
@@ -61,9 +58,7 @@ export function TaskLink({ worktree }: { worktree: Worktree }) {
               open(task.id);
             }}
           >
-            <span className={styles.id} title={taskLabelTitle(task)}>
-              {taskLabel(task) || task.id}
-            </span>
+            <span className={styles.id}>{task.notebookId || task.id}</span>
             <span className="truncate">{task.title}</span>
           </button>
         ))}

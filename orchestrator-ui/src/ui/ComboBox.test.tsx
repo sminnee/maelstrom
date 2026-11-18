@@ -211,18 +211,6 @@ describe('ComboBox', () => {
     expect(rows()).toEqual(['MAEL-2Drop the old panel']);
   });
 
-  it('shows a display in place of the value, matches it, and still picks the value', async () => {
-    const user = userEvent.setup();
-    const { input, onChange } = setup([
-      { value: 'northwind/k3f9', label: 'Add order export', display: 'northwind/falcon' },
-      { value: 'northwind/x7q2', label: 'Migrate the database' },
-    ]);
-    await user.type(input, 'falc');
-    expect(rows()).toEqual(['northwind/falconAdd order export']);
-    await user.click(screen.getByRole('option'));
-    expect(onChange).toHaveBeenLastCalledWith('northwind/k3f9');
-  });
-
   it('matches within a field, never across the gap between them', async () => {
     const user = userEvent.setup();
     const { input } = setup(ISSUES);

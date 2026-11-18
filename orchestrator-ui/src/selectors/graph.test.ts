@@ -333,22 +333,16 @@ describe('deriveGraph', () => {
     expect(graph.groups.map((g) => g.id)).toEqual(['maelstrom']);
   });
 
-  it('the text filter keeps tasks whose id, notebook id, codename or title holds it, whatever its case', () => {
+  it('the text filter keeps tasks whose id, notebook id or title holds it, whatever its case', () => {
     const world = drawnWorld({
       tasks: [
         makeTask({ id: 'northwind/NORT-7', notebookId: 'NORT-7', title: 'Add order export' }),
-        makeTask({
-          id: 'maelstrom/MAEL-1',
-          notebookId: 'MAEL-1',
-          codename: 'falcon',
-          title: 'Draw the canvas',
-        }),
+        makeTask({ id: 'maelstrom/MAEL-1', notebookId: 'MAEL-1', title: 'Draw the canvas' }),
       ],
     });
     const shown = (text: string) =>
       deriveGraph(world, { filters: { ...noFilters(), text } }).nodes.map((n) => n.id);
     expect(shown('ORDER')).toEqual(['northwind/NORT-7']);
-    expect(shown('Falcon')).toEqual(['maelstrom/MAEL-1']);
     expect(shown('mael-1')).toEqual(['maelstrom/MAEL-1']);
     expect(shown('maelstrom/')).toEqual(['maelstrom/MAEL-1']);
   });

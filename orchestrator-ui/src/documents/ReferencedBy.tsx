@@ -4,7 +4,6 @@ import { useWorld } from '../api/useWorld';
 import type { DocumentLink } from '../protocol/documents';
 import type { DocumentId, TaskId } from '../protocol/ids';
 import { linksByFragment } from '../selectors/documents';
-import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { ComboBox } from '../ui/ComboBox';
@@ -44,7 +43,7 @@ export function ReferencedBy({
       Object.values(world.tasks)
         .filter((t) => t.id !== ownerTaskId && t.status !== 'cancelled')
         .sort((a, b) => a.id.localeCompare(b.id))
-        .map((t) => ({ value: t.id, label: t.title, display: qualifiedTaskLabel(t) })),
+        .map((t) => ({ value: t.id, label: t.title })),
     [world.tasks, ownerTaskId],
   );
   const target = options.some((o) => o.value === picked.trim()) ? picked.trim() : null;
@@ -65,20 +64,14 @@ export function ReferencedBy({
           <ul className={styles.linkList}>
             {group.taskIds.map((taskId) => {
               const task = world.tasks[taskId];
-              const label = task ? qualifiedTaskLabel(task) : taskId;
               return (
                 <li key={taskId} className={styles.linkRow} data-task-id={taskId}>
-                  <span
-                    className={`${styles.linkTask} nowrap`}
-                    title={task ? taskLabelTitle(task) : undefined}
-                  >
-                    {label}
-                  </span>
+                  <span className={`${styles.linkTask} nowrap`}>{taskId}</span>
                   <span className={`${styles.linkTitle} wrap`}>{task?.title ?? ''}</span>
                   <AppButton
                     variant="quiet"
                     icon={actionIcon('unlink')}
-                    aria-label={`Unlink ${label}`}
+                    aria-label={`Unlink ${taskId}`}
                     onClick={() =>
                       unlink.mutateAsync({ documentId, taskId, fragment: group.fragment })
                     }

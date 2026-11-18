@@ -33,7 +33,6 @@ import { ReferencedBy } from './ReferencedBy';
 import { ReviewActions } from './ReviewActions';
 import { VersionPicker } from './VersionPicker';
 import styles from './DocumentTab.module.css';
-import { qualifiedTaskLabel, taskLabelTitle } from '../selectors/taskLabel';
 
 /**
  * The server serves no comments yet, so the margin holds none: the composer
@@ -144,9 +143,7 @@ export function DocumentTab({
   const header = (
     <header className={styles.header}>
       <div className={styles.line}>
-        <span className={`${styles.task} wrap`} title={task ? taskLabelTitle(task) : undefined}>
-          {task ? qualifiedTaskLabel(task) : doc.taskId}
-        </span>
+        <span className={`${styles.task} wrap`}>{doc.taskId}</span>
         {phase && <span className={styles.phase}>{phaseLabel(phase)}</span>}
         <span className={`${styles.title} wrap`}>{doc.title}</span>
         {doc.versions.length > 1 ? (

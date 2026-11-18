@@ -22,7 +22,6 @@ function task(over: Partial<Task> = {}): Task {
   return {
     id: 'MAEL-40',
     notebookId: 'MAEL-40',
-    codename: 'falcon',
     project: 'maelstrom',
     title: 'Tell a stopped agent from an idle one',
     status: 'in-progress',
