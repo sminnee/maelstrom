@@ -1471,6 +1471,12 @@ moves. The form is one step: everything the work needs is on one surface.
 
 - **Every kind** takes a project, a kind — task, free agent, investigation or Linear — and the
   prose that says what the work is. The prose is the only field a task needs.
+- **The filters in force** seed the form when "New" opens with no caller seed. `filterSeed` in
+  `selectors/filters.ts` builds a `filters` seed: a Project filter sets the project, a Branch
+  filter sets the branch (and the project, when no Project filter is set), and a Comm filter adds
+  its comm to the held links. A new project drops a held branch the seed does not name. The
+  prose, title and kind stay as held. A caller seed — the Worktree card, a comm's New task, the
+  Project dialog — wins over the filters, and only a caller seed closes the open card.
 - **A task** also shows its title, its branch, its planning level, and Advanced. "Save" writes the
   task as `todo`; "Start" writes it and launches it. Both put it on the desk. The prose becomes
   the task's content unchanged, so the surface shows no second content field. Advanced's Model and

@@ -33,7 +33,9 @@ export type View = Exclude<Pane, 'tabs'>;
  */
 export type NewWorkSeed =
   | { kind: 'agent'; project: string; branch: string }
-  | { kind: 'task'; project: string; title: string; draft: string; comms: string[] };
+  | { kind: 'task'; project: string; title: string; draft: string; comms: string[] }
+  /** The filters in force. An empty string names none. See `filterSeed` in `selectors/filters.ts`. */
+  | { kind: 'filters'; project: string; branch: string; comms: string[] };
 
 export interface UiState {
   /** The side each pane shows on. Shift-click on a top bar item moves it. */
