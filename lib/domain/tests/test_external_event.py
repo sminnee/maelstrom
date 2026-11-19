@@ -95,23 +95,23 @@ def _types(events):
     return [e.type for e in events]
 
 
-def _told(seen: PrStatus, withdrawn=False):
+def _told(seen: PrStatus):
     """The ledger after a first sight of ``seen``."""
-    return pr_events(seen, None, withdrawn)[1]
+    return pr_events(seen, None)[1]
 
 
 class TestPrEvents:
     def test_an_undelivered_event_stays_news_and_a_delivered_one_does_not(self):
         seen = _seen("ci-failed", conflicting=True)
-        events, ledger = pr_events(seen, None, False)
+        events, ledger = pr_events(seen, None)
         assert _types(events) == ["pr.watching", "pr.checks_failed", "pr.conflict"]
 
         partial = ledger_without(None, ledger, events[2:])
 
-        assert _types(pr_events(seen, partial, False)[0]) == ["pr.conflict"]
+        assert _types(pr_events(seen, partial)[0]) == ["pr.conflict"]
 
     def test_first_sight_of_a_fresh_pr_says_it_is_watched_and_nothing_else(self):
-        events, _ = pr_events(_seen("ready", checks_seen=False), None, False)
+        events, _ = pr_events(_seen("ready", checks_seen=False), None)
         assert events == [
             ExternalEvent(
                 "github",
@@ -126,17 +126,17 @@ class TestPrEvents:
     def test_first_sight_of_a_red_pr_also_says_it_failed(self):
         """The cache calls back on a change only, so a red build first seen
         and never moving again would otherwise never be told."""
-        events, _ = pr_events(_seen("ci-failed"), None, False)
+        events, _ = pr_events(_seen("ci-failed"), None)
         assert _types(events) == ["pr.watching", "pr.checks_failed"]
 
     def test_first_sight_of_a_merged_pr_says_only_that_and_asks_nothing(self):
         """An agent that did not ask to end on the merge may be the one the
         user just resumed, so the body must not end its session."""
-        events, _ = pr_events(_seen("merged"), None, False)
+        events, _ = pr_events(_seen("merged"), None)
         assert [e.body for e in events] == ["PR #118 has merged. No action needed."]
 
     def test_a_merge_told_to_an_armed_agent_says_the_session_ends(self):
-        events, _ = pr_events(_seen("merged"), None, False)
+        events, _ = pr_events(_seen("merged"), None)
         armed = pr_merged_ending(events[0])
         assert (armed.type, armed.attrs) == ("pr.merged", {"pr": "118"})
         assert armed.body == (
@@ -146,7 +146,7 @@ class TestPrEvents:
 
     def test_a_failure_is_told_once_per_head(self):
         ledger = _told(_seen("ci-running"))
-        events, ledger = pr_events(_seen("ci-failed"), ledger, False)
+        events, ledger = pr_events(_seen("ci-failed"), ledger)
         assert events == [
             ExternalEvent(
                 "github",
@@ -157,64 +157,52 @@ class TestPrEvents:
                 "commit fixups, and run `mael sync`.",
             )
         ]
-        events, ledger = pr_events(_seen("ci-failed"), ledger, False)
+        events, ledger = pr_events(_seen("ci-failed"), ledger)
         assert events == []
 
     def test_a_new_head_that_fails_is_told_again(self):
         ledger = _told(_seen("ci-failed"))
-        events, _ = pr_events(_seen("ci-failed", head="bbb2222"), ledger, False)
+        events, _ = pr_events(_seen("ci-failed", head="bbb2222"), ledger)
         assert _types(events) == ["pr.checks_failed"]
 
     def test_green_with_checks_seen_is_told_once(self):
         ledger = _told(_seen("ci-running"))
-        events, ledger = pr_events(_seen("ready"), ledger, False)
+        events, ledger = pr_events(_seen("ready"), ledger)
         assert [(e.type, e.attrs) for e in events] == [
             ("pr.checks_passed", {"pr": "118", "head": "aaa1111"})
         ]
-        assert pr_events(_seen("ready"), ledger, False)[0] == []
+        assert pr_events(_seen("ready"), ledger)[0] == []
 
     def test_green_with_no_checks_seen_says_nothing(self):
         """A read just after a push reads ready before any check starts."""
         ledger = _told(_seen("ci-running"))
-        events, _ = pr_events(_seen("ready", checks_seen=False), ledger, False)
+        events, _ = pr_events(_seen("ready", checks_seen=False), ledger)
         assert events == []
 
     def test_green_checks_on_a_conflicting_pr_tell_both(self):
         """A conflict is read after the checks, so the checks did pass."""
         ledger = _told(_seen("ci-running"))
-        events, _ = pr_events(_seen("conflict", conflicting=True), ledger, False)
+        events, _ = pr_events(_seen("conflict", conflicting=True), ledger)
         assert _types(events) == ["pr.checks_passed", "pr.conflict"]
 
     def test_a_conflict_while_red_is_told(self):
         ledger = _told(_seen("ci-failed"))
-        events, ledger = pr_events(_seen("ci-failed", conflicting=True), ledger, False)
+        events, ledger = pr_events(_seen("ci-failed", conflicting=True), ledger)
         assert [(e.type, e.attrs) for e in events] == [("pr.conflict", {"pr": "118"})]
-        events, _ = pr_events(_seen("ci-failed", conflicting=True), ledger, False)
+        events, _ = pr_events(_seen("ci-failed", conflicting=True), ledger)
         assert events == []
 
     def test_a_conflict_that_clears_and_returns_is_told_again(self):
         ledger = _told(_seen("ci-failed", conflicting=True))
-        _, ledger = pr_events(_seen("ci-failed"), ledger, False)
-        events, _ = pr_events(_seen("ci-failed", conflicting=True), ledger, False)
+        _, ledger = pr_events(_seen("ci-failed"), ledger)
+        events, _ = pr_events(_seen("ci-failed", conflicting=True), ledger)
         assert _types(events) == ["pr.conflict"]
 
     def test_a_merge_says_only_that(self):
         ledger = _told(_seen("ci-running"))
-        events, ledger = pr_events(_seen("merged", conflicting=True), ledger, False)
+        events, ledger = pr_events(_seen("merged", conflicting=True), ledger)
         assert _types(events) == ["pr.merged"]
-        assert pr_events(_seen("merged"), ledger, False)[0] == []
-
-    def test_a_withdrawn_pr_hears_of_the_merge_only(self):
-        ledger = _told(_seen("ci-running"))
-        events, ledger = pr_events(_seen("ci-failed"), ledger, True)
-        assert events == []
-        events, _ = pr_events(_seen("merged"), ledger, True)
-        assert _types(events) == ["pr.merged"]
-
-    def test_a_withdrawn_pr_does_not_replay_old_news_when_registered_again(self):
-        ledger = _told(_seen("ci-running"))
-        _, ledger = pr_events(_seen("ci-failed"), ledger, True)
-        assert pr_events(_seen("ci-failed"), ledger, False)[0] == []
+        assert pr_events(_seen("merged"), ledger)[0] == []
 
     def test_the_ledger_is_plain_data(self):
         ledger = _told(_seen("ci-failed"))
@@ -408,22 +396,18 @@ def _task(**over: Any) -> Any:
         "sessions": [],
         "actionable": True,
         "updated": "2026-09-01T00:00:00Z",
+        "done": False,
     }
     return {**task, **over}
 
 
-#: The followed tasks' statuses, by wire id. ``northwind/NORT-9`` is unknown.
-STATUSES = {
-    "northwind/NORT-1": "done",
-    "northwind/NORT-2": "todo",
-    "northwind/NORT-3": "in-progress",
-    "northwind/NORT-4": "cancelled",
-    "contoso/CONT-1": "todo",
-}
+#: The followed tasks that are done, by wire id. ``northwind/NORT-9`` is
+#: unknown, ``NORT-4`` is cancelled and ``NORT-5`` is built: neither is done.
+DONE = {"northwind/NORT-1"}
 
 
 def _edit(old: Any, new: Any) -> ExternalEvent | None:
-    return task_edit_event(old, new, STATUSES.get)
+    return task_edit_event(old, new, DONE.__contains__)
 
 
 class TestTaskEditEvent:
@@ -452,9 +436,16 @@ class TestTaskEditEvent:
             "Read it with `mael task show NORT-7`."
         )
 
-    @pytest.mark.parametrize("status", ["done", "cancelled"])
-    def test_a_move_that_ends_the_work_sends_nothing(self, status):
-        assert _edit(_task(), _task(status=status)) is None
+    @pytest.mark.parametrize(
+        "end", [{"status": "merged", "done": True}, {"status": "cancelled"}]
+    )
+    def test_a_move_that_ends_the_work_sends_nothing(self, end):
+        assert _edit(_task(), _task(**end)) is None
+
+    def test_a_move_to_built_is_told(self):
+        event = _edit(_task(), _task(status="built"))
+        assert event is not None
+        assert event.type == TASK_UPDATED
 
     def test_an_unwatched_change_sends_nothing(self):
         new = _task(sessions=[{"id": "s", "harness": "claude"}], actionable=False)
@@ -464,14 +455,22 @@ class TestTaskEditEvent:
         ("follows", "queued"),
         [
             (["northwind/NORT-2", "northwind/NORT-3"], "NORT-2,NORT-3"),
-            # As `is_actionable`: only `done` is finished.
+            # As `is_actionable`: only a done task is finished.
             (["northwind/NORT-4"], "NORT-4"),
+            (["northwind/NORT-5"], "NORT-5"),
             (["northwind/NORT-9"], "NORT-9"),
             (["northwind/NORT-1", "northwind/NORT-2"], "NORT-2"),
             # Another project's task keeps its project.
             (["contoso/CONT-1"], "contoso/CONT-1"),
         ],
-        ids=["open", "cancelled", "unknown", "only-the-unfinished", "other-project"],
+        ids=[
+            "open",
+            "cancelled",
+            "built",
+            "unknown",
+            "only-the-unfinished",
+            "other-project",
+        ],
     )
     def test_a_new_follow_on_unfinished_work_queues_the_task(self, follows, queued):
         event = _edit(_task(), _task(follows=follows, content="More."))

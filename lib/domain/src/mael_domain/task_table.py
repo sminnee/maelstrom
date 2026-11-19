@@ -29,10 +29,10 @@ from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator
 
 from .state_db.db import StateDb, Txn
-from .task import Task, TaskSession, creation_order, split_follow_ref
+from .task import LinkedPr, Task, TaskSession, creation_order, split_follow_ref
 
 #: Every scalar column a row carries, and the :class:`~mael_domain.task.Task`
-#: attribute it holds. ``follows``, ``comms`` and ``sessions`` are JSON text and
+#: attribute it holds. ``follows``, ``comms``, ``prs`` and ``sessions`` are JSON text and
 #: handled apart; ``project`` and ``status`` are derived on the way in.
 _SCALARS = (
     "title",
@@ -49,9 +49,7 @@ _SCALARS = (
     "priority",
     "model",
     "execute_model",
-    "pr_number",
-    "pr_url",
-    "pr_withdrawn",
+    "post_merge",
     "trigger",
     "content",
     "log",
@@ -96,6 +94,7 @@ def columns_for(task: Task) -> dict[str, Any]:
         "status": task.status,
         "follows": json.dumps(list(task.follows)),
         "comms": json.dumps(list(task.comms)),
+        "prs": json.dumps([{"number": p.number, "url": p.url} for p in task.prs]),
         "sessions": json.dumps(
             [{"id": s.id, "harness": s.harness} for s in task.sessions]
         ),
@@ -133,10 +132,13 @@ def task_from_row(row: sqlite3.Row) -> Task:
     task.status = row["status"]
     task.follows = list(json.loads(row["follows"] or "[]"))
     task.comms = list(json.loads(row["comms"] or "[]"))
+    task.prs = [
+        LinkedPr(number=p["number"], url=p["url"])
+        for p in json.loads(row["prs"] or "[]")
+    ]
     task.sessions = _sessions(row["sessions"])
     for name in _SCALARS:
         setattr(task, name, row[name])
-    task.pr_withdrawn = bool(task.pr_withdrawn)
     return task
 
 
