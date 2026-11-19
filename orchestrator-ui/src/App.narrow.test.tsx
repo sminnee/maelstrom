@@ -64,7 +64,7 @@ describe('the narrow layout', () => {
     // The seed keeps done work off the desk, so a zone only fills as work
     // finishes on it. With no agent to finalise, done is done at once.
     server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
-      w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, status: 'done' };
+      w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, status: 'merged', done: true };
     });
     await waitFor(() => expect(deckRows()).not.toContain('NORT-9.1'));
 
@@ -596,7 +596,12 @@ describe('the narrow layout', () => {
       const { server } = await renderApp({ viewport: 'narrow', url: '/desk?zone=done' });
       // Only a to-do row launches: the zone decides, not the flag.
       server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
-        w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, status: 'done', actionable: true };
+        w.tasks['NORT-9.1'] = {
+          ...w.tasks['NORT-9.1']!,
+          status: 'merged',
+          done: true,
+          actionable: true,
+        };
       });
       await waitFor(() => expect(row('NORT-9.1')).toHaveAttribute('data-swipe', 'dismiss'));
       const before = server.requests.length;

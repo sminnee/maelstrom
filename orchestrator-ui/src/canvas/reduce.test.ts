@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { reduceEdges, type ReduceEdge, type ReduceNode } from './reduce';
 
-/** A node the reducer can read: an id and the status that decides gating. */
-function n(id: string, status: ReduceNode['status'] = 'todo'): ReduceNode {
-  return { id, status };
+/** A node the reducer can read: an id and whether it is done. */
+function n(id: string, state: 'done' | 'open' = 'open'): ReduceNode {
+  return { id, done: state === 'done' };
 }
 
 /** An edge in the reducer's own shape: followed -> follower. */
@@ -39,13 +39,6 @@ describe('reduceEdges', () => {
     const edges = [e('A', 'B'), e('B', 'C'), e('A', 'C')];
     expect(kept(edges, [n('A'), n('B'), n('C')])).not.toContain('A->C');
     expect(kept(edges, [n('A'), n('B', 'done'), n('C')])).toContain('A->C');
-  });
-
-  // Cancelled is not done, so it still gates — the `is_actionable` mirror,
-  // and an open question in CONTEXT.md rather than a settled rule.
-  it('hides through a cancelled intermediate, which still gates', () => {
-    const edges = [e('A', 'B'), e('B', 'C'), e('A', 'C')];
-    expect(kept(edges, [n('A'), n('B', 'cancelled'), n('C')])).toEqual(['A->B', 'B->C']);
   });
 
   // A node standing for no task has no status, so it gates like unfinished work.

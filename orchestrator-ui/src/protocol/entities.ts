@@ -8,18 +8,43 @@ import type { AgentId, DeskId, OperationId, ProjectId, RequestId, TaskId, Worktr
 export type Phase = 'shape' | 'plan' | 'build' | 'land';
 
 /** The folder a task sits in. Mirrors the notebook's five statuses. */
-export type TaskStatus = 'todo' | 'in-progress' | 'done' | 'cancelled' | 'template';
+export type TaskStatus =
+  'todo' | 'in-progress' | 'built' | 'merged' | 'published' | 'cancelled' | 'template';
 
 export const TASK_STATUSES = [
   'todo',
   'in-progress',
-  'done',
+  'built',
+  'merged',
+  'published',
   'cancelled',
   'template',
 ] as const satisfies readonly TaskStatus[];
 
-/** Whether the task's work is over: done or cancelled. */
-export const isTerminal = (status: TaskStatus) => status === 'done' || status === 'cancelled';
+/**
+ * A status a move may name: each stored status, and `done`, which the server
+ * resolves to the task's done status. See CONTEXT.md, "Done".
+ */
+export type StatusMove = TaskStatus | 'done';
+
+/**
+ * The statuses that count as done for a task with this `postMerge`. Mirrors
+ * `done_statuses` in `task.py`: with post-merge work, only `published` is done.
+ */
+export function doneStatuses(postMerge: string): readonly TaskStatus[] {
+  return postMerge.trim() ? ['published'] : ['merged', 'published'];
+}
+
+/** Whether the task is done or cancelled: nothing it follows gates it now. */
+export const isTerminal = (task: Pick<Task, 'status' | 'done'>) =>
+  task.done || task.status === 'cancelled';
+
+/** Whether the task's work is pushed or closed: built, merged, published, done or cancelled. */
+export const isPastBuild = (task: Pick<Task, 'status' | 'done'>) =>
+  isTerminal(task) ||
+  task.status === 'built' ||
+  task.status === 'merged' ||
+  task.status === 'published';
 
 export type TaskMode = PermissionMode;
 
@@ -356,11 +381,12 @@ export interface Task {
   model: string;
   /** The model the session switches to when its plan is approved; '' = no switch. */
   executeModel: string;
-  /** The Registered PR: its number, 0 for none, and its URL. */
-  prNumber: number;
-  prUrl: string;
-  /** The Registered PR is withdrawn while the agent works. See CONTEXT.md, "Withdrawn PR". */
-  prWithdrawn: boolean;
+  /** The Registered PRs, oldest first. See CONTEXT.md, "Registered PR". */
+  prs: LinkedPr[];
+  /** The work after the merge; `''` for none. See CONTEXT.md, "Post-merge work". */
+  postMerge: string;
+  /** Whether the status is one the task counts as done. Derived by the backend. */
+  done: boolean;
   content: string;
   log: TaskLogEntry[];
   created: string;
@@ -372,7 +398,7 @@ export interface Task {
    * Unlike an agent's, it outlives the agent.
    */
   startedAt: string;
-  /** The task's **Landing**: `null` until the task is `done`. */
+  /** The task's **Landing**: `null` until the task is built. */
   landing: TaskLanding | null;
   /** The ids of the comms the task feeds, e.g. `c3`. */
   comms: string[];
@@ -385,6 +411,12 @@ export interface Task {
   scheduleZone: string;
   /** The task's sessions, oldest first. See CONTEXT.md, "Task session id". */
   sessions: TaskSession[];
+}
+
+/** One Registered PR of a task. `url` is `''` when none was given. */
+export interface LinkedPr {
+  number: number;
+  url: string;
 }
 
 /** One of a task's agent sessions: the harness's own id, and the harness. */

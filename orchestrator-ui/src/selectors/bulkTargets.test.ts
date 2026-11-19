@@ -123,7 +123,7 @@ describe('planDismiss', () => {
 
   it('holds the worktree for a done task still on the desk, until it is selected', () => {
     const { world, nodes } = board({
-      tasks: [makeTask({ id: 'T1', status: 'done' }), makeTask({ id: 'T2', status: 'todo' })],
+      tasks: [makeTask({ id: 'T1', status: 'merged' }), makeTask({ id: 'T2', status: 'todo' })],
     });
     expect(plan(world, [nodes.T2!])).toEqual(['T2 offDesk']);
     expect(plan(world, [nodes.T1!, nodes.T2!])).toEqual(['T1 offDesk', 'T2 close northwind-alpha']);

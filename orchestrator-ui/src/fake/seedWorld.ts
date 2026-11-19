@@ -14,6 +14,7 @@ import type {
   Worktree,
 } from '../protocol/entities';
 import type { AgentId } from '../protocol/ids';
+import { doneStatuses, isTerminal } from '../protocol/entities';
 import { isActionable } from '../protocol/phase';
 import type { Transcript, TranscriptItem } from '../protocol/transcript';
 import { fakeSystem, type FakeWorld } from './fakeServer';
@@ -135,9 +136,16 @@ export function task(spec: TaskSpec): Task {
     priority: 'medium',
     model: '',
     executeModel: '',
-    prNumber: spec.prNumber ?? 0,
-    prUrl: spec.prNumber ? `https://github.com/acme/${spec.project}/pull/${spec.prNumber}` : '',
-    prWithdrawn: false,
+    prs: spec.prNumber
+      ? [
+          {
+            number: spec.prNumber,
+            url: `https://github.com/acme/${spec.project}/pull/${spec.prNumber}`,
+          },
+        ]
+      : [],
+    postMerge: '',
+    done: doneStatuses('').includes(spec.status),
     content: spec.content ?? `# ${spec.title}\n\n${spec.title} for ${spec.project}.\n`,
     log: [],
     created,
@@ -147,7 +155,7 @@ export function task(spec: TaskSpec): Task {
     landing:
       spec.landing !== undefined
         ? spec.landing
-        : spec.status === 'done'
+        : spec.status === 'built' || doneStatuses('').includes(spec.status)
           ? { status: 'done', envs: {} }
           : null,
     comms: spec.comms ?? [],
@@ -382,7 +390,7 @@ export function seedWorld(): Seed {
       id: 'MAEL-40',
       project: 'maelstrom',
       title: 'Task index cache',
-      status: 'done',
+      status: 'merged',
       branch: 'feat/task-index',
       parent: 'linear.MAEL-40',
       createdMinutesAgo: 400,
@@ -501,7 +509,7 @@ body rather than the query builder.
       id: 'NORT-3',
       project: 'northwind',
       title: 'Fix the flaky checkout test',
-      status: 'done',
+      status: 'merged',
       branch: 'fix/checkout-flake',
       createdMinutesAgo: 900,
     }),
@@ -818,7 +826,7 @@ body rather than the query builder.
     // agent is on the desk as the server's auto-join would put it there.
     desk: keyed([
       ...Object.values(byId)
-        .filter((t) => t.status !== 'done' && t.status !== 'cancelled')
+        .filter((t) => !isTerminal(t))
         .map((t) => ({ id: deskIdForTask(t.id), addedAt: T(120) })),
       ...agents.filter((a) => !a.taskId).map((a) => ({ id: deskIdForAgent(a.id), addedAt: T(30) })),
     ]),
