@@ -240,9 +240,10 @@ def _register_on_parent(
     help="Task to register the PR on. Default: $MAEL_TASK_ID",
 )
 async def gh_link_pr(ref, task_id):
-    """Register an existing PR on a task, so its card shows it.
+    """Add an existing PR to a task's Registered PRs, so its card shows it.
 
-    REF is a PR number, #number, or a GitHub PR URL.
+    REF is a PR number, #number, or a GitHub PR URL. A PR the task links
+    already is left as it is.
     """
     refuse_with_parent("gh link-pr")
     try:
@@ -254,26 +255,28 @@ async def gh_link_pr(ref, task_id):
 
 
 @gh.command("withdraw-pr")
+@click.argument("number", type=int, required=False, default=None)
 @click.option(
     "--task",
     "task_id",
     default=None,
     help="Task whose PR to withdraw. Default: $MAEL_TASK_ID",
 )
-async def gh_withdraw_pr(task_id):
-    """Withdraw a task's Registered PR while more work is done.
+async def gh_withdraw_pr(number, task_id):
+    """Unlink a PR from a task while more work is done.
 
-    The card shows the PR as withdrawn. The next ``create-pr`` push makes it
-    ready again.
+    NUMBER names the PR; with none, the task's newest PR is unlinked. The PR
+    leaves the card and no longer counts toward the merge. The next
+    ``create-pr`` push links it again.
     """
-    await withdraw_pr_command(task_id)
+    await withdraw_pr_command(task_id, number)
 
 
-async def withdraw_pr_command(task_id: str | None) -> None:
+async def withdraw_pr_command(task_id: str | None, number: int | None = None) -> None:
     """``gh withdraw-pr``'s work; ``mael merge withdraw`` calls it in a GitHub project."""
     refuse_with_parent("gh withdraw-pr")
-    task = await task_cli.withdraw_pr(task_id)
-    click.echo(f"Withdrew PR #{task.pr_number} on {task.id}")
+    task, gone = await task_cli.withdraw_pr(task_id, number)
+    click.echo(f"Withdrew PR #{gone.number} from {task.id}")
 
 
 @gh.command("wait-for-pr")

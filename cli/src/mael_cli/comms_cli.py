@@ -20,7 +20,7 @@ from mael_domain.context import (
     resolve_context,
     resolve_project,
 )
-from mael_domain.landing import Landings, project_config, tracked_tasks
+from mael_domain.landing import Landings, env_state, project_config, tracked_tasks
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.merge_request_store import SqliteMergeRequestStore
 from mael_domain.state_db.db import StateDb
@@ -307,15 +307,16 @@ async def cmd_landings(since: str | None) -> None:
         )
         rows = []
         for row in await landings.report():
-            envs = row.pr.envs if row.pr is not None else {}
             rows.append(
                 {
                     "PROJECT": row.task.project,
                     "TASK": row.task.task_id,
-                    "PR": f"#{row.task.pr_number}",
+                    "PR": " ".join(f"#{n}" for n in row.task.pr_numbers) or "-",
                     "STATUS": row.status or "-",
                     **{
-                        step.upper(): envs[step].state if step in envs else "-"
+                        step.upper(): env_state(row.prs, step)
+                        if row.prs and row.status
+                        else "-"
                         for step in DEPLOY_STEPS
                     },
                 }

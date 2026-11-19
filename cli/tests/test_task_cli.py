@@ -504,7 +504,7 @@ class TestNewSession:
     async def _done_task(self, store):
         t = await model.create(store, project="p", title="t")
         await _with_session(store, t, "sess-old")
-        t.status = model.STATUS_DONE
+        t.status = model.STATUS_MERGED
         await store.save(t)
         return t
 
@@ -714,7 +714,7 @@ class TestReconcile:
         self._ran(monkeypatch, tmp_path, {finished.id})
         result = runner.invoke(task_cli.task, ["reconcile", "--fix"])
         assert result.exit_code == 0, result.output
-        assert (await model.load(store, "p", finished.id)).status == model.STATUS_DONE
+        assert (await model.load(store, "p", finished.id)).status == model.STATUS_MERGED
         assert (await model.load(store, "p", never.id)).status == model.STATUS_TODO
         assert (
             await model.load(store, "p", orphan.id)
@@ -1502,6 +1502,7 @@ class TestAddScheduled:
             "priority": "2",
             "created": "2026-06-01T00:00:00+00:00",
             "actionable": False,
+            "done": False,
             "schedule": "0 9 * * *",
             "trigger": "",
             "branch": "",
