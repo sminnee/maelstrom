@@ -112,7 +112,8 @@ the session. `minnstack` holds optional development practices, such as `design-b
 ### The task notebook — what each agent is doing
 
 The notebook is a database maelstrom keeps for itself. Each task is one record, and **its
-status is a field on it** — `todo`, `in-progress`, `done`, `cancelled` or `template`. See
+status is a field on it** — `todo`, `in-progress`, `built`, `merged`, `published`,
+`cancelled` or `template`. See
 [Tasks](tasks.md).
 
 A `template` task is a recipe to duplicate from, and maelstrom never launches it. No status
@@ -123,8 +124,8 @@ followed work is done.
 Three ideas describe how tasks relate. **Their separability is the single most important
 idea in the system** — each one can vary without the other two:
 
-- **`parent` groups a chain that shares one branch and one pull request.** One PR per
-  parent. Siblings under a parent run in order and merge together.
+- **`parent` groups a chain that shares one branch.** Siblings under a parent run in order
+  on that branch, and each links its own PRs.
 - **`follows` orders execution.** A task becomes actionable only once everything it follows
   is done.
 - **Dots in an id express lineage.** `PROJ-12.3` is a child of `PROJ-12`;
@@ -260,7 +261,7 @@ agents in flight.
 
 ## Ideas worth internalising
 
-- **One PR per parent.** `parent` groups; `follows` orders; dot-ids express lineage.
+- **One branch per parent.** `parent` groups; `follows` orders; dot-ids express lineage.
 - **Leave `branch:` unset on drafts.** Tasks inherit their parent's branch, so every
   task in a chain accumulates into one pull request.
 - **Drafts become tasks.** A draft is inert until it is promoted into the chain.

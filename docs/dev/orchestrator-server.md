@@ -213,9 +213,9 @@ nothing else, so prose that quotes the envelope stays a message.
 
 ### The PR watch
 
-The PR watch tells an agent about its task's **Registered PR**. Registering the PR is the opt-in.
-The recipients are the live top-level agents of the task whose Registered PR it is, so a free
-agent hears nothing.
+The PR watch tells an agent about each of its task's **Registered PRs**. Registering the PR is
+the opt-in. The recipients are the live top-level agents of each task that links the PR, so a
+free agent hears nothing.
 
 `PrStateCache` has one listener, `on_change`. `_read_into` calls it for each branch whose
 `PrStatus` the read moved, with the entries before and after. A failed, timed-out or stood-off read
@@ -236,10 +236,6 @@ whether a check answered) against the ledger, and returns the events and the nex
 
 `checks_seen` stops a false pass. `_pr_state` reads a missing rollup as `ready`, and a read just
 after a push sees no checks yet.
-
-A **Withdrawn PR** hears of its merge only. Its agent is still working and will push again, so
-news about the old head is noise. The ledger still moves, so nothing replays when `create-pr`
-registers the PR again.
 
 **The ledger** is the `pr_events` table in the state database, keyed by PR URL, behind
 `PrLedgerStore`. It moves after an agent took each event of the read. A tell that no agent took
@@ -277,13 +273,13 @@ lookup, so the whole rule is in the domain module:
 
 | Edit | Event |
 |---|---|
-| `follows` gains a task that is not `done`, or that the world does not hold | `task.queued`: commit, write `<end-session>`, and end the turn |
+| `follows` gains a task that is not **Done**, or that the world does not hold | `task.queued`: commit, write `<end-session>`, and end the turn |
 | Another change to `title`, `content`, `status`, `follows` or `branch` | `task.updated`: the `fields` attribute names the changed fields |
-| A move to `done` or `cancelled` | None. The move ends the work, and `pr.merged` covers a merge |
+| A move to a **Done** status or `cancelled` | None. The move ends the work, and `pr.merged` covers a merge |
 | A change to any other field | None. Fields such as `sessions` and `actionable` move without an edit |
 
 The new follow makes the task a **Parked task**, and `task.queued` tells its agent to stop.
-"Unfinished" is what `is_actionable` counts: any status but `done`, so a follow on a `cancelled`
+"Unfinished" is what `is_actionable` counts: any task that is not **Done**, so a follow on a `cancelled`
 task parks the task too. The event goes by the new follow, not by `actionable`: a task that is
 parked already can gain a second follow, and its agent must still stop.
 
@@ -496,19 +492,19 @@ A PR link rides out the same way, on `Normalised.pr_link`:
 
 `server._register_pr` writes it to the agent's task through the agent's `TaskHome.register_pr`. A bare
 number takes its URL from the `origin` remote of the agent's worktree. A live tag always
-registers. A replayed tag registers only on a task with no Registered PR: a tag the agent wrote
-while the server was down must still land, but an older tag must not undo a later `link-pr`.
+registers: it adds the PR to the task's list. A replayed tag registers only on a task with no
+Registered PR: a tag the agent wrote while the server was down must still land, but an older tag
+must not link again a PR that a later `withdraw-pr` unlinked.
 
-A bare `withdrawn` attribute sets `Normalised.pr_withdrawn`, and `server._withdraw_pr` writes it
-through `TaskHome.withdraw_pr`:
+A bare `withdrawn` attribute sets `Normalised.pr_withdrawn`, and `server._withdraw_pr` unlinks the
+PR through `TaskHome.withdraw_pr`:
 
 ```
 <link rel="gh-pr" withdrawn>118</link>
 ```
 
-Only a live tag withdraws. A replayed withdrawal is history: a later push may have made the PR
-ready again. A tag that names a PR other than the Registered PR withdraws nothing, and logs a
-warning. A free agent withdraws nothing.
+Only a live tag withdraws. A replayed withdrawal is history: a later push may have linked the PR
+again. A tag that names a PR the task does not link withdraws nothing, and logs a warning. A free agent withdraws nothing.
 
 One milestone does not wait, and the asymmetry is deliberate rather than an oversight. `planned`
 is Maelstrom's own marker, not an agent's: the normaliser mints it when a plan approval is
@@ -744,7 +740,9 @@ while the server was down cleared nothing. An agent the world does not hold keep
 because the first agent read may have failed.
 
 The PR watch tells `pr.merged` through `_tell_pr_event`. An agent with no condition gets the
-neutral body "PR #N has merged. No action needed." An armed agent gets the body from
+neutral body "PR #N has merged. No action needed." An armed agent whose task links another PR
+that the PR cache reads as open gets the neutral body too, and stays armed. The cache holds one
+PR per branch, so an older PR it does not hold does not count as open. An armed agent gets the body from
 `external_event.pr_merged_ending`. The server queues a gated `Stop` step with `merge=True`
 before the tell, then clears the stored condition once the agent takes the event. The
 step stops the agent at the turn end, as for a plain request. An agent mid-turn when the merge is
@@ -1201,7 +1199,7 @@ need, see `deploy:` in `docs/reference/configuration.md`.
 
 ### The landing on a task
 
-A wire task carries `landing`: `None` until the task is `done`, then `{status, envs}`.
+A wire task carries `landing`: `None` until the task is `built`, then `{status, envs}`.
 `Landings.landing_of` builds it from the cached `pull_requests` row, and reads nothing from
 GitHub. `status` is the highest step reached, through the same rule as `mael comms landings`.
 `envs` names each deploy step the project deploys to, with its state. A task with no
@@ -2069,7 +2067,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?, host?}` | `linear.plan` | `202 {operationId}`. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |
-| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `actionLines`, the lines the status actions reported, and for `done` the `follower`, with its `state`: `running`, `resume`, `waiting` or `next` (see `FollowerState` in `protocol.py`). The source reports an in-progress follower as `running`; the server makes it `resume` or `waiting` when no agent is live on it. Each is absent when empty |
+| `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `status`, the status the task moved to (the `done` verb resolves to one); `actionLines`, the lines the status actions reported; and, when the move makes the task **Done**, the `follower`, with its `state`: `running`, `resume`, `waiting` or `next` (see `FollowerState` in `protocol.py`). The source reports an in-progress follower as `running`; the server makes it `resume` or `waiting` when no agent is live on it. `actionLines` and `follower` are absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/tasks/{project}/{id}/documents` | `{name, kind?, title?, body}` | `taskDocument.add` | `{uri, version}` |
@@ -2078,7 +2076,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/task-documents/archive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
 | `POST /api/task-documents/unarchive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
 | `PUT /api/tasks/{project}/{id}/pr` | `{number, url}` | `task.registerPr` | `{}`. A delegated agent's `gh-pr` link, from its remote host |
-| `DELETE /api/tasks/{project}/{id}/pr` | | `task.withdrawPr` | `{}` |
+| `DELETE /api/tasks/{project}/{id}/pr` | `{number}`, optional: the newest PR without it | `task.withdrawPr` | `{}` |
 | `POST /api/tasks/{project}/{id}/sessions` | `{sessionId}` | `task.addSession` | `{}`. A delegated agent's session after a `/clear`, from its remote host |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id, codename}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, category, project, codename, closed}` | `comm.update` | `{}` |

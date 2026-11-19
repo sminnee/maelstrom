@@ -5,15 +5,21 @@ The task notebook is how maelstrom knows what each agent is doing, and in what o
 ## What a task is
 
 A task is a record in maelstrom's own database, with a plan in its body. **Its status is one
-of five**:
+of seven**:
 
 ```
 todo           actionable, or waiting on a dependency
 in-progress    a session is running it, or it is parked on a dependency
-done
+built          the work is pushed, and waits on its merge
+merged         every PR the task links is merged
+published      the merge is live, or the post-merge work is finished
 cancelled
 template       a reusable recipe; never actionable itself
 ```
+
+**Done** is not a status of its own. A task with no post-merge work is done at `merged` or
+`published`. A task with post-merge work (`--post-merge`, such as a check of the deploy) is done
+only at `published`. `mael task status done` moves a task to its first done status.
 
 Changing a task's status changes one field. The id is stable across the change.
 
@@ -44,18 +50,18 @@ priority: medium
 `parent`, `follows` and dotted ids do three different jobs. **Their separability is the
 single most important idea in the system** — each one can vary without the other two.
 
-### `parent` groups a chain — one PR per parent
+### `parent` groups a chain on one branch
 
-A task's `parent` groups it into a **linear chain of siblings that share one branch and one
-pull request**. This is not an arbitrary tree: siblings under a parent run in `follows`
-order and merge as a single PR.
+A task's `parent` groups it into a **linear chain of siblings that share one branch**. This
+is not an arbitrary tree: siblings under a parent run in `follows` order. The siblings share
+the branch, not a PR: each sibling links its own PRs.
 
 A task with no `parent` **roots its own chain** — it self-parents.
 
 The parent is often a *virtual* root rather than a real task:
 
 - **Linear-rooted work** parents under `linear.<ID>`. The issue is the chain's root, and
-  every task planned for it lands in one PR.
+  every task planned for it works on one branch.
 - **Ad-hoc work** parents under the planning task's own id.
 
 ### `follows` orders execution
@@ -211,8 +217,7 @@ Block frontmatter keys: `title` (required), `command`, `mode`, `model`, `priorit
 omits `mode: auto` re-plans instead of running its plan.
 
 **Leave `branch:` unset on every block.** Tasks inherit their parent's branch. That default
-keeps every iteration on one branch, accumulating into a **single pull request** that merges
-as a whole. Setting `branch:` opts a task out into its own worktree and PR — right for
+keeps every iteration on one branch, so each push updates the open PR of that branch. Setting `branch:` opts a task out into its own worktree and PR — right for
 genuinely unrelated work, wrong for splitting one task's iterations.
 
 `--run` only launches **actionable** tasks. A block that follows a task still `in-progress`
@@ -263,7 +268,7 @@ mael task update <id> --id PROJ-9.2       # re-key, rewriting references
 mael task update <id> --model ''          # clear a field
 mael task rm <id>                         # delete, stripping it from dependents
 
-mael task status start|done|todo|block|cancel|template [<id>]
+mael task status start|built|merged|published|done|todo|cancel|template [<id>]
 ```
 
 `<id>` defaults to `$MAEL_TASK_ID`.
@@ -282,7 +287,7 @@ duplicate-launch guard uses, so the two always agree. Reconcile corrects three m
 
 | Observed state | Evidence | Corrected to |
 |---|---|---|
-| `in-progress`, no live session | A transcript persists — the task ran | `done` |
+| `in-progress`, no live session | A transcript persists — the task ran | `built` when it links a PR, else `done` |
 | `in-progress`, no live session | No transcript — the task never ran | `todo` |
 | Not `in-progress` | A live session is working on it | `in-progress` |
 
