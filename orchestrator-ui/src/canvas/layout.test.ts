@@ -13,7 +13,7 @@ function graphOf(tasks: Task[], agents: Agent[] = []) {
 
 /** A task in each of the zones, without an edge to argue about. */
 const doneTask = (id: string, project: string, follows: string[] = []) =>
-  makeTask({ id, project, follows, status: 'done', actionable: false });
+  makeTask({ id, project, follows, status: 'merged', actionable: false });
 const runningTask = (id: string, project: string, follows: string[] = []) =>
   makeTask({ id, project, follows, status: 'in-progress', actionable: false });
 const agentOn = (id: string, taskId: string) => makeAgent({ id, taskId, state: 'processing' });

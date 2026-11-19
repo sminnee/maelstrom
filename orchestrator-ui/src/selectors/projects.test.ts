@@ -37,14 +37,14 @@ describe('projectPaths', () => {
 });
 
 describe('hasUserTasks', () => {
-  const setUp = makeTask({ id: 'A-1', project: 'a', command: 'setup-project', status: 'done' });
+  const setUp = makeTask({ id: 'A-1', project: 'a', command: 'setup-project', status: 'merged' });
 
   it('does not count the set-up task', () => {
     expect(hasUserTasks(worldWith({ tasks: [setUp] }), 'a')).toBe(false);
   });
 
   it("counts any other task of the project, in any status, and no other project's", () => {
-    for (const status of ['done', 'template'] as const) {
+    for (const status of ['merged', 'template'] as const) {
       const own = makeTask({ id: 'A-2', project: 'a', status });
       expect(hasUserTasks(worldWith({ tasks: [setUp, own] }), 'a')).toBe(true);
     }

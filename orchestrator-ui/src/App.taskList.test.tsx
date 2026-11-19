@@ -33,7 +33,7 @@ describe('the task list', () => {
   };
   /** Tick every status back on, so finished tasks are listed too. */
   const showEveryStatus = (user: ReturnType<typeof userEvent.setup>) =>
-    toggleStatuses(user, 'done', 'cancelled', 'template');
+    toggleStatuses(user, 'built', 'merged', 'published', 'cancelled', 'template');
   /**
    * How each of the dialog's fields is locked: `readonly` for the ones that
    * take it, `disabled` for the selects it is not a thing on, `null` when the
@@ -189,20 +189,20 @@ describe('the task list', () => {
     expect(within(row()).queryByRole('combobox')).toBeNull();
   });
 
-  it('a task moved to done leaves the list, and the done filter brings it back', async () => {
+  it('a task moved to merged leaves the list, and the merged filter brings it back', async () => {
     const user = userEvent.setup();
     await renderApp();
     await goToList(user);
 
-    await pickStatus(user, 'NORT-9', 'in-progress', 'done');
+    await pickStatus(user, 'NORT-9', 'in-progress', 'merged');
 
     // The default filter hides done work, so the row goes. That is the filter
     // doing its job, not the move failing.
     await waitFor(() => expect(listRow('NORT-9')).toBeNull());
-    await toggleStatuses(user, 'done');
+    await toggleStatuses(user, 'merged');
     expect(listRow('NORT-9')).not.toBeNull();
     expect(
-      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'done' }),
+      within(listRow('NORT-9') as HTMLElement).getByRole('button', { name: 'merged' }),
     ).toBeInTheDocument();
   });
 
@@ -855,7 +855,7 @@ describe('the task list', () => {
       expect(bar()).toHaveTextContent(`${live.length} selected`);
       expect(all).toBeChecked();
       // A hidden row is not ticked with the rest.
-      await toggleStatuses(user, 'done');
+      await toggleStatuses(user, 'merged');
       expect(screen.getByRole('checkbox', { name: 'Select NORT-3' })).not.toBeChecked();
 
       await user.click(all);
@@ -870,11 +870,11 @@ describe('the task list', () => {
       await tick(user, 'NORT-9');
 
       // Moved from its own row, not the bar, so only the filter drops it.
-      await pickStatus(user, 'NORT-9', 'in-progress', 'done');
+      await pickStatus(user, 'NORT-9', 'in-progress', 'merged');
 
       await waitFor(() => expect(listRow('NORT-9')).toBeNull());
       noBar();
-      await toggleStatuses(user, 'done');
+      await toggleStatuses(user, 'merged');
       expect(screen.getByRole('checkbox', { name: 'Select NORT-9' })).not.toBeChecked();
     });
   });

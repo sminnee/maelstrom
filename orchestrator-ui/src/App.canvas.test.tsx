@@ -598,7 +598,7 @@ describe('App', () => {
     const { server } = await renderApp();
     act(() => {
       server.change({ kind: 'task', ids: ['NORT-12'] }, (w) => {
-        w.tasks['NORT-12'] = { ...w.tasks['NORT-12']!, prNumber: 0, prUrl: '' };
+        w.tasks['NORT-12'] = { ...w.tasks['NORT-12']!, prs: [] };
       });
     });
     await waitFor(() => {

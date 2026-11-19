@@ -51,7 +51,7 @@ describe('phaseForTask', () => {
   });
 
   // A server restart drops exited agents; the finished task stays built.
-  it.each(['in-progress', 'done'] as const)(
+  it.each(['in-progress', 'built'] as const)(
     'builds when a %s plan-mode task has no agent',
     (status) => {
       expect(phaseForTask({ ...planning, status })).toBe('build');
@@ -82,7 +82,7 @@ describe('phaseForTask', () => {
 });
 
 describe('isActionable', () => {
-  const done = makeTask({ id: 'A', status: 'done' });
+  const done = makeTask({ id: 'A', status: 'merged' });
   const open = makeTask({ id: 'B', status: 'in-progress' });
 
   it('is true for a todo task whose follows are all done', () => {
@@ -95,7 +95,7 @@ describe('isActionable', () => {
     expect(isActionable(task, { A: done, B: open, C: task })).toBe(false);
   });
 
-  it.each(['done', 'cancelled', 'template'] as const)('is false when %s', (status) => {
+  it.each(['merged', 'cancelled', 'template'] as const)('is false when %s', (status) => {
     const task = makeTask({ id: 'C', status });
     expect(isActionable(task, { C: task })).toBe(false);
   });

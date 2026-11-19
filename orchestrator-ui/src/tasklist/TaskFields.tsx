@@ -318,7 +318,7 @@ export function TaskFollowsField({
   const all = Object.values(world.tasks).filter((t) => t.id !== taskId);
   const siblings = all.filter((t) => t.project === project);
   const elsewhere = all
-    .filter((t) => t.project !== project && (!isTerminal(t.status) || follows.includes(t.id)))
+    .filter((t) => t.project !== project && (!isTerminal(t) || follows.includes(t.id)))
     .sort((a, b) => a.project.localeCompare(b.project));
   const options: ComboOption[] = [...siblings, ...elsewhere].map((t) => ({
     value: t.id,

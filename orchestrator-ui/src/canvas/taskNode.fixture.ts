@@ -33,9 +33,9 @@ function task(over: Partial<Task> = {}): Task {
     priority: 'medium',
     model: '',
     executeModel: '',
-    prNumber: 0,
-    prUrl: '',
-    prWithdrawn: false,
+    prs: [],
+    postMerge: '',
+    done: false,
     content: '',
     log: [],
     created: '2026-09-07T09:00:00Z',
@@ -191,12 +191,15 @@ export const byState: { state: NodeState; label: string; node: GraphNode }[] = [
   {
     state: 'finalising',
     label: 'Task closed, an agent still carries the PR',
-    node: node({ task: task({ status: 'done' }), agent: agent({ state: 'processing' }) }),
+    node: node({
+      task: task({ status: 'merged', done: true }),
+      agent: agent({ state: 'processing' }),
+    }),
   },
   {
     state: 'done',
     label: 'Settled',
-    node: node({ task: task({ status: 'done' }), agent: undefined }),
+    node: node({ task: task({ status: 'merged', done: true }), agent: undefined }),
   },
   {
     state: 'cancelled',
