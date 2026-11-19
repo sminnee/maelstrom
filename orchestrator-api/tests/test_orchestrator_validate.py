@@ -15,8 +15,12 @@ def make_task(**over) -> dict:
     from mael_domain import task as model
     from mael_orchestrator.world_build import task_entity
 
+    # The status goes in through the notebook task, so ``done`` derives from it.
+    status = over.pop("status", model.DEFAULT_STATUS)
     task = task_entity(
-        model.Task(id="NORT-7", title="Add order export", project="northwind"),
+        model.Task(
+            id="NORT-7", title="Add order export", project="northwind", status=status
+        ),
         actionable=True,
     )
     task.update(over)
@@ -243,13 +247,15 @@ def test_invalid_for_launching_a_task_that_is_not_actionable():
 @pytest.mark.parametrize(
     ("status", "follow_status", "new_session", "accepted"),
     [
-        ("done", "done", True, True),
-        ("done", None, True, True),
-        ("done", "in-progress", True, False),
-        ("done", "missing", True, False),
+        ("merged", "published", True, True),
+        ("published", None, True, True),
+        ("merged", "in-progress", True, False),
+        ("merged", "built", True, False),
+        ("merged", "missing", True, False),
+        ("built", None, True, False),
         ("cancelled", None, True, False),
-        ("done", None, False, False),
-        ("done", None, "yes", False),
+        ("merged", None, False, False),
+        ("merged", None, "yes", False),
     ],
 )
 def test_a_new_session_may_reopen_a_done_task_whose_follows_are_done(
@@ -401,6 +407,7 @@ def test_accepts_removing_a_task_that_is_on_the_desk():
 
 
 def test_accepts_a_status_move_of_a_task_it_knows():
+    """``done`` is a verb the source resolves, not a stored status."""
     world = world_with(tasks=[make_task()])
     cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"}
     assert validate_command(world, cmd) is None
@@ -440,15 +447,13 @@ def test_accepts_an_update_that_changes_one_field():
     assert validate_command(world, cmd) is None
 
 
-def test_accepts_an_update_that_only_changes_the_execute_model():
-    # `executeModel` is the one field whose wire and model spelling differ —
-    # the membership check must go by the wire name, not `execute_model`.
+@pytest.mark.parametrize(
+    "fields", [{"executeModel": "claude:opus"}, {"postMerge": "Check the deploy."}]
+)
+def test_accepts_an_update_that_only_changes_a_renamed_field(fields):
+    # The membership check must go by the wire name, not the model's.
     world = world_with(tasks=[make_task()])
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"executeModel": "claude:opus"},
-    }
+    cmd = {"type": "task.update", "taskId": "northwind/NORT-7", "fields": fields}
     assert validate_command(world, cmd) is None
 
 
@@ -1027,6 +1032,29 @@ def test_a_pr_registration_refuses_a_bad_number_or_url(over, message):
         **over,
     }
     assert validate_command(world, cmd) == {"code": "invalid", "message": message}
+
+
+@pytest.mark.parametrize(
+    ("number", "error"),
+    [
+        (None, None),
+        (42, None),
+        (7, "Task northwind/NORT-7 does not link PR #7"),
+        ("42", "number is a PR number"),
+    ],
+)
+def test_a_pr_withdrawal_names_a_linked_pr_or_none(number, error):
+    pr = {"number": 42, "url": "https://github.com/acme/northwind/pull/42"}
+    world = world_with(tasks=[make_task(prs=[pr])])
+    cmd = {"type": "task.withdrawPr", "taskId": "northwind/NORT-7", "number": number}
+    reply = validate_command(world, cmd)
+    assert (reply["message"] if reply else None) == error
+
+
+def test_a_pr_withdrawal_from_a_task_with_no_pr_is_refused():
+    world = world_with(tasks=[make_task()])
+    cmd = {"type": "task.withdrawPr", "taskId": "northwind/NORT-7"}
+    assert code(validate_command(world, cmd)) == "invalid"
 
 
 SUBMIT = {
