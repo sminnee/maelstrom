@@ -19,14 +19,15 @@ from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
 from mael_domain.protocol import HOST_ID, Agent, RemoteHostState, Task, Worktree, World
-from mael_domain.task import PROMOTABLE_FIELDS, is_done
+from mael_domain.task import PROMOTABLE_FIELDS, STATUS_DONE, VALID_STATUSES
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
 from .desk import split_desk_id
 from .world_build import split_task_key
 
-#: The six folders a task can sit in. A move names one of these.
-TASK_STATUSES = ("todo", "in-progress", "done", "cancelled", "template")
+#: The statuses a move names: each stored status, and the ``done`` verb that
+#: resolves to the task's done status. See CONTEXT.md, "Done".
+TASK_STATUSES = (*VALID_STATUSES, STATUS_DONE)
 
 #: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.
 EDITABLE = (
@@ -40,6 +41,7 @@ EDITABLE = (
     "execute_model",
     "follows",
     "comms",
+    "post_merge",
 )
 
 #: The keys ``task.create`` writes: :data:`EDITABLE`, and the fields only a
@@ -65,6 +67,7 @@ WIRE_RENAMES = {
     "executeModel": "execute_model",
     "preAction": "pre_action",
     "postAction": "post_action",
+    "postMerge": "post_merge",
 }
 
 #: The three permission modes, shared with a live agent — see CONTEXT.md.
@@ -935,12 +938,21 @@ def validate_command(
         task_id = cmd.get("taskId", "")
         if task_id not in world["tasks"]:
             return _err("unknown_id", f"No task {task_id}")
+        number = cmd.get("number")
         if kind == "task.registerPr":
-            number, url = cmd.get("number"), cmd.get("url")
-            if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+            if not _is_pr_number(number):
                 return _err("invalid", "number is a PR number")
+            url = cmd.get("url")
             if not isinstance(url, str) or not url.startswith("https://"):
                 return _err("invalid", "url is the PR's URL")
+        elif number is not None:
+            if not _is_pr_number(number):
+                return _err("invalid", "number is a PR number")
+            prs = world["tasks"][task_id]["prs"]
+            if not any(pr["number"] == number for pr in prs):
+                return _err("invalid", f"Task {task_id} does not link PR #{number}")
+        elif not world["tasks"][task_id]["prs"]:
+            return _err("invalid", f"Task {task_id} has no registered PR")
         return None
 
     if kind == "task.addSession":
@@ -1249,9 +1261,14 @@ def _reopens(world: World, task: Task) -> bool:
     because a done task is terminal.
     """
     tasks = world["tasks"]
-    return is_done(task["status"]) and all(
-        f in tasks and is_done(tasks[f]["status"]) for f in task["follows"]
+    return task["done"] and all(
+        f in tasks and tasks[f]["done"] for f in task["follows"]
     )
+
+
+def _is_pr_number(value: object) -> bool:
+    """Whether ``value`` is a PR number: a positive int, not a bool."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 def _launch_host_refusal(world: World, cmd: dict[str, Any]) -> dict[str, str] | None:

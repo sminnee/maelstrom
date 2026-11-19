@@ -100,7 +100,7 @@ from mael_domain.feedback import (
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import PrStatus, RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
-from mael_domain.landing import Landings
+from mael_domain.landing import LANDING_STATUSES, Landings
 from mael_domain.landing_store import StepEvent
 from mael_domain.list_all import project_repo_url
 from mael_domain.merge_request import (
@@ -167,7 +167,6 @@ from mael_domain.ssh_target import SshTarget
 from mael_domain.system_info import SystemPaths, can_update
 from mael_domain.task import (
     CODEX_PLAN_FILE,
-    STATUS_DONE,
     default_branch,
     expand_task_dir,
     mode_for_command,
@@ -1266,13 +1265,13 @@ class Orchestrator:
         """
         tasks = self.world["tasks"]
 
-        def status_of(key: str) -> str | None:
+        def done_of(key: str) -> bool:
             followed = tasks.get(key)
-            return followed["status"] if followed is not None else None
+            return followed is not None and followed["done"]
 
         for key, old in edits:
             new = tasks.get(key)
-            event = task_edit_event(old, new, status_of) if new is not None else None
+            event = task_edit_event(old, new, done_of) if new is not None else None
             if event is None:
                 continue
             agents = self._task_agents(key)
@@ -1542,7 +1541,7 @@ class Orchestrator:
         self._apply(self._rederived_comms(self._comm_rows))
 
     async def _refresh_landings(self) -> None:
-        """Push each done tracked task whose landing moved in the sync.
+        """Push each built tracked task whose landing moved in the sync.
 
         A landing is no task write; see orchestrator-server.md, "The landing on
         a task".
@@ -1552,7 +1551,7 @@ class Orchestrator:
             {
                 wire_task_key(t.project, t.task_id)
                 for t in tracked
-                if t.status == STATUS_DONE
+                if t.status in LANDING_STATUSES
             }
         )
 
@@ -3068,15 +3067,16 @@ class Orchestrator:
         """Register the PR an agent's ``<link rel="gh-pr">`` named on its task.
 
         A free agent registers nothing. A bare number takes its URL from the
-        repo of the agent's worktree. A replayed tag registers only on a task
-        with no Registered PR; see docs/dev/orchestrator-server.md.
+        repo of the agent's worktree. The PR is added to the task's list. A
+        replayed tag registers only on a task with no Registered PR; see
+        docs/dev/orchestrator-server.md.
         """
         agent = self.world["agents"].get(agent_id)
         task_id = agent.get("taskId") if agent else ""
         if not agent or not task_id:
             return
         task = await self._task_of(agent) if replay else None
-        if replay and (task is None or task["prNumber"]):
+        if replay and (task is None or task["prs"]):
             return
         worktree = self.world["worktrees"].get(agent.get("worktreeId", ""))
         repo_url = await project_repo_url(Path(worktree["path"])) if worktree else None
@@ -3103,10 +3103,10 @@ class Orchestrator:
             )
 
     async def _withdraw_pr(self, agent_id: str, ref: str) -> None:
-        """Withdraw the PR an agent's ``<link rel="gh-pr" withdrawn>`` named.
+        """Unlink the PR an agent's ``<link rel="gh-pr" withdrawn>`` named.
 
-        A free agent withdraws nothing, and nor does a tag that names a PR other
-        than the task's Registered PR. See CONTEXT.md, "Withdrawn PR".
+        A free agent withdraws nothing, and nor does a tag that names a PR the
+        task does not link. See CONTEXT.md, "Registered PR".
         """
         agent = self.world["agents"].get(agent_id)
         task_id = agent.get("taskId") if agent else ""
@@ -3122,15 +3122,15 @@ class Orchestrator:
             number, _url = parse_pr_ref(ref, None)
         except ValueError:
             number = 0
-        if not number or number != task["prNumber"]:
+        if not any(pr["number"] == number for pr in task["prs"]):
             log.warning(
-                "agent %s withdrew %r, which is not the PR registered on %s",
+                "agent %s withdrew %r, which is not a PR registered on %s",
                 agent_id,
                 ref,
                 task_id,
             )
             return
-        reply = await self._write_task(self._home(agent).withdraw_pr, task_id)
+        reply = await self._write_task(self._home(agent).withdraw_pr, task_id, number)
         if not reply["ok"]:
             log.warning(
                 "agent %s could not withdraw PR #%s on %s: %s",
@@ -4095,14 +4095,13 @@ class Orchestrator:
 
     # -- the PR watch --
 
-    def _pr_recipients(self) -> dict[str, tuple[list[str], bool]]:
+    def _pr_recipients(self) -> dict[str, list[str]]:
         """Each Registered PR whose task has a live top-level agent.
 
-        By PR URL: the agents, and whether the PR is withdrawn. A free agent
-        has no task, so it hears nothing.
+        By PR URL: the agents. A free agent has no task, so it hears nothing.
         """
         world = self.world
-        found: dict[str, tuple[list[str], bool]] = {}
+        found: dict[str, list[str]] = {}
         for agent in world["agents"].values():
             if agent["parent"] or agent["state"] == "exited" or not agent["taskId"]:
                 continue
@@ -4110,10 +4109,11 @@ class Orchestrator:
                 # Its parent watches its task's PR.
                 continue
             task = world["tasks"].get(agent["taskId"])
-            if task is None or not task["prUrl"]:
+            if task is None:
                 continue
-            agent_ids, _ = found.setdefault(task["prUrl"], ([], task["prWithdrawn"]))
-            agent_ids.append(agent["id"])
+            for pr in task["prs"]:
+                if pr["url"]:
+                    found.setdefault(pr["url"], []).append(agent["id"])
         return found
 
     def _cached_prs(self) -> list[PrStatus]:
@@ -4168,13 +4168,12 @@ class Orchestrator:
         """
         try:
             async with self._pr_watch_lock:
-                found = self._pr_recipients().get(pr.url)
-                if found is None:
+                agent_ids = self._pr_recipients().get(pr.url)
+                if agent_ids is None:
                     self._prs_due.discard(pr.url)
                     return
-                agent_ids, withdrawn = found
                 told = await self.pr_ledger.read(pr.url)
-                events, ledger = pr_events(pr, told, withdrawn)
+                events, ledger = pr_events(pr, told)
                 again = pr.url in self._prs_due
                 for sent, event in enumerate(events):
                     if not await self._tell_pr_event(agent_ids, event, quiet=again):
@@ -4195,15 +4194,18 @@ class Orchestrator:
         """Tell one PR event. Whether one agent or more took it.
 
         A merge ends the session of each agent whose Conditional end waits on
-        it, at the end of the turn the tell starts. See orchestrator-server.md,
-        "An end-session request".
+        it, at the end of the turn the tell starts, unless another PR its task
+        links is still open. See orchestrator-server.md, "An end-session
+        request".
         """
         if event.type != PR_MERGED:
             return bool(await self._tell_logged(agent_ids, event, quiet=quiet))
+        still_open = {pr.url for pr in self._cached_prs() if pr.state != "merged"}
         armed = [
             agent_id
             for agent_id in agent_ids
             if (await self.orchestrator_data.read(agent_id)).end_on == PR_MERGED
+            and not self._task_pr_open(agent_id, still_open)
         ]
         plain = [agent_id for agent_id in agent_ids if agent_id not in armed]
         # Queued before the tell, so a turn the tell starts cannot end first.
@@ -4219,6 +4221,18 @@ class Orchestrator:
                 self._cancel_merge_end(agent_id)
         told = await self._tell_logged(plain, event, quiet=quiet)
         return bool(ending or told)
+
+    def _task_pr_open(self, agent_id: str, still_open: set[str]) -> bool:
+        """Whether a PR the agent's task links is in ``still_open``.
+
+        The cache holds one PR per branch, so an older PR of the task can be
+        absent from it. Only a PR the cache reads as open holds the end back.
+        """
+        agent = self.world["agents"].get(agent_id)
+        task = self.world["tasks"].get(agent["taskId"]) if agent else None
+        if task is None:
+            return False
+        return any(pr["url"] in still_open for pr in task["prs"])
 
     async def _pr_watch_again(self, url: str) -> None:
         """Run the watch for a due PR on what the cache holds now."""
@@ -5804,7 +5818,9 @@ class Orchestrator:
 
     async def _withdraw_task_pr(self, command: dict[str, Any]) -> dict[str, Any]:
         task_id = command["taskId"]
-        reply = await self._write_task(self.tasks.withdraw_pr, task_id)
+        reply = await self._write_task(
+            self.tasks.withdraw_pr, task_id, command.get("number")
+        )
         return self._with_task(reply, task_id)
 
     async def _not_local(self, task: str) -> dict[str, Any] | None:
