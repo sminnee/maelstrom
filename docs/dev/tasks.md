@@ -12,21 +12,47 @@ A task is one row in the state database, keyed by `<project>/<id>`. It carries t
 frontmatter fields (`id`, `title`, `parent`, `follows`, `branch`, …) and its prose
 in the same row, so a write is one transaction over the whole task.
 
-**Status is a column**: `todo`, `in-progress`, `done`, `template`, and the rest.
-Changing one updates a column; the id is stable across the change.
+**Status is a column**: `todo`, `in-progress`, `built`, `merged`, `published`, `cancelled`
+and `template`. Changing one updates a column; the id is stable across the change.
 
-## `parent` groups a linear chain = one PR
+### Done is derived
+
+`done` is not a stored status. `done_statuses(post_merge)` in `task.py` gives the statuses
+that count as done for a task:
+
+| `post_merge` | Done statuses | `mael task status done` moves to |
+|---|---|---|
+| Empty | `merged`, `published` | `merged` |
+| Set | `published` | `published` |
+
+`is_done`, `is_terminal` and `is_actionable` read this rule. So does the `done` flag on the
+wire task, which the UI and the server's validator use. A follower waits for its followed
+task's done status, so a task with post-merge work holds its followers at `merged`.
+
+`move()` resolves the `done` verb. `task_actions.move_with_actions` fires `post_action` when
+the build ends: on the move to `built`, or on a move from `todo` or `in-progress` straight to a
+done status. A later `built → merged` move does not fire it again.
+
+### Registered PRs
+
+`task.prs` is a list of `LinkedPr(number, url)`, oldest first, stored as JSON text.
+`register_pr` appends, and does nothing for a PR the list holds already. `withdraw_pr` removes
+the named PR, or the newest. The task markdown writes the list as `prs:`, one URL per PR, or a
+bare number for a PR with no URL.
+
+## `parent` groups a linear chain on one branch
 
 A task's `parent` groups it into a **linear chain of sibling tasks that share one
-branch and one pull request** ("one PR per parent"). It is *not* an arbitrary
-tree — siblings under a parent execute in `follows` order and merge as a single
-PR. A task with no `parent` **roots its own chain** (it self-parents:
+branch**. It is *not* an arbitrary tree — siblings under a parent execute in
+`follows` order. The siblings share the branch, not a PR: the first sibling's PR
+often merges before the next sibling starts, so each sibling links its own PRs. A
+task with no `parent` **roots its own chain** (it self-parents:
 `MAEL_TASK_PARENT = task.id`).
 
 The parent is often a *virtual* root rather than another real task:
 
 - **Linear-rooted work** parents under `linear.<ID>` — the issue is the chain's
-  root, and every task planned for it lands in one PR.
+  root, and every task planned for it works on one branch.
 - **Ad-hoc work** parents under the planning task's own id — a bare
   `mael task add … --run` session self-parents and its emitted chain hangs off
   that.
@@ -55,7 +81,7 @@ Dots in an **id** capture *lineage / nesting*, independently of chain-grouping:
 - `<parent>.<n>` — a numeric child (e.g. `k3f9.1`, `PROJ-12.3`).
 - `<template>.<date>` — a scheduled run (e.g. `maintenance.2026-07-02`).
 
-The id is where nesting is expressed; `parent` is where PR-grouping is expressed —
+The id is where nesting is expressed; `parent` is where branch grouping is expressed —
 and they are separable. A run named `maintenance.2026-07-02` can have an **empty
 `parent`** yet still read as descended from `maintenance` via its id. That exact
 separation is what keeps scheduled runs clean: the dot-id names and dedups the
@@ -78,8 +104,8 @@ They are orthogonal:
 - **`follows`** controls *execution order* — a task is actionable only once
   everything it follows is done. `follow-end:"*"` means "append after my
   parent-chain's current leaf."
-- **`parent`** controls *PR grouping / branch* — which chain (and therefore which
-  branch and PR) the task belongs to.
+- **`parent`** controls *branch grouping* — which chain (and therefore which
+  branch) the task belongs to.
 
 A chain is typically a `follows` line-up of siblings that all share one `parent`.
 

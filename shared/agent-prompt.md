@@ -104,10 +104,12 @@ Use `<link rel="gh-pr">118</link>` to register a pull request on your task, so t
 it. The body is a PR number, `#118`, or a GitHub PR URL. `mael gh create-pr` registers its PR by
 itself, so write the tag only for a PR made another way. An agent with no task registers nothing.
 
+A task can link more than one PR. Each tag adds its PR to the task.
+
 Before you do more work on a task whose PR is pushed, withdraw the PR, so the user is not asked
-to review it. Write `<link rel="gh-pr" withdrawn>118</link>` or run `mael gh withdraw-pr`. A CI
-fix inside `/watch-pr` does not withdraw. The next `mael gh create-pr` push makes the PR ready
-again.
+to review it. Write `<link rel="gh-pr" withdrawn>118</link>` or run `mael gh withdraw-pr`.
+Withdraw unlinks the PR from the task. A CI fix inside `/watch-pr` does not withdraw. The next
+`mael gh create-pr` push links the PR again.
 
 ## Images
 

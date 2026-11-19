@@ -135,21 +135,34 @@ and written whole.
 _Avoid_: Ticket, issue, job
 
 **Status**:
-A column on the task row. The five statuses are `todo`, `in-progress`, `done`, `cancelled` and
-`template`. Changing one is a single-column update, not a move. No status means "waiting": see
-**Follows**.
+A column on the task row. The statuses are `todo`, `in-progress`, `built`, `merged`,
+`published`, `cancelled` and `template`. `built` means the work is pushed. `merged` means every
+**Registered PR** is merged. `published` means the merge is in the `live` deploy, or the
+**Post-merge work** is finished. Changing one is a single-column update, not a move. No status
+means "waiting": see **Follows**.
 _Avoid_: State, folder
 
+**Done**:
+A derived word, not a stored status. A task with no **Post-merge work** is done at `merged` or
+`published`. A task with post-merge work is done only at `published`. `mael task status done`
+moves a task to the first of its done statuses. The task entity on the wire carries a `done` flag.
+_Avoid_: Finished, complete, closed
+
+**Post-merge work**:
+The work an agent does on a task after the merge, such as a check of the deploy. The
+`post_merge` field holds its text. Empty means none. The field sets which statuses count as
+**Done**: with post-merge work, a `merged` task is not done yet.
+_Avoid_: Follow-up, after-work
+
 **Parent**:
-The grouping key that puts a task in a chain sharing one branch and one pull request — "one PR
-per parent". In a `merge: local` project, the chain has one **Merge request** in place of a PR. A
-task with an empty parent roots its own chain. A parent is often virtual, such
+The grouping key that puts a task in a chain sharing one branch. The siblings share the branch,
+not a PR: the first sibling's PR often merges before the next sibling starts. A task with an
+empty parent roots its own chain. A parent is often virtual, such
 as `linear.NORT-123`, and is never checked against a real task.
 _Avoid_: Epic, group
 
 **Follows**:
-The ordering relationship. A task becomes actionable only once every id it follows reaches
-`done`. Follows is the one way to make a task wait, and it is independent of parent.
+The ordering relationship. A task becomes actionable only once every id it follows is **Done**. Follows is the one way to make a task wait, and it is independent of parent.
 `mael task follow` adds follows to a task that already exists. A task can follow a task in
 another project by its **Qualified id**.
 _Avoid_: Depends-on, blocked-by
@@ -157,7 +170,7 @@ _Avoid_: Depends-on, blocked-by
 **Parked task**:
 An `in-progress` task that follows unfinished work. Its agent ended its session to wait, and the
 task keeps its status and its session. Its node is in the queued zone, with the queued styling.
-When every followed task is `done`, the node is a stopped node in the running zone again, and the
+When every followed task is **Done**, the node is a stopped node in the running zone again, and the
 user resumes it. A parked task is not drift: `mael task reconcile --fix` leaves it.
 _Avoid_: Blocked task, paused task
 
@@ -181,8 +194,8 @@ nothing marks a free agent as lacking a task.
 _Avoid_: Fallback id, placeholder id
 
 **Actionable**:
-A task maelstrom may launch now: not `done`, not `cancelled`, not a template, and every followed
-id is `done`.
+A task maelstrom may launch now: not **Done**, not `cancelled`, not a template, and every
+followed id is **Done**.
 _Avoid_: Ready, unblocked
 
 **Template**:
@@ -201,7 +214,8 @@ cron boundary fires only when the newest completed run has a listed conclusion.
 _Avoid_: Gate, condition
 
 **Chain**:
-The sibling tasks that share one parent, ordered by follows, merging as a single pull request.
+The sibling tasks that share one parent and its branch, ordered by follows. Each sibling links
+its own PRs.
 
 **Splice**:
 A promote that puts a **Task set** after one task in a chain. The first new task follows that
@@ -218,24 +232,21 @@ that project's code.
 _Avoid_: Remote task, foreign task
 
 **Registered PR**:
-The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
-`mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
-earlier one. A registration also clears a **Withdrawn PR**. A task card shows its task's Registered PR only, never one its **Chain** or its
-branch has. The worktree table shows the branch's PR.
-_Avoid_: Linked PR, task PR
-
-**Withdrawn PR**:
-A **Registered PR** that is not ready for review, because the agent does more work on the
-task after the push. `mael gh withdraw-pr` and the **PR link tag** with a bare `withdrawn`
-attribute set it. The task keeps the PR number and URL, and the card draws the PR grey and struck
-through. The next registration, such as the next `mael gh create-pr` push, makes the PR ready
-again. Landing does not change.
-_Avoid_: Hidden PR, retracted PR, draft (a draft is GitHub's state)
+A pull request recorded on a task as its own: a number and a URL. A task holds a list of them,
+oldest first. `mael gh create-pr`, `mael gh link-pr` and the **PR link tag** add one to the
+list. A PR the list holds already is not added again. `mael gh withdraw-pr` and the PR link tag
+with a bare `withdrawn` attribute unlink one, while the agent does more work after the push. An
+unlinked PR leaves the card and does not count toward `merged`. The next `mael gh create-pr`
+push links it again. A task card shows its task's newest Registered PR only, never one its
+**Chain** or its branch has. The worktree table shows the branch's PR.
+_Avoid_: Linked PR, task PR, withdrawn PR
 
 **Landing**:
-A task's status after `done`: `done → merged → uat → live`. Each of these is a **Landing
-step**. The landing is derived, never stored on the task. It joins the task's **Registered PR**
-to GitHub's data about that PR, which the orchestrator server reads on its worktree poll.
+A task's steps after the build: `done → merged → uat → live`. Each of these is a **Landing
+step**. The first step, `done`, is reached when the task is `built`; it is not **Done**. The landing is derived, never stored
+on the task. It joins the task's **Registered PRs** to GitHub's data about each PR, which the
+orchestrator server reads on its worktree poll. `merged` needs every PR merged, and a deploy step
+needs every PR landed there.
 - `merged` comes from the PR's merge commit. `uat` and `live` come from the deploys to the
   GitHub environment that `deploy.environments` names for each step.
 - An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
@@ -646,7 +657,7 @@ left a message is an **Unanswered agent**.
 _Avoid_: Stale (a stale prompt is a different thing), stalled, hung
 
 **Unanswered agent**:
-An idle agent on a task that is not `done` or `cancelled`, where the agent has a last message.
+An idle agent on a task that is not **Done** or `cancelled`, where the agent has a last message.
 The agent ended its turn on unfinished work, so the message is usually for the user. The node
 draws as a node with an **Attention item** does, in yellow in place of amber, and the attention
 chip counts it apart. Its expanded card takes a reply. The UI derives this state; no attention item exists for it. A free agent, and an agent
@@ -664,10 +675,10 @@ counted in attention.
 _Avoid_: Stale (a stale prompt is a different thing), out of date, orphaned
 
 **Finalising**:
-A task that is `done` while an agent still runs on it. That is the ordinary tail of the
-task-completion flow: the PR is pushed, the task is closed, and `watch-pr` carries CI to green.
+A task that is `built` or **Done** while an agent still runs on it. That is the ordinary tail of
+the task-completion flow: the PR is pushed, the task is closed, and `watch-pr` carries CI to green.
 The node draws its own state and sits in the running zone, because the work is not settled until
-CI is. It carries no drift mark. When the agent stops, the node reads Done.
+CI is. It carries no drift mark. When the agent stops, the node of a **Done** task reads Done.
 _Avoid_: Orphan session, lingering session, post-done
 
 **Reconcile**:
@@ -1334,9 +1345,8 @@ _Avoid_: Screenshot tag, figure, embed
 **PR link tag**:
 The marker an agent writes in the text of an ordinary message to register a PR on its task:
 `<link rel="gh-pr">118</link>`, with a PR number, `#118` or a GitHub PR URL. The server cuts it
-from the message and makes the PR the task's **Registered PR**. With a bare `withdrawn`
-attribute, `<link rel="gh-pr" withdrawn>118</link>`, it marks that PR as a **Withdrawn PR**
-instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
+from the message and adds the PR to the task's **Registered PRs**. With a bare `withdrawn`
+attribute, `<link rel="gh-pr" withdrawn>118</link>`, it unlinks that PR instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
 markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<live-feedback>`.
 _Avoid_: PR tag, link tag
 
@@ -1586,8 +1596,8 @@ How the desk draws its nodes: graph (the **Canvas**), kanban, or list (the **Dec
 mode has its own path, such as `/desk/kanban`, and all three use the same zones. Kanban draws
 one column of cards per zone, with no boxes or follows wires. When the drawn nodes come from two
 or more projects, one lane per project crosses the four columns. A drag of a card to another
-column sets the task status that puts the card in that column: To do sets `todo`, Done sets
-`done`. Only follows make a task wait, so the Queued column takes no drop. A drop never launches,
+column sets the task status that puts the card in that column: To do sets `todo`, Done moves
+the task to its **Done** status. Only follows make a task wait, so the Queued column takes no drop. A drop never launches,
 so the Running column takes no drop. A drop
 stays in the card's own lane: it cannot move a task to another project.
 _Avoid_: Desk view, layout (a layout is narrow, medium or wide)
@@ -2092,6 +2102,6 @@ _Avoid_: optional skills
 
 This is unresolved. Do not treat it as settled intent.
 
-**Cancelled dependencies**: Follows gating tests for `done` only, so a cancelled task stalls
+**Cancelled dependencies**: Follows gating tests for **Done** only, so a cancelled task stalls
 everything that follows it permanently. Whether cancelling should release or block its
 followers is undecided.

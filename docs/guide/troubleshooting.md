@@ -101,7 +101,7 @@ Reconcile corrects three mismatches:
 
 | Observed state | Evidence | Corrected to |
 |---|---|---|
-| `in-progress`, no live session | A transcript persists — the task ran | `done` |
+| `in-progress`, no live session | A transcript persists — the task ran | `built` when it links a PR, else `done` |
 | `in-progress`, no live session | No transcript — the task never ran | `todo` |
 | Not `in-progress` | A live session is working on it | `in-progress` |
 

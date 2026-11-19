@@ -133,6 +133,19 @@ release while that section is empty, and retitles it to the version it is releas
   tests, and each rule is tested at the primary seam that its feature file or its plan line
   names. The build takes each expected value from a rule, not from the code. See
   [Build, then test what matters](docs/guide/multi-agent-workflow.md#build-then-test-what-matters).
+- **A task's status goes past done: `built`, `merged` and `published`.** `done` is no longer
+  stored. It is a derived word: a task is done at `merged` or `published`, or only at
+  `published` when its new `--post-merge` field names work after the merge. `mael task status
+  done` moves a task to that status, and `mael task status built` marks the work pushed. The
+  upgrade moves each `done` task to `published` when its landing reached `live`, else to
+  `merged`. A follower waits for the task it follows to be done.
+- **A task links a list of PRs.** `mael gh create-pr`, `mael gh link-pr` and the PR link tag add
+  a PR. They no longer replace the earlier one. `mael gh withdraw-pr [NUMBER]` unlinks a PR, the
+  newest by default, so it leaves the card and does not count toward the merge. The upgrade
+  keeps each task's PR, and drops a withdrawn one. A merge ends a session that waits on it
+  only when no other PR of its task is still open.
+- **Linear takes the new statuses.** `mael linear set-status` takes `built`, `merged` and
+  `published`. `built` and `merged` map to "Unreleased", and `published` to "Done".
 - **A session ends on its PR's merge only when it asked to.** After the PR push, the agent writes
   `<end-session on="pr.merged">`, and the orchestrator ends the session when the PR merges. A
   stop, an exit, or a message from you clears the request. Before, every merge told the agent to
@@ -190,6 +203,8 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Removed
 
+- **The Withdrawn PR.** A withdrawn PR is unlinked from its task, not drawn grey and struck
+  through.
 - **The `blocked` status.** Follows are the one way to make a task wait. The upgrade moves each
   `blocked` task to `todo`. `mael task status block` is gone, and the kanban Queued column takes
   no drop.

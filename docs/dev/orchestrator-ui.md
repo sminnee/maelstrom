@@ -63,11 +63,11 @@ The ordinary run through them, in order:
 | Unanswered | `in-progress` | idle, with a last message | running |
 | Idle | `in-progress` | idle, with no message | running |
 | Queued | `in-progress`, follows unfinished work | stopped, or none | queued |
-| Finalising | `done` | still running | running |
-| Done | `done` | stopped, or none | done |
+| Finalising | `built`, `merged` or `published` | still running | running |
+| Done | **Done** (the `done` flag) | stopped, or none | done |
 
 `Finalising` is the step people miss. The task-completion flow pushes the PR, closes the task,
-then runs `watch-pr` to take CI green — so a `done` task with a live agent is the normal tail of
+then runs `watch-pr` to take CI green — so a `built` task with a live agent is the normal tail of
 the work, not a disagreement. It stays in the running zone, because the work is not settled
 until CI is, and it moves to the done zone when the agent stops.
 
@@ -246,17 +246,15 @@ on a recycled branch would resolve to the earlier task's PR. So the node, the de
 expanded card show only the task's own **Registered PR**: never the branch's PR, and never another
 PR in its **Chain**. A free agent's card shows no PR.
 
-`selectors/cardPr.ts` reads the task's registration, then its state:
+A task can link more than one PR. `selectors/cardPr.ts` reads the newest one, the last in the
+task's `prs`, then its state:
 
-- When the worktree's `prNumber` equals the registered number, the chip takes the worktree's
-  state, draft flag and colour.
+- When the worktree's `prNumber` equals that number, the chip takes the worktree's state, draft
+  flag and colour.
 - When the numbers differ, the chip draws the number and link with no state. The branch now has
   a newer PR, and the registered one has no reading. No per-number GitHub query is made.
-- When the task's `prWithdrawn` is set, `PrChip` draws a **Withdrawn PR**: the GitHub mark and
-  the struck-through number in `--fg-muted`, with no pill and no state. It still links to the PR.
-  The `has-pr` filter still counts it, because the PR is still registered. A PR the worktree
-  reads as `merged` is never drawn withdrawn, because no registration follows a merge to clear
-  the flag.
+
+A withdrawn PR is unlinked from the task, so no card draws it.
 
 `PrChip` draws a `PrReading`, not a `Worktree`. The worktree table and the **Worktree box** pass
 `worktreePr(worktree)`, the branch's own PR: those views are about the branch, not a task.
@@ -511,7 +509,7 @@ writes the target's `follows` without the id.
 
 The board draws fewer wires than the notebook holds. `canvas/reduce.ts` drops an edge that a path
 of unfinished work already implies: when C follows both A and B, and B follows A and has still to
-finish, B gates C on A's behalf and A→C says nothing new. Only `done` releases a follower, the
+finish, B gates C on A's behalf and A→C says nothing new. Only a **Done** task releases a follower, the
 rule `is_actionable` applies, so a cancelled intermediate still hides the edge and a done one
 brings it back. The reduction is display-only — `layoutSwimlanes` takes the full edge set, so no
 column moves, and `follows` on disk keeps every id. A hidden wire cannot be cut from the board,

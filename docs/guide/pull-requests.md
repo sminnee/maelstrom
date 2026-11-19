@@ -16,16 +16,17 @@ them:
 5. Run `/present` to re-cut the reviewed tree into story commits.
 6. Push: `mael gh create-pr --squash`. It rebases, runs the project's pre-push check, then
    pushes.
-7. **Close the task:** `mael task status done`.
+7. **Close the task:** `mael task status done`. With no post-merge work, the task moves to
+   `merged`. With post-merge work, it moves to `published`.
 8. Run `/watch-pr` to take CI (continuous integration) to green.
 
-A task card shows a PR only when the PR is the task's **Registered PR**. Step 6 registers it for
-you. For a PR you made another way, run `mael gh link-pr <number>` — see
+A task card shows a PR only when the PR is one of the task's **Registered PRs**. Step 6 registers
+it for you, and a task keeps each PR it links. The card shows the newest. For a PR you made another way, run `mael gh link-pr <number>` — see
 [the CLI reference](../reference/cli.md).
 
-When more work starts after step 6, the session runs `mael gh withdraw-pr` first. The card then
-draws the PR as a **Withdrawn PR**, grey and struck through, so you are not asked to review it.
-The next step 6 push makes it ready again. A CI fix inside `/watch-pr` does not withdraw.
+When more work starts after step 6, the session runs `mael gh withdraw-pr` first. That unlinks
+the PR from the task, so the card drops it and you are not asked to review it. The next step 6
+push links it again. A CI fix inside `/watch-pr` does not withdraw.
 
 The gates run on the current `main` and on a clean tree, so a project can record that they passed
 on that commit. The project's pre-push check can then reuse that record.

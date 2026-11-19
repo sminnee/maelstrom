@@ -381,6 +381,7 @@ mael task add "Add avatar upload" --run       # plan-mode session, launched now
 mael task add "Wire the API" --mode auto \
   --follow-end '*'                            # append after the chain's current leaf
 mael task next --run                          # launch the next actionable task
+mael task status built                        # the PR is pushed: $MAEL_TASK_ID waits on its merge
 mael task status done                         # close $MAEL_TASK_ID
 ```
 
@@ -432,7 +433,8 @@ A task with no parent gets a random 4-character id, such as `k3f9`. A child gets
 | `-b`, `--branch TEXT` | Branch for the task. Default `task/<id>`. |
 | `-P`, `--parent TEXT` | Parent task id. Creates a child id. Defaults to `$MAEL_TASK_PARENT`, also when the value is `''`. No default when `-p` names a project other than `$MAEL_TASK_PROJECT`. |
 | `--pre-action TEXT` | Lifecycle action fired when the task starts, e.g. `linear.in-progress`. |
-| `--post-action TEXT` | Lifecycle action fired when the task finishes, e.g. `linear.done`. |
+| `--post-action TEXT` | Lifecycle action fired when the build ends: the move to `built`, or straight to a done status. E.g. `linear.done`. |
+| `--post-merge TEXT` | Work the agent does after the merge, such as a check of the deploy. With it set, the task is done only at `published`. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. Default `medium`. Affects list ordering and `task next`. |
 | `--model TEXT` | LLM model for the session, e.g. `opus` or a full id. Default: `opus`, applied when the task launches. |
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. Default: none, which keeps the session on `--model` throughout. Claude models only. |
@@ -457,7 +459,7 @@ Writes a task file to `FILE` instead of the store. The file is inert — invisib
 
 `TITLE` is required. The recipe flags are the same as `add`'s (`-c`/`--command`,
 `-m`/`--mode`, `-b`/`--branch`, `-P`/`--parent`, `--pre-action`, `--post-action`,
-`--priority`, `--model`, `--execute-model`, `--content-file`), plus:
+`--post-merge`, `--priority`, `--model`, `--execute-model`, `--content-file`), plus:
 
 | Option | Description |
 |---|---|
@@ -485,7 +487,7 @@ task follows that task, and every task that followed it now follows the last new
 `MAEL_TASK_ID` unset, or naming no task in the project, the first task follows nothing.
 
 Takes `--project` and the recipe flags (`-c/--command`, `-m/--mode`, `-b/--branch`,
-`-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
+`-P/--parent`, `--pre-action`, `--post-action`, `--post-merge`, `--priority`, `--model`,
 `--execute-model`). There is no
 `--content-file` — the draft's body already carries the content. Plus:
 
@@ -514,7 +516,8 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--mode TEXT` | Session mode, e.g. `plan`, `auto`, `normal`. |
 | `--branch TEXT` | Branch for the task. |
 | `--pre-action TEXT` | Lifecycle action fired when the task starts. |
-| `--post-action TEXT` | Lifecycle action fired when the task finishes. |
+| `--post-action TEXT` | Lifecycle action fired when the build ends. |
+| `--post-merge TEXT` | Work the agent does after the merge. |
 | `--priority [critical\|high\|medium\|low]` | Task priority. |
 | `--model TEXT` | LLM model for the session. |
 | `--execute-model TEXT` | Model the session switches to when its plan is approved. |
@@ -523,7 +526,7 @@ short flags, and it cannot set `--parent`, `--follow`, `--follow-end`, `--from`,
 | `--comm TEXT` | Replace the comms this task feeds. Repeatable. An id that names no comm is refused. |
 | `--content-file TEXT` | File whose contents replace the Content section. `-` reads stdin. |
 
-Pass `''` to `--pre-action`, `--post-action`, `--model`, `--execute-model`,
+Pass `''` to `--pre-action`, `--post-action`, `--post-merge`, `--model`, `--execute-model`,
 `--schedule`, `--trigger` or `--comm` to clear the field.
 
 **`mael task list`**
@@ -614,14 +617,17 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 
 | Command | Moves the task to |
 |---|---|
-| `mael task status todo [ID]` | `todo/` |
-| `mael task status start [ID]` | `in-progress/` |
-| `mael task status done [ID]` | `done/` |
-| `mael task status cancel [ID]` | `cancelled/` |
-| `mael task status template [ID]` | `template/` |
+| `mael task status todo [ID]` | `todo` |
+| `mael task status start [ID]` | `in-progress` |
+| `mael task status built [ID]` | `built`: the work is pushed, and waits on its merge |
+| `mael task status merged [ID]` | `merged` |
+| `mael task status published [ID]` | `published` |
+| `mael task status done [ID]` | The task's done status: `merged`, or `published` when the task has post-merge work |
+| `mael task status cancel [ID]` | `cancelled` |
+| `mael task status template [ID]` | `template` |
 
 `ID` defaults to `$MAEL_TASK_ID`, so a session can close its own task with
-`mael task status done`.
+`mael task status done`. The command prints the status the task moved to.
 
 **`mael task follow` and `mael task unfollow`**
 
@@ -971,8 +977,8 @@ use GitHub. Use `mael merge` to finish a task.
 | Command | Description |
 |---|---|
 | `mael gh create-pr` | Create a PR for the current worktree, or push if one exists. |
-| `mael gh link-pr REF` | Register an existing PR on a task. |
-| `mael gh withdraw-pr` | Withdraw a task's Registered PR while more work is done. |
+| `mael gh link-pr REF` | Add an existing PR to a task's Registered PRs. |
+| `mael gh withdraw-pr [NUMBER]` | Unlink a PR from a task while more work is done. |
 | `mael gh read-pr [TARGET]` | Read PR status, comments and check results. |
 | `mael gh show-code [TARGET]` | Show commits and uncommitted changes for a worktree. |
 | `mael gh check-log RUN_ID` | Show full log output for a GitHub Actions run. |
@@ -1011,9 +1017,10 @@ after its last rebase, then pushes once. A failed check pushes nothing and opens
 
 **`mael gh link-pr`**
 
-Registers a PR on a task, so the task card shows it. Use it for a PR that `create-pr` did not
-make. `REF` is a PR number, `#number`, or a GitHub PR URL. A bare number takes its URL from the
-repository's `origin` remote. A later registration replaces the earlier one.
+Adds a PR to a task's Registered PRs, so the task card shows it. Use it for a PR that
+`create-pr` did not make. `REF` is a PR number, `#number`, or a GitHub PR URL. A bare number
+takes its URL from the repository's `origin` remote. A task keeps every PR it links. A PR the
+task links already is not added again.
 
 ```bash
 mael gh link-pr 118
@@ -1026,14 +1033,15 @@ mael gh link-pr https://github.com/acme/northwind/pull/118 --task NORT-7
 
 **`mael gh withdraw-pr`**
 
-Marks a task's Registered PR as a Withdrawn PR while the agent does more work after the push, so
-the user is not asked to review it. The task keeps the PR. The next registration makes the PR
-ready again: a `create-pr` push, a `link-pr`, or a PR link tag. A task with no Registered PR
+Unlinks a PR from a task while the agent does more work after the push, so the user is not
+asked to review it. `NUMBER` names the PR. With none, the task's newest PR is unlinked. The PR
+leaves the card and no longer counts toward the task's merge. The next registration links it
+again: a `create-pr` push, a `link-pr`, or a PR link tag. A task that does not link the PR
 fails.
 
 ```bash
 mael gh withdraw-pr
-mael gh withdraw-pr --task NORT-7
+mael gh withdraw-pr 118 --task NORT-7
 ```
 
 | Option | Description |
@@ -1199,7 +1207,7 @@ See [integrations.md](../guide/integrations.md).
 | `mael linear create-task TITLE [DESCRIPTION]` | Create a task in the project backlog. |
 | `mael linear create-subtask PARENT_ID TITLE [DESCRIPTION]` | Create a subtask on a parent issue. |
 | `mael linear start-task ISSUE_ID` | Set to "In Progress" and add the workspace label. |
-| `mael linear set-status ISSUE_ID {planned\|in-progress\|done}` | Set the issue status. `done` maps to "Unreleased". |
+| `mael linear set-status ISSUE_ID {planned\|in-progress\|done\|built\|merged\|published}` | Set the issue status. `done`, `built` and `merged` map to "Unreleased", and `published` to "Done". |
 | `mael linear add-comment ISSUE_ID COMMENT_FILE` | Add a comment from a markdown file. |
 | `mael linear write-plan ISSUE_ID PLAN_FILE` | Write a plan into the issue description. |
 | `mael linear read-plan ISSUE_ID` | Read the plan from the issue description. |
@@ -1220,8 +1228,8 @@ mael linear set-status ME-41 done               # "Unreleased"
 
 Runs by default: the planning session launches immediately. It takes the same
 block-settable options as `mael task add` — `--project`, `-c/--command`, `-m/--mode`,
-`-b/--branch`, `-P/--parent`, `--pre-action`, `--post-action`, `--priority`, `--model`,
-`--execute-model`, `--follow`, `--follow-end`, `--cli`, `--daemon` — plus:
+`-b/--branch`, `-P/--parent`, `--pre-action`, `--post-action`, `--post-merge`, `--priority`,
+`--model`, `--execute-model`, `--follow`, `--follow-end`, `--cli`, `--daemon` — plus:
 
 | Option | Description |
 |---|---|
