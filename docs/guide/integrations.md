@@ -74,9 +74,10 @@ mael linear release                              # promote Unreleased → Done
 `set-status` applies to the named issue **as-is**. It does not transition parents or
 subtasks. Move a parent yourself once its subtasks are complete.
 
-`done` maps to "Unreleased" rather than "Done" on purpose: work that has merged is not yet
-work that has shipped. `mael linear release` promotes everything carrying the product label
-when you actually ship.
+`done`, `built` and `merged` map to "Unreleased" rather than "Done" on purpose: work that has
+merged is not yet work that has shipped. `published` maps to "Done": the merge is in the `live`
+deploy. `mael linear release` promotes everything carrying the product label when you actually
+ship.
 
 ### Automating status from tasks
 
