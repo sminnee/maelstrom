@@ -494,7 +494,7 @@ def _follow_label(project: str, wire_id: str) -> str:
 async def register_pr(
     task_id: str | None, number: int, url: str, project: str | None = None
 ) -> str:
-    """Record a Registered PR on a task, and return the task's id.
+    """Add a PR to a task's Registered PRs, and return the task's id.
 
     ``task_id`` falls back to ``MAEL_TASK_ID``, and ``project`` to the cwd's.
     The one CLI path to :func:`~mael_domain.task.register_pr`, shared by
@@ -513,8 +513,10 @@ async def register_pr(
     return task_id
 
 
-async def withdraw_pr(task_id: str | None, project: str | None = None) -> model.Task:
-    """Mark a task's Registered PR as withdrawn, and return the task.
+async def withdraw_pr(
+    task_id: str | None, number: int | None = None, project: str | None = None
+) -> tuple[model.Task, model.LinkedPr]:
+    """Unlink PR ``number`` from a task (its newest without one), and return both.
 
     ``task_id`` falls back to ``MAEL_TASK_ID``, and ``project`` to the cwd's.
     The CLI path to :func:`~mael_domain.task.withdraw_pr`.
@@ -526,7 +528,7 @@ async def withdraw_pr(task_id: str | None, project: str | None = None) -> model.
     except ValueError as exc:
         raise click.ClickException(str(exc)) from exc
     try:
-        return await model.withdraw_pr(table, proj, task_id)
+        return await model.withdraw_pr(table, proj, task_id, number)
     except KeyError as exc:
         raise click.ClickException(f"Task not found: {task_id}") from exc
     except ValueError as exc:
@@ -631,6 +633,11 @@ _BLOCK_OPTIONS: dict[str, _Opt] = {
             "Set the model the session switches to on plan approval "
             "(pass '' to clear, which keeps it on --model throughout)."
         ),
+    ),
+    "post-merge": _Opt(
+        "Work the agent does after the merge, such as a deploy check. With it "
+        "set, the task is done only once published.",
+        update_help="Set the task's post-merge work (pass '' to clear).",
     ),
 }
 
@@ -834,6 +841,7 @@ async def task_add(
     parent: str,
     pre_action: str,
     post_action: str,
+    post_merge: str,
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
     content_file: str | None,
@@ -862,6 +870,7 @@ async def task_add(
         parent=parent,
         pre_action=pre_action,
         post_action=post_action,
+        post_merge=post_merge,
         follows=follows,
         follow_ends=follow_ends,
         content=content,
@@ -890,6 +899,7 @@ async def add_task(
     parent: str = "",
     pre_action: str = "",
     post_action: str = "",
+    post_merge: str = "",
     follows: tuple[str, ...] = (),
     follow_ends: tuple[str, ...] = (),
     content: str | None = None,
@@ -928,6 +938,7 @@ async def add_task(
         "parent": _default_parent(parent, proj),
         "preAction": pre_action,
         "postAction": post_action,
+        "postMerge": post_merge,
         "schedule": schedule,
         "trigger": trigger,
     }
@@ -965,7 +976,7 @@ async def add_task(
             await task_model.edit_in_editor(table, proj, task_id)
         except KeyError:
             raise click.ClickException(f"Task not found: {task_id}")
-        except RuntimeError as e:
+        except (RuntimeError, ValueError) as e:
             raise click.ClickException(str(e))
     if run and cli:
         table = await _table()
@@ -1019,6 +1030,7 @@ def task_draft(
     parent: str,
     pre_action: str,
     post_action: str,
+    post_merge: str,
     content_file: str | None,
     force: bool,
 ) -> None:
@@ -1046,6 +1058,7 @@ def task_draft(
             parent=parent,
             pre_action=pre_action,
             post_action=post_action,
+            post_merge=post_merge,
             content=content,
         )
     except ValueError as e:
@@ -1072,6 +1085,7 @@ async def task_promote(
     parent: str | None,
     pre_action: str | None,
     post_action: str | None,
+    post_merge: str | None,
     follows: tuple[str, ...],
     follow_ends: tuple[str, ...],
 ) -> None:
@@ -1106,6 +1120,7 @@ async def task_promote(
         "parent": parent,
         "preAction": pre_action,
         "postAction": post_action,
+        "postMerge": post_merge,
     }
     body: dict = {
         "project": proj,
@@ -1317,7 +1332,11 @@ async def task_add_scheduled(
 
 @task.command("list")
 @click.option("--project", default=None, help="Project name (default: from cwd).")
-@click.option("--status", default=None, help="Filter by status (folder).")
+@click.option(
+    "--status",
+    default=None,
+    help="Filter by status. done matches each task that is Done.",
+)
 @click.option("--parent", default=None, help="Filter by parent id.")
 @click.option(
     "--all-todo",
@@ -1344,14 +1363,18 @@ async def task_list(
     By default only actionable tasks are shown. ``--all-todo`` also includes
     tasks waiting on incomplete ``follows`` deps and templates;
     ``--all`` additionally includes done and cancelled. ``--status`` filters
-    first, so e.g. ``--status done`` without ``--all`` naturally shows nothing.
+    first, so e.g. ``--status cancelled`` without ``--all`` shows nothing.
+    ``--status done`` matches each task that is **Done**, whatever its stored
+    status.
     """
     proj = resolve_project(project)
     tasks = [
         t
         for t in _fetch_rows()
         if t["project"] == proj
-        and (status is None or t["status"] == status)
+        and (
+            status is None or t["status"] == status or (status == "done" and t["done"])
+        )
         and (parent is None or t["parent"] == parent)
     ]
     if not tasks:
@@ -1378,7 +1401,7 @@ async def task_list(
     rows = []
     for t in tasks:
         actionable = t["actionable"]
-        terminal = model.is_terminal(t["status"])
+        terminal = t["done"] or t["status"] == model.STATUS_CANCELLED
         waiting = not actionable and not terminal
         if all_ or show_all_in_folder:
             visible = True
@@ -1644,6 +1667,7 @@ async def task_reconcile(project: str | None, fix: bool) -> None:
     }
     _FIX_LABEL = {
         model.STATUS_DONE: "→ done",
+        model.STATUS_BUILT: "→ built",
         model.STATUS_TODO: "→ todo",
         model.STATUS_IN_PROGRESS: "→ in-progress",
     }
@@ -1849,7 +1873,9 @@ def _change_follows(
     t: TaskDetail = _task_call(proj, task_id)
     follows = ", ".join(_follow_label(proj, f) for f in t["follows"]) or "nothing"
     click.echo(f"{task_id} follows: {follows}")
-    if not t["actionable"] and not task_model.is_terminal(t["status"]):
+    if not t["actionable"] and not (
+        t["done"] or t["status"] == task_model.STATUS_CANCELLED
+    ):
         click.echo("The task now waits on unfinished work.")
 
 
@@ -1926,12 +1952,13 @@ async def task_update(
     priority: str | None,
     pre_action: str | None,
     post_action: str | None,
+    post_merge: str | None,
     schedule: str | None,
     trigger: str | None,
     comms: tuple[str, ...],
     content_file: str | None,
 ) -> None:
-    """Update a task's fields (title, branch, command, mode, model, actions, schedule, trigger, comms, content).
+    """Update a task's fields (title, branch, command, mode, model, actions, post-merge, schedule, trigger, comms, content).
 
     With ``--id`` the task is re-keyed first (rewriting follows/parent references
     that point at it), then the remaining field updates apply to the new id.
@@ -1996,6 +2023,7 @@ async def task_update(
             priority=priority,
             pre_action=pre_action,
             post_action=post_action,
+            post_merge=post_merge,
             schedule=schedule,
             trigger=trigger,
             comms=comm_ids,
@@ -2021,7 +2049,7 @@ async def task_edit(id: str, project: str | None) -> None:
         _task, changed = await model.edit_in_editor(table, proj, id)
     except KeyError:
         raise click.ClickException(f"Task not found: {id}")
-    except RuntimeError as e:
+    except (RuntimeError, ValueError) as e:
         raise click.ClickException(str(e))
     click.echo(f"Updated {id}." if changed else f"No changes to {id}.")
 
@@ -2074,7 +2102,7 @@ def _status_command(name: str, status: str, help_text: str):
         reply: StatusMoved = _task_call(proj, task_id, "status", body)
         for line in reply.get("actionLines", []):
             _warn(line)
-        click.echo(f"{task_id} -> {status}")
+        click.echo(f"{task_id} -> {reply.get('status', status)}")
         if "follower" in reply:
             _echo_follower(reply["follower"])
 
@@ -2083,7 +2111,18 @@ def _status_command(name: str, status: str, help_text: str):
 
 _status_command("todo", model.STATUS_TODO, "Move a task back to todo.")
 _status_command("start", model.STATUS_IN_PROGRESS, "Move a task to in-progress.")
-_status_command("done", model.STATUS_DONE, "Move a task to done.")
+_status_command(
+    "built",
+    model.STATUS_BUILT,
+    "Move a task to built: the work is pushed, and waits on its merge.",
+)
+_status_command("merged", model.STATUS_MERGED, "Move a task to merged.")
+_status_command("published", model.STATUS_PUBLISHED, "Move a task to published.")
+_status_command(
+    "done",
+    model.STATUS_DONE,
+    "Move a task to its done status: merged, or published when it has post-merge work.",
+)
 _status_command("cancel", model.STATUS_CANCELLED, "Move a task to cancelled.")
 _status_command(
     "template", model.STATUS_TEMPLATE, "Park a task as a reusable template."

@@ -169,7 +169,7 @@ def seed_list(table: InMemoryTaskTable) -> None:
         branch="b3",
         now="2026-09-02T00:00:00Z",
     )
-    seed(table, title="Done", id="NORT-4", status=model.STATUS_DONE, branch="b4")
+    seed(table, title="Done", id="NORT-4", status=model.STATUS_MERGED, branch="b4")
     seed(
         table, title="Dropped", id="NORT-5", status=model.STATUS_CANCELLED, branch="b5"
     )
@@ -241,7 +241,7 @@ def test_list_all_adds_the_finished_tasks(table, start_server):
     assert [row[:4] for row in rows] == [
         ["ID", "STATUS", "PRIORITY", "ACTIONABLE"],
         ["NORT-2", "todo", "high", "yes"],
-        ["NORT-4", "done", "medium", "no"],
+        ["NORT-4", "merged", "medium", "no"],
         ["NORT-5", "cancelled", "medium", "no"],
         ["NORT-6", "in-progress", "medium", "yes"],
         ["NORT-7", "in-progress", "medium", "no"],
@@ -265,7 +265,7 @@ def test_list_filters_by_status_and_parent(table, start_server):
     start_server()
 
     by_status = listed(
-        mael_task("list", "--project", PROJECT, "--all", "--status", "done")
+        mael_task("list", "--project", PROJECT, "--all", "--status", "merged")
     )
     by_parent = listed(mael_task("list", "--project", PROJECT, "--parent", "NORT-2"))
 
@@ -312,12 +312,12 @@ def test_status_done_moves_the_row_and_names_the_next_follower(table, start_serv
 
     assert result.exit_code == 0, result.output
     assert result.output == (
-        "NORT-1 -> done\n"
+        "NORT-1 -> merged\n"
         "\n"
         "mael task next --run will run the following task in a new session:\n"
         "  NORT-2 - Second\n"
     )
-    assert status_of(table, "NORT-1") == model.STATUS_DONE
+    assert status_of(table, "NORT-1") == model.STATUS_MERGED
 
 
 def test_status_done_names_a_parked_follower_that_can_resume(table, start_server):
@@ -336,7 +336,7 @@ def test_status_done_names_a_parked_follower_that_can_resume(table, start_server
     result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
 
     assert result.output == (
-        "NORT-1 -> done\n"
+        "NORT-1 -> merged\n"
         "\n"
         "The following task can resume now, with mael task run:\n"
         "  NORT-2 - Second\n"
@@ -359,7 +359,7 @@ def test_status_done_names_a_parked_follower_that_still_waits(table, start_serve
     result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
 
     assert result.output == (
-        "NORT-1 -> done\n"
+        "NORT-1 -> merged\n"
         "\n"
         "The following task is parked, and still waits on other work:\n"
         "  NORT-2 - Second\n"
@@ -371,7 +371,11 @@ def test_status_done_names_a_parked_follower_that_still_waits(table, start_serve
     [
         ("todo", model.STATUS_TODO),
         ("start", model.STATUS_IN_PROGRESS),
-        ("done", model.STATUS_DONE),
+        ("built", model.STATUS_BUILT),
+        ("merged", model.STATUS_MERGED),
+        ("published", model.STATUS_PUBLISHED),
+        # ``done`` resolves: with no post-merge work, to merged.
+        ("done", model.STATUS_MERGED),
         ("cancel", model.STATUS_CANCELLED),
         ("template", model.STATUS_TEMPLATE),
     ],
@@ -379,12 +383,13 @@ def test_status_done_names_a_parked_follower_that_still_waits(table, start_serve
 def test_each_status_verb_moves_the_row_and_says_only_that(
     table, start_server, verb, status
 ):
-    """Only ``done`` names a follower, and here even ``done`` has none."""
+    """Only a done status names a follower, and here none has one."""
     seed(table, title="First", id="NORT-1", branch="b")
     seed(table, title="Second", id="NORT-2", follows=["NORT-1"], branch="b")
     seed(table, title="Alone", id="NORT-3", status=model.STATUS_IN_PROGRESS, branch="c")
     start_server()
-    moved = "NORT-3" if verb == "done" else "NORT-1"
+    done = verb in ("done", "merged", "published")
+    moved = "NORT-3" if done else "NORT-1"
 
     result = mael_task("status", verb, moved, "--project", PROJECT)
 
@@ -450,7 +455,7 @@ def test_follow_takes_a_task_in_another_project(table, start_server, monkeypatch
 
 def seed_follower(table: InMemoryTaskTable) -> None:
     """NORT-3 follows the done NORT-1; NORT-2 is open."""
-    seed(table, title="Done", id="NORT-1", status=model.STATUS_DONE)
+    seed(table, title="Done", id="NORT-1", status=model.STATUS_MERGED)
     seed(table, title="Open", id="NORT-2")
     seed(table, title="Other", id="NORT-3", follows=["NORT-1"])
 
@@ -554,7 +559,7 @@ def test_status_reports_the_line_its_action_wrote(table, start_server, monkeypat
     result = mael_task("status", "done", "NORT-1", "--project", PROJECT)
 
     assert calls == [("NORT-12", "done")]
-    assert result.stdout == "NORT-1 -> done\n"
+    assert result.stdout == "NORT-1 -> merged\n"
     assert "NORT-12: Todo -> done" in result.stderr
 
 
