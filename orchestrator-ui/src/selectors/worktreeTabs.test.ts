@@ -20,11 +20,11 @@ describe('worktreeWork', () => {
         // On alpha's branch, never run: a Holder with no tab yet.
         makeTask({ id: 'NORT-7', notebookId: 'NORT-7' }),
         // Done, on another branch, but its old run was here.
-        makeTask({ id: 'NORT-3', notebookId: 'NORT-3', status: 'done', branch: 'fix/old' }),
+        makeTask({ id: 'NORT-3', notebookId: 'NORT-3', status: 'merged', branch: 'fix/old' }),
         // Its old run was here, but it is off the desk.
-        makeTask({ id: 'NORT-2', notebookId: 'NORT-2', status: 'done', branch: 'fix/older' }),
+        makeTask({ id: 'NORT-2', notebookId: 'NORT-2', status: 'merged', branch: 'fix/older' }),
         // Ran here once, and runs in bravo now.
-        makeTask({ id: 'NORT-9', notebookId: 'NORT-9', status: 'done', branch: 'feat/db' }),
+        makeTask({ id: 'NORT-9', notebookId: 'NORT-9', status: 'merged', branch: 'feat/db' }),
         // On the desk, and it only ever ran in bravo.
         makeTask({ id: 'NORT-12', notebookId: 'NORT-12', branch: 'feat/db' }),
       ],

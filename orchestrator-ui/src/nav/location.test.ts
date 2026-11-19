@@ -47,8 +47,8 @@ describe('the URL of a location', () => {
     ],
     ['/desk/graph?agents=working-idle', { filters: { agentStatus: 'working-idle' } }],
     [
-      '/tasks?status=done,cancelled',
-      { view: 'list', listFilters: { statuses: ['done', 'cancelled'] } },
+      '/tasks?status=merged,cancelled',
+      { view: 'list', listFilters: { statuses: ['merged', 'cancelled'] } },
     ],
     ['/tasks?status=all', { view: 'list', listFilters: { statuses: [] } }],
     ['/tasks?q=fix%20%26%20test', { view: 'list', filters: { text: 'fix & test' } }],

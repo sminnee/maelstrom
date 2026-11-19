@@ -1,4 +1,4 @@
-import type { TaskStatus } from '../protocol/entities';
+import { doneStatuses, type StatusMove } from '../protocol/entities';
 import type { Zone } from '../protocol/progress';
 import { isActionable } from '../protocol/phase';
 import { ZONES, progressOf, zoneForState } from '../protocol/progress';
@@ -125,7 +125,7 @@ export function emptyZoneWords(zone: Zone): string {
  * The status a drop on each zone sets. Running has none: a drop never launches.
  * Queued has none: only follows make a task wait.
  */
-const DROP_STATUS: Record<Zone, TaskStatus | null> = {
+const DROP_STATUS: Record<Zone, StatusMove | null> = {
   queued: null,
   todo: 'todo',
   running: null,
@@ -147,17 +147,22 @@ export function dropStatus(
   node: GraphNode,
   zone: Zone,
   tasks: WorldView['tasks'],
-): TaskStatus | null {
+): StatusMove | null {
   const { task } = node;
   if (node.kind !== 'task' || !task || node.zone || nodeZone(node) === zone) return null;
-  const status = DROP_STATUS[zone];
-  if (!status || status === task.status) return null;
-  const actionable = isActionable({ ...task, status }, tasks);
+  const move = DROP_STATUS[zone];
+  if (!move) return null;
+  // The server resolves `done` to the task's done status.
+  const done = doneStatuses(task.postMerge);
+  const status = move === 'done' ? done[0]! : move;
+  if (status === task.status || (move === 'done' && task.done)) return null;
+  const moved = { ...task, status, done: done.includes(status) };
+  const actionable = isActionable(moved, tasks);
   const predicted = progressOf(
-    { ...task, status, actionable },
+    { ...moved, actionable },
     node.agent,
     node.attention,
     node.worktree?.gate ?? null,
   );
-  return zoneForState(predicted.state) === zone ? status : null;
+  return zoneForState(predicted.state) === zone ? move : null;
 }

@@ -168,7 +168,7 @@ export function Canvas() {
     // redundant wire moves no column and changes nothing on disk.
     const drawn = reduceEdges(
       graph.edges,
-      graph.nodes.map((node) => ({ id: node.id, status: node.task?.status })),
+      graph.nodes.map((node) => ({ id: node.id, done: node.task?.done ?? false })),
     );
     // The edge carries the target's whole `follows`, so cutting one wire can
     // rewrite the list without re-reading it: a stale read here would clear

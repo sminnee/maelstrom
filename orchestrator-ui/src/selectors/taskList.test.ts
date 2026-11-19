@@ -9,7 +9,7 @@ const tasks = [
     id: 'northwind/NORT-9',
     notebookId: 'NORT-9',
     title: 'Migrate the database',
-    status: 'done',
+    status: 'merged',
     branch: 'feat/db',
   }),
   makeTask({
@@ -62,7 +62,7 @@ describe('listTasks', () => {
   });
 
   it('narrows by status', () => {
-    expect(rows({ statuses: ['done'] })).toEqual(['northwind/NORT-9']);
+    expect(rows({ statuses: ['merged'] })).toEqual(['northwind/NORT-9']);
   });
 
   it('matches the shared text against the id, the notebook id and the title', () => {

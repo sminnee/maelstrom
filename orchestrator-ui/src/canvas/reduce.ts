@@ -1,14 +1,3 @@
-import type { TaskStatus } from '../protocol/entities';
-
-/**
- * Whether a task releases what follows it. Mirrors `is_done` in `task.py`,
- * which `is_actionable` gates on: `done` alone releases, so a cancelled task
- * still gates. Whether it should is an open question in `CONTEXT.md`.
- */
-function isDone(status: TaskStatus | undefined): boolean {
-  return status === 'done';
-}
-
 /** One edge as the reducer sees it: an id, and the pair it joins. */
 export interface ReduceEdge {
   id: string;
@@ -16,11 +5,16 @@ export interface ReduceEdge {
   target: string;
 }
 
-/** One node as the reducer sees it: an id, and the status that decides gating. */
+/** One node as the reducer sees it: an id, and whether it is done. */
 export interface ReduceNode {
   id: string;
-  /** The task's status, or undefined for a node that stands for no task. */
-  status: TaskStatus | undefined;
+  /**
+   * Whether the node's task is done, the server's `done` flag. Mirrors
+   * `is_done` in `task.py`, which `is_actionable` gates on: done alone
+   * releases, so a cancelled task still gates. Whether it should is an open
+   * question in `CONTEXT.md`. False for a node that stands for no task.
+   */
+  done: boolean;
 }
 
 /**
@@ -34,7 +28,7 @@ export function reduceEdges(
   edges: readonly ReduceEdge[],
   nodes: readonly ReduceNode[],
 ): ReduceEdge[] {
-  const doneById = new Map(nodes.map((n) => [n.id, isDone(n.status)]));
+  const doneById = new Map(nodes.map((n) => [n.id, n.done]));
   // Forward adjacency over gating edges only: a done source cannot carry an
   // implication, so it never joins a path that hides anything.
   const outOf = new Map<string, string[]>();

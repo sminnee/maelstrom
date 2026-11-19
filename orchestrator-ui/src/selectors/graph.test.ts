@@ -26,7 +26,7 @@ describe('deriveGraph', () => {
     // Has PR reads the task's Registered PR alone: not the agent, not the worktree's PR.
     const prs: Record<string, number> = { idle: 42, planned: 43 };
     const tasks = ['working', 'delegating', 'idle', 'awaiting', 'terminated', 'planned'].map((id) =>
-      makeTask({ id, prNumber: prs[id] ?? 0 }),
+      makeTask({ id, prs: prs[id] ? [{ number: prs[id], url: '' }] : [] }),
     );
     const world = drawnWorld({
       tasks,
@@ -178,7 +178,7 @@ describe('deriveGraph', () => {
   it('a done task is a done node, and a working agent makes a working node', () => {
     const world = drawnWorld({
       tasks: [
-        makeTask({ id: 'T1', status: 'done' }),
+        makeTask({ id: 'T1', status: 'merged' }),
         makeTask({ id: 'T2', status: 'in-progress' }),
       ],
       agents: [makeAgent({ id: 'a2', taskId: 'T2', state: 'processing' })],
@@ -360,7 +360,7 @@ describe('deriveGraph', () => {
 
   it('a node shows its own Registered PR, not one its chain registered', () => {
     const url = 'https://github.com/acme/northwind/pull/42';
-    const root = makeTask({ id: 'P', notebookId: 'P', prNumber: 42, prUrl: url });
+    const root = makeTask({ id: 'P', notebookId: 'P', prs: [{ number: 42, url }] });
     const child = makeTask({ id: 'P.1', parent: 'P' });
     const world = worldWith({ tasks: [root, child], desk: onDesk([root, child]) });
     const byId = new Map(deriveGraph(world, unfiltered).nodes.map((n) => [n.id, n]));
@@ -613,9 +613,9 @@ describe('worktreeHolders', () => {
     expect(
       holders({
         tasks: [
-          makeTask({ id: 'T1', status: 'done' }),
+          makeTask({ id: 'T1', status: 'merged' }),
           makeTask({ id: 'T2', status: 'cancelled' }),
-          makeTask({ id: 'T3', status: 'done' }),
+          makeTask({ id: 'T3', status: 'merged' }),
           makeTask({ id: 'T4', status: 'template' }),
         ],
         desk: [makeDeskEntry({ id: 'task:T1' }), makeDeskEntry({ id: 'task:T2' })],
@@ -708,14 +708,14 @@ describe('startsNewSession', () => {
     ['an actionable task', makeTask({ id: 'T1', actionable: true }), [], [ended], true],
     [
       'a done task whose follows are done',
-      makeTask({ id: 'T1', status: 'done', actionable: false, follows: ['T0'] }),
-      [follow('done')],
+      makeTask({ id: 'T1', status: 'merged', actionable: false, follows: ['T0'] }),
+      [follow('merged')],
       [ended],
       true,
     ],
     [
       'a done task with an unfinished follow',
-      makeTask({ id: 'T1', status: 'done', actionable: false, follows: ['T0'] }),
+      makeTask({ id: 'T1', status: 'merged', actionable: false, follows: ['T0'] }),
       [follow('in-progress')],
       [ended],
       false,

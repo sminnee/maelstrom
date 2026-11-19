@@ -1,6 +1,13 @@
 import type { Attention } from './attention';
 import { isOpen } from './attention';
-import type { Agent, Task, TaskStatus, WorktreeGate } from './entities';
+import {
+  isPastBuild,
+  isTerminal,
+  type Agent,
+  type StatusMove,
+  type Task,
+  type WorktreeGate,
+} from './entities';
 
 /** Where a node sits in the progression of work. See `Zone` in `CONTEXT.md`. */
 export type Zone = 'queued' | 'todo' | 'running' | 'done';
@@ -33,13 +40,13 @@ export interface Progress {
   /** Null when the task file and the agent agree, or there is no task. */
   drift: DriftKind | null;
   /** The status the task should move to, or null when there is nothing to correct. */
-  fixStatus: TaskStatus | null;
+  fixStatus: StatusMove | null;
   /** Whether `words` only restate `task.status`, so a view with a status control can drop them. */
   echoesStatus: boolean;
 }
 
 /** The task fields a reading needs. A free agent passes `undefined`. */
-type TaskFacts = Pick<Task, 'id' | 'status' | 'actionable'>;
+type TaskFacts = Pick<Task, 'id' | 'status' | 'done' | 'actionable'>;
 
 /**
  * The one reading of a node's state, its words, and the disagreement between
@@ -86,8 +93,7 @@ function nodeState(
   // orange, whatever items it holds. Only an observed nonzero code is a
   // fault — see `mark_exited` in `normalise.py`.
   const live = agent !== undefined && isTurning(agent);
-  const terminal = task?.status === 'done' || task?.status === 'cancelled';
-  if (terminal && !live) return task?.status === 'done' ? 'done' : 'cancelled';
+  if (task && isTerminal(task) && !live) return task.done ? 'done' : 'cancelled';
   if (agent?.state === 'exited' && agent.exitCode !== 0 && agent.exitCode !== null) return 'exited';
   const open = attention.some(
     (item) =>
@@ -95,7 +101,8 @@ function nodeState(
   );
   // A running agent asking for the user reaches them however the task is filed.
   if (open) return 'needs-attention';
-  if (terminal) return 'finalising';
+  // A built task's agent is still about: it watches CI, or does post-merge work.
+  if (task && isPastBuild(task) && live) return 'finalising';
   // Ready is the one waiting state the operator can act on, so it is the one
   // that gets a hue: queued is waiting on other work, ready is waiting on them.
   if (!agent) return task?.actionable ? 'ready' : 'queued';
@@ -221,10 +228,10 @@ function driftOf(task: TaskFacts | undefined, agent: Agent | undefined): DriftKi
     return agent.state === 'exited' ? 'finished' : null;
   }
   if (!agent) return null;
-  // Divergence from `reconcile()`: an agent on a terminal task is the happy
-  // path, not an orphan row. A live one is finalising the work; an idle one
-  // is the session outliving the PR push.
-  if (task.status === 'done' || task.status === 'cancelled') return null;
+  // Divergence from `reconcile()`: an agent on a built or terminal task is the
+  // happy path, not an orphan row. A live one is finalising the work; an idle
+  // one is the session outliving the PR push.
+  if (isPastBuild(task)) return null;
   return isTurning(agent) || agent.state === 'idle' ? 'orphan-session' : null;
 }
 
@@ -238,7 +245,7 @@ function driftOf(task: TaskFacts | undefined, agent: Agent | undefined): DriftKi
  * work can present as `never-ran`, and `todo` would send it back to the queue.
  * The card still names what the client saw; the operator moves the task.
  */
-function fixStatusFor(drift: DriftKind, task: TaskFacts | undefined): TaskStatus | null {
+function fixStatusFor(drift: DriftKind, task: TaskFacts | undefined): StatusMove | null {
   switch (drift) {
     case 'finished':
       return 'done';
@@ -246,7 +253,7 @@ function fixStatusFor(drift: DriftKind, task: TaskFacts | undefined): TaskStatus
       return null;
     case 'orphan-session':
       // A terminal task with a lingering session is listed, not auto-corrected.
-      return task?.status === 'done' || task?.status === 'cancelled' ? null : 'in-progress';
+      return task && isPastBuild(task) ? null : 'in-progress';
   }
 }
 
@@ -258,7 +265,7 @@ function restatesStatus(task: TaskFacts | undefined, state: NodeState): boolean 
   if (!task) return false;
   // The words say what the status cannot while an agent still carries the PR.
   if (state === 'finalising') return false;
-  return task.status === 'done' || task.status === 'cancelled';
+  return isTerminal(task);
 }
 
 /**
@@ -266,7 +273,7 @@ function restatesStatus(task: TaskFacts | undefined, state: NodeState): boolean 
  * task status beside it still gets both, because the sentence is what says
  * which way the two disagree.
  */
-export function driftSentence(progress: Progress, status: TaskStatus): string {
+export function driftSentence(progress: Progress, status: Task['status']): string {
   switch (progress.drift) {
     case 'finished':
       return 'The agent has stopped, but the task is still in-progress.';
@@ -296,7 +303,7 @@ export function driftLabel(progress: Progress): string {
 }
 
 /** What the fix button offers, for each status a fix moves a task to. */
-export function driftFixLabel(status: TaskStatus): string {
+export function driftFixLabel(status: StatusMove): string {
   switch (status) {
     case 'done':
       return 'Mark done';

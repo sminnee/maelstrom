@@ -84,7 +84,7 @@ describe('attentionNodes', () => {
     const done = asking('T1', 'question', 1);
     expect(
       ids({
-        tasks: [{ ...done.task, status: 'done' }],
+        tasks: [{ ...done.task, status: 'merged', done: true }],
         agents: [{ ...done.agent, state: 'exited', exitCode: 0 }],
         attention: [done.item],
       }),
