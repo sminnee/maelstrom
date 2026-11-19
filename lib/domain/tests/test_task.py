@@ -5,7 +5,7 @@ import re
 import pytest
 
 from mael_domain import task as model
-from mael_domain.task import Task
+from mael_domain.task import LinkedPr, Task
 from mael_domain.task_table import InMemoryTaskTable
 
 # --- a recording store to assert mutation counts/messages ---
@@ -45,7 +45,7 @@ class TestRoundTrip:
         assert back == t
 
     def test_all_frontmatter_keys_emitted(self):
-        t = Task(id="x", title="t", project="p", pr_withdrawn=True)
+        t = Task(id="x", title="t", project="p")
         text = t.to_markdown()
         for key in model.FRONTMATTER_KEYS:
             assert f"\n{key}:" in "\n" + text
@@ -83,12 +83,11 @@ class TestRoundTrip:
 
     def test_new_fields_append_to_the_frontmatter_order(self):
         # Field order is load-bearing for stable diffs, so a new field appends.
-        assert model.FRONTMATTER_KEYS[-5:] == (
-            "pr",
-            "pr-url",
+        assert model.FRONTMATTER_KEYS[-4:] == (
             "trigger",
             "comms",
-            "pr-withdrawn",
+            "prs",
+            "post-merge",
         )
 
     def test_comms_round_trip(self):
@@ -739,6 +738,28 @@ class TestActionable:
         await model.move(store, "p", a.id, "done", now=NOW)
         assert await model.is_actionable(await model.load(store, "p", b.id), store)
 
+    @pytest.mark.parametrize(
+        ("post_merge", "status", "released"),
+        [
+            ("", "built", False),
+            ("", "merged", True),
+            ("", "published", True),
+            ("Check the deploy.", "built", False),
+            ("Check the deploy.", "merged", False),
+            ("Check the deploy.", "published", True),
+        ],
+    )
+    async def test_a_follower_waits_for_the_dep_s_done_status(
+        self, store, post_merge, status, released
+    ):
+        a = await model.create(
+            store, project="p", title="a", post_merge=post_merge, now=NOW
+        )
+        b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
+        await model.move(store, "p", a.id, status, now=NOW)
+        b_now = await model.load(store, "p", b.id)
+        assert await model.is_actionable(b_now, store) is released
+
     async def test_blocked_by_undone_dep_in_another_project(self, store):
         a = await model.create(store, project="q", title="a", now=NOW)
         b = await model.create(
@@ -772,7 +793,7 @@ class TestCanStartNewSession:
         await model.move(store, "p", a.id, "done", now=NOW)
         loaded = await model.load(store, "p", a.id)
         assert await model.can_start_new_session(loaded, store)
-        assert loaded.status == "done"
+        assert loaded.status == "merged"
 
     async def test_a_cancelled_task_does_not(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
@@ -810,6 +831,25 @@ class TestMove:
         assert moved.updated == "2026-06-09T00:00:00+00:00"
         assert moved.created == NOW
 
+    @pytest.mark.parametrize(
+        ("post_merge", "resolved"), [("", "merged"), ("Check the deploy.", "published")]
+    )
+    async def test_done_moves_to_the_task_s_done_status(
+        self, store, post_merge, resolved
+    ):
+        a = await model.create(
+            store, project="p", title="a", post_merge=post_merge, now=NOW
+        )
+        moved = await model.move(store, "p", a.id, "done", now=NOW)
+        assert moved.status == resolved
+        assert model.is_done(moved)
+
+    async def test_done_leaves_a_published_task_published(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.move(store, "p", a.id, "published", now=NOW)
+        moved = await model.move(store, "p", a.id, "done", now=NOW2)
+        assert (moved.status, moved.updated) == ("published", NOW)
+
     async def test_move_invalid_status_rejected(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
         with pytest.raises(ValueError):
@@ -829,59 +869,77 @@ class TestRegisterPr:
             store, "p", a.id, 118, "https://github.com/o/r/pull/118", now=NOW2
         )
         back = await model.load(store, "p", a.id)
-        assert (back.pr_number, back.pr_url) == (
-            118,
-            "https://github.com/o/r/pull/118",
-        )
+        assert back.prs == [LinkedPr(118, "https://github.com/o/r/pull/118")]
         assert back.updated == NOW2
 
-    async def test_a_later_registration_replaces_the_earlier(self, store):
+    async def test_a_later_registration_appends(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
         await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
         await model.register_pr(store, "p", a.id, 2, "https://x/pull/2", now=NOW2)
-        assert (await model.load(store, "p", a.id)).pr_number == 2
+        assert [pr.number for pr in (await model.load(store, "p", a.id)).prs] == [1, 2]
+
+    async def test_a_linked_pr_is_not_linked_twice(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW2)
+        back = await model.load(store, "p", a.id)
+        assert (len(back.prs), back.updated) == (1, NOW)
+
+    async def test_a_url_fills_in_a_link_that_has_none(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW2)
+        back = await model.load(store, "p", a.id)
+        assert back.prs == [LinkedPr(1, "https://x/pull/1")]
 
     async def test_register_on_a_missing_task(self, store):
         with pytest.raises(KeyError):
             await model.register_pr(store, "p", "nope", 1, "https://x/pull/1")
 
-    async def test_withdraw_marks_the_pr_and_keeps_it(self, store):
+    async def test_withdraw_unlinks_the_newest_pr_by_default(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
-        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW)
-        await model.withdraw_pr(store, "p", a.id, now=NOW2)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
+        await model.register_pr(store, "p", a.id, 2, "https://x/pull/2", now=NOW)
+        _, gone = await model.withdraw_pr(store, "p", a.id, now=NOW2)
         back = await model.load(store, "p", a.id)
-        assert (back.pr_number, back.pr_withdrawn, back.updated) == (118, True, NOW2)
+        assert gone.number == 2
+        assert ([pr.number for pr in back.prs], back.updated) == ([1], NOW2)
 
-    async def test_a_registration_clears_a_withdrawal(self, store):
+    async def test_withdraw_unlinks_the_named_pr(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
-        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW)
-        await model.withdraw_pr(store, "p", a.id, now=NOW)
-        await model.register_pr(store, "p", a.id, 118, "https://x/pull/118", now=NOW2)
-        assert (await model.load(store, "p", a.id)).pr_withdrawn is False
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
+        await model.register_pr(store, "p", a.id, 2, "https://x/pull/2", now=NOW)
+        await model.withdraw_pr(store, "p", a.id, 1, now=NOW2)
+        assert [pr.number for pr in (await model.load(store, "p", a.id)).prs] == [2]
 
     async def test_withdraw_with_no_registered_pr_raises(self, store):
         a = await model.create(store, project="p", title="a", now=NOW)
         with pytest.raises(ValueError):
             await model.withdraw_pr(store, "p", a.id, now=NOW)
 
-    def test_a_withdrawal_round_trips_the_frontmatter(self):
-        t = Task(id="x", title="t", project="p", pr_number=118, pr_withdrawn=True)
-        assert Task.from_markdown(t.to_markdown()).pr_withdrawn is True
+    async def test_withdraw_of_a_pr_not_linked_raises(self, store):
+        a = await model.create(store, project="p", title="a", now=NOW)
+        await model.register_pr(store, "p", a.id, 1, "https://x/pull/1", now=NOW)
+        with pytest.raises(ValueError):
+            await model.withdraw_pr(store, "p", a.id, 9, now=NOW)
 
-    def test_a_ready_pr_writes_no_withdrawn_key(self):
-        t = Task(id="x", title="t", project="p", pr_number=118)
-        assert "pr-withdrawn" not in t.to_markdown()
+    def test_the_prs_round_trip_the_frontmatter(self):
+        prs = [
+            LinkedPr(118, "https://x/pull/118"),
+            LinkedPr(120),
+            LinkedPr(7, "https://x/merge-requests/7"),
+        ]
+        t = Task(id="x", title="t", project="p", prs=prs)
+        assert Task.from_markdown(t.to_markdown()).prs == prs
 
-    def test_the_registration_round_trips_the_frontmatter(self):
-        t = Task(
-            id="x", title="t", project="p", pr_number=118, pr_url="https://x/pull/118"
-        )
-        back = Task.from_markdown(t.to_markdown())
-        assert (back.pr_number, back.pr_url) == (118, "https://x/pull/118")
+    def test_a_prs_entry_with_no_number_is_refused(self):
+        text = "---\nid: x\ntitle: t\nproject: p\nprs:\n- https://x/pull/1/files\n---\n"
+        with pytest.raises(ValueError):
+            Task.from_markdown(text)
 
-    def test_a_task_with_no_registration_reads_zero(self):
+    def test_a_task_with_no_registration_reads_none(self):
         text = "---\nid: x\ntitle: t\nproject: p\n---\n\n## Content\n\n"
-        assert Task.from_markdown(text).pr_number == 0
+        assert Task.from_markdown(text).prs == []
 
 
 # --- is_safe_id ---
@@ -939,9 +997,9 @@ class TestMutationAccounting:
     async def test_move_is_one_revision_not_a_write_and_a_delete(self, store):
         t = await model.create(store, project="p", title="hi", now=NOW)
         before = await store.revision()
-        await model.move(store, "p", t.id, "done", now=NOW)
+        await model.move(store, "p", t.id, "built", now=NOW)
         assert await store.revision() == before + 1
-        assert (await model.load(store, "p", t.id)).status == "done"
+        assert (await model.load(store, "p", t.id)).status == "built"
 
     async def test_move_noop_when_same_status(self, store):
         t = await model.create(store, project="p", title="hi", now=NOW)
@@ -1177,7 +1235,7 @@ class TestLoadList:
         await model.create(store, project="p", title="b", now=NOW)
         await model.move(store, "p", a.id, "done", now=NOW)
         todo = await model.list_tasks(store, project="p", status="todo")
-        done = await model.list_tasks(store, project="p", status="done")
+        done = await model.list_tasks(store, project="p", status="merged")
         assert [t.id for t in todo] == [t.id for t in todo if t.status == "todo"]
         assert len(todo) == 1
         assert len(done) == 1
@@ -1964,6 +2022,7 @@ class TestLoadMany:
                     "title": "E",
                     "pre-action": "linear.in-progress",
                     "post-action": "linear.done",
+                    "post-merge": "Check the deploy.",
                 },
                 "content": "",
             },
@@ -1971,6 +2030,7 @@ class TestLoadMany:
         created = await model.load_many(store, project="p", blocks=blocks, now=NOW)
         assert created[0].pre_action == "linear.in-progress"
         assert created[0].post_action == "linear.done"
+        assert created[0].post_merge == "Check the deploy."
 
     async def test_block_branch_is_applied(self, store):
         blocks = [
@@ -2208,7 +2268,12 @@ class TestUpdate:
         assert (await model.load(store, "p", t.id)).priority == "high"
 
     @pytest.mark.parametrize(
-        ("field", "value"), [("model", "opus"), ("post_action", "linear.done")]
+        ("field", "value"),
+        [
+            ("model", "opus"),
+            ("post_action", "linear.done"),
+            ("post_merge", "Check the deploy."),
+        ],
     )
     async def test_update_sets_clears_and_omits_a_field(self, store, field, value):
         t = await model.create(store, project="p", title="t", now=NOW)
@@ -2390,6 +2455,7 @@ class TestDuplicate:
             content="body",
             pre_action="a",
             post_action="b",
+            post_merge="c",
             status=model.STATUS_TEMPLATE,
             id="tmpl",
         )
@@ -2402,6 +2468,7 @@ class TestDuplicate:
         assert dup.content == "body"
         assert dup.pre_action == "a"
         assert dup.post_action == "b"
+        assert dup.post_merge == "c"
 
     async def test_does_not_copy_the_sessions(self, store):
         await model.create(store, project="p", title="T", id="tmpl")
@@ -2606,6 +2673,13 @@ class TestReconcile:
         assert len(rows) == 1
         assert rows[0].state == model.RECONCILE_FINISHED
         assert rows[0].fix_status == model.STATUS_DONE
+
+    async def test_stale_that_ran_with_a_pr_suggests_built(self, store):
+        # Its PR may not have merged, so it is not Done yet.
+        t = await self._in_progress(store, "p", "a", id="t1")
+        await model.register_pr(store, "p", t.id, 1, "https://x/pull/1")
+        rows = await model.reconcile(store, "p", session_task_ids={}, ran_ids={t.id})
+        assert rows[0].fix_status == model.STATUS_BUILT
 
     async def test_stale_that_never_ran_suggests_todo(self, store):
         # A stale in-progress task with no transcript never launched; its

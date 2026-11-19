@@ -26,8 +26,8 @@ Another registers a pull request on the agent's task, by number or URL::
 
     <link rel="gh-pr">118</link>
 
-A bare ``withdrawn`` attribute marks that PR as withdrawn while more work is
-done::
+A bare ``withdrawn`` attribute unlinks that PR from the task while more work
+is done::
 
     <link rel="gh-pr" withdrawn>118</link>
 
@@ -100,7 +100,7 @@ _LINK_TAG = re.compile(
 )
 #: The attribute that marks the PR as withdrawn, read from the opening with its
 #: quoted values cut out. Present means withdrawn, whatever its value, as an
-#: HTML boolean attribute does. See CONTEXT.md, "Withdrawn PR".
+#: HTML boolean attribute does. See CONTEXT.md, "Registered PR".
 _WITHDRAWN = re.compile(r"\swithdrawn(?=[\s/>=])")
 _QUOTED = re.compile(r'"[^"]*"|\'[^\']*\'')
 
@@ -208,7 +208,7 @@ class TaggedMessage:
     latest one the message held. ``milestone`` follows the same rule, and names
     the stage of the work the agent has just reached. ``pr_link`` follows it
     too, and is the PR number or URL the agent registered on its task.
-    ``pr_withdrawn`` says whether the ``pr_link`` tag marked the PR withdrawn.
+    ``pr_withdrawn`` says whether the ``pr_link`` tag unlinks the PR.
 
     ``feedback_params`` is every param the live feedback markers set, in the
     order they were written. Each one applies, so none replaces another.
