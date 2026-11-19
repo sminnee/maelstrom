@@ -85,6 +85,44 @@ def _skip_codenames(conn: sqlite3.Connection, root: Path | None) -> None:
     del conn, root
 
 
+def _complete_beyond_done(conn: sqlite3.Connection, root: Path | None) -> None:
+    """Store the PR list and ``post_merge``, and replace the ``done`` status.
+
+    Each task's Registered PR moves into its ``prs`` list. A withdrawn PR is
+    unlinked now, so it is dropped. A ``done`` task becomes ``published`` when
+    its landing reached ``live``, else ``merged``: with no ``post_merge``, both
+    count as done, so no follower changes.
+
+    The ``task_steps`` table is read only when it exists: on a fresh database
+    this ladder can run before the landings ladder. See CONTEXT.md, "Status"
+    and "Registered PR".
+    """
+    del root
+    conn.execute("ALTER TABLE tasks ADD COLUMN post_merge TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE tasks ADD COLUMN prs TEXT NOT NULL DEFAULT '[]'")
+    rows = conn.execute(
+        "SELECT id, pr_number, pr_url FROM tasks "
+        "WHERE pr_number != 0 AND pr_withdrawn = 0"
+    ).fetchall()
+    for id, number, url in rows:
+        conn.execute(
+            "UPDATE tasks SET prs = ? WHERE id = ?",
+            (json.dumps([{"number": number, "url": url}]), id),
+        )
+    for column in ("pr_number", "pr_url", "pr_withdrawn"):
+        conn.execute(f"ALTER TABLE tasks DROP COLUMN {column}")
+    has_steps = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_steps'"
+    ).fetchone()
+    if has_steps is not None:
+        conn.execute(
+            "UPDATE tasks SET status = 'published' WHERE status = 'done' AND "
+            "EXISTS (SELECT 1 FROM task_steps s WHERE s.project = tasks.project "
+            "AND s.task_id = tasks.task_id AND s.step = 'live')"
+        )
+    conn.execute("UPDATE tasks SET status = 'merged' WHERE status = 'done'")
+
+
 #: The columns rung 1's ``CREATE TABLE`` declares, in its order. Frozen: a rung
 #: runs against whatever version a database is stamped at, and every database —
 #: a fresh one included — starts at 0 and climbs the whole ladder. So a column
@@ -205,5 +243,9 @@ TASKS: tuple[Rung, ...] = (
             "DROP INDEX IF EXISTS tasks_codename",
             "ALTER TABLE tasks DROP COLUMN codename",
         )
+    ),
+    PythonMigration(
+        run=_complete_beyond_done,
+        description="link PR lists, and replace the done status",
     ),
 )

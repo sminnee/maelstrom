@@ -124,16 +124,30 @@ class TestMoveWithActions:
     async def _seed(self, store, **kwargs):
         return await model.create(store, project="p", title="t", now=NOW, **kwargs)
 
-    async def test_move_to_done_fires_post_action(self, monkeypatch, store):
+    @pytest.mark.parametrize("status", [model.STATUS_BUILT, model.STATUS_DONE])
+    async def test_the_end_of_the_build_fires_post_action(
+        self, monkeypatch, store, status
+    ):
         calls = []
         from mael_domain.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _recorder(calls))
         t = await self._seed(store, parent="linear.NORT-12", post_action="linear.done")
+        await model.move(store, "p", t.id, model.STATUS_IN_PROGRESS, now=NOW)
+        await task_actions.move_with_actions(store, "p", t.id, status, warn=[].append)
+        assert calls == [("NORT-12", "done")]
+
+    async def test_a_merge_after_the_build_does_not_fire_post_action_again(
+        self, monkeypatch, store
+    ):
+        from mael_domain.integrations import linear
+
+        t = await self._seed(store, parent="linear.NORT-12", post_action="linear.done")
+        await model.move(store, "p", t.id, model.STATUS_BUILT, now=NOW)
+        monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
         await task_actions.move_with_actions(
             store, "p", t.id, model.STATUS_DONE, warn=[].append
         )
-        assert calls == [("NORT-12", "done")]
 
     async def test_move_to_in_progress_fires_pre_action(self, monkeypatch, store):
         calls = []
@@ -172,7 +186,7 @@ class TestMoveWithActions:
         moved = await task_actions.move_with_actions(
             store, "p", t.id, model.STATUS_DONE, warn=[].append
         )
-        assert moved.status == model.STATUS_DONE
+        assert moved.status == model.STATUS_MERGED
 
 
 def _recorder(calls, result="NORT-12: Todo -> Done"):

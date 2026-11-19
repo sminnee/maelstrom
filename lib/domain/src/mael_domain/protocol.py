@@ -11,7 +11,9 @@ from collections.abc import Iterable
 from typing import Any, Literal, NotRequired, TypedDict, cast
 
 Phase = Literal["shaping", "planning", "executing", "finalising"]
-TaskStatus = Literal["todo", "in-progress", "done", "cancelled", "template"]
+TaskStatus = Literal[
+    "todo", "in-progress", "built", "merged", "published", "cancelled", "template"
+]
 AgentStateName = Literal[
     "idle",
     "processing",
@@ -377,6 +379,13 @@ class TaskSession(TypedDict):
     harness: str
 
 
+class LinkedPr(TypedDict):
+    """One Registered PR of a task. ``url`` is ``""`` when none was given."""
+
+    number: int
+    url: str
+
+
 class Task(TypedDict):
     """A task file's frontmatter plus the fields the server derives.
 
@@ -397,11 +406,12 @@ class Task(TypedDict):
     priority: str
     model: str
     executeModel: str
-    #: The Registered PR: its number, 0 for none, and its URL.
-    prNumber: int
-    prUrl: str
-    #: The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
-    prWithdrawn: bool
+    #: The Registered PRs, oldest first. See CONTEXT.md, "Registered PR".
+    prs: list[LinkedPr]
+    #: The work after the merge; ``""`` for none. See CONTEXT.md, "Post-merge work".
+    postMerge: str
+    #: Whether the status is one the task counts as done. See CONTEXT.md, "Done".
+    done: bool
     content: str
     log: list[TaskLogEntry]
     created: str
@@ -410,7 +420,7 @@ class Task(TypedDict):
     #: When the task's first agent started, ISO 8601; ``""`` when none has.
     #: Unlike an agent's, it outlives the agent.
     startedAt: str
-    #: ``None`` until the task is done.
+    #: ``None`` until the task is built.
     landing: TaskLanding | None
     #: The ids of the comms the task feeds, such as ``c3``. Global, so bare.
     comms: list[str]
@@ -446,9 +456,9 @@ class TaskRow(TypedDict):
     priority: str
     model: str
     executeModel: str
-    prNumber: int
-    prUrl: str
-    prWithdrawn: bool
+    prs: list[LinkedPr]
+    postMerge: str
+    done: bool
     created: str
     updated: str
     actionable: bool
@@ -481,10 +491,12 @@ class TaskFollower(TypedDict):
 class StatusMoved(TypedDict, total=False):
     """The reply to a status move. Each key is absent when it has nothing to say.
 
-    ``actionLines`` are what the status actions reported, such as a Linear
-    move. ``follower`` is set only for a move to ``done``.
+    ``status`` is the status the task moved to: the ``done`` verb resolves to
+    one. ``actionLines`` are what the status actions reported, such as a Linear
+    move. ``follower`` is set only for a move to a done status.
     """
 
+    status: str
     actionLines: list[str]
     follower: TaskFollower
 

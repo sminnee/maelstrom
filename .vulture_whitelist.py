@@ -30,7 +30,7 @@ prNumber  # unused variable (lib/domain/src/mael_domain/protocol.py:42)
 prCommits  # unused variable (lib/domain/src/mael_domain/protocol.py:46)
 pushedCommits  # unused variable (lib/domain/src/mael_domain/protocol.py:50)
 prUrl  # unused variable (lib/domain/src/mael_domain/protocol.py:43)
-prWithdrawn  # unused variable (lib/domain/src/mael_domain/protocol.py: Task)
+postMerge  # unused variable (lib/domain/src/mael_domain/protocol.py Task): the UI task editor reads it
 prState  # unused variable (lib/domain/src/mael_domain/protocol.py:45)
 prDraft  # unused variable (lib/domain/src/mael_domain/protocol.py:46)
 prMergedAt  # unused variable (lib/domain/src/mael_domain/protocol.py:83)

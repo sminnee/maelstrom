@@ -28,7 +28,7 @@ from mael_domain.state_db.types import (
     Write,
     WrongThreadError,
 )
-from mael_domain.task import TaskSession
+from mael_domain.task import LinkedPr, TaskSession
 from mael_domain.task_attachments import SqliteTaskAttachmentTable
 from mael_domain.task_table import SqliteTaskTable
 
@@ -290,6 +290,54 @@ class TestTheShippedLadders:
             working = await table.load("p", "w")
             assert blocked is not None and working is not None
             assert (blocked.status, working.status) == ("todo", "in-progress")
+        finally:
+            db.close()
+
+    async def test_an_older_database_replaces_done_and_lists_each_pr(self, tmp_path):
+        """A done task keeps its close state, and a task its Registered PR."""
+        db = open_state_db(tmp_path / "state.db")
+        try:
+            full = db.ladders["tasks"]
+            db.ladders["tasks"] = full[:-1]  # up to the rung before the change
+            await db.migrate()
+
+            def row(id: str, status: str, **more) -> Write:
+                fields = {"title": id, "project": "p", "task_id": id, "status": status}
+                return Write("tasks", f"p/{id}", fields | more)
+
+            url = "https://github.com/o/r/pull/"
+            await db.write_all(
+                [
+                    row("live", "done", pr_number=7, pr_url=url + "7"),
+                    row("merged", "done", pr_number=8, pr_url=url + "8"),
+                    row("withdrawn", "in-progress", pr_number=9, pr_withdrawn=1),
+                    row("none", "todo"),
+                    Write(
+                        "task_steps",
+                        "p/live/live",
+                        {"project": "p", "task_id": "live", "step": "live"},
+                    ),
+                    # Another task's step does not publish ``merged``.
+                    Write(
+                        "task_steps",
+                        "q/merged/live",
+                        {"project": "q", "task_id": "merged", "step": "live"},
+                    ),
+                ]
+            )
+
+            db.ladders["tasks"] = full
+            await db.migrate()
+
+            table = SqliteTaskTable(db)
+            ids = ("live", "merged", "withdrawn", "none")
+            found = {id: await table.load("p", id) for id in ids}
+            assert {id: (t.status, t.prs) for id, t in found.items() if t} == {
+                "live": ("published", [LinkedPr(7, url + "7")]),
+                "merged": ("merged", [LinkedPr(8, url + "8")]),
+                "withdrawn": ("in-progress", []),
+                "none": ("todo", []),
+            }
         finally:
             db.close()
 

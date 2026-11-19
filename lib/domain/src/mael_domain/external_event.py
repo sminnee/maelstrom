@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
-from .task import follow_ref, is_done, is_terminal, split_follow_ref
+from .task import STATUS_CANCELLED, follow_ref, split_follow_ref
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -118,13 +118,11 @@ _GREEN = frozenset({"ready", "conflict", "unknown"})
 
 
 def pr_events(
-    pr: PrStatus, told: PrLedger | None, withdrawn: bool
+    pr: PrStatus, told: PrLedger | None
 ) -> tuple[list[ExternalEvent], PrLedger]:
     """The events ``pr`` is news for, and the ledger after them.
 
-    ``told`` is ``None`` the first time the PR is seen. A **Withdrawn PR** hears
-    of its merge only, but its ledger still moves, so registering it again
-    replays nothing.
+    ``told`` is ``None`` the first time the PR is seen.
     """
     number, short = pr.number, pr.head_oid[:7]
     failed_oid = told.told_failed_oid if told else ""
@@ -168,8 +166,6 @@ def pr_events(
                 f"PR #{number} conflicts with its base. Run `mael sync`, resolve "
                 "the conflicts, and continue the rebase.",
             )
-        if withdrawn:
-            events = []
     return events, PrLedger(pr.state, pr.conflicting, failed_oid, green_oid)
 
 
@@ -371,16 +367,16 @@ def rebase_event(mr: "MergeRequest") -> ExternalEvent:
 
 
 def task_edit_event(
-    old: "Task", new: "Task", status_of: "Callable[[str], str | None]"
+    old: "Task", new: "Task", done_of: "Callable[[str], bool]"
 ) -> ExternalEvent | None:
     """The event that tells a task's agent of its edit from ``old`` to ``new``, or ``None``.
 
-    ``status_of`` gives the status of a followed task by wire id, or ``None``
-    for a task it does not hold. A move to ``done`` or ``cancelled`` ends the
-    work, so it sends nothing. A new follow on a task that is not ``done``
-    parks the task, as ``is_actionable`` counts it.
+    ``done_of`` says whether a followed task is done, by wire id; a task it
+    does not hold is not done. A move to done or ``cancelled`` ends the work,
+    so it sends nothing. A new follow on a task that is not done parks the
+    task, as ``is_actionable`` counts it.
     """
-    if is_terminal(new["status"]):
+    if new["done"] or new["status"] == STATUS_CANCELLED:
         return None
     changed = [name for name in WATCHED_TASK_FIELDS if old[name] != new[name]]
     if not changed:
@@ -390,7 +386,7 @@ def task_edit_event(
     unfinished = [
         follow_ref(project, *split_follow_ref(project, dep))
         for dep in new["follows"]
-        if dep not in old["follows"] and not is_done(status_of(dep) or "")
+        if dep not in old["follows"] and not done_of(dep)
     ]
     if unfinished:
         return ExternalEvent(

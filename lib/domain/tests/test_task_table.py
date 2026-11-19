@@ -11,7 +11,7 @@ SQLite backend's own tests for cuts, notices and the revision counter.
 import pytest
 
 from mael_domain.state_db.migrate import open_state_db
-from mael_domain.task import Task, TaskSession
+from mael_domain.task import LinkedPr, Task, TaskSession
 from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable, TaskTable, row_id
 
 
@@ -40,9 +40,8 @@ def a_task(id: str = "2026-06-11.1", **fields) -> Task:
         priority="high",
         model="opus",
         execute_model="sonnet",
-        pr_number=118,
-        pr_url="https://github.com/o/r/pull/118",
-        pr_withdrawn=True,
+        prs=[LinkedPr(118, "https://github.com/o/r/pull/118"), LinkedPr(120)],
+        post_merge="Check the deploy.",
         comms=["c3", "c7"],
         content="The prose the row carries.",
         log="- started",
@@ -81,12 +80,6 @@ class TestTaskTableContract:
         task = a_task()
         await table.save(task)
         assert await table.load("maelstrom", task.id) == task
-
-    async def test_a_withdrawal_loads_as_a_bool(self, table):
-        """SQLite hands back 1, which ``==`` cannot tell from ``True``."""
-        await table.save(a_task(pr_withdrawn=True))
-        loaded = await table.load("maelstrom", "2026-06-11.1")
-        assert loaded is not None and loaded.pr_withdrawn is True
 
     async def test_save_replaces_the_row(self, table):
         await table.save(a_task(title="First"))
@@ -141,8 +134,8 @@ class TestTaskTableContract:
 
     async def test_list_filters_by_status(self, table):
         await table.save(a_task(id="1", status="todo"))
-        await table.save(a_task(id="2", status="done"))
-        assert [t.id for t in await table.list("maelstrom", status="done")] == ["2"]
+        await table.save(a_task(id="2", status="merged"))
+        assert [t.id for t in await table.list("maelstrom", status="merged")] == ["2"]
 
     async def test_list_filters_by_parent(self, table):
         await table.save(a_task(id="1", parent="chain-a"))
@@ -151,18 +144,18 @@ class TestTaskTableContract:
 
     async def test_list_filters_by_status_and_parent_together(self, table):
         await table.save(a_task(id="1", status="todo", parent="chain-a"))
-        await table.save(a_task(id="2", status="done", parent="chain-a"))
-        await table.save(a_task(id="3", status="done", parent="chain-b"))
-        listed = await table.list("maelstrom", status="done", parent="chain-a")
+        await table.save(a_task(id="2", status="merged", parent="chain-a"))
+        await table.save(a_task(id="3", status="merged", parent="chain-b"))
+        listed = await table.list("maelstrom", status="merged", parent="chain-a")
         assert [t.id for t in listed] == ["2"]
 
     async def test_status_is_a_column_not_a_move(self, table):
         """The change this whole move buys: one column, no write-new + delete-old."""
         await table.save(a_task(status="todo"))
-        moved = a_task(status="done")
+        moved = a_task(status="merged")
         await table.save(moved)
         assert [t.id for t in await table.list("maelstrom", status="todo")] == []
-        assert [t.id for t in await table.list("maelstrom", status="done")] == [
+        assert [t.id for t in await table.list("maelstrom", status="merged")] == [
             "2026-06-11.1"
         ]
 
@@ -375,7 +368,7 @@ class TestSqliteTaskTable:
         table = SqliteTaskTable(db)
         await table.save(a_task(status="todo"))
         cursor = await db.revision()
-        await table.save(a_task(status="done"))
+        await table.save(a_task(status="merged"))
         notices, revision = await db.notices_since(cursor)
         assert notices == {"tasks": {"maelstrom/2026-06-11.1"}}
         assert revision == cursor + 1

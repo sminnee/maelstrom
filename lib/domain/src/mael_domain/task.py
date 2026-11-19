@@ -56,8 +56,16 @@ if TYPE_CHECKING:
 
 STATUS_TODO = "todo"
 STATUS_IN_PROGRESS = "in-progress"
-STATUS_DONE = "done"
+# The work is pushed: the agent's PR is up, or the work needs no PR.
+STATUS_BUILT = "built"
+# Every linked PR is merged.
+STATUS_MERGED = "merged"
+# The merge is in the ``live`` deploy, or the post-merge work is finished.
+STATUS_PUBLISHED = "published"
 STATUS_CANCELLED = "cancelled"
+# Not a stored status: a verb that :func:`move` resolves to the task's done
+# status. See CONTEXT.md, "Done".
+STATUS_DONE = "done"
 # A parking folder for tasks you duplicate *from* regularly (templates). Kept
 # out of the actionable/WIP scans (next_task/list_tasks default, is_actionable),
 # which only consider todo + in-progress, yet trivially listed via
@@ -68,7 +76,9 @@ STATUS_TEMPLATE = "template"
 VALID_STATUSES = (
     STATUS_TODO,
     STATUS_IN_PROGRESS,
-    STATUS_DONE,
+    STATUS_BUILT,
+    STATUS_MERGED,
+    STATUS_PUBLISHED,
     STATUS_CANCELLED,
     STATUS_TEMPLATE,
 )
@@ -177,18 +187,16 @@ TASK_FIELDS = (
     # The execute model. Appended at the end so existing files keep a stable
     # diff. See CONTEXT.md, "Execute model".
     _FieldSpec("execute-model", block=True),
-    # The Registered PR. Written by ``register_pr``, never by a block. See
-    # CONTEXT.md, "Registered PR".
-    _FieldSpec("pr", attr_name="pr_number"),
-    _FieldSpec("pr-url"),
     # What fires a template. See CONTEXT.md, "Trigger".
     _FieldSpec("trigger"),
     # The comms the task feeds. A new task inherits them. See
     # CONTEXT.md, "Comm".
     _FieldSpec("comms", block=True),
-    # Set while the agent does more work after the push. See CONTEXT.md,
-    # "Withdrawn PR".
-    _FieldSpec("pr-withdrawn"),
+    # The Registered PRs. Written by ``register_pr``, never by a block. See
+    # CONTEXT.md, "Registered PR".
+    _FieldSpec("prs"),
+    # The work the agent does after the merge. See CONTEXT.md, "Post-merge work".
+    _FieldSpec("post-merge", block=True),
 )
 
 # The frontmatter keys, always emitted in this order for stable diffs. Most
@@ -245,6 +253,14 @@ class TaskSession:
     harness: str
 
 
+@dataclass(frozen=True)
+class LinkedPr:
+    """One Registered PR of a task. ``url`` is empty when none was given."""
+
+    number: int
+    url: str = ""
+
+
 @dataclass
 class Task:
     """A single task. ``status`` is derived from the key, never serialized."""
@@ -277,11 +293,11 @@ class Task:
     model: str = ""
     # The execute model; empty means no switch. See CONTEXT.md.
     execute_model: str = ""
-    # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
-    pr_number: int = 0
-    pr_url: str = ""
-    # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
-    pr_withdrawn: bool = False
+    # The Registered PRs, oldest first. See CONTEXT.md, "Registered PR".
+    prs: list[LinkedPr] = field(default_factory=list)
+    # The work after the merge; empty when there is none. It sets which
+    # statuses count as done. See CONTEXT.md, "Post-merge work".
+    post_merge: str = ""
     # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
     trigger: str = ""
     # The ids of the comms this task feeds, such as ``c3``. See CONTEXT.md.
@@ -299,15 +315,13 @@ class Task:
         """Render the task as markdown with YAML frontmatter.
 
         Every frontmatter key is emitted in a fixed order, so files round-trip
-        with stable diffs. ``pr-withdrawn`` is the one exception: it is written
-        only when true, so a task that was never withdrawn keeps the same file. ``## Content`` always appears; ``## Log``
-        appears only when the log has entries.
+        with stable diffs. ``## Content`` always appears; ``## Log`` appears
+        only when the log has entries.
         """
         lines = ["---"]
         for k in FRONTMATTER_KEYS:
-            if k == "pr-withdrawn":
-                if self.pr_withdrawn:
-                    lines.append(f"{k}: true")
+            if k == "prs":
+                lines.append(f"{k}: {_dump_follows(_dump_prs(self.prs))}")
             elif k in ("follows", "comms"):
                 lines.append(f"{k}: {_dump_follows(getattr(self, k))}")
             else:
@@ -350,11 +364,10 @@ class Task:
             or DEFAULT_PRIORITY,
             model=str(frontmatter.get("model", "")),
             execute_model=str(frontmatter.get("execute-model", "")),
-            pr_number=_coerce_pr_number(frontmatter.get("pr")),
-            pr_url=str(frontmatter.get("pr-url", "")),
-            pr_withdrawn=frontmatter.get("pr-withdrawn") is True,
             trigger=str(frontmatter.get("trigger", "")),
             comms=_coerce_follows(frontmatter.get("comms")),
+            prs=_coerce_prs(frontmatter.get("prs")),
+            post_merge=str(frontmatter.get("post-merge", "")),
             content=sections.get("content", ""),
             log=sections.get("log", ""),
             status=status,
@@ -364,12 +377,43 @@ class Task:
 # --- (de)serialization helpers ---
 
 
-def _coerce_pr_number(value: object) -> int:
-    """A frontmatter ``pr:`` as a number; 0 for absent or unreadable."""
-    try:
-        return int(str(value or 0))
-    except ValueError:
-        return 0
+_PR_URL_NUMBER = re.compile(r"/pull/(\d+)/?$")
+
+
+def _dump_prs(prs: list[LinkedPr]) -> list[str]:
+    """The ``prs`` frontmatter entries, one per PR.
+
+    The entry is the PR's URL when its ``/pull/N`` tail gives the number, the
+    bare number when the PR has no URL, and ``N URL`` otherwise.
+    """
+    entries = []
+    for pr in prs:
+        m = _PR_URL_NUMBER.search(pr.url)
+        if m and int(m.group(1)) == pr.number:
+            entries.append(pr.url)
+        elif pr.url:
+            entries.append(f"{pr.number} {pr.url}")
+        else:
+            entries.append(str(pr.number))
+    return entries
+
+
+def _coerce_prs(value: object) -> list[LinkedPr]:
+    """Parse the ``prs`` frontmatter entries that :func:`_dump_prs` writes.
+
+    Raises ``ValueError`` on an entry that names no PR number, so an edit
+    typo does not unlink a PR.
+    """
+    prs = []
+    for entry in _coerce_follows(value):
+        number, _, url = entry.partition(" ")
+        if number.isdigit():
+            prs.append(LinkedPr(int(number), url.strip()))
+        elif m := _PR_URL_NUMBER.search(entry):
+            prs.append(LinkedPr(int(m.group(1)), entry))
+        else:
+            raise ValueError(f"prs: {entry!r} names no PR number")
+    return prs
 
 
 def _dump_scalar(value: str) -> str:
@@ -571,12 +615,31 @@ async def _next_counter(table: "TaskTable", project: str, pattern: re.Pattern) -
 # --- follows graph ---
 
 
-def is_done(status: str) -> bool:
-    return status == STATUS_DONE
+def done_statuses(post_merge: str) -> tuple[str, ...]:
+    """The statuses that count as done for a task with this ``post_merge``.
+
+    With no post-merge work, a task is done once it is merged. With post-merge
+    work, a merged task still has that work to do, so only ``published``
+    counts. See CONTEXT.md, "Done".
+    """
+    if post_merge.strip():
+        return (STATUS_PUBLISHED,)
+    return (STATUS_MERGED, STATUS_PUBLISHED)
 
 
-def is_terminal(status: str) -> bool:
-    return status in (STATUS_DONE, STATUS_CANCELLED)
+def done_status(post_merge: str) -> str:
+    """The status the ``done`` verb moves a task with this ``post_merge`` to."""
+    return done_statuses(post_merge)[0]
+
+
+def is_done(task: Task) -> bool:
+    """Whether ``task`` is done. See CONTEXT.md, "Done"."""
+    return task.status in done_statuses(task.post_merge)
+
+
+def is_terminal(task: Task) -> bool:
+    """Whether ``task`` is done or cancelled: nothing it follows gates it now."""
+    return task.status == STATUS_CANCELLED or is_done(task)
 
 
 async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
@@ -586,7 +649,7 @@ async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
     reopens it. A cancelled or template task stays refused, and so
     does a task that follows unfinished work.
     """
-    if is_done(task.status):
+    if is_done(task):
         return await is_actionable(replace(task, status=STATUS_TODO), table)
     return await is_actionable(task, table)
 
@@ -602,11 +665,11 @@ async def is_actionable(task: Task, table: "TaskTable") -> bool:
     Each dependency resolves to a single-row query, which is what killed the
     per-dep full scan that used to dominate this hot path.
     """
-    if is_terminal(task.status) or task.status == STATUS_TEMPLATE:
+    if is_terminal(task) or task.status == STATUS_TEMPLATE:
         return False
     for dep in task.follows:
         found = await table.load(*split_follow_ref(task.project, dep))
-        if found is None or not is_done(found.status):
+        if found is None or not is_done(found):
             return False
     return True
 
@@ -691,6 +754,7 @@ async def create(
     trigger: str = "",
     priority: str = "",
     comms: list[str] | None = None,
+    post_merge: str = "",
     id: str | None = None,
     status: str = DEFAULT_STATUS,
     now: str | None = None,
@@ -769,6 +833,7 @@ async def create(
                 table, project, [parent, *(follows or []), source]
             )
         ),
+        post_merge=post_merge,
         content=content,
         status=status,
     )
@@ -796,6 +861,7 @@ async def duplicate(
     trigger: str = "",
     priority: str | None = None,
     comms: list[str] | None = None,
+    post_merge: str | None = None,
     status: str = DEFAULT_STATUS,
     id: str | None = None,
     now: str | None = None,
@@ -805,7 +871,7 @@ async def duplicate(
     """Duplicate ``src_id``'s recipe into a fresh task (in one write).
 
     The model primitive behind ``mael task add --from``. Copies the source's
-    title/command/mode/model/content/pre_action/post_action; any non-``None`` override
+    title/command/mode/model/content/pre_action/post_action/post_merge; any non-``None`` override
     wins over the copied default. Source-agnostic — works from any status,
     including ``template/`` — and never mutates the source. ``schedule``/
     ``trigger``/``last_run`` are intentionally *not* copied: ``schedule`` and
@@ -848,6 +914,7 @@ async def duplicate(
         trigger=trigger,
         priority=priority if priority is not None else src.priority,
         comms=comms,
+        post_merge=post_merge if post_merge is not None else src.post_merge,
         status=status,
         id=id,
         now=now,
@@ -870,6 +937,7 @@ def draft_markdown(
     pre_action: str = "",
     post_action: str = "",
     priority: str = "",
+    post_merge: str = "",
     content: str = "",
 ) -> str:
     """Render a draft task file: a task-file-format recipe outside the notebook.
@@ -895,6 +963,7 @@ def draft_markdown(
         priority=resolved_priority,
         model=model,
         execute_model=execute_model,
+        post_merge=post_merge,
         content=content,
     )
     return task.to_markdown()
@@ -937,6 +1006,7 @@ PROMOTABLE_FIELDS = (
     "parent",
     "pre_action",
     "post_action",
+    "post_merge",
 )
 
 
@@ -1257,6 +1327,7 @@ async def load_many(
                 parent=parent,
                 pre_action=str(args.get("pre-action", "")),
                 post_action=str(args.get("post-action", "")),
+                post_merge=str(args.get("post-merge", "")),
                 follows=deduped,
                 # An omitted key inherits the comms of the tasks it is made from.
                 comms=(_coerce_follows(args["comms"]) if "comms" in args else None),
@@ -1307,12 +1378,18 @@ async def move(
 ) -> Task:
     """Move a task to ``new_status``, bumping ``updated``.
 
-    Status is a column, so this is a single-row update rather than the
+    ``done`` resolves to the task's done status: see :func:`done_status`. A
+    task that is already **Done** stays, so ``published`` never goes back to
+    ``merged``. Status is a column, so this is a single-row update rather than the
     write-new + delete-old pair the folder layout forced.
     """
-    if new_status not in VALID_STATUSES:
+    if new_status not in VALID_STATUSES and new_status != STATUS_DONE:
         raise ValueError(f"Invalid status: {new_status!r}")
     task = await load(table, project, id)
+    if new_status == STATUS_DONE:
+        if is_done(task):
+            return task
+        new_status = done_status(task.post_merge)
     if task.status == new_status:
         return task
     task.status = new_status
@@ -1359,6 +1436,7 @@ async def update(
     priority: str | None = None,
     follows: list[str] | None = None,
     comms: list[str] | None = None,
+    post_merge: str | None = None,
     now: str | None = None,
 ) -> Task:
     """Update provided fields in place (one write, bumps ``updated``).
@@ -1399,6 +1477,8 @@ async def update(
         task.follows = follows
     if comms is not None:
         task.comms = comms
+    if post_merge is not None:
+        task.post_merge = post_merge
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
@@ -1413,14 +1493,20 @@ async def register_pr(
     *,
     now: str | None = None,
 ) -> Task:
-    """Record ``number`` as the task's Registered PR, replacing any earlier one.
+    """Link PR ``number`` to the task, after any PRs it already links.
 
-    The one write path for the registry; see CONTEXT.md, "Registered PR".
+    A PR the task already links is left as it is, except that a URL fills in
+    a link that has none. The one write path for the list; see CONTEXT.md,
+    "Registered PR".
     """
     task = await load(table, project, id)
-    task.pr_number = number
-    task.pr_url = url
-    task.pr_withdrawn = False
+    known = next((pr for pr in task.prs if pr.number == number), None)
+    if known is None:
+        task.prs = [*task.prs, LinkedPr(number, url)]
+    elif url and not known.url:
+        task.prs = [LinkedPr(number, url) if pr == known else pr for pr in task.prs]
+    else:
+        return task
     task.updated = now if now is not None else now_iso()
     await table.save(task)
     return task
@@ -1430,21 +1516,30 @@ async def withdraw_pr(
     table: "TaskTable",
     project: str,
     id: str,
+    number: int | None = None,
     *,
     now: str | None = None,
-) -> Task:
-    """Mark the task's Registered PR as withdrawn while more work is done.
+) -> tuple[Task, LinkedPr]:
+    """Unlink PR ``number`` from the task, or its newest PR when ``number`` is None.
 
-    The next :func:`register_pr` clears it. Raises ``ValueError`` when the task
-    has no Registered PR. See CONTEXT.md, "Withdrawn PR".
+    The next :func:`register_pr` links it again. Returns the task and the PR it
+    unlinked. Raises ``ValueError`` when the task does not link that PR. See
+    CONTEXT.md, "Registered PR".
     """
     task = await load(table, project, id)
-    if not task.pr_number:
-        raise ValueError(f"Task {id} has no registered PR to withdraw.")
-    task.pr_withdrawn = True
+    if number is None:
+        if not task.prs:
+            raise ValueError(f"Task {id} has no registered PR to withdraw.")
+        gone = task.prs[-1]
+    else:
+        found = [pr for pr in task.prs if pr.number == number]
+        if not found:
+            raise ValueError(f"Task {id} does not link PR #{number}.")
+        gone = found[0]
+    task.prs = [pr for pr in task.prs if pr != gone]
     task.updated = now if now is not None else now_iso()
     await table.save(task)
-    return task
+    return task, gone
 
 
 async def edit_in_editor(
@@ -1521,7 +1616,7 @@ async def delete(table: "TaskTable", project: str, id: str) -> Task:
     async with table.transact():
         await table.delete(project, id)
         for dep in await table.followers(project, {id}):
-            if is_terminal(dep.status):
+            if is_terminal(dep):
                 continue
             ref = follow_ref(dep.project, project, id)
             dep.follows = [f for f in dep.follows if f != ref]
@@ -1571,14 +1666,14 @@ async def rename(
         # always in this project. The renamed task never references its old id.
         changed: dict[tuple[str, str], Task] = {}
         for dep in await table.followers(project, {old_id}):
-            if is_terminal(dep.status):
+            if is_terminal(dep):
                 continue
             old_ref = follow_ref(dep.project, project, old_id)
             new_ref = follow_ref(dep.project, project, new_id)
             dep.follows = [new_ref if f == old_ref else f for f in dep.follows]
             changed[(dep.project, dep.id)] = dep
         for dep in await list_tasks(table, project=project):
-            if dep.id == new_id or is_terminal(dep.status) or dep.parent != old_id:
+            if dep.id == new_id or is_terminal(dep) or dep.parent != old_id:
                 continue
             dep = changed.get((dep.project, dep.id), dep)
             dep.parent = new_id
@@ -1895,7 +1990,8 @@ RECONCILE_OK = "ok"  # in-progress task with a live session — healthy, no fix
 # is no on-disk distinction between a completed and an aborted session — so a
 # task that ran is closed. A task with no transcript never actually launched, so
 # its in-progress status is bogus and it is sent back to todo to be run.
-RECONCILE_FINISHED = "finished"  # in-progress task, ran before, now stopped → done
+# in-progress task, ran before, now stopped → built (with a PR) or done
+RECONCILE_FINISHED = "finished"
 RECONCILE_NEVER_RAN = "never-ran"  # in-progress task, no transcript ever → todo
 RECONCILE_ORPHAN = "orphan-session"  # live session, task not in-progress → start
 
@@ -1938,7 +2034,8 @@ async def reconcile(
     - **finished**: an ``in-progress`` task with no live session whose id is in
       ``ran_ids`` — it ran at some point (a transcript persists) and has stopped.
       A stopped session just means *finished* (no on-disk completed-vs-aborted
-      distinction), so the suggested fix → ``done``.
+      distinction), so the suggested fix → ``built`` when the task links a PR,
+      which then waits for its merge, else ``done``.
     - **never-ran**: an ``in-progress`` task with no live session and no
       transcript — it never actually launched, so the in-progress status is bogus.
       Suggested fix → ``todo`` (send it back to be run).
@@ -1983,7 +2080,9 @@ async def reconcile(
                     task_id=task.id,
                     task_status=task.status,
                     session=None,
-                    fix_status=STATUS_DONE if ran else STATUS_TODO,
+                    fix_status=(STATUS_BUILT if task.prs else STATUS_DONE)
+                    if ran
+                    else STATUS_TODO,
                 )
             )
 
@@ -1991,7 +2090,6 @@ async def reconcile(
         if task_id in in_progress_ids:
             continue  # already an OK row above
         found = await table.load(project, task_id)
-        status = found.status if found is not None else None
         # Only flip a non-terminal task (todo/template) into in-progress. A
         # terminal or missing task with a lingering session is listed, not
         # auto-corrected. NB: the current CLI caller
@@ -1999,12 +2097,12 @@ async def reconcile(
         # exist, so ``status is None`` (a deleted task with a live session)
         # never arises there — the ``(missing)`` branch stays for the model's
         # own generality and its unit test.
-        fixable = status is not None and status not in (STATUS_DONE, STATUS_CANCELLED)
+        fixable = found is not None and not is_terminal(found)
         rows.append(
             ReconcileRow(
                 state=RECONCILE_ORPHAN,
                 task_id=task_id,
-                task_status=status or "(missing)",
+                task_status=found.status if found is not None else "(missing)",
                 session=session,
                 fix_status=STATUS_IN_PROGRESS if fixable else None,
             )
