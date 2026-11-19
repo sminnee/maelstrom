@@ -361,7 +361,7 @@ class TaskSource(Protocol):
         ...
 
     async def register_pr(self, task_id: str, number: int, url: str) -> None:
-        """Record a task's Registered PR.
+        """Add a PR to a task's Registered PRs.
 
         Raises:
             KeyError: If no task has ``task_id``.
@@ -376,12 +376,12 @@ class TaskSource(Protocol):
         """
         ...
 
-    async def withdraw_pr(self, task_id: str) -> None:
-        """Mark a task's Registered PR as withdrawn.
+    async def withdraw_pr(self, task_id: str, number: int | None = None) -> None:
+        """Unlink PR ``number`` from a task, or its newest PR when ``None``.
 
         Raises:
             KeyError: If no task has ``task_id``.
-            ValueError: If the task has no Registered PR.
+            ValueError: If the task does not link that PR.
         """
         ...
 
@@ -766,11 +766,11 @@ class NotebookTaskSource:
             log.warning("%s", line)
             lines.append(line)
 
-        await self._move(project, notebook_id, status, warn=report)
-        moved: StatusMoved = {}
+        task = await self._move(project, notebook_id, status, warn=report)
+        moved: StatusMoved = {"status": task.status}
         if lines:
             moved["actionLines"] = lines
-        if status == model.STATUS_DONE:
+        if model.is_done(task):
             follower = await self._follower(project, notebook_id)
             if follower is not None:
                 moved["follower"] = follower
@@ -818,9 +818,9 @@ class NotebookTaskSource:
             self.table, project, notebook_id, session_id, HARNESS_CLAUDE
         )
 
-    async def withdraw_pr(self, task_id: str) -> None:
+    async def withdraw_pr(self, task_id: str, number: int | None = None) -> None:
         project, notebook_id = split_task_key(task_id)
-        await model.withdraw_pr(self.table, project, notebook_id)
+        await model.withdraw_pr(self.table, project, notebook_id, number)
 
     async def delete(self, task_id: str) -> None:
         """Remove a task from the notebook.
@@ -933,8 +933,8 @@ class NotebookTaskSource:
         status: str,
         *,
         warn: Callable[[str], None] = log.warning,
-    ) -> None:
-        await task_actions.move_with_actions(
+    ) -> model.Task:
+        return await task_actions.move_with_actions(
             self.table, project, task_id, status, warn=warn
         )
 
@@ -981,7 +981,7 @@ class TaskHome(Protocol):
 
     async def add_session(self, task_id: str, session_id: str) -> None: ...
 
-    async def withdraw_pr(self, task_id: str) -> None: ...
+    async def withdraw_pr(self, task_id: str, number: int | None = None) -> None: ...
 
     async def create(self, project: str, fields: dict[str, Any]) -> str: ...
 
@@ -1078,8 +1078,9 @@ class RemoteTaskSource:
         if await self._call("PUT", _pr_path(task_id), body) is None:
             raise KeyError(task_id)
 
-    async def withdraw_pr(self, task_id: str) -> None:
-        if await self._call("DELETE", _pr_path(task_id)) is None:
+    async def withdraw_pr(self, task_id: str, number: int | None = None) -> None:
+        body = {"number": number} if number is not None else None
+        if await self._call("DELETE", _pr_path(task_id), body) is None:
             raise KeyError(task_id)
 
     async def add_session(self, task_id: str, session_id: str) -> None:
