@@ -1228,7 +1228,7 @@ async def _delete_task(request: web.Request) -> web.StreamResponse:
 
 
 async def _register_pr(request: web.Request) -> web.StreamResponse:
-    """Register ``{number, url}`` as the task's PR: a delegated agent's ``gh-pr`` link."""
+    """Add ``{number, url}`` to the task's PRs: a delegated agent's ``gh-pr`` link."""
     task_id = _task_id(request)
     return await _command(
         request,
@@ -1255,10 +1255,15 @@ async def _add_session(request: web.Request) -> web.StreamResponse:
 
 
 async def _withdraw_pr(request: web.Request) -> web.StreamResponse:
-    """Withdraw the task's Registered PR."""
+    """Unlink ``{number}`` from the task's Registered PRs; its newest PR without one."""
     task_id = _task_id(request)
     return await _command(
-        request, lambda _body: {"type": "task.withdrawPr", "taskId": task_id}
+        request,
+        lambda body: {
+            "type": "task.withdrawPr",
+            "taskId": task_id,
+            "number": body.get("number"),
+        },
     )
 
 

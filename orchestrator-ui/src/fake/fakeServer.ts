@@ -11,6 +11,7 @@ import type { EventSourceLike } from '../live/changeStream';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { isActionable } from '../protocol/phase';
+import { doneStatuses, isTerminal } from '../protocol/entities';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Attention } from '../protocol/attention';
@@ -1516,8 +1517,8 @@ function command(
     // A **New session** may reopen a done task whose follows are done, as `validate.py` allows.
     const reopens =
       b.newSession === true &&
-      task.status === 'done' &&
-      task.follows.every((f) => world.tasks[f]?.status === 'done');
+      task.done &&
+      task.follows.every((f) => world.tasks[f]?.done === true);
     if (!task.actionable && !reopens) {
       return error(400, 'invalid', `Task ${task.id} is not actionable`);
     }
@@ -1539,9 +1540,14 @@ function command(
   if (m && method === 'POST') {
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
-    world.tasks[task.id] = { ...task, status: str('status') as TaskStatus };
+    // `done` resolves to the task's done status, and leaves a done task as it
+    // is, as `move` in `task.py` does.
+    const done = doneStatuses(task.postMerge);
+    const asked = str('status');
+    const status = asked !== 'done' ? (asked as TaskStatus) : task.done ? task.status : done[0]!;
+    world.tasks[task.id] = { ...task, status, done: done.includes(status) };
     server.change({ kind: 'task', ids: [task.id, ...refreshActionable(world, task.id)] });
-    return ok({});
+    return ok({ status });
   }
 
   m = pathname.match(/^\/api\/tasks\/(.+)$/);
@@ -1597,7 +1603,7 @@ function command(
     for (const other of Object.values(world.tasks)) {
       if (!other.follows.includes(task.id)) continue;
       // Terminal tasks keep their history, as `model.delete` leaves them.
-      if (other.status === 'done' || other.status === 'cancelled') continue;
+      if (isTerminal(other)) continue;
       world.tasks[other.id] = {
         ...other,
         follows: other.follows.filter((f) => f !== task.id),
@@ -2424,9 +2430,9 @@ function makeNewTask(
     priority: str('priority') || 'medium',
     model: str('model'),
     executeModel: str('executeModel'),
-    prNumber: 0,
-    prUrl: '',
-    prWithdrawn: false,
+    prs: [],
+    postMerge: str('postMerge'),
+    done: false,
     parent: '',
     follows: [],
     actionable: true,

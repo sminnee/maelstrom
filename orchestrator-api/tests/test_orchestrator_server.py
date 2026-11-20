@@ -299,8 +299,8 @@ class Api:
         async with self.session.patch(path, json=body or {}) as response:
             return await _reply(response)
 
-    async def delete(self, path: str) -> Reply:
-        async with self.session.delete(path) as response:
+    async def delete(self, path: str, body: dict | None = None) -> Reply:
+        async with self.session.delete(path, json=body) as response:
             return await _reply(response)
 
     @asynccontextmanager
@@ -1759,7 +1759,7 @@ def test_a_launch_resumes_its_session_only_when_it_ran_before(
 def test_a_new_session_reopens_a_done_task_on_a_new_session_id(harness):
     """New session: the old session has a transcript, the new one starts clean."""
     old = session_of("NORT-7")
-    harness.add_task("NORT-7", session=old, status="done")
+    harness.add_task("NORT-7", session=old, status="merged")
     harness.daemon.rows["ag1"] = agent_row(session=old, state="exited(0)")
     harness.opener.has_transcript = lambda path, session: session == old
 
@@ -1782,7 +1782,7 @@ def test_a_new_session_reopens_a_done_task_on_a_new_session_id(harness):
 
 def test_a_new_session_the_host_refuses_keeps_the_sessions_it_had(harness):
     old = session_of("NORT-7")
-    harness.add_task("NORT-7", session=old, status="done")
+    harness.add_task("NORT-7", session=old, status="merged")
     harness.daemon.replies["start"] = [{"error": "could not start claude"}]
 
     async def scenario():
@@ -1793,7 +1793,7 @@ def test_a_new_session_the_host_refuses_keeps_the_sessions_it_had(harness):
 
     assert run(scenario())["state"] == "refused"
     task = run(model.load(harness.store, PROJECT, "NORT-7"))
-    assert (task.status, [s.id for s in task.sessions]) == ("done", [old])
+    assert (task.status, [s.id for s in task.sessions]) == ("merged", [old])
 
 
 def test_a_new_session_waits_for_the_live_agent_of_its_task(harness):
@@ -2020,10 +2020,11 @@ def test_set_status_moves_the_task_before_it_answers(harness):
 
     reply, task, ids = run(scenario())
     assert reply.status == 200
-    assert reply.body == {}
-    assert task["status"] == "done"
+    # ``done`` resolves to the task's done status: with no post-merge work, merged.
+    assert reply.body == {"status": "merged"}
+    assert (task["status"], task["done"]) == ("merged", True)
     assert ids == ["northwind/NORT-7"]
-    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "done"
+    assert run(model.load(harness.store, PROJECT, "NORT-7")).status == "merged"
 
 
 def test_set_status_done_names_a_follower_with_a_live_agent_running(harness):
@@ -2049,7 +2050,8 @@ def test_set_status_done_names_a_follower_with_a_live_agent_running(harness):
     reply = run(scenario())
     assert reply.status == 200
     assert reply.body == {
-        "follower": {"id": "northwind/NORT-7", "title": "NORT-7", "state": "running"}
+        "status": "merged",
+        "follower": {"id": "northwind/NORT-7", "title": "NORT-7", "state": "running"},
     }
 
 
@@ -7624,7 +7626,7 @@ def test_a_stand_off_keeps_the_local_poll_and_skips_the_landing_sync(
     sync spends the same GraphQL budget as the PR read, so it waits.
     """
     signals = _CountingSignals()
-    landings = Landings(signals=signals, tracked=_one_done_task)
+    landings = Landings(signals=signals, tracked=_one_built_task)
     harness = harness_factory(landings=landings)
     harness.worktrees.rate_limited = True
 
@@ -7661,12 +7663,12 @@ class _CountingSignals(NoLandingSignals):
         return {}
 
 
-async def _one_done_task():
-    return [TrackedTask(PROJECT, "t1", "done", 7)]
+async def _one_built_task():
+    return [TrackedTask(PROJECT, "t1", "built", (7,))]
 
 
 def test_the_worktree_read_records_each_landing_step(harness_factory):
-    landings = Landings(signals=_MergedSignals(), tracked=_one_done_task)
+    landings = Landings(signals=_MergedSignals(), tracked=_one_built_task)
     harness = harness_factory(landings=landings)
 
     async def scenario():
@@ -7682,7 +7684,7 @@ class _BrokenSignals(NoLandingSignals):
 
 
 def test_a_failed_landing_sync_still_applies_the_worktree_read(harness_factory):
-    landings = Landings(signals=_BrokenSignals(), tracked=_one_done_task)
+    landings = Landings(signals=_BrokenSignals(), tracked=_one_built_task)
     harness = harness_factory(landings=landings)
 
     async def scenario():
@@ -7700,7 +7702,7 @@ def test_a_failed_landing_sync_still_applies_the_worktree_read(harness_factory):
 
 def test_a_rate_limited_landing_read_stands_the_pr_reads_off(harness_factory):
     """The merge read spends the same GraphQL budget as the PR read."""
-    landings = Landings(signals=_SpentSignals(), tracked=_one_done_task)
+    landings = Landings(signals=_SpentSignals(), tracked=_one_built_task)
     harness = harness_factory(landings=landings)
 
     asyncio.run(harness.orch.refresh_worktrees())
@@ -8131,10 +8133,10 @@ def test_a_message_with_no_milestone_writes_nothing(harness):
 PR_URL = "https://github.com/o/r/pull/118"
 
 
-def pr_of(harness, task_id: str = "NORT-7") -> tuple[int, str]:
-    """The task's Registered PR as the world carries it to the card."""
+def prs_of(harness, task_id: str = "NORT-7") -> list[tuple[int, str]]:
+    """The task's Registered PRs as the world carries them to the card."""
     task = harness.orch.world["tasks"][f"{PROJECT}/{task_id}"]
-    return task["prNumber"], task["prUrl"]
+    return [(pr["number"], pr["url"]) for pr in task["prs"]]
 
 
 def an_agent_on_a_task(harness, *, backlog=(), **task_fields) -> None:
@@ -8166,11 +8168,11 @@ def test_a_pr_link_tag_registers_the_pr_on_the_agents_task(harness):
                 harness.daemon.push(
                     "ag1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>')
                 )
-                await wait_until(lambda: pr_of(harness)[0] != 0)
+                await wait_until(lambda: prs_of(harness))
                 await wait_until(lambda: harness.worktrees.prs_refreshed)
 
     run(scenario())
-    assert pr_of(harness) == (118, PR_URL)
+    assert prs_of(harness) == [(118, PR_URL)]
     # Read at once, so the PR watch's first event lands within a read.
     assert harness.worktrees.prs_refreshed == [(PROJECT, "feat/orders")]
 
@@ -8183,15 +8185,15 @@ def test_a_replayed_pr_link_registers_on_a_task_with_none(harness):
 
     async def scenario():
         async with harness.client():
-            await wait_until(lambda: pr_of(harness)[0] != 0)
+            await wait_until(lambda: prs_of(harness))
 
     run(scenario())
-    assert pr_of(harness) == (118, PR_URL)
+    assert prs_of(harness) == [(118, PR_URL)]
     # A replayed tag is history: the poll reads it, not an after-write read.
     assert harness.worktrees.prs_refreshed == []
 
 
-def test_a_replayed_pr_link_does_not_replace_a_registration(harness):
+def test_a_replayed_pr_link_does_not_add_to_a_registration(harness):
     """A later `link-pr` must survive a restart that re-reads an older tag."""
     an_agent_on_a_task(
         harness,
@@ -8210,10 +8212,10 @@ def test_a_replayed_pr_link_does_not_replace_a_registration(harness):
                 await then_settled(harness, api, stream)
 
     run(scenario())
-    assert pr_of(harness)[0] == 120
+    assert prs_of(harness) == [(120, "https://github.com/o/r/pull/120")]
 
 
-def test_a_live_pr_link_replaces_an_earlier_registration(harness):
+def test_a_live_pr_link_adds_to_an_earlier_registration(harness):
     an_agent_on_a_task(harness)
     run(model.register_pr(harness.store, PROJECT, "NORT-7", 99, "u99"))
 
@@ -8224,9 +8226,10 @@ def test_a_live_pr_link_replaces_an_earlier_registration(harness):
                 harness.daemon.push(
                     "ag1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>')
                 )
-                await wait_until(lambda: pr_of(harness)[0] == 118)
+                await wait_until(lambda: len(prs_of(harness)) == 2)
 
     run(scenario())
+    assert prs_of(harness) == [(99, "u99"), (118, PR_URL)]
 
 
 def test_a_free_agents_pr_link_registers_nothing(harness):
@@ -8241,15 +8244,10 @@ def test_a_free_agents_pr_link_registers_nothing(harness):
                 await then_settled(harness, api, stream)
 
     run(scenario())
-    assert pr_of(harness)[0] == 0
+    assert prs_of(harness) == []
 
 
-def withdrawn_of(harness, task_id: str = "NORT-7") -> bool:
-    """Whether the world carries the task's Registered PR as withdrawn."""
-    return harness.orch.world["tasks"][f"{PROJECT}/{task_id}"]["prWithdrawn"]
-
-
-def test_a_withdrawn_pr_link_withdraws_the_registered_pr(harness):
+def test_a_withdrawn_pr_link_unlinks_the_registered_pr(harness):
     an_agent_on_a_task(harness)
     run(model.register_pr(harness.store, PROJECT, "NORT-7", 118, PR_URL))
 
@@ -8260,10 +8258,9 @@ def test_a_withdrawn_pr_link_withdraws_the_registered_pr(harness):
                 harness.daemon.push(
                     "ag1", tag_event('<link rel="gh-pr" withdrawn>118</link>')
                 )
-                await wait_until(lambda: withdrawn_of(harness))
+                await wait_until(lambda: not prs_of(harness))
 
     run(scenario())
-    assert pr_of(harness) == (118, PR_URL)
 
 
 def test_a_replayed_withdrawn_pr_link_withdraws_nothing(harness):
@@ -8280,7 +8277,7 @@ def test_a_replayed_withdrawn_pr_link_withdraws_nothing(harness):
                 await then_settled(harness, api, stream)
 
     run(scenario())
-    assert withdrawn_of(harness) is False
+    assert prs_of(harness) == [(118, PR_URL)]
 
 
 def test_a_withdrawn_link_to_another_pr_withdraws_nothing(harness):
@@ -8297,7 +8294,7 @@ def test_a_withdrawn_link_to_another_pr_withdraws_nothing(harness):
                 await then_settled(harness, api, stream)
 
     run(scenario())
-    assert (pr_of(harness)[0], withdrawn_of(harness)) == (120, False)
+    assert prs_of(harness) == [(120, "u120")]
 
 
 def test_a_free_agents_withdrawn_pr_link_withdraws_nothing(harness):
@@ -8315,7 +8312,7 @@ def test_a_free_agents_withdrawn_pr_link_withdraws_nothing(harness):
                 await then_settled(harness, api, stream)
 
     run(scenario())
-    assert withdrawn_of(harness) is False
+    assert prs_of(harness) == [(118, PR_URL)]
 
 
 def milestone_items(harness) -> list[dict]:
@@ -8621,23 +8618,6 @@ def test_a_free_agent_and_another_tasks_agent_hear_nothing(harness):
 
     run(scenario())
     assert {c["id"] for c in said(harness)} == {"ag1"}
-
-
-def test_a_withdrawn_pr_hears_of_its_merge_only(harness):
-    prs = a_watched_pr(harness)
-    run(model.withdraw_pr(harness.store, PROJECT, "NORT-7"))
-
-    async def scenario():
-        async with harness.client():
-            await wait_until(lambda: prs.reads >= 3)
-            prs.answer = {"feat/orders": a_pr("ci-failed")}
-            reads = prs.reads
-            await wait_until(lambda: prs.reads >= reads + 3)
-            prs.answer = {"feat/orders": a_pr("merged")}
-            await wait_until(lambda: events_said(harness) != [])
-
-    run(scenario())
-    assert events_said(harness) == ["pr.merged"]
 
 
 @pytest.mark.parametrize("ending", ["merged", "closed"])
@@ -9267,7 +9247,7 @@ def test_a_codex_turn_end_acts_on_the_markers_its_turn_wrote(harness):
 
 END_ON_MERGE = 'Pushed.\n\n<end-session on="pr.merged">'
 #: The two merge bodies, as `external_event` words them. The server picks one.
-[_MERGED], _ = pr_events(a_pr("merged"), None, False)
+[_MERGED], _ = pr_events(a_pr("merged"), None)
 NEUTRAL, ENDING = _MERGED.body, pr_merged_ending(_MERGED).body
 
 
@@ -9311,6 +9291,22 @@ def test_a_merge_ends_an_armed_agent_when_the_turn_it_starts_ends(harness):
     before, stored = run(scenario())
     assert before is False
     assert stored is None
+    assert merged_bodies(harness) == [ENDING]
+
+
+def test_an_older_pr_the_cache_does_not_hold_does_not_hold_back_the_end(harness):
+    """The cache holds one PR per branch: an older PR of the task is not open."""
+    prs = a_watched_pr(harness)
+    run(model.register_pr(harness.store, PROJECT, "NORT-7", 117, PR_URL + "-old"))
+
+    async def scenario():
+        async with harness.client():
+            await wait_until(lambda: events_said(harness) == ["pr.watching"])
+            await armed(harness)
+            prs.answer = {"feat/orders": a_pr("merged")}
+            await wait_until(lambda: len(merged_bodies(harness)) == 1)
+
+    run(scenario())
     assert merged_bodies(harness) == [ENDING]
 
 
@@ -13669,7 +13665,7 @@ def test_a_sync_that_writes_a_step_pushes_the_task_with_its_new_status(
     landings = Landings(signals=signals)
     harness = harness_factory(landings=landings)
     landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
-    harness.add_task("t1", status="done")
+    harness.add_task("t1", status="built")
     run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
 
     async def scenario():
@@ -13710,7 +13706,7 @@ def test_an_env_change_that_writes_no_step_still_reaches_the_task(harness_factor
     landings = Landings(signals=signals, config_for=lambda project: uat)
     harness = harness_factory(landings=landings)
     landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
-    harness.add_task("t1", status="done")
+    harness.add_task("t1", status="built")
     run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
 
     async def scenario():
@@ -13726,13 +13722,13 @@ def test_an_env_change_that_writes_no_step_still_reaches_the_task(harness_factor
 
 
 def _comm_news_harness(harness_factory, **over):
-    """Task t1, done on merged PR 7, feeds comm c1. GitHub answers when told."""
+    """Task t1, built on merged PR 7, feeds comm c1. GitHub answers when told."""
     signals = _MergeLater()
     landings = over.pop("landings", None) or Landings()
     landings.signals = signals
     harness = harness_factory(landings=landings, **over)
     landings.tracked = lambda: tracked_tasks(harness.store, [PROJECT])
-    harness.add_task("t1", title="Ship the export", status="done", comms=["c1"])
+    harness.add_task("t1", title="Ship the export", status="built", comms=["c1"])
     run(model.register_pr(harness.store, PROJECT, "t1", 7, "u/7"))
     return harness, signals
 
@@ -14755,7 +14751,7 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
 
             child.claude.push("new1", tag_event(f'<link rel="gh-pr">{PR_URL}</link>'))
             seen["pr"] = await until(
-                api, "/api/tasks/northwind/NORT-7", lambda t: t["prNumber"]
+                api, "/api/tasks/northwind/NORT-7", lambda t: t["prs"]
             )
 
             pending = pending_from(backlog)
@@ -14842,7 +14838,7 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
     assert child_titles == ["Cobalt's own"]
 
     # (7) The gh-pr link registers on the parent's task.
-    assert seen["pr"]["prNumber"] == 118
+    assert [pr["number"] for pr in seen["pr"]["prs"]] == [118]
 
     # (4) Approve, say and stop reach the child's daemon with bare ids.
     assert seen["approve"].status == 200, seen["approve"].body
@@ -15351,24 +15347,32 @@ def test_a_state_change_from_another_origin_is_refused(harness):
     assert replies["none"] == 404
 
 
-def test_the_pr_routes_register_and_withdraw_a_tasks_pr(harness):
+def test_the_pr_routes_register_and_withdraw_a_tasks_prs(harness):
     harness.add_task("NORT-7")
+    other = "https://github.com/o/r/pull/120"
+    path = "/api/tasks/northwind/NORT-7/pr"
 
     async def scenario():
         async with harness.client() as api:
             await until(api, "/api/tasks", lambda b: b["tasks"])
-            async with api.session.put(
-                "/api/tasks/northwind/NORT-7/pr", json={"number": 118, "url": PR_URL}
-            ) as response:
-                registered = (response.status, await response.json())
-            withdrawn = await api.delete("/api/tasks/northwind/NORT-7/pr")
-            return registered, withdrawn
+            for number, url in ((118, PR_URL), (120, other)):
+                async with api.session.put(
+                    path, json={"number": number, "url": url}
+                ) as response:
+                    registered = (response.status, await response.json())
+            named = await api.delete(path, {"number": 118})
+            newest = await api.delete(path)
+            return registered, named, newest
 
-    (status, task), withdrawn = run(scenario())
+    (status, task), named, newest = run(scenario())
     assert status == 200, task
-    assert (task["prNumber"], task["prUrl"]) == (118, PR_URL)
-    assert withdrawn.status == 200, withdrawn.body
-    assert withdrawn.body["prWithdrawn"] is True
+    assert task["prs"] == [
+        {"number": 118, "url": PR_URL},
+        {"number": 120, "url": other},
+    ]
+    assert named.status == 200, named.body
+    assert named.body["prs"] == [{"number": 120, "url": other}]
+    assert newest.body["prs"] == []
 
 
 # --- machine metrics ---------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Tests for mael_domain.landing — a task's status past done, and the sync that records it."""
+"""Tests for mael_domain.landing — a task's steps past the build, and the sync that records it."""
 
 from dataclasses import replace
 
@@ -12,6 +12,7 @@ from mael_domain.landing import (
     LandingSignals,
     Merge,
     TrackedTask,
+    env_state,
     project_config,
     status_of,
     sync,
@@ -71,8 +72,8 @@ class FakeSignals(LandingSignals):
         return self.landed.get((merge_sha, deploy_sha))
 
 
-def task(status: str = "done", pr_number: int = 7) -> TrackedTask:
-    return TrackedTask(project="p", task_id="t1", status=status, pr_number=pr_number)
+def task(status: str = "built", pr_numbers: tuple[int, ...] = (7,)) -> TrackedTask:
+    return TrackedTask(project="p", task_id="t1", status=status, pr_numbers=pr_numbers)
 
 
 def pr(**envs: EnvLanding) -> PullRequest:
@@ -95,33 +96,55 @@ LANDED = EnvLanding(
 class TestStatusOf:
     """The highest step reached, in the order done → merged → uat → live."""
 
-    def test_a_task_not_done_has_no_status(self):
-        assert status_of(task(status="in-progress"), pr(), UAT_AND_LIVE) is None
+    def test_a_task_not_built_has_no_status(self):
+        assert status_of(task(status="in-progress"), [pr()], UAT_AND_LIVE) is None
 
     def test_a_done_task_with_no_pr_is_done(self):
-        assert status_of(task(pr_number=0), None, UAT_AND_LIVE) == "done"
+        assert status_of(task(pr_numbers=()), [], UAT_AND_LIVE) == "done"
 
     def test_an_unmerged_pr_leaves_the_task_done(self):
-        assert status_of(task(), replace(pr(), merged_at=""), UAT_AND_LIVE) == "done"
+        assert status_of(task(), [replace(pr(), merged_at="")], UAT_AND_LIVE) == "done"
+
+    def test_merged_waits_for_every_pr(self):
+        two = task(pr_numbers=(7, 8))
+        second = replace(pr(), number=8)
+        unmerged = replace(second, merged_at="")
+        assert status_of(two, [pr(), unmerged], UAT_AND_LIVE) == "done"
+        assert status_of(two, [pr(), second], UAT_AND_LIVE) == "merged"
+
+    def test_a_deploy_step_waits_for_every_pr(self):
+        two = task(pr_numbers=(7, 8))
+        second = replace(pr(), number=8)
+        assert status_of(two, [pr(uat=LANDED), second], UAT_AND_LIVE) == "merged"
+        landed = replace(second, envs={"uat": LANDED})
+        assert status_of(two, [pr(uat=LANDED), landed], UAT_AND_LIVE) == "uat"
+
+    @pytest.mark.parametrize(
+        ("second", "expected"),
+        [("landed", "landed"), ("not_yet", "not_yet"), ("unknown", "unknown")],
+    )
+    def test_the_least_landed_pr_decides_the_env(self, second, expected):
+        other = replace(pr(), number=8, envs={"uat": EnvLanding(state=second)})
+        assert env_state([pr(uat=LANDED), other], "uat") == expected
 
     def test_merged_then_uat_then_live(self):
-        assert status_of(task(), pr(), UAT_AND_LIVE) == "merged"
-        assert status_of(task(), pr(uat=LANDED), UAT_AND_LIVE) == "uat"
-        assert status_of(task(), pr(uat=LANDED, live=LANDED), UAT_AND_LIVE) == "live"
+        assert status_of(task(), [pr()], UAT_AND_LIVE) == "merged"
+        assert status_of(task(), [pr(uat=LANDED)], UAT_AND_LIVE) == "uat"
+        assert status_of(task(), [pr(uat=LANDED, live=LANDED)], UAT_AND_LIVE) == "live"
 
     def test_an_unknown_env_is_not_reached(self):
         unknown = EnvLanding(state="unknown")
-        assert status_of(task(), pr(uat=unknown), UAT_AND_LIVE) == "merged"
+        assert status_of(task(), [pr(uat=unknown)], UAT_AND_LIVE) == "merged"
 
     def test_a_step_waits_for_the_one_before_it(self):
-        assert status_of(task(), pr(live=LANDED), UAT_AND_LIVE) == "merged"
+        assert status_of(task(), [pr(live=LANDED)], UAT_AND_LIVE) == "merged"
 
     def test_no_deploy_block_stops_at_merged(self):
-        assert status_of(task(), pr(uat=LANDED, live=LANDED), NO_DEPLOY) == "merged"
+        assert status_of(task(), [pr(uat=LANDED, live=LANDED)], NO_DEPLOY) == "merged"
 
     def test_an_env_the_project_does_not_deploy_to_is_passed_over(self):
         live_only = MaelstromConfig(deploy_environments={"live": "production"})
-        assert status_of(task(), pr(live=LANDED), live_only) == "live"
+        assert status_of(task(), [pr(live=LANDED)], live_only) == "live"
 
 
 @pytest.fixture(params=["memory", "sqlite"])
@@ -319,9 +342,9 @@ class TestSync:
         signals.landed = {("m7", "d1"): True, ("m8", "d1"): True}
         prs, steps = stores
         tracked = [
-            TrackedTask("p", "t1", "done", 7),
-            TrackedTask("p", "t2", "done", 8),
-            TrackedTask("q", "t1", "done", 7),
+            TrackedTask("p", "t1", "built", (7,)),
+            TrackedTask("p", "t2", "built", (8,)),
+            TrackedTask("q", "t1", "built", (7,)),
         ]
         configs = {
             "p": MaelstromConfig(deploy_environments={"uat": "uat"}),
@@ -372,20 +395,20 @@ class TestMergedMergeRequest:
         table = InMemoryTaskTable()
         for task_id in ("t1", "t2", "t3"):
             await table.save(
-                task_model.Task(id=task_id, title=task_id, project="p", status="done")
+                task_model.Task(id=task_id, title=task_id, project="p", status="built")
             )
         merges = InMemoryMergeRequestStore()
         await merges.save(merged_request("t1"))
         await merges.save(merged_request("t2", state="open"))
 
         assert await tracked_tasks(table, ["p"], merges) == [
-            TrackedTask("p", "t1", "done", 0, MERGED_AT)
+            TrackedTask("p", "t1", "built", (), MERGED_AT)
         ]
 
     async def test_a_done_task_with_a_merged_request_reaches_merged_at_its_time(
         self, stores
     ):
-        tracked = TrackedTask("p", "t1", "done", 0, MERGED_AT)
+        tracked = TrackedTask("p", "t1", "built", (), MERGED_AT)
         await run_sync(stores, FakeSignals(), [tracked], now="T9")
         # The deploy steps need a PR: the task stops at merged.
         assert await recorded(stores) == [("done", "T9"), ("merged", MERGED_AT)]
@@ -394,8 +417,8 @@ class TestMergedMergeRequest:
         merges = InMemoryMergeRequestStore()
         await merges.save(merged_request("t1"))
         landings = Landings(config_for=lambda project: UAT_AND_LIVE, merges=merges)
-        done = task_model.Task(id="t1", title="t", project="p", status="done")
-        bare = task_model.Task(id="t2", title="t", project="p", status="done")
+        done = task_model.Task(id="t1", title="t", project="p", status="built")
+        bare = task_model.Task(id="t2", title="t", project="p", status="built")
         assert await landings.landing_of(done) == {"status": "merged", "envs": {}}
         assert await landings.landing_of(bare) == {"status": "done", "envs": {}}
 
@@ -403,20 +426,24 @@ class TestMergedMergeRequest:
 class TestLandingOf:
     """A task's landing as the wire carries it: the status, and each env's state."""
 
-    async def landing(self, status="done", pr_number=7, stored=None):
+    async def landing(self, status="built", prs=(7,), stored=None):
         landings = Landings(config_for=lambda project: UAT_AND_LIVE)
         if stored is not None:
             await landings.prs.write(stored)
         task = task_model.Task(
-            id="t1", title="t", project="p", status=status, pr_number=pr_number
+            id="t1",
+            title="t",
+            project="p",
+            status=status,
+            prs=[task_model.LinkedPr(n) for n in prs],
         )
         return await landings.landing_of(task)
 
-    async def test_a_task_not_done_has_none(self):
+    async def test_a_task_not_built_has_none(self):
         assert await self.landing(status="in-progress", stored=pr()) is None
 
     async def test_a_done_task_with_no_pr_has_nothing_to_land(self):
-        assert await self.landing(pr_number=0) == {"status": "done", "envs": {}}
+        assert await self.landing(prs=()) == {"status": "done", "envs": {}}
 
     async def test_an_unmerged_pr_is_not_yet_everywhere(self):
         landing = await self.landing(stored=replace(pr(), merged_at=""))

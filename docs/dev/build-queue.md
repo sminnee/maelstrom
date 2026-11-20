@@ -66,7 +66,7 @@ does the git work, because the server cannot see a worktree on a **Remote host**
 
 The first submit on a task opens its Merge request. Each later submit updates the SHA and base,
 cancels the unfinished Queue build, and queues a new one. A `withdrawn` request reopens on the
-next submit, as a withdrawn PR does. A `merged` request is final: a submit after it opens a new
+next submit, as a withdrawn PR is linked again by the next push. A `merged` request is final: a submit after it opens a new
 one. `mael merge withdraw` withdraws the request and cancels its unfinished Queue build.
 
 The request links its newest Queue build. Only that one counts: an older Queue build that ends

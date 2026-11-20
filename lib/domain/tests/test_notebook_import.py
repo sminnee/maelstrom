@@ -129,8 +129,10 @@ class TestTheNotebookImportRung:
         db = await migrated(tmp_path)
         try:
             table = SqliteTaskTable(db)
+            # A later rung replaces ``done``: see the tasks ladder.
+            stored = {"done": "merged"}
             for status in ("todo", "in-progress", "done", "template"):
-                found = await table.list("p", status=status)
+                found = await table.list("p", status=stored.get(status, status))
                 assert [t.id for t in found] == [f"t-{status}"]
         finally:
             db.close()

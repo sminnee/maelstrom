@@ -1208,7 +1208,7 @@ describe('follows relations on the expanded node', () => {
     await user.click(showFinished(1));
     expect(within(group('Follows')).getByText('Task index cache')).toBeInTheDocument();
     // The fixture leaves MAEL-40 off the desk.
-    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'done', onDesk: false }]);
+    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'merged', onDesk: false }]);
     expect(listed('Followed by')).toEqual([{ id: 'MAEL-40.2', status: 'todo', onDesk: true }]);
     clickNode('MAEL-52');
     expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
@@ -1228,7 +1228,7 @@ describe('follows relations on the expanded node', () => {
     expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
     expect(listed('Followed by')).toEqual([{ id: 'MAEL-40.2', status: 'todo', onDesk: true }]);
     await user.click(showFinished(1));
-    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'done', onDesk: false }]);
+    expect(listed('Follows')).toEqual([{ id: 'MAEL-40', status: 'merged', onDesk: false }]);
     await user.click(within(expanded()).getByRole('button', { name: 'Hide done or cancelled' }));
     expect(within(expanded()).queryByRole('group', { name: 'Follows' })).toBeNull();
 
@@ -1254,7 +1254,7 @@ describe('follows relations on the expanded node', () => {
     clickNode('MAEL-52');
     act(() => {
       server.change({ kind: 'task', ids: ['MAEL-52.1', 'MAEL-52.2'] }, (w) => {
-        w.tasks['MAEL-52.1'] = { ...w.tasks['MAEL-52.1']!, status: 'done' };
+        w.tasks['MAEL-52.1'] = { ...w.tasks['MAEL-52.1']!, status: 'merged', done: true };
         w.tasks['MAEL-52.2'] = { ...w.tasks['MAEL-52.2']!, status: 'cancelled' };
       });
     });

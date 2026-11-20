@@ -743,22 +743,27 @@ def build_plan_task(
     }
 
 
-# The three logical statuses the task workflow uses, mapped to their Linear
-# workflow-state names. ``done`` maps to ``Unreleased`` (completed work waiting
-# on a release), not the literal ``Done`` state. This is the single canonical
-# status-transition command; there is deliberately no special subtask handling.
+# The logical statuses the task workflow uses, mapped to their Linear
+# workflow-state names. ``built`` and ``merged`` map to ``Unreleased``: the
+# work waits on a release. Only ``published`` maps to the literal ``Done``
+# state. ``done`` is the older name for ``built``, kept for the ``linear.done``
+# action code. This is the single canonical status-transition command; there
+# is deliberately no special subtask handling.
 STATUS_STATES = {
     "planned": "Planned",
     "in-progress": "In Progress",
     "done": "Unreleased",
+    "built": "Unreleased",
+    "merged": "Unreleased",
+    "published": "Done",
 }
 
 
 def set_issue_status(issue_id: str, status: str) -> str:
-    """Set a Linear issue to one of planned|in-progress|done. Raises on failure.
+    """Set a Linear issue to one of :data:`STATUS_STATES`. Raises on failure.
 
     The reusable core shared by ``mael linear set-status`` and the task
-    lifecycle actions. ``done`` maps to the ``Unreleased`` workflow state.
+    lifecycle actions.
     Raises ``IntegrationError`` if the target state is missing from the
     workflow. Returns the one-line result, a no-op included.
     """

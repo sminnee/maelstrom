@@ -7,7 +7,7 @@ const URL_42 = 'https://github.com/o/r/pull/42';
 
 function node(over: Partial<CardPrFacts> = {}): CardPrFacts {
   return {
-    task: makeTask({ prNumber: 42, prUrl: URL_42 }),
+    task: makeTask({ prs: [{ number: 42, url: URL_42 }] }),
     worktree: makeWorktree({ prNumber: 42, prState: 'ready', prUrl: URL_42 }),
     ...over,
   };
@@ -20,7 +20,6 @@ describe('cardPr', () => {
       url: URL_42,
       state: 'ready',
       draft: false,
-      withdrawn: false,
     });
   });
 
@@ -29,7 +28,7 @@ describe('cardPr', () => {
   });
 
   it('shows no PR when nothing registered one, though the branch has one', () => {
-    expect(cardPr(node({ task: makeTask({ prNumber: 0, prUrl: '' }) }))).toBeUndefined();
+    expect(cardPr(node({ task: makeTask({ prs: [] }) }))).toBeUndefined();
   });
 
   it('draws a registered PR the worktree does not hold with no state', () => {
@@ -39,7 +38,6 @@ describe('cardPr', () => {
       url: URL_42,
       state: '',
       draft: false,
-      withdrawn: false,
     });
   });
 
@@ -54,24 +52,24 @@ describe('cardPr', () => {
 
   it('takes the worktree’s URL when the registration has none', () => {
     // A bare number registered with no repo URL to build one from.
-    expect(cardPr(node({ task: makeTask({ prNumber: 42, prUrl: '' }) }))?.url).toBe(URL_42);
+    expect(cardPr(node({ task: makeTask({ prs: [{ number: 42, url: '' }] }) }))?.url).toBe(URL_42);
   });
 
-  it('reads a withdrawn PR as withdrawn, whatever the worktree reads', () => {
-    const task = makeTask({ prNumber: 42, prUrl: URL_42, prWithdrawn: true });
-    const reading = { number: 42, url: URL_42, draft: false, withdrawn: true };
-    expect(cardPr(node({ task }))).toEqual({ ...reading, state: 'ready' });
-    expect(cardPr(node({ task, worktree: undefined }))).toEqual({ ...reading, state: '' });
-  });
-
-  it('draws a merged PR as merged, though the task withdrew it', () => {
-    const task = makeTask({ prNumber: 42, prUrl: URL_42, prWithdrawn: true });
-    const worktree = makeWorktree({ prNumber: 42, prState: 'merged', prUrl: URL_42 });
-    expect(cardPr(node({ task, worktree }))?.withdrawn).toBe(false);
+  it('shows the newest of the PRs a task links', () => {
+    const URL_50 = 'https://github.com/o/r/pull/50';
+    const task = makeTask({
+      prs: [
+        { number: 42, url: URL_42 },
+        { number: 50, url: URL_50 },
+      ],
+    });
+    expect(cardPr(node({ task }))).toEqual({ number: 50, url: URL_50, state: '', draft: false });
   });
 
   it('draws a same-numbered PR of another repo with no state', () => {
-    const elsewhere = makeTask({ prNumber: 42, prUrl: 'https://github.com/other/repo/pull/42' });
+    const elsewhere = makeTask({
+      prs: [{ number: 42, url: 'https://github.com/other/repo/pull/42' }],
+    });
     expect(cardPr(node({ task: elsewhere }))?.state).toBe('');
   });
 });

@@ -492,10 +492,9 @@ function FollowsSection({ taskId }: { taskId: string }) {
   const { before, after } = followsReach(world.tasks, taskId);
   const project = world.tasks[taskId]?.project ?? '';
   if (before.length === 0 && after.length === 0) return null;
-  const terminal = [...before, ...after].filter((t) => isTerminal(t.status)).length;
+  const terminal = [...before, ...after].filter((t) => isTerminal(t)).length;
   // Terminal rows fold, not drop: a row's desk toggle is how the card puts a task on the desk.
-  const shown = (tasks: TaskRow[]) =>
-    showTerminal ? tasks : tasks.filter((t) => !isTerminal(t.status));
+  const shown = (tasks: TaskRow[]) => (showTerminal ? tasks : tasks.filter((t) => !isTerminal(t)));
   return (
     <div className={styles.follows} data-testid="node-follows">
       <FollowsGroup heading="Follows" tasks={shown(before)} project={project} desk={world.desk} />

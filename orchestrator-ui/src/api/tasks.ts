@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Task, TaskStatus } from '../protocol/entities';
+import type { StatusMove, Task } from '../protocol/entities';
 import type { OperationId, TaskId } from '../protocol/ids';
 import { useApi } from './ApiProvider';
 import { SLOW_CALL_TIMEOUT_MS } from './http';
@@ -66,7 +66,7 @@ export function useSetStatus() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { taskId: TaskId; status: TaskStatus }) =>
+    mutationFn: (vars: { taskId: TaskId; status: StatusMove }) =>
       api.post(`/api/tasks/${vars.taskId}/status`, { status: vars.status }),
     onSuccess: (_result, vars) => invalidateTask(queryClient, vars.taskId),
   });

@@ -18,7 +18,7 @@ describe('activeFilterCount', () => {
     ['branch', { branch: 'northwind/feat/db' }, {}, ['desk', 'list']],
     ['agent status', { agentStatus: 'planned' }, {}, ['desk']],
     ['search', { text: 'order' }, {}, ['desk', 'list']],
-    ['status', {}, { statuses: ['done'] }, ['list']],
+    ['status', {}, { statuses: ['merged'] }, ['list']],
   ])('counts %s only where it is drawn', (_, filters, list, counted) => {
     for (const view of ['desk', 'list', 'comms'] as const)
       expect(count(view, filters, list)).toBe(counted.includes(view) ? 1 : 0);

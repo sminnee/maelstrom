@@ -46,9 +46,9 @@ def tasks(store, monkeypatch):
     return store
 
 
-async def _registered(store, id: str) -> tuple[int, str]:
+async def _registered(store, id: str) -> list[tuple[int, str]]:
     task = await model.load(store, "p", id)
-    return task.pr_number, task.pr_url
+    return [(pr.number, pr.url) for pr in task.prs]
 
 
 class TestLinkPr:
@@ -65,19 +65,17 @@ class TestLinkPr:
         monkeypatch.setenv("MAEL_TASK_ID", task_id)
         result = CliRunner().invoke(cli, ["gh", "link-pr", ref])
         assert result.exit_code == 0, result.output
-        assert asyncio.run(_registered(tasks, task_id)) == (
-            118,
-            "https://github.com/o/r/pull/118",
-        )
+        assert asyncio.run(_registered(tasks, task_id)) == [
+            (118, "https://github.com/o/r/pull/118")
+        ]
 
     def test_task_overrides_the_running_task(self, tasks, task_id, monkeypatch):
         monkeypatch.setenv("MAEL_TASK_ID", "elsewhere")
         result = CliRunner().invoke(cli, ["gh", "link-pr", "5", "--task", task_id])
         assert result.exit_code == 0, result.output
-        assert asyncio.run(_registered(tasks, task_id)) == (
-            5,
-            "https://github.com/o/r/pull/5",
-        )
+        assert asyncio.run(_registered(tasks, task_id)) == [
+            (5, "https://github.com/o/r/pull/5")
+        ]
 
     def test_an_unknown_task_is_a_clear_error(self, tasks):
         result = CliRunner().invoke(cli, ["gh", "link-pr", "5", "--task", "nope"])
@@ -97,26 +95,27 @@ class TestLinkPr:
 
 
 class TestWithdrawPr:
-    """``mael gh withdraw-pr`` marks a task's Registered PR as withdrawn."""
+    """``mael gh withdraw-pr`` unlinks a PR from a task."""
 
     @pytest.fixture
     def task_id(self, tasks):
         task = asyncio.run(model.create(tasks, project="p", title="t"))
+        asyncio.run(model.register_pr(tasks, "p", task.id, 12, "https://x/pull/12"))
         asyncio.run(model.register_pr(tasks, "p", task.id, 118, "https://x/pull/118"))
         return task.id
 
-    def test_withdraws_the_running_tasks_pr(self, tasks, task_id, monkeypatch):
+    def test_withdraws_the_running_tasks_newest_pr(self, tasks, task_id, monkeypatch):
         monkeypatch.setenv("MAEL_TASK_ID", task_id)
         result = CliRunner().invoke(cli, ["gh", "withdraw-pr"])
         assert result.exit_code == 0, result.output
-        assert f"Withdrew PR #118 on {task_id}" in result.output
-        assert asyncio.run(model.load(tasks, "p", task_id)).pr_withdrawn is True
+        assert f"Withdrew PR #118 from {task_id}" in result.output
+        assert asyncio.run(_registered(tasks, task_id)) == [(12, "https://x/pull/12")]
 
-    def test_task_overrides_the_running_task(self, tasks, task_id, monkeypatch):
+    def test_a_number_names_the_pr(self, tasks, task_id, monkeypatch):
         monkeypatch.setenv("MAEL_TASK_ID", "elsewhere")
-        result = CliRunner().invoke(cli, ["gh", "withdraw-pr", "--task", task_id])
+        result = CliRunner().invoke(cli, ["gh", "withdraw-pr", "12", "--task", task_id])
         assert result.exit_code == 0, result.output
-        assert asyncio.run(model.load(tasks, "p", task_id)).pr_withdrawn is True
+        assert asyncio.run(_registered(tasks, task_id)) == [(118, "https://x/pull/118")]
 
     def test_a_task_with_no_pr_is_a_clear_error(self, tasks):
         bare = asyncio.run(model.create(tasks, project="p", title="t")).id
@@ -148,10 +147,9 @@ class TestCreatePrRegisters:
         monkeypatch.setenv("MAEL_TASK_ID", task.id)
         result = self._push(PushedPr("https://github.com/o/r/pull/9", 9, False))
         assert result.exit_code == 0, result.output
-        assert asyncio.run(_registered(tasks, task.id)) == (
-            9,
-            "https://github.com/o/r/pull/9",
-        )
+        assert asyncio.run(_registered(tasks, task.id)) == [
+            (9, "https://github.com/o/r/pull/9")
+        ]
 
     def test_a_delegated_agent_registers_the_pr_on_the_parent(self, tasks, monkeypatch):
         """The task is on the parent; the local table must not change."""
@@ -173,13 +171,13 @@ class TestCreatePrRegisters:
                 {"number": 9, "url": "https://github.com/o/r/pull/9"},
             )
         ]
-        assert asyncio.run(_registered(tasks, task.id)) == (0, "")
+        assert asyncio.run(_registered(tasks, task.id)) == []
 
     def test_no_running_task_registers_nothing(self, tasks):
         task = asyncio.run(model.create(tasks, project="p", title="t"))
         result = self._push(PushedPr("https://github.com/o/r/pull/9", 9, True))
         assert result.exit_code == 0, result.output
-        assert asyncio.run(_registered(tasks, task.id)) == (0, "")
+        assert asyncio.run(_registered(tasks, task.id)) == []
 
     def test_an_unknown_running_task_warns_and_the_push_still_succeeds(
         self, tasks, monkeypatch

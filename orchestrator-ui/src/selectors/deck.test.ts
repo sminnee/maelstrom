@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskStatus } from '../protocol/entities';
+import type { StatusMove, TaskStatus } from '../protocol/entities';
 import { ZONES, type Zone } from '../protocol/progress';
 import { deriveDeck, dropStatus, type DeckLane } from './deck';
 import { noFilters } from './filters';
@@ -26,7 +26,7 @@ describe('deriveDeck', () => {
       tasks: [
         makeTask({ id: 'T1', status: 'todo', actionable: true }),
         makeTask({ id: 'T2', status: 'in-progress' }),
-        makeTask({ id: 'T3', status: 'done' }),
+        makeTask({ id: 'T3', status: 'merged' }),
       ],
       agents: [makeAgent({ taskId: 'T2', state: 'processing' })],
     });
@@ -41,7 +41,7 @@ describe('deriveDeck', () => {
       tasks: [
         makeTask({ id: 'T1', status: 'todo' }),
         makeTask({ id: 'T2', status: 'todo' }),
-        makeTask({ id: 'T3', status: 'done' }),
+        makeTask({ id: 'T3', status: 'merged' }),
       ],
     });
     expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 2, running: 0, done: 1 });
@@ -91,8 +91,8 @@ describe('deriveDeck lanes', () => {
       ],
       tasks: [
         makeTask({ id: 'N1', project: 'northwind', status: 'todo', actionable: true }),
-        makeTask({ id: 'N2', project: 'northwind', status: 'done' }),
-        makeTask({ id: 'A1', project: 'aurora', status: 'done' }),
+        makeTask({ id: 'N2', project: 'northwind', status: 'merged' }),
+        makeTask({ id: 'A1', project: 'aurora', status: 'merged' }),
       ],
     });
     expect(deriveDeck(world, opts).lanes.map(laneIds)).toEqual([
@@ -113,7 +113,7 @@ describe('deriveDeck lanes', () => {
 
   it('draws no lanes with work of one project', () => {
     const world = drawnWorld({
-      tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', status: 'done' })],
+      tasks: [makeTask({ id: 'T1' }), makeTask({ id: 'T2', status: 'merged' })],
     });
     expect(deriveDeck(world, opts).lanes).toEqual([]);
   });
@@ -133,7 +133,7 @@ describe('deriveDeck lanes', () => {
       tasks: [
         makeTask({ id: 'N1', project: 'northwind', status: 'in-progress' }),
         makeTask({ id: 'N2', project: 'northwind', status: 'in-progress' }),
-        makeTask({ id: 'A1', project: 'aurora', status: 'done' }),
+        makeTask({ id: 'A1', project: 'aurora', status: 'merged' }),
       ],
       agents: [
         makeAgent({ id: 'a1', taskId: 'N1', state: 'processing' }),
@@ -160,7 +160,7 @@ describe('dropStatus', () => {
   const head = (status: TaskStatus) => makeTask({ id: 'H', status });
   const parked = makeTask({ id: 'T2', status: 'in-progress', actionable: false, follows: ['H'] });
 
-  it.each<[string, Parameters<typeof drawnWorld>[0], string, Zone, TaskStatus | null]>([
+  it.each<[string, Parameters<typeof drawnWorld>[0], string, Zone, StatusMove | null]>([
     [
       'a drop on Queued is refused: only follows make a task wait',
       { tasks: [todo] },
@@ -169,6 +169,22 @@ describe('dropStatus', () => {
       null,
     ],
     ['any task dropped on Done is done', { tasks: [todo] }, 'T1', 'done', 'done'],
+    [
+      'a merged task with post-merge work is not done, so Done takes it',
+      {
+        tasks: [
+          makeTask({
+            id: 'T7',
+            status: 'merged',
+            postMerge: 'Check the deploy.',
+            actionable: true,
+          }),
+        ],
+      },
+      'T7',
+      'done',
+      'done',
+    ],
     ['a drop never launches', { tasks: [todo] }, 'T1', 'running', null],
     ['a drop on its own zone does nothing', { tasks: [todo] }, 'T1', 'todo', null],
     [

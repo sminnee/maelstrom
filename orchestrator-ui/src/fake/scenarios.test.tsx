@@ -38,7 +38,9 @@ const AGENT_STATES = all<AgentState>({
 const TASK_STATUSES = all<TaskStatus>({
   todo: true,
   'in-progress': true,
-  done: true,
+  built: true,
+  merged: true,
+  published: true,
   cancelled: true,
   template: true,
 });

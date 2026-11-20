@@ -1,4 +1,5 @@
 import { deskIdForTask } from '../protocol/deskId';
+import { doneStatuses } from '../protocol/entities';
 import type {
   Agent,
   DeskEntry,
@@ -78,9 +79,10 @@ export function makeTask(over: Partial<Task> = {}): Task {
     priority: 'medium',
     model: '',
     executeModel: '',
-    prNumber: 0,
-    prUrl: '',
-    prWithdrawn: false,
+    prs: [],
+    postMerge: '',
+    // Derived as the server derives it, unless the caller says otherwise.
+    done: doneStatuses(over.postMerge ?? '').includes(over.status ?? 'todo'),
     content: '',
     log: [],
     created: '2026-09-01T00:00:00Z',

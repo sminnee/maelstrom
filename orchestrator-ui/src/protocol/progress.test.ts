@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeAgent, makeAttention, makeTask } from '../fake/fixtures';
-import type { Agent, AgentState, TaskStatus, WorktreeGate } from './entities';
+import type { Agent, AgentState, StatusMove, TaskStatus, WorktreeGate } from './entities';
 import { progressOf, zoneForState, type DriftKind, type NodeState } from './progress';
 
 /** The five positions of the agent axis, as the matrix names them. */
@@ -22,7 +22,7 @@ interface Row {
   state: NodeState;
   words: string;
   drift: DriftKind | null;
-  fixStatus: TaskStatus | null;
+  fixStatus: StatusMove | null;
 }
 
 const rows: Row[] = [
@@ -222,10 +222,31 @@ const rows: Row[] = [
     fixStatus: 'done',
   },
 
+  // built — the PR is pushed and waits on its merge. The task is not done, so
+  // with no agent it is ready rather than settled; a live agent is finalising.
+  {
+    status: 'built',
+    actionable: true,
+    agent: 'none',
+    state: 'ready',
+    words: 'Ready to launch',
+    drift: null,
+    fixStatus: null,
+  },
+  {
+    status: 'built',
+    actionable: true,
+    agent: 'live',
+    state: 'finalising',
+    words: 'Finalising',
+    drift: null,
+    fixStatus: null,
+  },
+
   // done — the PR is pushed and watch-pr carries it to green, so a live agent
   // on a closed task is finalising rather than drift. A stopped one is history.
   {
-    status: 'done',
+    status: 'merged',
     actionable: false,
     agent: 'none',
     state: 'done',
@@ -234,7 +255,7 @@ const rows: Row[] = [
     fixStatus: null,
   },
   {
-    status: 'done',
+    status: 'merged',
     actionable: false,
     agent: 'live',
     state: 'finalising',
@@ -243,7 +264,7 @@ const rows: Row[] = [
     fixStatus: null,
   },
   {
-    status: 'done',
+    status: 'merged',
     actionable: false,
     agent: 'idle',
     state: 'done',
@@ -252,7 +273,7 @@ const rows: Row[] = [
     fixStatus: null,
   },
   {
-    status: 'done',
+    status: 'merged',
     actionable: false,
     agent: 'finished',
     state: 'done',
@@ -261,7 +282,7 @@ const rows: Row[] = [
     fixStatus: null,
   },
   {
-    status: 'done',
+    status: 'merged',
     actionable: false,
     agent: 'fault',
     state: 'done',
@@ -379,6 +400,12 @@ describe('progressOf', () => {
     },
   );
 
+  it('reads the done flag, not the status: merged with post-merge work is not done', () => {
+    const task = makeTask({ status: 'merged', postMerge: 'Check the deploy', actionable: true });
+    expect(task.done).toBe(false);
+    expect(progressOf(task, undefined, [], null).state).not.toBe('done');
+  });
+
   it('names the wait an awaiting agent is on, when attention is open', () => {
     const waits: [AgentState, string][] = [
       ['awaiting-question', 'Needs you · question'],
@@ -469,7 +496,9 @@ describe('progressOf', () => {
   // like any other. It is the happy path, so it never drifts.
   it('lets a finalising agent still ask for the user', () => {
     const agent = makeAgent({ state: 'awaiting-question' });
-    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()], null)).toMatchObject({
+    expect(
+      progressOf(makeTask({ status: 'merged' }), agent, [makeAttention()], null),
+    ).toMatchObject({
       state: 'needs-attention',
       words: 'Needs you · question',
       drift: null,
@@ -479,7 +508,9 @@ describe('progressOf', () => {
 
   it('lets a done task outrank a stopped agent', () => {
     const agent = makeAgent({ state: 'exited', exitCode: 1 });
-    expect(progressOf(makeTask({ status: 'done' }), agent, [makeAttention()], null)).toMatchObject({
+    expect(
+      progressOf(makeTask({ status: 'merged' }), agent, [makeAttention()], null),
+    ).toMatchObject({
       state: 'done',
       words: 'Done',
       drift: null,
@@ -521,7 +552,7 @@ describe('progressOf', () => {
     expect(progress).toMatchObject({ state: 'working', words, drift: null });
     expect(zoneForState(progress.state)).toBe('running');
     // On a done task the work after the turn is its tail, not an orphan.
-    expect(progressOf(makeTask({ status: 'done' }), agent, [], null)).toMatchObject({
+    expect(progressOf(makeTask({ status: 'merged' }), agent, [], null)).toMatchObject({
       state: 'finalising',
       drift: null,
     });
@@ -582,7 +613,7 @@ describe('progressOf', () => {
 
 describe('echoesStatus', () => {
   it.each([
-    ['a done task', makeTask({ status: 'done' }), undefined, true],
+    ['a done task', makeTask({ status: 'merged' }), undefined, true],
     ['a cancelled task', makeTask({ status: 'cancelled' }), undefined, true],
     ['a queued task', makeTask({ status: 'todo', actionable: false }), undefined, false],
     ['a working agent', makeTask({ status: 'in-progress' }), AGENTS.live, false],
@@ -603,7 +634,7 @@ describe('echoesStatus', () => {
   // The card says "Finalising"; the picker saying "done" alone would hide the
   // fact that an agent is still carrying the PR.
   it('is false while a closed task is still finalising', () => {
-    expect(progressOf(makeTask({ status: 'done' }), AGENTS.live, [], null).echoesStatus).toBe(
+    expect(progressOf(makeTask({ status: 'merged' }), AGENTS.live, [], null).echoesStatus).toBe(
       false,
     );
   });

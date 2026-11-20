@@ -34,9 +34,9 @@ async def _seed() -> None:
         tasks = SqliteTaskTable(db)
         # t1 and t2 have a Registered PR; t3 has none, so it is not tracked.
         for task_id, status, pr in [
-            ("t1", "done", 7),
+            ("t1", "built", 7),
             ("t2", "todo", 8),
-            ("t3", "done", 0),
+            ("t3", "built", 0),
         ]:
             await model.create(
                 tasks, project="p", title=task_id, id=task_id, status=status

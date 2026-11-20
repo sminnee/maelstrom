@@ -160,13 +160,13 @@ export function agentsOfTask(world: WorldView): Map<TaskId, Agent[]> {
  * in `validate.py` holds the same rule.
  */
 export function startsNewSession(
-  task: Pick<Task, 'id' | 'status' | 'actionable' | 'follows'>,
-  tasks: Readonly<Record<TaskId, Pick<Task, 'status'>>>,
+  task: Pick<Task, 'id' | 'done' | 'actionable' | 'follows'>,
+  tasks: Readonly<Record<TaskId, Pick<Task, 'done'>>>,
   agents: readonly Agent[],
 ): boolean {
   if (agents.some((a) => a.taskId === task.id && !a.parent && isLive(a))) return false;
   if (task.actionable) return true;
-  return task.status === 'done' && task.follows.every((f) => tasks[f]?.status === 'done');
+  return task.done && task.follows.every((f) => tasks[f]?.done === true);
 }
 
 /** The open attention items, oldest first, keyed by task id and by agent id. */

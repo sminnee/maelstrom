@@ -2,9 +2,9 @@
 
 A task can carry ``pre-action`` / ``post-action`` frontmatter codes of the form
 ``<provider>.<verb>`` (e.g. ``linear.done``). When the task moves to
-``in-progress`` (its ``pre_action`` fires) or ``done`` (its ``post_action``
-fires), the matching provider command runs in-process against the issue id
-resolved from the task's own id or its immediate parent.
+``in-progress`` (its ``pre_action`` fires) or finishes its build (its
+``post_action`` fires: see :func:`_action_field`), the matching provider
+command runs in-process against the issue id resolved from the task's own id or its immediate parent.
 
 This is the single place that knows action codes → command functions and how to
 resolve the target ref, keeping ``session_cli`` / ``task_cli`` thin. Actions
@@ -91,32 +91,47 @@ def run_action(task, code: str, *, warn: Callable[[str], None]) -> None:
         warn(f"warning: action {code!r} on {task.id} failed: {e}")
 
 
-# Destination status -> which task field selects the action to fire. Firing keys
-# off the *destination* status (not how the move was invoked), so every path
-# that reaches ``in-progress``/``done`` triggers the right action; other
-# statuses map to no field and no-op cleanly.
-_ACTION_FOR_STATUS = {
-    "in-progress": "pre_action",
-    "done": "post_action",
-}
+#: The statuses before the build ends. A move from one of these to ``built``
+#: or to a done status finishes the build.
+_BEFORE_BUILT = ("todo", "in-progress")
+
+
+def _action_field(old_status: str, new_status: str, moved) -> str | None:
+    """The task field that selects the action this move fires, or None.
+
+    ``pre_action`` fires on the move to ``in-progress``. ``post_action`` fires
+    when the build ends: the move to ``built``, or a move straight to a done
+    status for a task with no PR to wait on. A later ``built → merged`` move
+    does not fire it again.
+    """
+    from . import task as model
+
+    if new_status == model.STATUS_IN_PROGRESS:
+        return "pre_action"
+    if old_status in _BEFORE_BUILT and (
+        new_status == model.STATUS_BUILT or model.is_done(moved)
+    ):
+        return "post_action"
+    return None
 
 
 async def move_with_actions(
     table, project, id, new_status, *, warn: Callable[[str], None], now=None
 ):
-    """``model.move``, then fire the task's pre/post action for this destination.
+    """``model.move``, then fire the task's pre/post action for this move.
 
     The single chokepoint for status transitions that may fire lifecycle
     actions. Wrapping ``model.move`` here (rather than putting network calls in
     the pure model) guarantees both the explicit ``mael task status start/done``
     path and the launch / session-end paths trigger actions — keyed off the
-    destination status. Returns the moved Task; action failures never block the
-    move (:func:`run_action` swallows + warns).
+    move: see :func:`_action_field`. Returns the moved Task; action failures
+    never block the move (:func:`run_action` swallows + warns).
     """
     from . import task as model
 
+    old_status = (await model.load(table, project, id)).status
     moved = await model.move(table, project, id, new_status, now=now)
-    field = _ACTION_FOR_STATUS.get(new_status)
+    field = _action_field(old_status, moved.status, moved)
     if field:
         # An action makes blocking HTTP calls, such as Linear's. On a thread,
         # they do not stall the orchestrator server's loop for every client.
