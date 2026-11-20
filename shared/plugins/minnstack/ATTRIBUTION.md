@@ -13,7 +13,8 @@ Imported skills:
 - `codebase-design/` — skills/engineering/codebase-design/
 - `design-build-test/` — `examples.md` and `mocking.md` from skills/engineering/tdd/ (adapted);
   `SKILL.md` is new
-- `domain-modeling/` — skills/engineering/domain-modeling/
+- `domain-modeling/` — skills/engineering/domain-modeling/ (adapted): it now also covers feature
+  files, subsystem glossaries, and ADR rollout, and `CONTEXT-MAP.md` is withdrawn
 
 Imported verbatim, unmodified, on 2026-08-07, except the entries marked (adapted).
 
