@@ -18,3 +18,5 @@ Ask every frontier question in one round. Number each question and give a recomm
 Wait for answers before the next round. Recompute the frontier each time. Defer questions that depend on another open question.
 
 Find facts yourself. If a fact needs exploration, delegate it and ask the other frontier questions now. The user makes decisions. Finish only when the frontier is empty and the user confirms the shared understanding.
+
+Record what the rounds settle: a term or a durable decision with `domain-modeling`, and a choice between interfaces with `codebase-design`'s DESIGN-IT-TWICE.md.

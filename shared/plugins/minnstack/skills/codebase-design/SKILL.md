@@ -41,3 +41,9 @@ Make dependencies inputs rather than construction details. Return useful values 
 - Do not create a module for trivial one-off code. Extract only for reuse or meaningful behaviour.
 
 Use [DEEPENING.md](DEEPENING.md) to classify dependencies and replace shallow tests. When materially different interfaces remain plausible, use [DESIGN-IT-TWICE.md](DESIGN-IT-TWICE.md).
+
+## Related skills
+
+- `domain-modeling` has the words of the domain: subsystem, domain type, command, query, contract rule. This skill has the words of the code. A command's contract says what the interface of its module must keep.
+- `design-build-test` tests a module through its interface, at the layer that owns each rule.
+- `grilling` settles the decisions of a design before you choose a seam.

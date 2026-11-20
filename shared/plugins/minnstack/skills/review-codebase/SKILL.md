@@ -5,7 +5,7 @@ description: Sweep an existing codebase section by section with the code-review 
 
 # Review codebase
 
-This sweep is read-only. It writes only its state files and, after the user chooses rows, task drafts. It applies the `code-review` rules to code that already exists, not to a branch.
+This sweep is read-only. It writes only its state files and, after the user chooses rows, task drafts. It applies the `code-review` rules to code that already exists, not to a branch. A finding uses the words of `codebase-design` for the code and of `domain-modeling` for the domain.
 
 Keep all state under `.drafts/codebase-review/`, so a compaction or a new session loses nothing:
 

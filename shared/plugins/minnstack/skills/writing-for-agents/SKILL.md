@@ -5,7 +5,9 @@ description: Write or edit agent instructions, skills, AGENTS.md, and CLAUDE.md.
 
 # Writing for agents
 
-For a skill, also read [SKILL-MECHANICS.md](SKILL-MECHANICS.md).
+For a skill, also read [SKILL-MECHANICS.md](SKILL-MECHANICS.md). For prose that a human reads, use `writing-for-humans`.
+
+Name another skill where the reader must hand over to it or take a term from it, with the trigger. Use the words of `domain-modeling` for the domain and of `codebase-design` for the code: do not define them again.
 
 Write a repeatable process, not a lecture. Keep required steps inline and place branch-specific reference behind a precise pointer. A pointer states what it reaches and the distinct conditions that trigger it. Its wording is the invocation mechanism.
 

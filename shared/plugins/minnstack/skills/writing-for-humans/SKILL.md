@@ -17,4 +17,4 @@ Prefer an example for usage and a table for three or more parallel facts. Commen
 
 Before finishing, remove filler, check terms and sentence length, verify every command and claim against the source, and present substantial documents to the user.
 
-Use the project’s existing section shape for the same document type. A comment should state a non-obvious constraint, rejected plausible alternative, or invisible consequence; never narrate the diff.
+For a glossary entry, a feature file, or an ADR, `domain-modeling` has the format. Use the project’s existing section shape for the same document type. A comment should state a non-obvious constraint, rejected plausible alternative, or invisible consequence; never narrate the diff.

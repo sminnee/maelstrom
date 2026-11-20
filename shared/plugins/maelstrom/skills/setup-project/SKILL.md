@@ -52,3 +52,5 @@ Phase 2 is complete when every declared service starts, and each service with a 
 
 - Do not add project-specific tool settings, code conventions, locales, layouts, or severity tiers to this skill or its checklist.
 - Do not implement audit findings here. Phase 2 is the only edit this skill makes.
+
+- A row that needs more than a fix has its own skill: `/security-test` for a security baseline and `/review-codebase` for a sweep of the code, where available. Recommend the skill in the row. Do not run it here.
