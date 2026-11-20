@@ -66,7 +66,8 @@ def _ref(text: str, project: str | None) -> str:
 
 
 def _call(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-    client = OrchestratorClient.from_config()
+    """Call the server that holds the task: the parent, for a **Delegated agent**."""
+    client = OrchestratorClient.for_tasks()
     try:
         return client.post(path, body) if method == "POST" else client.get(path)
     except OrchestratorRefused as exc:

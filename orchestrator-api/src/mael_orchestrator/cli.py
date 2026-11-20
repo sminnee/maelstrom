@@ -371,6 +371,7 @@ def build_orchestrator(
         landings=landings,
         # Read at start: a config change needs an orchestrator restart.
         schedule_zone=config.schedule_zone_label(),
+        documents=SqliteTaskAttachmentTable(state_db),
     )
     opener = WorktreeOpener(
         open_worktree, write_env, worktree_executor=worktree_executor
@@ -407,7 +408,6 @@ def build_orchestrator(
         desk=SqliteDeskStore(state_db),
         milestones=SqliteMilestoneStore(state_db),
         agent_records=agent_store,
-        document_store=SqliteTaskAttachmentTable(state_db),
         landings=landings,
         comms=SqliteCommStore(state_db),
         comm_updates=SqliteCommUpdateStore(state_db),

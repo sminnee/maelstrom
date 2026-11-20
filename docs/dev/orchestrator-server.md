@@ -185,6 +185,7 @@ tag says the turn is from outside, the attributes are its facts, and the body is
 | `gate` | `gate.passed`, `gate.failed`, `gate.cancelled` | The gate watch |
 | `orchestrator` | `session.compacted`, `session.not_compacted` | A compaction request |
 | `orchestrator` | `task.updated`, `task.queued` | A task edit |
+| `orchestrator` | `document.not_stored` | A delegated agent's presentation the parent did not store |
 
 **One delivery path.** `Orchestrator._tell` renders the event and sends it as a `say` to each
 agent in turn, and answers who took it and who refused. `_tell_worktree` wraps it for the
@@ -899,8 +900,11 @@ builds the world's document from the store.
 ```
 agent                 normaliser              server                  store
   | <doc-file> or plan   |                       |                        |
-  |--------------------->| upsert document ----->| attach() ------------->| media into the bucket
-  |                      |                       |   or set_status()      | version, or its status
+  |--------------------->| upsert document ----->| home.store_document -->| version, or its status
+  |                      |                       |<-- needs-body ---------|
+  |                      |                       | read the file, digest->| same digest: no version
+  |                      |                       |<-- needs-body ---------|
+  |                      |                       | media into the bucket->| the next version
   |                      |                       |<-- stored version -----|
   |                      |                       | upsert the document    |
   |                      |                       | built from the store   |
@@ -908,7 +912,9 @@ agent                 normaliser              server                  store
   |                      |                       |<-- every row, at start-|
 ```
 
-`_store_document` reads each document upsert of a task:
+`_store_document` reads each document upsert of a task. It sends a `Presented` record to the
+agent's **Task home**: the local store, or the parent's for a **Delegated agent**. The home calls
+`task_documents.store_presented`, which applies this table:
 
 | Upsert | Live event | Replayed event |
 | --- | --- | --- |
@@ -927,27 +933,76 @@ file that could not be read, not the file's text.
 | A `<doc-file>` file | Read from the worktree file | The file's worktree-relative path |
 | A plan | The document's markdown | `plan` |
 
+`store_presented` asks for the body only when it must add a version. The first call carries no
+body, and a draft file's call carries no digest either. When the answer is `needs-body`, the server
+reads the file and sends the digest. When the digest and title match the latest version, no version
+is added and no media is copied. That version's agent and group move, and the status is written.
+Otherwise the server sends the body as well. So a restart replays every document without reading
+every file, and a delegated replay sends no bodies to the parent.
+
+A plan's text is in its event, so its first call carries the digest. See "A replay only repairs".
+
 The document row stores the **Document role**, the document's kind. Each version stores its
 review status, its agent and its **Review group**. A restart then rebuilds the whole document:
 the approve can tell the agent, and the group still settles as one.
 
-`attach` does three things:
+The body step has three parts:
 
-1. It takes a digest of the source body and of the bytes of each media file the body names. When
-   the latest version has the same digest and title, `attach` adds no version. It moves that
-   version's agent and group, and the server then writes its status.
-   A recording made again under the same name changes the digest, so it is a new version.
-2. It copies each media file into the bucket with `attachments.save_media`, which accepts an image
-   or a video up to 50 MB. The bucket filename carries a digest of the bytes, so an unchanged file
-   is stored once and two files of one name do not collide.
-3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token and adds the version. A file that is refused
-   becomes "could not be shown" prose, and the log holds the reason.
+1. `task_documents.prepare` reads the file and takes a digest of the text and of the bytes of each
+   media file the text names. A recording made again under the same name changes the digest, so it
+   is a new version.
+2. `with_attached_media` copies each media file into the bucket with `attachments.save_media`,
+   which accepts an image or a video up to 50 MB. The bucket filename carries a digest of the
+   bytes, so an unchanged file is stored once and two files of one name do not collide.
+3. It rewrites each ref to a `{{MAEL_TASK_DIR}}` token. A file that is refused becomes "could not
+   be shown" prose, and the log holds the reason. A delegated agent's body goes to the parent
+   through `without_media`, which makes every ref that prose.
 
-`attach` returns `None` only when the document's file cannot be read. The world's document then
-keeps the "could not be read" prose the normaliser gave it.
+`prepare` returns `None` only when the document's file cannot be read. Nothing is stored, and the
+world's document keeps the "could not be read" prose the normaliser gave it.
 
 The document's id is a digest of `(task_key, name)`. Every version is kept, and no code removes a
 document. See `docs/adr/0001-task-documents.md`.
+
+### A delegated agent's document on the parent
+
+The parent holds the only record of a delegated agent's document. The remote host stores nothing.
+It keeps its world's document for versions, review groups and a pending plan, and sends each
+change to the parent through `store_document`.
+
+While the presenting agent lives, the file in its worktree wins. The parent shows the remote
+host's live copy and hides its stored row. Once the agent is gone, the parent shows its stored
+row, and drops the host's copy from its merge. One rule decides both, in `_host_shows` and
+`_live_documents`: is the last presenting agent a live agent of a host in `hosts:`?
+
+The last presenting agent is the agent of the latest version that has one. A version added by
+hand with `mael doc add` has no agent, so it does not show the document twice. The parent checks
+again when its merged `agent` slice changes, in `_presenters_changed`.
+
+The remote host sends a document to the parent at three moments:
+
+| Moment | What the parent stores |
+|---|---|
+| Each presented version | The next version, as "Storing a Task document" says. |
+| Each verdict | The status of the stored version. |
+| The agent exits | Nothing, when the file matches the stored version. Otherwise a new `draft` version: the user never saw that text, so it takes no verdict. |
+
+A host numbers a document from 1 until its first store. So a delegated agent's first presentation
+of a document sends no `version`, and `store_presented` tells a new version by its digest. After
+the store, `_show_presented` gives the host's document the parent's version and status.
+
+A store that fails is never silent:
+
+- A presented version that does not reach the parent: the agent gets a `document.not_stored`
+  External event, and presents again. Its session goes on.
+- A verdict that does not reach the store: the approve or the request-changes is refused,
+  `unreachable` for a parent that does not answer. Nothing changes in the world, and the user can
+  try again. This holds for a local store too. A delegated verdict on a document the parent holds
+  no version of is refused the same way.
+- The final store when the agent exits: logged, because no agent is left to tell.
+
+A parent document call times out after 5 s, so a parent that hangs holds the agent's stream only
+briefly.
 
 ### A replay only repairs
 
@@ -2073,6 +2128,7 @@ check being missing, both answer 400 `invalid`.
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
 | `POST /api/tasks/{project}/{id}/documents` | `{name, kind?, title?, body}` | `taskDocument.add` | `{uri, version}` |
+| `POST /api/tasks/{project}/{id}/documents/presented` | A `Presented` record (`Presented.to_json`), with `replay` and `verdict` | — | `{state: stored\|needs-body\|none, version?, reviewStatus?}`. A **Remote host**'s `store_document`: see "A delegated agent's document on the parent". An unknown task is `unknown_id`, and a body for another task is `invalid` |
 | `POST /api/task-documents/link` | `{ref, taskId}` | `taskDocument.link` | `{}` |
 | `POST /api/task-documents/unlink` | `{ref, taskId}` | `taskDocument.unlink` | `{}` |
 | `POST /api/task-documents/archive` | `{ref, by?}` | `taskDocument.archive` | `{archived}` |
@@ -2215,7 +2271,9 @@ the refusal and the user has to tell the agent. **Request changes** moves them
 to `changes-requested` and relays the summary to the agent once, as an `agent.say` naming the
 group title, so the agent hears what to fix. The relay comes first: a summary the host refuses
 never reached the agent, so the group stays awaiting a review nobody has answered. Both retire the
-attention items the members raised.
+attention items the members raised. Both store the status before the world changes, and a store
+that fails refuses the command. For request changes the agent has then heard the summary, and
+hears it again on a retry. The other order would leave a stored verdict the agent never heard.
 Neither touches the notebook. Both **refuse a plan document**: a plan review is the agent's own
 wait, ended by `agent.approve` or `agent.deny` on the request it blocks. Settling the document
 instead would flip its status, retire the attention item pointing the user at it, and leave the

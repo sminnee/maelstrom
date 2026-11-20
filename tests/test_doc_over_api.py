@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
-from served_orchestrator import PROJECT, seed
+from served_orchestrator import PROJECT, point_config_at, seed
 
 from mael_cli.doc_cli import doc
 from mael_domain import sarif
@@ -162,3 +162,23 @@ def test_another_task_cannot_archive_it(served, tmp_path, monkeypatch):
 
     assert result.exit_code == 1
     assert "does not own" in result.output
+
+
+def test_a_delegated_agent_s_doc_commands_reach_its_parent(
+    table, start_server, monkeypatch, tmp_path
+):
+    """On a **Remote host** the task and its documents are on the parent."""
+    seed(table, title="Scan", id="NORT-7")
+    parent = start_server()
+    # The host's own server: nothing answers there.
+    point_config_at("http://127.0.0.1:1")
+    monkeypatch.setenv("MAEL_PARENT_URL", parent.url)
+    monkeypatch.setenv("MAEL_TASK_ID", "NORT-7")
+    notes = tmp_path / "notes.md"
+    notes.write_text("# Notes\n")
+
+    added = mael_doc("add", str(notes))
+    listed = mael_doc("list")
+
+    assert added.output == f"{PROJECT}:NORT-7:notes.md@v1\n"
+    assert f"{PROJECT}:NORT-7:notes.md" in listed.output

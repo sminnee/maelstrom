@@ -29,7 +29,7 @@ from mael_agent.harness_model import (
 )
 from mael_common.claude_paths import has_claude_transcript
 from mael_domain import task as model
-from mael_domain import task_actions
+from mael_domain import task_actions, task_documents
 from mael_domain.agent_store import AgentStore
 from mael_domain.github import get_open_prs
 from mael_domain.github_model import (
@@ -53,6 +53,11 @@ from mael_domain.protocol import (
 )
 from mael_domain.session_discovery import LiveSessionSet
 from mael_domain.ssh_target import SshTarget
+from mael_domain.task_attachments import (
+    InMemoryTaskAttachmentTable,
+    TaskAttachmentTable,
+)
+from mael_domain.task_documents import NEEDS_BODY, NeedsBody, Presented
 from mael_domain.task_launch import (
     LaunchBlocked,
     LaunchPlan,
@@ -275,6 +280,9 @@ class TaskReading:
 class TaskSource(Protocol):
     """The notebook, as tasks across every project."""
 
+    #: The Task documents. See ``CONTEXT.md``, "Task document".
+    documents: TaskAttachmentTable
+
     async def version(self) -> str | None:
         """A stamp that changes when any task changes. ``None`` when unknown."""
         ...
@@ -383,6 +391,12 @@ class TaskSource(Protocol):
             KeyError: If no task has ``task_id``.
             ValueError: If the task has no Registered PR.
         """
+        ...
+
+    async def store_document(
+        self, presented: Presented, *, replay: bool, verdict: bool, now: str
+    ) -> "StoredDocument | None | NeedsBody":
+        """Store a Task document an agent presented. See :class:`TaskHome`."""
         ...
 
     async def delete(self, task_id: str) -> None:
@@ -561,8 +575,13 @@ class NotebookTaskSource:
         agents: AgentStore | None = None,
         landings: Landings | None = None,
         schedule_zone: str = "",
+        documents: TaskAttachmentTable | None = None,
     ) -> None:
         self.table = table
+        #: The Task documents. See ``CONTEXT.md``, "Task document".
+        self.documents = (
+            documents if documents is not None else InMemoryTaskAttachmentTable()
+        )
         #: The schedule zone's label, for each task with a ``schedule``.
         self.schedule_zone = schedule_zone
         self.agents = agents
@@ -822,6 +841,17 @@ class NotebookTaskSource:
         project, notebook_id = split_task_key(task_id)
         await model.withdraw_pr(self.table, project, notebook_id)
 
+    async def store_document(
+        self, presented: Presented, *, replay: bool, verdict: bool, now: str
+    ) -> "StoredDocument | None | NeedsBody":
+        stored = await task_documents.store_presented(
+            self.documents, presented, replay=replay, verdict=verdict, now=now
+        )
+        if stored is None or stored is NEEDS_BODY:
+            return stored
+        _, version = stored
+        return StoredDocument(version.version, version.review_status)
+
     async def delete(self, task_id: str) -> None:
         """Remove a task from the notebook.
 
@@ -985,9 +1015,45 @@ class TaskHome(Protocol):
 
     async def create(self, project: str, fields: dict[str, Any]) -> str: ...
 
+    async def store_document(
+        self, presented: Presented, *, replay: bool, verdict: bool, now: str
+    ) -> "StoredDocument | None | NeedsBody":
+        """Store a Task document an agent presented, on the task's own server.
+
+        The rules are :func:`~mael_domain.task_documents.store_presented`.
+        ``now`` stamps a new version here; a parent stamps its own.
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class StoredDocument:
+    """The version of a Task document the task's server holds after a store."""
+
+    version: int
+    review_status: str
+
+
+def stored_document_json(stored: "StoredDocument | None | NeedsBody") -> dict[str, Any]:
+    """The reply of ``POST .../documents/presented``: what the parent stored."""
+    if stored is None:
+        return {"state": "none"}
+    if stored is NEEDS_BODY:
+        return {"state": "needs-body"}
+    assert isinstance(stored, StoredDocument)
+    return {
+        "state": "stored",
+        "version": stored.version,
+        "reviewStatus": stored.review_status,
+    }
+
 
 #: How long one call to a parent's task API may take.
 PARENT_CALL_SECS = 30.0
+#: How long one Task document call to a parent may take. A presentation
+#: holds the agent's stream while it runs, so a parent that hangs must not
+#: hold it for long.
+DOCUMENT_CALL_SECS = 5.0
 
 
 class RemoteTaskSource:
@@ -1004,9 +1070,7 @@ class RemoteTaskSource:
     def session(self) -> aiohttp.ClientSession:
         """One client session, made on first use so it binds the running loop."""
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=PARENT_CALL_SECS)
-            )
+            self._session = aiohttp.ClientSession()
         return self._session
 
     async def close(self) -> None:
@@ -1014,7 +1078,12 @@ class RemoteTaskSource:
             await self._session.close()
 
     async def _call(
-        self, method: str, path: str, body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+        *,
+        timeout: float = PARENT_CALL_SECS,
     ) -> dict[str, Any] | None:
         """The parent's JSON reply; ``None`` for a ``404``.
 
@@ -1023,7 +1092,10 @@ class RemoteTaskSource:
         """
         try:
             async with self.session().request(
-                method, f"{self.base_url}{path}", json=body
+                method,
+                f"{self.base_url}{path}",
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
                 reply = await response.json()
         except (aiohttp.ClientError, OSError, asyncio.TimeoutError, ValueError) as exc:
@@ -1087,6 +1159,29 @@ class RemoteTaskSource:
         path = f"/api/tasks/{project}/{notebook_id}/sessions"
         if await self._call("POST", path, {"sessionId": session_id}) is None:
             raise KeyError(task_id)
+
+    async def store_document(
+        self, presented: Presented, *, replay: bool, verdict: bool, now: str
+    ) -> StoredDocument | None | NeedsBody:
+        """Store the document in the parent's state database. ``now`` is not sent.
+
+        Raises:
+            KeyError: The parent has no such task.
+        """
+        path = f"/api/tasks/{presented.project}/{presented.task_id}/documents/presented"
+        body = {**presented.to_json(), "replay": replay, "verdict": verdict}
+        reply = await self._call("POST", path, body, timeout=DOCUMENT_CALL_SECS)
+        if reply is None:
+            raise KeyError(task_key(presented.project, presented.task_id))
+        state = reply.get("state")
+        if state == "needs-body":
+            return NEEDS_BODY
+        if state == "stored":
+            try:
+                return StoredDocument(int(reply["version"]), str(reply["reviewStatus"]))
+            except (KeyError, TypeError, ValueError) as exc:
+                raise TaskSourceRemote(self.base_url) from exc
+        return None
 
 
 def _pr_path(task_id: str) -> str:

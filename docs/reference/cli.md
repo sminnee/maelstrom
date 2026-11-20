@@ -397,7 +397,7 @@ unless the edit makes the task follow unfinished work. `mael task update` and `m
 send no session, so the caller's agent hears its own edit.
 
 In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
-commands call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
+commands and every `mael doc` command call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
 there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
 uses the local state database, and this agent's task is on <url>.":
 
@@ -1264,7 +1264,8 @@ the orchestrator server.
 | `mael doc unarchive REF` | Unarchive the document, with the same rule. |
 
 `TASK` defaults to `$MAEL_TASK_ID`. Every command takes `-p, --project`, which defaults to the
-current directory's project.
+current directory's project. When `MAEL_PARENT_URL` is set, every `mael doc` command goes to the
+parent server, which holds the task.
 
 ```bash
 mael doc add zap.sarif.json                       # prints maelstrom:bivs.1:zap.sarif.json@v1

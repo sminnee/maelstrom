@@ -27,6 +27,7 @@ Use `mode: plan` for tasks and `mode: normal` for a `plan-next-step` tail. For c
 
 Task documents:
 
+- To see the task's documents, run `mael doc list`. To read one, run `mael doc show <ref> --body`.
 - To store a file that needs no review, such as a scan or a note for a later task, run `mael doc add <path> --as <role>`.
 - To use a document, or one heading or finding of it, that another task owns, run `mael doc link <project>:<task-id>:<name>[#<fragment>]`.
 

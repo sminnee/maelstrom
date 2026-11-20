@@ -112,7 +112,11 @@ from mael_orchestrator.sources import (
     TaskSourceRemote,
     WorktreeOpener,
 )
-from mael_orchestrator.world_build import project_entity, split_task_key
+from mael_orchestrator.world_build import (
+    agent_entity,
+    project_entity,
+    split_task_key,
+)
 
 NOW = "2026-09-01T00:00:00Z"
 ZAP_SARIF = (
@@ -162,6 +166,7 @@ class Harness:
             lambda: list(self.projects),
             version=lambda: str(self.version),
             landings=over.get("landings"),
+            documents=over.pop("document_store", None),
         )
         self.comms = InMemoryCommStore()
         self.worktrees = InMemoryWorktreeSource(
@@ -12385,6 +12390,40 @@ def test_a_settled_review_raises_no_item_after_a_restart(attach_harness):
     assert reviews == []
 
 
+@pytest.mark.parametrize(
+    ("verdict", "body"),
+    [("approve", {}), ("request-changes", {"summary": "Fix the title."})],
+)
+def test_a_verdict_the_store_refuses_changes_nothing(
+    attach_harness, monkeypatch, verdict, body
+):
+    harness = attach_harness()
+
+    async def refuse(self, presented, **kwargs):
+        raise ValueError("the table is read-only")
+
+    async def scenario():
+        async with harness.client() as api:
+            harness.daemon.push("ag1", tag_event(REVIEW_TAG))
+            await attach_settled(api, harness)
+            [row] = (await api.get_json("/api/documents"))["documents"]
+            monkeypatch.setattr(NotebookTaskSource, "store_document", refuse)
+            reply = await api.post(
+                f"/api/documents/{row['id']}/{verdict}",
+                {"version": row["version"], **body},
+            )
+            shown = await api.get_json(f"/api/documents/{row['id']}")
+            return reply, shown
+
+    reply, shown = run(scenario())
+
+    assert (reply.status, reply.body["error"]["code"]) == (400, "invalid")
+    assert "read-only" in reply.body["error"]["message"]
+    assert shown["status"] == "awaiting-review"
+    [(_, version)] = run(stored(attach_harness.table))
+    assert version.review_status == "awaiting-review"
+
+
 def test_approving_a_file_that_could_not_be_read_stores_nothing(attach_harness):
     """The user saw the placeholder, so the file's text is not stored as approved."""
     harness = attach_harness()
@@ -14652,12 +14691,13 @@ class Cobalt:
 
 
 @asynccontextmanager
-async def cobalt_and_parent(store, cobalt_path: Path):
+async def cobalt_and_parent(store, cobalt_path: Path, documents=None):
     """``cobalt`` served on loopback, and a served parent that lists it in ``hosts:``.
 
     Yields the child, the parent's harness, the parent's API client, and the
     child's port. The parent's URL is the ``parentUrl`` it sends.
     ``child.served`` stops the child, as a host that goes to sleep.
+    ``documents`` is the parent's Task document table.
     """
     db = open_state_db(":memory:")
     await db.migrate()
@@ -14666,7 +14706,7 @@ async def cobalt_and_parent(store, cobalt_path: Path):
         port = await served.enter_async_context(child.serve())
         child.served = served
         link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
-        parent = Harness(store, remote_hosts={"cobalt": link})
+        parent = Harness(store, remote_hosts={"cobalt": link}, document_store=documents)
         api = await stack.enter_async_context(parent.client())
         parent.orch.own_url = str(api.session._base_url).rstrip("/")
         await until(api, "/api/host", online)
@@ -14695,6 +14735,240 @@ def merged(api, agent_id: str, predicate=lambda a: True):
         "/api/agents",
         lambda b: any(a["id"] == agent_id and predicate(a) for a in b["agents"]),
     )
+
+
+def test_a_delegated_agents_documents_are_stored_on_its_parent(store, tmp_path, images):
+    """The parent stores each version, verdict and final file.
+
+    It shows the host's live copy while the agent lives, then its stored copy.
+    The parent already holds a version, so the host must show the parent's
+    numbers, not its own.
+    """
+    (tmp_path / ".drafts").mkdir()
+    (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n\n![shot](shot.png)\n")
+    (tmp_path / "shot.png").write_bytes(PNG_BYTES)
+    table = InMemoryTaskAttachmentTable()
+    run(
+        task_documents.add(
+            table,
+            project=PROJECT,
+            task_id="NORT-7",
+            name=VERIFICATION_PATH,
+            kind="markdown",
+            title="Earlier",
+            body="# Earlier\n",
+            now=NOW,
+            role="verification",
+        )
+    )
+    backlog, _rest = split_at_control_response(
+        read_fixture("plan-review-with-plan.jsonl")
+    )
+    seen: dict = {}
+
+    def is_iteration(document) -> bool:
+        return document["title"] == "Login flow"
+
+    def has_iteration(body) -> bool:
+        return any(is_iteration(d) for d in body["documents"])
+
+    async def stored_until(predicate):
+        async with asyncio.timeout(5):
+            while not predicate(found := await stored(table)):
+                await asyncio.sleep(0.02)
+        return found
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path, table) as (child, parent, api, _):
+            await parent.add_task_async("NORT-7", session=session_of("NORT-7"))
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            await merged(api, "cobalt:new1", lambda a: a["taskId"])
+
+            async with api.transcript_stream("cobalt:new1") as ws:
+                await ws_next(ws)
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                seen["stored"] = await stored_until(
+                    lambda rows: rows[0][1].agent_id == "cobalt:new1"
+                )
+            listed = await until(api, "/api/documents", has_iteration)
+            seen["listed"] = [d for d in listed["documents"] if is_iteration(d)]
+            [document] = seen["listed"]
+            seen["approve"] = await api.post(
+                f"/api/documents/{document['id']}/approve",
+                {"version": document["version"]},
+            )
+            seen["approved"] = await stored_until(
+                lambda rows: rows[0][1].review_status == "approved"
+            )
+            # A version added by hand has no agent: the live copy still wins.
+            added = await api.post(
+                "/api/tasks/northwind/NORT-7/documents",
+                {"name": VERIFICATION_PATH, "body": "# By hand\n"},
+            )
+            assert added.status == 200, added.body
+            listed = await api.get_json("/api/documents")
+            seen["by_hand"] = [d["id"] for d in listed["documents"]]
+
+            pending = pending_from(backlog)
+            child.claude.pending["new1"] = pending
+            child.claude.rows["new1"]["state"] = pending.wait_kind
+            for event in backlog:
+                child.claude.push("new1", event)
+            seen["plan"] = await stored_until(lambda rows: len(rows) == 2)
+
+            # The agent edits its file after the approve, then stops.
+            (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n\nEdited.\n")
+            child.claude.rows["new1"]["state"] = "exited(0)"
+            await child.harness.orch.refresh_agents()
+            shown = await until(
+                api,
+                "/api/documents",
+                lambda b: any(
+                    is_iteration(d) and d["version"] == 4 for d in b["documents"]
+                ),
+            )
+            seen["gone"] = [d for d in shown["documents"] if is_iteration(d)]
+            seen["versions"] = await table.versions(seen["stored"][0][0].id)
+        seen["child"] = await stored(child.harness.orch.document_store)
+
+    run(scenario())
+
+    # (1) The host's document lands in the parent's store, its media as prose.
+    [(row, version)] = seen["stored"]
+    assert (
+        row.task_key,
+        row.name,
+        row.role,
+        version.body,
+        version.agent_id,
+        version.review_status,
+    ) == (
+        "northwind/NORT-7",
+        VERIFICATION_PATH,
+        "verification",
+        "# Login flow\n\n_`shot.png` could not be shown._\n",
+        "cobalt:new1",
+        "awaiting-review",
+    )
+    assert seen["child"] == []
+    # (2) The parent's world shows the host's copy only, at the parent's number.
+    assert [(d["id"], d["version"]) for d in seen["listed"]] == [
+        (f"cobalt:{attachment_id('northwind/NORT-7', VERIFICATION_PATH)}", 2)
+    ]
+    # (3) An approve on the host writes the parent's status.
+    assert seen["approve"].status == 200, seen["approve"].body
+    assert [v.review_status for _, v in seen["approved"]] == ["approved"]
+    assert attachment_id("northwind/NORT-7", VERIFICATION_PATH) not in seen["by_hand"]
+    # (4) A plan the delegated agent submits is stored on the parent too.
+    names = sorted(r.name for r, _ in seen["plan"])
+    assert names == [VERIFICATION_PATH, "plan"]
+    # (5) Once the agent is gone, the parent shows its stored copy only. The
+    # file it edited after the approve is a draft: the user never saw it.
+    assert [(d["id"], d["source"]["type"], d["status"]) for d in seen["gone"]] == [
+        (attachment_id("northwind/NORT-7", VERIFICATION_PATH), "stored", "draft")
+    ]
+    assert [(v.version, v.agent_id, v.review_status) for v in seen["versions"]] == [
+        (1, "", "draft"),
+        (2, "cobalt:new1", "approved"),
+        (3, "", "draft"),  # by hand
+        (4, "", "draft"),  # the file the agent left
+    ]
+
+
+def test_a_parent_that_does_not_store_a_delegated_document_is_not_silent(
+    store, tmp_path, images, monkeypatch
+):
+    """A presentation the parent missed is told; a verdict it missed is refused."""
+    (tmp_path / ".drafts").mkdir()
+    (tmp_path / VERIFICATION_PATH).write_text("# Login flow\n")
+    table = InMemoryTaskAttachmentTable()
+    real = RemoteTaskSource.store_document
+    away = [True]
+
+    async def store_document(self, presented, **kwargs):
+        if away[0]:
+            raise TaskSourceRemote(self.base_url)
+        return await real(self, presented, **kwargs)
+
+    monkeypatch.setattr(RemoteTaskSource, "store_document", store_document)
+    seen: dict = {}
+
+    def told(calls) -> list[str]:
+        return [c["text"] for c in calls if "document.not_stored" in c.get("text", "")]
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path, table) as (child, parent, api, _):
+            await parent.add_task_async("NORT-7", session=session_of("NORT-7"))
+            await until(api, "/api/tasks", has_task("northwind/NORT-7"))
+            await operated(
+                api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
+            )
+            await merged(api, "cobalt:new1", lambda a: a["taskId"])
+            async with api.transcript_stream("cobalt:new1") as ws:
+                await ws_next(ws)
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                async with asyncio.timeout(5):
+                    while not told(child.claude.calls):
+                        await asyncio.sleep(0.02)
+                seen["told"] = told(child.claude.calls)
+
+                away[0] = False
+                child.claude.push("new1", tag_event(REVIEW_TAG))
+                async with asyncio.timeout(5):
+                    while not await stored(table):
+                        await asyncio.sleep(0.02)
+            listed = await until(
+                api,
+                "/api/documents",
+                lambda b: any(d["title"] == "Login flow" for d in b["documents"]),
+            )
+            [document] = [d for d in listed["documents"] if d["title"] == "Login flow"]
+            away[0] = True
+            seen["approve"] = await api.post(
+                f"/api/documents/{document['id']}/approve",
+                {"version": document["version"]},
+            )
+            seen["stored"] = await stored(table)
+
+    run(scenario())
+
+    [text] = seen["told"]
+    assert "Login flow was not stored on the parent" in text
+    assert seen["approve"].status == 502
+    assert "not stored" in seen["approve"].body["error"]["message"]
+    assert [v.review_status for _, v in seen["stored"]] == ["awaiting-review"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body", "code"),
+    [
+        ("NORT-8", {}, "unknown_id"),
+        # A host may store only on the task it names in the path.
+        ("NORT-7", {"taskId": "NORT-9"}, "invalid"),
+        ("NORT-7", {"verdict": "false"}, "invalid"),
+    ],
+)
+def test_the_presented_document_route_refuses_what_it_cannot_store(
+    harness, path, body, code
+):
+    harness.add_task("NORT-7")
+    wire = task_documents.Presented(
+        PROJECT, "NORT-7", "a.md", "other", "A", "draft", 1
+    ).to_json()
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post(
+                f"/api/tasks/{PROJECT}/{path}/documents/presented", {**wire, **body}
+            )
+
+    reply = run(scenario())
+
+    assert reply.body["error"]["code"] == code
+    assert run(stored(harness.orch.document_store)) == []
 
 
 def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_parent(
@@ -15241,6 +15515,16 @@ def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
         {**row, "id": "northwind-delta"},
         {k: v for k, v in row.items() if k != "id"},
     ]
+    # doc1's agent is cobalt's own, and has exited. Only a delegated agent's
+    # document leaves the merge when its agent exits.
+    agents = [
+        agent_entity(
+            agent_row("cobalt:a1", state="exited(0)"),
+            task_id="",
+            project="",
+            worktree_id="",
+        )
+    ]
     documents = [
         {"id": "doc1", "agentId": "cobalt:a1"},
         # Attached to a task, with no agent: the host's own world, not its work.
@@ -15264,7 +15548,9 @@ def test_the_merge_takes_only_the_hosts_own_rows_for_projects_here(store):
     app = web.Application()
     app.router.add_get("/api/events", events)
     for kind, (path, key) in MERGED_KINDS.items():
-        rows = {"worktree": worktrees, "document": documents}.get(kind, [])
+        rows = {"worktree": worktrees, "document": documents, "agent": agents}.get(
+            kind, []
+        )
         app.router.add_get(path.partition("?")[0], listing(key, rows))
 
     async def scenario():

@@ -746,6 +746,12 @@ one agent, not about a server: one remote host can run agents for several parent
 direct agents. Not the task **Parent**, which groups a chain.
 _Avoid_: Master, primary
 
+**Child mode**:
+The planned mode of a server with `parent:` in its config. A child will hold no task, comm or
+document state, serve no UI, and send every state call to its **Parent server**'s API. See
+`docs/adr/0005-child-mode.md`.
+_Avoid_: Worker mode, headless host
+
 **Task home**:
 Where the task work of one agent or worktree goes: this server's notebook, or the **Parent
 server**'s notebook for a **Delegated agent**. A worktree's task home is that of its newest

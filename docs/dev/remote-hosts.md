@@ -69,6 +69,9 @@ It also refuses a `host` with no `launch`.
 
 ## The per-launch parent
 
+This section holds until **Child mode** lands. `docs/adr/0005-child-mode.md` reverses it: a
+server with `parent:` in config holds no task state, and runs no direct agent.
+
 The parent is a fact about one agent, not about the remote host's server. So one server can run
 agents for several parents and its own direct agents at the same time. Config goes one way: only
 the parent's `hosts:` names the remote host.
@@ -86,7 +89,9 @@ On the remote host, a delegated agent differs from a direct agent in three ways:
 - Its `taskId` comes from its record, not from the session join.
 - It does not join the remote host's desk, and the remote host's PR watch does not follow it.
   The parent's desk and PR watch do.
-- Its documents are not attached to its task. No attachment crosses hosts yet.
+- Its documents are stored on the parent, through `store_document`. The remote host reads the
+  files, and the parent writes its own store. A media ref becomes "could not be shown" prose: no
+  media file crosses hosts yet.
 
 ## The task seam and `TaskHomes`
 
@@ -104,6 +109,7 @@ The calls the server makes for one agent go through a narrow `TaskHome` protocol
 | `withdraw_pr` | the `gh-pr` link | `DELETE /api/tasks/{project}/{id}/pr` |
 | `add_session` | `_follow_session`, after a `/clear` | `POST /api/tasks/{project}/{id}/sessions` |
 | `create` | the reopen task of a Shelve | `POST /api/tasks` |
+| `store_document` | `_store_document` | `POST /api/tasks/{project}/{id}/documents/presented` |
 
 `NotebookTaskSource` and `RemoteTaskSource` both satisfy `TaskHome`.
 `TaskHomes.for_parent(parent_url)` chooses one. An empty URL gives the local notebook. Any other
