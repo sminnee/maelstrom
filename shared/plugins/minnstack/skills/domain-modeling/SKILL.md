@@ -12,7 +12,7 @@ A domain model has four documents. Each has one job:
 | Document | Job | Path |
 | --- | --- | --- |
 | Glossary | What the words mean | `CONTEXT.md`, and `docs/specs/<subsystem>/CONTEXT.md` |
-| Feature file | The contract of one command or query, or the invariants of one domain type | `docs/specs/<subsystem>/<name>.feature` |
+| Feature file | The contract of one command or query, the invariants of one domain type, or the laws of its repository | `docs/specs/<subsystem>/<name>.feature` |
 | ADR | Why: a decision, the options rejected, and how far its rollout is | `docs/adr/NNNN-slug.md` |
 | Map | Which subsystems exist, and where each part is | `docs/README.md` |
 
