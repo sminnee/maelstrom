@@ -12,3 +12,5 @@ Ask before re-running CI solely to clear a suspected flake. State the evidence a
 For scale concerns, state the volume where the problem matters and compare it with current volume. Prefer an existing, small mechanism over new machinery unless the gap is material.
 
 Raise dangerous shortcuts as a question when the user requires approval. Do not place them in an execution plan.
+
+These rules apply inside other skills: `design-build-test` when a test fails, `code-review` when a finding adds machinery, and `/watch-pr`, where available, when CI fails.

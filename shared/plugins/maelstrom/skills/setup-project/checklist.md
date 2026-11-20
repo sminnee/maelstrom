@@ -33,8 +33,8 @@ The checks the `/setup-project` audit runs. The skill sends one category to each
 - **Framework configured.** Passes when the test config is committed, not bare defaults.
 - **Tests in proportion.** Passes when the count of test files is reasonable for the count of source files.
 - **Test config paths exist.** Passes when every directory a test config includes or excludes exists.
-- **Specs map to tests.** Passes when behaviour specs carry stable ids and tests reference them, checked in CI. Where no spec discipline exists, this is a recommendation, not a defect.
-- **Test layers documented.** Passes when the docs say what belongs in each test layer.
+- **Rules map to tests.** Passes when the contract rules in the project's feature files carry stable ids and tests cite them, checked in CI. `domain-modeling`'s FEATURE-FORMAT.md has the form, if that skill is available. Where the project has no feature files, this is a recommendation, not a defect.
+- **Test layers documented.** Passes when the docs say what belongs in each test layer: the test-ownership doc that `design-build-test` reads.
 
 ## Category: Dead code
 
@@ -57,7 +57,7 @@ Recommend a tool unless the project is trivially small.
 - **Clone to running.** Passes when the setup, test, and build instructions match the manifests.
 - **Gates listed.** Passes when the docs list each CI gate and how to run it locally.
 - **LICENSE matches.** Passes when a manifest `license` field has a matching file.
-- **Architecture documented.** Passes when `docs/` says how the parts fit together. `n/a` for a single-module project.
+- **Architecture documented.** Passes when `docs/` says how the parts fit together. `docs/README.md` is the map that `domain-modeling` describes. `n/a` for a single-module project.
 
 ## Category: Agent config
 

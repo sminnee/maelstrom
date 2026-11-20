@@ -24,4 +24,4 @@ cmux --socket "$CMUX_SOCKET_PATH" close-surface --surface <surface_ref>
 cmux --socket "$CMUX_SOCKET_PATH" set-status task "<label>" --icon <icon>
 ```
 
-Terminal directions are `right` and `down`. For maelstrom's Python integration, read `docs/dev/cmux.md`.
+Terminal directions are `right` and `down`. For the URL of a dev service, read `dev-env.md` in the `mael` skill: never open a port you chose yourself. For maelstrom's Python integration, read `docs/dev/cmux.md`.

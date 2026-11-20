@@ -48,7 +48,7 @@ Build as `design-build-test` says, if the skill is available. Stop environments 
 
 During Land, use `--fixup=<sha>` for an earlier decision. Do not amend an earlier commit. Record test-shaping choices in a commit body.
 
-Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the branch diff. A fixup must target a commit still in the branch range or it will remain an ordinary `fixup!` commit. During a rebase, resolve every hunk by intent because `ours` and `theirs` can reverse across replayed commits.
+Before a PR, use `mael gh show-code --uncommitted`; use `--committed` for the branch diff. A fixup must target a commit still in the branch range or it will remain an ordinary `fixup!` commit. During a rebase, resolve every hunk by intent because `ours` and `theirs` can reverse across replayed commits: `/resolve-rebase-conflicts` has the steps.
 
 ## Completion
 

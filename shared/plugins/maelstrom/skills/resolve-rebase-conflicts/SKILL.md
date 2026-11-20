@@ -22,6 +22,6 @@ GIT_EDITOR=true git rebase --continue
 
 Repeat until the rebase ends. Run the project's checks. Confirm the original branch is checked out, then report the files, decisions, and uncertainties.
 
-Record the original branch before resolving. If a check exposes a resolution error while replay is active, stage it and amend the replayed commit. Read the PR when it explains intent. Leave an irreconcilable conflict for a human instead of choosing by convenience.
+Record the original branch before resolving. If a check exposes a resolution error while replay is active, stage it and amend the replayed commit. Read the PR when it explains intent. Leave an irreconcilable conflict for a human instead of choosing by convenience. When a check fails after the rebase, own the failure as `collaboration` says, if that skill is available.
 
 Leave an irreconcilable rebase in place and report the conflict. Do not abort, push, switch branches, or create a branch.

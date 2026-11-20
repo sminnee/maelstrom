@@ -22,4 +22,6 @@ The index and store move together: each retained entry has one index line, and e
 
 Put facts needed always in concise context. Put subsystem facts in the matching skill or README. Put cross-project patterns in the mael wiki. Edit cross-project skills in `shared/plugins/*/skills/`, never their installed copy. Keep memories about the user; put durable codebase facts in the repository when learned.
 
+Write a migrated fact with the skill for its destination: `domain-modeling` for a term or a decision, `writing-for-humans` for a doc or a README, and `writing-for-agents` for a skill, `AGENTS.md` or `CLAUDE.md`.
+
 Give gotchas an existing, relevant destination before creating a new file. Working-style feedback belongs in cross-project skills, not a project memory store.
