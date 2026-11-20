@@ -31,10 +31,6 @@ from typing import Any, AsyncGenerator
 from .state_db.db import StateDb, Txn
 from .task import Task, TaskSession, creation_order, split_follow_ref
 
-#: The table this store writes, as declared in
-#: :data:`mael_domain.state_db.migrate.TABLES`.
-TABLE = "tasks"
-
 #: Every scalar column a row carries, and the :class:`~mael_domain.task.Task`
 #: attribute it holds. ``follows``, ``comms`` and ``sessions`` are JSON text and
 #: handled apart; ``project`` and ``status`` are derived on the way in.
@@ -373,7 +369,7 @@ class SqliteTaskTable(TaskTable):
         self._db = db
 
     async def load(self, project: str, id: str) -> Task | None:
-        row = await self._db.read(TABLE, row_id(project, id))
+        row = await self._db.read("tasks", row_id(project, id))
         return task_from_row(row) if row is not None else None
 
     async def list(
@@ -395,7 +391,7 @@ class SqliteTaskTable(TaskTable):
         where = " AND ".join(clauses)
         rows = await self._db._call(
             lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE {where} ORDER BY created, task_id",  # noqa: S608 — the table name is this module's own and the clauses are bound
+                f"SELECT * FROM tasks WHERE {where} ORDER BY created, task_id",  # noqa: S608 — the clauses are this method's own text, and each value is bound
                 params,
             ).fetchall()
         )
@@ -408,8 +404,8 @@ class SqliteTaskTable(TaskTable):
         :meth:`~mael_domain.state_db.db.StateDb.removed_since` reads the spine's
         ``removals`` table, which is the only record that a task ever existed.
         """
-        rows = await self._db.changed_since(TABLE, since)
-        removed = await self._db.removed_since(TABLE, since)
+        rows = await self._db.changed_since("tasks", since)
+        removed = await self._db.removed_since("tasks", since)
         return TaskChanges(
             tasks=[task_from_row(row) for row in rows],
             removed=list(removed),
@@ -421,7 +417,7 @@ class SqliteTaskTable(TaskTable):
         id = row_id(task.project, task.id)
         columns = columns_for(task)
         async with self._db.transact() as txn:
-            stored = await self._db.read(TABLE, id)
+            stored = await self._db.read("tasks", id)
             # ``id`` and ``revision`` are the database's own columns: the key
             # this row was read by, and the cut it was written in. Neither is
             # in what ``columns_for`` builds, so both come off before the
@@ -439,22 +435,22 @@ class SqliteTaskTable(TaskTable):
                 # A write that changed nothing must not bump the counter: an
                 # idle poll relies on that never happening.
                 return
-            txn.upsert(TABLE, id, **columns)
+            txn.upsert("tasks", id, **columns)
 
     async def delete(self, project: str, id: str) -> None:
         """Remove the row. A task that is not there is a no-op."""
         key = row_id(project, id)
         async with self._db.transact() as txn:
-            if await self._db.read(TABLE, key) is None:
+            if await self._db.read("tasks", key) is None:
                 return
-            txn.delete(TABLE, key)
+            txn.delete("tasks", key)
 
     async def find_by_session_id(self, session_id: str) -> Task | None:
         if not session_id:
             return None
         row = await self._db._call(
             lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE EXISTS ("  # noqa: S608 — the table name is this module's own
+                "SELECT * FROM tasks WHERE EXISTS ("
                 " SELECT 1 FROM json_each(sessions)"
                 " WHERE json_extract(value, '$.id') = ?) LIMIT 1",
                 (session_id,),
@@ -470,7 +466,7 @@ class SqliteTaskTable(TaskTable):
         marks = ", ".join("?" for _ in bare)
         rows = await self._db._call(
             lambda conn: conn.execute(
-                f"SELECT * FROM {TABLE} WHERE EXISTS ("  # noqa: S608 — the table name is this module's own
+                "SELECT * FROM tasks WHERE EXISTS ("  # noqa: S608 — only the `?` marks are formatted in
                 f" SELECT 1 FROM json_each(follows) WHERE (project = ? AND value IN ({marks}))"
                 f" OR value IN ({marks}))"
                 " ORDER BY created, task_id",
@@ -496,7 +492,6 @@ class SqliteTaskTable(TaskTable):
 #: Re-exported for a caller that opens a transaction and writes through the
 #: :class:`~mael_domain.state_db.db.Txn` directly.
 __all__ = [
-    "TABLE",
     "InMemoryTaskTable",
     "SqliteTaskTable",
     "TaskTable",
