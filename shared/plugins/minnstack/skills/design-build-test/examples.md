@@ -70,7 +70,7 @@ test("calculateTotal sums line items", () => {
   expect(calculateTotal(items)).toBe(expected);
 });
 
-// GOOD: Expected value is an independent, known literal
+// GOOD: Expected value is a worked example
 test("calculateTotal sums line items", () => {
   expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
 });
