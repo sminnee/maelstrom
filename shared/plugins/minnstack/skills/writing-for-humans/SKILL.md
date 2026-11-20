@@ -5,7 +5,7 @@ description: Write readable developer documentation, READMEs, ADRs, PR descripti
 
 # Writing for humans
 
-Write for a capable developer new to the codebase. Read `CONTEXT.md` first when it exists. Reuse its terms and avoid-list.
+Write for a capable developer new to the codebase. Read `CONTEXT.md` first when it exists, and the glossary of the subsystem you write about when `docs/README.md` lists subsystems. Reuse their terms and avoid-lists.
 
 Lead with purpose. Order summary, detail, then edge cases. Use one topic per section and one idea per paragraph. Explain non-obvious rules by their reason.
 

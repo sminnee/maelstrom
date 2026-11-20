@@ -10,7 +10,9 @@ is acceptable, and the reader knows the project's architecture. Do not explain c
 
 `CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
 anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain
-terms there rather than defining them inline.
+terms there rather than defining them inline. When `docs/README.md` lists subsystems, also read
+the glossary of the subsystem you work in, and add a term to the narrowest glossary that covers
+its users.
 
 **This covers chat replies, not only files.** The rule is about the writing, not the file type. A
 long reply is as hard to read as a long paragraph in a doc.
@@ -54,15 +56,16 @@ If you detect someone else changing files in your work, **stop** and ask the use
 **Load the `design-build-test` skill before you write implementation code** — a new feature, a
 bug fix, any change with behaviour to test, however the work arrived: a planned task, an ad-hoc
 request, or a follow-up in an open session. Break the work into modules, build it, then select
-tests by risk and write them at the layer that owns each contract.
+tests from the contract changes, at the primary seam of each.
 
-Where the modules and owning layers come from depends on how the work arrived:
+Where the contract changes and their primary seams come from depends on how the work arrived:
 
-- **Planned work** — the **Test plan** section in your plan or task content settles them. When it
-  is missing, name the layer you chose and why in the commit body and the PR. Do not stop and
-  wait.
-- **Unplanned or resumed work** — no plan agreed them, and the user is here. When the owning
-  layer is not clear from the project's test-ownership doc, agree it with them.
+- **Planned work** — the **Contract changes** section in your plan or task content settles them.
+  When it is missing, name the contract changes and the seams you chose, and why, in the commit
+  body and the PR. Do not stop and wait.
+- **Unplanned or resumed work** — no plan agreed them, and the user is here. Agree the contract
+  changes with them before the build. When a primary seam is not clear from the feature file or
+  the project's test-ownership doc, agree it with them too.
 
 Monotonically growing test suites are a maintainability problem, look for tests that can be adapted
 or deleted when changing behaviour.

@@ -23,8 +23,9 @@ Always:
 
 Conditionally (only if the file exists in the project):
 
-- `CONTEXT.md` at the repo root — the domain glossary. It is both a standard (reuse its terms
-  verbatim, honour each term's `_Avoid_` list) and your index for the duplication sweep below.
+- `CONTEXT.md` at the repo root, and each `docs/specs/*/CONTEXT.md` — the domain glossary. It is
+  both a standard (reuse its terms verbatim, honour each term's `_Avoid_` list) and your index
+  for the duplication sweep below.
 - `docs/review/coding-standards.md` and `docs/review/review-guide.md` — the project's own rules.
   Where these disagree with the skills above, the project wins.
 
@@ -105,16 +106,16 @@ Term frequency finds nothing here. A glossary term appears wherever it is *used*
 is *explained* — grepping `parent` in this repo hits dozens of files and tells you nothing.
 Fingerprint each concept instead:
 
-1. **Index.** `CONTEXT.md` lists the project's concepts, one `**Term**:` entry each. Take the
-   concepts the branch's prose touches — not all of them. The sweep stays proportionate to the
+1. **Index.** `CONTEXT.md` and each `docs/specs/*/CONTEXT.md` list the project's concepts, one
+   `**Term**:` entry each. Take the concepts the branch's prose touches — not all of them. The sweep stays proportionate to the
    change, and a branch touching one concept is a short sweep. Where the project has no
    `CONTEXT.md`, index the branch's own prose instead: every term it defines, heading it adds,
    and rationale it explains.
 2. **Fingerprint.** Take a 3–6 word phrase from each concept's explanation. A formula
    (`PORT_BASE * 10`), a rationale phrase (`separability`), a rejected-alternative name, or a
    figure (`0.03s`) all work.
-3. **Grep.** Search that fingerprint across `CONTEXT.md`, `docs/`, `src/`, and the root `*.md`
-   together. Markdown and source in one pass — a docstring copying a doc is the common case.
+3. **Grep.** Search that fingerprint across `CONTEXT.md`, `docs/` (the subsystem glossaries are
+   in `docs/specs/`), `src/`, and the root `*.md` together. Markdown and source in one pass — a docstring copying a doc is the common case.
 4. **Split the hits.** A site that *uses* the concept is free. A site that *explains* it is a
    copy. Only explanations count.
 5. **Report** any concept explained in two or more places.
@@ -122,9 +123,9 @@ Fingerprint each concept instead:
 **Name the survivor.** Every fingerprint that hits twice becomes a finding naming which copy
 stays and which get cut. A finding that only says "this is explained in four places" is not
 actionable — the reader cannot act on it, so all four copies stay and nothing improves. Pick the
-survivor by altitude: the
-glossary holds the definition, `docs/guide/` holds the user-facing explanation, `docs/dev/` holds
-the mechanism, and a docstring holds what a reader of *that function* needs. Whichever you pick,
+survivor by altitude: the glossary, a feature file, and an ADR each keep what the document map in
+`domain-modeling`'s `SKILL.md` gives them, `docs/guide/` holds the user-facing explanation,
+`docs/dev/` holds the mechanism, and a docstring holds what a reader of *that function* needs. Whichever you pick,
 the others become a pointer or nothing.
 
 Give each finding the word count the cut would save. That is what tells the parent what the fix
