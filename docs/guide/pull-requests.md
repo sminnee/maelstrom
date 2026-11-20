@@ -218,7 +218,8 @@ notice them, and dropping them silently is how they get lost.
 Every code reviewer loads `review-guide.md` from the skill directory — the cross-project
 baseline, worked layer by layer: specifications & subsystems, architecture, test design,
 security & correctness, coding standards. The prose reviewer loads the `writing-for-humans` and
-`writing-for-agents` skills instead, plus `CONTEXT.md` as the glossary. If the project also
+`writing-for-agents` skills instead, plus `CONTEXT.md` and each `docs/specs/*/CONTEXT.md` as the
+glossary. If the project also
 supplies `docs/review/coding-standards.md` or its own `docs/review/review-guide.md`, those load
 too and take precedence.
 

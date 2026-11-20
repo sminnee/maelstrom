@@ -117,8 +117,9 @@ A shape has at most five tasks. See [The shape of a plan](planning.md#the-shape-
 ### Build, then test what matters
 
 The execute session follows the `design-build-test` skill. It breaks the work into modules,
-builds the code, then selects tests by risk. A test goes where the implementation is risky or
-the behaviour is critical to a user, at the one layer that owns the contract. Some work gets an
+builds the code, then selects tests from the plan's contract changes and the risks the build
+shows. A test goes where the implementation is risky or the behaviour is critical to a user, at
+the one layer that owns the contract. Some work gets an
 ephemeral check instead: a browser screenshot of a layout, or a run of a dev-tooling script. The
 PR records each such check.
 
@@ -126,10 +127,15 @@ Writing tests after the build lets the session see where the real risk is. Test-
 every small step its own test, so the suite grows with duplicates. A bug fix is the exception:
 its regression test is written first, and seen to fail, so it proves it catches the bug.
 
-The plan's **Test plan** section names the modules, the owning layers, and the risks to cover.
-Approving the plan agrees them. The session picks the test cases after the build. An execute
-session runs unattended, so it cannot ask you mid-build. Agreeing the layers at plan time lets it
-write tests without stopping, while you can still change the decision.
+The plan's **Contract changes** section lists each contract rule that the work adds, changes, or
+withdraws. A subsystem's feature files, in `docs/specs/<subsystem>/`, are the durable record of
+its rules: the plan cites their rule ids, and the build edits the feature file before the test.
+That section is also the plan of the tests: a plan has no separate test plan. Each rule is
+tested at its primary seam, the one interface in the code where its contract holds in full. The
+feature file names the seam, or the plan's line does. Approving the plan agrees both. The session
+picks the test cases after the build. An execute session runs unattended, so it cannot ask you
+mid-build. Agreeing the rules and the seams at plan time lets it write tests without stopping,
+while you can still change the decision.
 
 If you are working outside a plan, agree the owning layer with the agent when it is not obvious.
 

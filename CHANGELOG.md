@@ -111,6 +111,23 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The skills give one map of a project's glossary, decisions and contracts.** The
+  `domain-modeling` skill names four documents and the job of each:
+  - The glossary, `CONTEXT.md`. A project with subsystems lists them in `docs/README.md` and keeps
+    each subsystem's terms in `docs/specs/<subsystem>/CONTEXT.md`. An agent proposes this split
+    before it adds a term to a root glossary of more than 500 lines. `CONTEXT-MAP.md` is withdrawn.
+  - A feature file in `docs/specs/<subsystem>/`: the contract of one command or query, or the
+    invariants of one domain type. Each Gherkin `Rule` is one clause with a stable id, and a test
+    cites the rule. A subsystem has domain types, and a domain type has commands and queries.
+  - An ADR. A decision that needs a rollout records its progress in a `Rollout:` state and a
+    checklist with one line for each component.
+- **A plan lists its contract changes.** A **Contract changes** section is now directly below a
+  plan's opening paragraphs. Each line is one rule that the work adds, changes, or withdraws,
+  with its rule id when the subsystem has a feature file, and with the caller named. A plan with
+  no contract change says "None". A plan has no Test plan section: the contract changes select the
+  tests, and each rule is tested at the primary seam that its feature file or its plan line
+  names. The build takes each expected value from a rule, not from the code. See
+  [Build, then test what matters](docs/guide/multi-agent-workflow.md#build-then-test-what-matters).
 - **A session ends on its PR's merge only when it asked to.** After the PR push, the agent writes
   `<end-session on="pr.merged">`, and the orchestrator ends the session when the PR merges. A
   stop, an exit, or a message from you clears the request. Before, every merge told the agent to
