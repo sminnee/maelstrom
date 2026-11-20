@@ -1021,6 +1021,41 @@ The one test suite that tests a contract in full: the suite of the package that 
 `docs/dev/testing.md` lists which suite owns which contract.
 _Avoid_: canonical tests
 
+**Contract rule**:
+One clause of the contract of a command or a query: what it requires of its caller, what it
+ensures, or what always holds for its **Domain type**. It is a `Rule` in a **Feature file** and
+has a stable id. A plan lists the contract rules
+that its work adds, changes, or withdraws, under **Contract changes**. A test is worth having
+when it proves one.
+_Avoid_: obligation, promise, guarantee, requirement
+
+**Domain type**:
+A type that a glossary names: an entity, a value object, or an aggregate. It has invariants,
+commands and queries. A **Subsystem** holds one or more.
+_Avoid_: state owner, model class
+
+**Primary seam**:
+The one interface in the code where the contract of a command or a query holds in full: most
+often a method of the **Domain type**. The tests of each **Contract rule** call it. An outer
+seam, such as a handler, a CLI command or a page, reaches it from outside and has no contract of
+its own.
+_Avoid_: owning layer, driving port, entry point
+
+**Feature file**:
+A Gherkin file in `docs/specs/<subsystem>/`. It holds the contract of one command or query, or
+the invariants of one **Domain type**, as **Contract rules** with examples.
+_Avoid_: spec file, scenario file
+
+**Subsystem**:
+A slice of behaviour with its own glossary, **Domain types** and **Feature files**. It can span
+packages.
+_Avoid_: bounded context, component
+
+**Suite outline**:
+The test names of a module's **Owning suite**, without the bodies. A plan reads it to find the
+tests of the current **Contract rules**.
+_Avoid_: test list, test inventory
+
 **Outer layer**:
 A layer that reaches a contract through another layer: a CLI command, a server route, or a
 command that goes over the API. `docs/dev/testing.md` says what an outer layer tests.
