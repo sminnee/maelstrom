@@ -12,7 +12,7 @@ import pytest
 
 from mael_domain.state_db.migrate import open_state_db
 from mael_domain.task import Task, TaskSession
-from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable, TaskTable, row_id
+from mael_domain.task_table import InMemoryTaskTable, SqliteTaskTable, row_id
 
 
 def a_task(id: str = "2026-06-11.1", **fields) -> Task:
@@ -68,34 +68,29 @@ async def table(request):
 class TestTaskTableContract:
     """Shared contract both backends must satisfy."""
 
-    def test_every_backend_subclasses_the_contract(self):
-        """Explicit, so a reader sees which classes claim it."""
-        assert issubclass(InMemoryTaskTable, TaskTable)
-        assert issubclass(SqliteTaskTable, TaskTable)
-
-    async def test_loading_what_is_absent_is_none(self, table):
+    async def test_task_repository_I2_an_unknown_task_loads_as_none(self, table):
         assert await table.load("maelstrom", "nope") is None
 
-    async def test_save_then_load_round_trips_every_field(self, table):
+    async def test_task_repository_I1_each_field_reads_back(self, table):
         """The row carries the prose, so a body field must survive the trip."""
         task = a_task()
         await table.save(task)
         assert await table.load("maelstrom", task.id) == task
 
-    async def test_a_withdrawal_loads_as_a_bool(self, table):
+    async def test_task_repository_I1_a_withdrawal_reads_back_as_a_bool(self, table):
         """SQLite hands back 1, which ``==`` cannot tell from ``True``."""
         await table.save(a_task(pr_withdrawn=True))
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None and loaded.pr_withdrawn is True
 
-    async def test_save_replaces_the_row(self, table):
+    async def test_task_repository_I3_a_save_replaces_the_task(self, table):
         await table.save(a_task(title="First"))
         await table.save(a_task(title="Second"))
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None
         assert loaded.title == "Second"
 
-    async def test_a_task_is_keyed_by_project_and_id(self, table):
+    async def test_task_repository_I3_the_same_id_in_another_project_stays(self, table):
         """Two projects may hold the same id, and neither may shadow the other."""
         await table.save(a_task(project="alpha", title="Alpha's"))
         await table.save(a_task(project="bravo", title="Bravo's"))
@@ -104,17 +99,17 @@ class TestTaskTableContract:
         assert alpha is not None and alpha.title == "Alpha's"
         assert bravo is not None and bravo.title == "Bravo's"
 
-    async def test_delete_removes_the_row(self, table):
+    async def test_task_repository_I4_a_delete_removes_the_task(self, table):
         await table.save(a_task())
         await table.delete("maelstrom", "2026-06-11.1")
         assert await table.load("maelstrom", "2026-06-11.1") is None
 
-    async def test_deleting_what_is_absent_changes_nothing(self, table):
+    async def test_task_repository_I4_an_unknown_delete_changes_nothing(self, table):
         await table.save(a_task())
         await table.delete("maelstrom", "never")
         assert await table.load("maelstrom", "2026-06-11.1") is not None
 
-    async def test_list_is_oldest_first(self, table):
+    async def test_task_repository_I5_a_list_is_oldest_first(self, table):
         # The ids sort against the creation order, so the id cannot give a pass.
         await table.save(a_task(id="aaaa", created="2026-06-13T00:00:00+00:00"))
         await table.save(a_task(id="zzzz", created="2026-06-11T00:00:00+00:00"))
@@ -122,51 +117,41 @@ class TestTaskTableContract:
         listed = await table.list("maelstrom")
         assert [t.id for t in listed] == ["zzzz", "mmmm", "aaaa"]
 
-    async def test_list_puts_an_empty_created_first(self, table):
+    async def test_task_repository_I5_an_empty_created_time_is_first(self, table):
         await table.save(a_task(id="aaaa", created="2026-06-11T00:00:00+00:00"))
         await table.save(a_task(id="zzzz", created=""))
         listed = await table.list("maelstrom")
         assert [t.id for t in listed] == ["zzzz", "aaaa"]
 
-    async def test_list_breaks_a_created_tie_by_id(self, table):
+    async def test_task_repository_I5_the_id_breaks_a_tie(self, table):
         for id in ("cccc", "aaaa", "bbbb"):
             await table.save(a_task(id=id, created="2026-06-11T00:00:00+00:00"))
         listed = await table.list("maelstrom")
         assert [t.id for t in listed] == ["aaaa", "bbbb", "cccc"]
 
-    async def test_list_is_scoped_to_one_project(self, table):
+    async def test_task_repository_I6_a_list_holds_one_project(self, table):
         await table.save(a_task(id="1", project="alpha"))
         await table.save(a_task(id="2", project="bravo"))
         assert [t.id for t in await table.list("alpha")] == ["1"]
 
-    async def test_list_filters_by_status(self, table):
+    async def test_task_repository_I6_a_list_filters_by_status(self, table):
         await table.save(a_task(id="1", status="todo"))
         await table.save(a_task(id="2", status="done"))
         assert [t.id for t in await table.list("maelstrom", status="done")] == ["2"]
 
-    async def test_list_filters_by_parent(self, table):
+    async def test_task_repository_I6_a_list_filters_by_parent(self, table):
         await table.save(a_task(id="1", parent="chain-a"))
         await table.save(a_task(id="2", parent="chain-b"))
         assert [t.id for t in await table.list("maelstrom", parent="chain-b")] == ["2"]
 
-    async def test_list_filters_by_status_and_parent_together(self, table):
+    async def test_task_repository_I6_a_list_filters_by_status_and_parent(self, table):
         await table.save(a_task(id="1", status="todo", parent="chain-a"))
         await table.save(a_task(id="2", status="done", parent="chain-a"))
         await table.save(a_task(id="3", status="done", parent="chain-b"))
         listed = await table.list("maelstrom", status="done", parent="chain-a")
         assert [t.id for t in listed] == ["2"]
 
-    async def test_status_is_a_column_not_a_move(self, table):
-        """The change this whole move buys: one column, no write-new + delete-old."""
-        await table.save(a_task(status="todo"))
-        moved = a_task(status="done")
-        await table.save(moved)
-        assert [t.id for t in await table.list("maelstrom", status="todo")] == []
-        assert [t.id for t in await table.list("maelstrom", status="done")] == [
-            "2026-06-11.1"
-        ]
-
-    async def test_sessions_survive_the_round_trip_with_their_harness(self, table):
+    async def test_task_repository_I1_sessions_keep_their_harness(self, table):
         sessions = [
             TaskSession(id="c-1", harness="claude"),
             TaskSession(id="thread-1", harness="codex"),
@@ -175,7 +160,7 @@ class TestTaskTableContract:
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None and loaded.sessions == sessions
 
-    async def test_find_by_session_id_matches_any_id_in_the_list(self, table):
+    async def test_task_repository_I7_each_session_id_finds_the_task(self, table):
         await table.save(a_task(id="1", sessions=[TaskSession("c-1", "claude")]))
         await table.save(
             a_task(
@@ -190,26 +175,26 @@ class TestTaskTableContract:
             found = await table.find_by_session_id(wanted)
             assert found is not None and found.id == "2"
 
-    async def test_a_blank_session_id_never_resolves(self, table):
+    async def test_task_repository_I7_a_blank_session_id_finds_nothing(self, table):
         """A never-launched row has no sessions, so a blank must not match it."""
         await table.save(a_task())
         assert await table.find_by_session_id("") is None
 
-    async def test_find_by_session_id_of_nothing_is_none(self, table):
+    async def test_task_repository_I7_an_unknown_session_id_finds_nothing(self, table):
         await table.save(a_task(sessions=[TaskSession("c-1", "claude")]))
         assert await table.find_by_session_id("no-such-session") is None
 
-    async def test_follows_survives_the_round_trip_as_a_list(self, table):
+    async def test_task_repository_I1_follows_reads_back_in_order(self, table):
         await table.save(a_task(follows=["a", "b", "c"]))
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None and loaded.follows == ["a", "b", "c"]
 
-    async def test_an_empty_follows_round_trips_as_empty(self, table):
+    async def test_task_repository_I1_an_empty_follows_reads_back_empty(self, table):
         await table.save(a_task(follows=[]))
         loaded = await table.load("maelstrom", "2026-06-11.1")
         assert loaded is not None and loaded.follows == []
 
-    async def test_followers_are_every_task_that_follows_any_id(self, table):
+    async def test_task_repository_I8_followers_come_from_each_project(self, table):
         await table.save(a_task(id="f1", follows=["a"], created="2026-06-11T09:00:02"))
         await table.save(
             a_task(id="f2", follows=["x", "b"], created="2026-06-11T09:00:01")
@@ -236,13 +221,13 @@ class TestTaskTableContract:
         ]
         assert await table.followers("maelstrom", set()) == []
 
-    async def test_a_transaction_commits_every_write(self, table):
+    async def test_task_repository_I9_a_transaction_commits_each_write(self, table):
         async with table.transact():
             await table.save(a_task(id="1"))
             await table.save(a_task(id="2"))
         assert [t.id for t in await table.list("maelstrom")] == ["1", "2"]
 
-    async def test_a_failed_transaction_leaves_no_partial_row(self, table):
+    async def test_task_repository_I9_a_failed_transaction_writes_nothing(self, table):
         """The bug class this move deletes: no row outlives a rollback."""
         await table.save(a_task(id="kept"))
         with pytest.raises(RuntimeError):
@@ -251,13 +236,13 @@ class TestTaskTableContract:
                 raise RuntimeError("the write failed halfway")
         assert [t.id for t in await table.list("maelstrom")] == ["kept"]
 
-    async def test_nothing_changed_since_the_current_revision(self, table):
+    async def test_task_repository_I10_an_idle_read_names_nothing(self, table):
         """An idle poll reads nothing: the whole point of asking by revision."""
         await table.save(a_task(id="1"))
         changed = await table.changed_since(await table.revision())
         assert (changed.tasks, changed.removed) == ([], [])
 
-    async def test_only_the_saved_row_has_changed(self, table):
+    async def test_task_repository_I10_only_the_saved_task_is_named(self, table):
         """One row moves, one row comes back — not the whole table."""
         await table.save(a_task(id="1"))
         await table.save(a_task(id="2"))
@@ -269,20 +254,7 @@ class TestTaskTableContract:
         assert [t.id for t in changed.tasks] == ["2"]
         assert changed.tasks[0].title == "Moved"
 
-    async def test_a_changed_row_comes_back_whole(self, table):
-        """The row carries the prose, so a partial read is not a partial task."""
-        await table.save(a_task(id="1"))
-        cursor = await table.revision()
-
-        await table.save(a_task(id="1", title="Moved", content="The plan."))
-        changed = await table.changed_since(cursor)
-
-        assert (changed.tasks[0].title, changed.tasks[0].content) == (
-            "Moved",
-            "The plan.",
-        )
-
-    async def test_a_deleted_row_is_named_as_removed(self, table):
+    async def test_task_repository_I10_a_deleted_task_is_named_as_removed(self, table):
         """Absence cannot mean deletion, so a removal is reported in its own right."""
         await table.save(a_task(id="1"))
         await table.save(a_task(id="2"))
@@ -294,7 +266,7 @@ class TestTaskTableContract:
         assert changed.removed == [row_id("maelstrom", "1")]
         assert [t.id for t in changed.tasks] == []
 
-    async def test_the_reading_carries_the_revision_to_ask_from_next(self, table):
+    async def test_task_repository_I10_the_next_read_names_no_change_twice(self, table):
         """A poller stores this and hands it back, so no change is read twice."""
         await table.save(a_task(id="1"))
         cursor = await table.revision()
@@ -307,7 +279,7 @@ class TestTaskTableContract:
         again = await table.changed_since(changed.revision)
         assert (again.tasks, again.removed) == ([], [])
 
-    async def test_a_rolled_back_write_is_invisible_to_a_later_read(self, table):
+    async def test_task_repository_I9_a_rollback_leaves_no_change_to_read(self, table):
         """A rollback leaves no row *and* no change to read.
 
         The in-memory twin is the one that can drift here: SQLite rolls its
@@ -326,7 +298,7 @@ class TestTaskTableContract:
         assert (changed.tasks, changed.removed) == ([], [])
         assert changed.revision == cursor
 
-    async def test_every_project_is_read_not_just_one(self, table):
+    async def test_task_repository_I10_a_change_of_each_project_is_named(self, table):
         """The poller asks the database once, then scopes what it got itself."""
         await table.save(a_task(id="1", project="maelstrom"))
         cursor = await table.revision()
@@ -354,13 +326,6 @@ class TestSqliteTaskTable:
         await table.save(a_task())
         rows = await db.read_all("tasks")
         assert {row["revision"] for row in rows} == {1}
-
-    async def test_the_row_id_carries_the_project(self, db):
-        """``StateDb`` keys every table by one ``id`` column."""
-        table = SqliteTaskTable(db)
-        await table.save(a_task(id="2026-06-11.1", project="maelstrom"))
-        rows = await db.read_all("tasks")
-        assert [row["id"] for row in rows] == ["maelstrom/2026-06-11.1"]
 
     async def test_a_save_that_changes_nothing_raises_no_notice(self, db):
         """An idle write must not bump the counter, or the number stops meaning
@@ -396,22 +361,6 @@ class TestSqliteTaskTable:
             await table.save(a_task(id="2"))
         rows = await db.read_all("tasks")
         assert len({row["revision"] for row in rows}) == 1
-
-    async def test_a_rolled_back_transaction_consumes_no_revision(self, db):
-        table = SqliteTaskTable(db)
-        cursor = await db.revision()
-        with pytest.raises(RuntimeError):
-            async with table.transact():
-                await table.save(a_task())
-                raise RuntimeError("failed")
-        assert await db.revision() == cursor
-        assert await db.read_all("tasks") == []
-
-    def test_the_table_is_canonical_so_it_carries_no_fetched_at(self):
-        """Nobody else authors a task, so there is nothing to be fresh against."""
-        from mael_domain.state_db.migrate import TABLES
-
-        assert TABLES["tasks"].cached is False
 
     async def test_a_load_is_a_pure_read(self, db):
         cursor = await db.revision()

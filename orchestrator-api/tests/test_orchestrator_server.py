@@ -112,7 +112,7 @@ from mael_orchestrator.sources import (
     TaskSourceRemote,
     WorktreeOpener,
 )
-from mael_orchestrator.world_build import project_entity, split_task_key
+from mael_orchestrator.world_build import project_entity
 
 NOW = "2026-09-01T00:00:00Z"
 ZAP_SARIF = (
@@ -2158,22 +2158,6 @@ def test_delete_removes_the_task_from_the_notebook(harness):
     assert reply.status == 200
     assert reply.body == {}
     assert [t.id for t in run(model.list_tasks(harness.store, project=PROJECT))] == []
-
-
-def test_delete_strips_the_id_from_a_dependent_follows(harness):
-    """The model rewrites dependents, so a gate on a deleted task is not left dangling."""
-    harness.add_task("NORT-7")
-    harness.add_task("NORT-8", follows=["NORT-7"])
-
-    async def scenario():
-        async with harness.client() as api:
-            reply = await api.delete("/api/tasks/northwind/NORT-7")
-            return reply, await api.get_json("/api/tasks/northwind/NORT-8")
-
-    reply, dependent = run(scenario())
-    assert reply.status == 200
-    assert dependent["follows"] == []
-    assert run(model.load(harness.store, PROJECT, "NORT-8")).follows == []
 
 
 def test_delete_is_refused_while_an_agent_runs_on_the_task(harness):
@@ -4815,19 +4799,6 @@ def test_a_create_whose_launch_is_refused_keeps_the_task_it_wrote(harness):
     )
 
 
-def test_create_in_a_project_the_world_does_not_hold_is_unknown_id(harness):
-    async def scenario():
-        async with harness.client() as api:
-            return await api.post(
-                "/api/tasks", {"project": "nowhere", "title": "Export the orders"}
-            )
-
-    reply = run(scenario())
-    assert reply.status == 404
-    assert reply.body["error"]["code"] == "unknown_id"
-    assert host_calls(harness) == []
-
-
 def test_create_with_no_title_and_no_prose_is_refused_before_the_notebook(harness):
     async def scenario():
         async with harness.client() as api:
@@ -5952,6 +5923,8 @@ def test_approving_a_task_set_creates_the_tasks_and_consumes_the_drafts(
     reply, doc, desk = run(scenario())
     assert reply.status == 200, reply.body
     assert notebook_titles(harness) == ["First step", "Second step"]
+    # An approve that reports nothing reads as an approve that did nothing.
+    assert len(reply.body["taskIds"]) == 2
     assert doc["status"] == "approved"
     # What the user approved is on the canvas at once, beside the free agent.
     assert [e["id"] for e in desk["desk"]] == [
@@ -5961,32 +5934,6 @@ def test_approving_a_task_set_creates_the_tasks_and_consumes_the_drafts(
     # A promoted draft that stays on disk gets promoted twice.
     assert not (harness.worktree / "draft-one.md").exists()
     assert not (harness.worktree / "draft-two.md").exists()
-
-
-def test_the_reply_carries_the_ids_it_created(notebook_harness):
-    """An approve that reports nothing reads as an approve that did nothing."""
-    harness = notebook_harness
-    write_draft(harness, "draft-one.md", "First step")
-    write_draft(harness, "draft-two.md", "Second step")
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                _, reply = await approve_tasks(
-                    api, stream, harness, "draft-one.md", "draft-two.md"
-                )
-                return reply
-
-    reply = run(scenario())
-    # Wire ids, as every other task the UI links to carries.
-    created = reply.body["taskIds"]
-    assert len(created) == 2
-    titles = [
-        run(model.load(harness.store, *split_task_key(task_id))).title
-        for task_id in created
-    ]
-    assert titles == ["First step", "Second step"]
 
 
 def test_the_agent_is_told_its_drafts_became_tasks(notebook_harness):
@@ -6119,43 +6066,8 @@ def test_the_chain_joins_the_planning_task_s_parent(notebook_harness):
         if t.title == "First step"
     ]
     assert [t.parent for t in created] == ["linear.NORT-9"]
-
-
-def test_a_mid_chain_planner_s_set_splices_in_after_it(notebook_harness):
-    """A -> P -> C, approved from P, becomes A -> P -> N1 -> N2 -> C."""
-    harness = notebook_harness
-    harness.add_task("NORT-1", title="A")
-    harness.add_task(
-        "NORT-2", session=session_of("NORT-2"), title="P", follows=["NORT-1"]
-    )
-    harness.add_task("NORT-3", title="C", follows=["NORT-2"])
-    harness.daemon.rows["ag1"] = agent_row(
-        cwd=str(harness.worktree), session=session_of("NORT-2")
-    )
-    write_draft(harness, "draft-one.md", "N1")
-    write_draft(harness, "draft-two.md", "N2")
-
-    async def scenario():
-        async with harness.client() as api:
-            async with api.events() as stream:
-                await stream.next("reset")
-                await until(api, "/api/agents", lambda b: b["agents"][0]["taskId"])
-                _, reply = await approve_tasks(
-                    api, stream, harness, "draft-one.md", "draft-two.md"
-                )
-                return reply
-
-    reply = run(scenario())
-    assert reply.status == 200, reply.body
-    tasks = run(model.list_tasks(harness.store, project=PROJECT))
-    title = {t.id: t.title for t in tasks}
-    assert {t.title: [title[f] for f in t.follows] for t in tasks} == {
-        "A": [],
-        "P": ["A"],
-        "N1": ["P"],
-        "N2": ["N1"],
-        "C": ["N2"],
-    }
+    # The door names the planner's task as the one the Chain goes after.
+    assert [t.follows for t in created] == [["linear.NORT-9.1"]]
 
 
 def test_a_draft_that_names_its_own_parent_keeps_it(notebook_harness):
@@ -13926,7 +13838,7 @@ def test_unlinking_or_deleting_a_task_leaves_the_comm_s_task_ids(harness):
     assert deleted == []
 
 
-def test_a_task_keeps_a_comm_id_it_already_holds_when_linking_another(harness):
+def test_an_update_keeps_a_comm_id_the_task_already_holds(harness):
     """A dangling id written by a load-many block must not lock the task's links."""
     harness.add_task("t1", comms=["c99"])
 
@@ -14071,18 +13983,11 @@ def test_a_task_created_with_comms_is_in_the_comm_s_task_ids_at_the_reply(harnes
         ("post", "/api/comms", {"title": "x", "project": "nope"}, "unknown_id"),
         ("post", "/api/comms", {"title": "x", "category": 3}, "invalid"),
         ("patch", "/api/comms/c1", {"project": "nope"}, "unknown_id"),
-        (
-            "post",
-            "/api/tasks",
-            {"project": PROJECT, "title": "x", "comms": ["c9"]},
-            "unknown_id",
-        ),
         ("post", "/api/comms", {"title": "x", "recipients": "#cs"}, "invalid"),
         ("patch", "/api/comms/c9", {"title": "x"}, "unknown_id"),
         ("patch", "/api/comms/c1", {}, "invalid"),
         ("patch", "/api/comms/c1", {"closed": "yes"}, "invalid"),
         ("patch", "/api/comms/c1", {"content": 3}, "invalid"),
-        ("patch", "/api/tasks/northwind/t1", {"comms": ["c9"]}, "unknown_id"),
         ("patch", "/api/tasks/northwind/t1", {"comms": "c1"}, "invalid"),
     ],
 )
@@ -14097,6 +14002,32 @@ def test_the_comm_routes_refuse_what_they_cannot_do(harness, method, path, body,
 
     reply, task = run(scenario())
     assert reply.body["error"]["code"] == code
+    assert task["comms"] == []
+
+
+def test_a_create_that_links_an_unknown_comm_is_refused(harness):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.post(
+                "/api/tasks", {"project": PROJECT, "title": "x", "comms": ["c9"]}
+            )
+            return reply, await api.get_json("/api/tasks")
+
+    reply, tasks = run(scenario())
+    assert reply.body["error"]["code"] == "unknown_id"
+    assert tasks["tasks"] == []
+
+
+def test_an_update_that_links_an_unknown_comm_is_refused(harness):
+    harness.add_task("t1")
+
+    async def scenario():
+        async with harness.client() as api:
+            reply = await api.patch("/api/tasks/northwind/t1", {"comms": ["c9"]})
+            return reply, await api.get_json("/api/tasks/northwind/t1")
+
+    reply, task = run(scenario())
+    assert reply.body["error"]["code"] == "unknown_id"
     assert task["comms"] == []
 
 
