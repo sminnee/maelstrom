@@ -1,6 +1,6 @@
 """Task documents: the reference grammar, and the rules over the store.
 
-See ``CONTEXT.md``, "Task document", "Document link" and "Fragment", and
+See ``docs/specs/tasks/CONTEXT.md``, "Task document", "Document link" and "Fragment", and
 ``docs/adr/0001-task-documents.md``. The store is
 :mod:`mael_domain.task_attachments`.
 """

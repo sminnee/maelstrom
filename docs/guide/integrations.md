@@ -33,7 +33,7 @@ This file holds plaintext secrets. `mael self check-host` checks its permissions
 ## Linear
 
 Linear is the **product-level mirror**. Read briefs there and mirror status there. The plan
-of record lives in the notebook chain, not in a Linear description.
+of record lives in the chain of tasks, not in a Linear description.
 
 ```yaml
 # .maelstrom.yaml

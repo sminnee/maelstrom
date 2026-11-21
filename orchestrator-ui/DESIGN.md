@@ -178,7 +178,7 @@ imperative — the work to do — so it never reads as a state the agent is in.
 
 A node without a phase draws neither: the bar falls back to the faint neutral and no label shows.
 Two things have no phase — an agent with no task, and a task whose `command` nobody recognises.
-Guessing a phase for either would state something the notebook never said.
+Guessing a phase for either would state something the Task tracker never said.
 
 - **Shape Violet** (`--phase-shape`): exploring a brief until tasks are agreed.
 - **Plan Blue** (`--phase-plan`): producing a plan for one task, or a plan-mode build task until its

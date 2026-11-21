@@ -1,7 +1,7 @@
 """The Task document store: each document, its versions, and the tasks that link it.
 
 The table and the module keep the name they had when a row was one attached file.
-See ``CONTEXT.md``, "Task document", and ``docs/adr/0001-task-documents.md``. The
+See ``docs/specs/tasks/CONTEXT.md``, "Task document", and ``docs/adr/0001-task-documents.md``. The
 rules that sit on top of the store are in :mod:`mael_domain.task_documents`.
 """
 

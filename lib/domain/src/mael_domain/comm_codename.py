@@ -1,4 +1,4 @@
-"""Name a comm with a **Comm codename**. See ``CONTEXT.md``, "Comm codename".
+"""Name a comm with a **Comm codename**. See ``docs/specs/tasks/CONTEXT.md``, "Comm codename".
 
 The **Task metadata generator** makes the codename. The model only proposes.
 This module checks the reply against a strict format and against the codenames

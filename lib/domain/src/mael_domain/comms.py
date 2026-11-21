@@ -1,6 +1,6 @@
 """Comms, the tasks that feed each one, and the updates each one sends.
 
-See ``CONTEXT.md``, "Comm" and "Comm update". A comm row is kept by
+See ``docs/specs/tasks/CONTEXT.md``, "Comm" and "Comm update". A comm row is kept by
 :mod:`mael_domain.comm_store`. The link is the task's ``comms`` field, so a
 link change is a task write.
 """
@@ -264,7 +264,7 @@ def queue(
 ) -> list[StepEvent]:
     """The steps ``comm`` has not yet reported, in ``steps`` order.
 
-    See ``CONTEXT.md``, "Comm update", and ``docs/dev/data-architecture.md`` for
+    See ``docs/specs/tasks/CONTEXT.md``, "Comm update", and ``docs/dev/data-architecture.md`` for
     why the queue is set by membership and not by record time.
     """
     if comm.closed_at:
@@ -361,7 +361,7 @@ async def edit_update(store: CommUpdateStore, id: str, content: str) -> CommUpda
 async def send_update(
     store: CommUpdateStore, id: str, now: str | None = None
 ) -> CommUpdate:
-    """Mark a draft sent. See ``CONTEXT.md``, "Comm update".
+    """Mark a draft sent. See ``docs/specs/tasks/CONTEXT.md``, "Comm update".
 
     Raises ``KeyError`` for an unknown id and ``ValueError`` for a sent update.
     """

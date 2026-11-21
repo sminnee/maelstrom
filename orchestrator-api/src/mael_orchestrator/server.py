@@ -778,15 +778,15 @@ class Orchestrator:
         #: Every Agent record. The world reads the ended ones once, at start,
         #: so a task keeps its earlier agents through a restart.
         self.agent_records = agent_records
-        #: The Task documents — see ``CONTEXT.md``, "Task document". The world
+        #: The Task documents — see ``docs/specs/tasks/CONTEXT.md``, "Task document". The world
         #: reads them once, at start.
         self.document_store: TaskAttachmentTable = tasks.documents
         #: Each task's landing — see ``CONTEXT.md``, "Landing". Synced in the
         #: worktree read.
         self.landings = landings if landings is not None else Landings()
-        #: The comms — see ``CONTEXT.md``, "Comm". Polled on the task tick.
+        #: The comms — see ``docs/specs/tasks/CONTEXT.md``, "Comm". Polled on the task tick.
         self.comms = comms if comms is not None else InMemoryCommStore()
-        #: Each comm's updates — see ``CONTEXT.md``, "Comm update". The server
+        #: Each comm's updates — see ``docs/specs/tasks/CONTEXT.md``, "Comm update". The server
         #: is their one writer.
         self.comm_updates = (
             comm_updates if comm_updates is not None else InMemoryCommUpdateStore()
@@ -3131,7 +3131,7 @@ class Orchestrator:
         """Unlink the PR an agent's ``<link rel="gh-pr" withdrawn>`` named.
 
         A free agent withdraws nothing, and nor does a tag that names a PR the
-        task does not link. See CONTEXT.md, "Registered PR".
+        task does not link. See docs/specs/tasks/CONTEXT.md, "Registered PR".
         """
         agent = self.world["agents"].get(agent_id)
         task_id = agent.get("taskId") if agent else ""

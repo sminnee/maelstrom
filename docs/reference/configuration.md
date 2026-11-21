@@ -411,7 +411,7 @@ directory such as `~/.maelstrom/playpen/kilo` for a dev environment. The root ho
 `~/.maelstrom/config.yaml`. A dev environment's root can hold a `config.yaml` that overlays the
 global file. Each key it sets replaces the global key, and the other keys stay.
 
-`orchestrator_url:` is the exception. It names the server of one notebook. Production derives
+`orchestrator_url:` is the exception. It names the server of one Task tracker. Production derives
 it from `dev_host:` and `dev_https:`, and does not read the key. A dev environment reads it from
 its own notebook root's `config.yaml` alone. A dev environment with no `config.yaml` of its own
 has no server, and the `mael task` commands that call one fail. They never reach the production

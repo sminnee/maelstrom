@@ -2,7 +2,9 @@
 
 The mental model behind `mael task …`. This is the *conceptual* overview; the
 authoritative mechanics live in the code docstrings (`task.py`, `task_cli.py`)
-that assume it. For the layering view of the same subsystem see
+that assume it. The terms are in the Tasks glossary,
+[`docs/specs/tasks/CONTEXT.md`](../specs/tasks/CONTEXT.md), and the contract of each write command is a
+feature file in [`docs/specs/tasks/task-tracker/`](../specs/tasks/task-tracker/). For the layering view of the same subsystem see
 [`architecture-patterns.md`](architecture-patterns.md); for launchd scheduling
 mechanics see [`scheduled-tasks.md`](scheduled-tasks.md).
 
@@ -112,7 +114,7 @@ A chain is typically a `follows` line-up of siblings that all share one `parent`
 ## Parking a task
 
 An `in-progress` task that follows unfinished work is a **Parked task** (see
-`CONTEXT.md`). `mael task follow` makes one:
+`docs/specs/tasks/CONTEXT.md`). `mael task follow` makes one:
 
 ```bash
 mael task follow k3f9          # the current task now waits on k3f9

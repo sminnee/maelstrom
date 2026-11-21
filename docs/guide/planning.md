@@ -17,7 +17,7 @@ Task session(s) — plan mode, then build, own worktree
 ```
 
 The planning session writes **draft task files**: one file per future task, in the task-file
-format, in the worktree's `.drafts/` directory. A draft is not in the notebook. It is inert until
+format, in the worktree's `.drafts/` directory. A draft is not in the Task tracker. It is inert until
 `mael task promote` loads it, so approval is structural — nothing you draft can run until you
 promote it.
 
@@ -146,7 +146,7 @@ Outside a task session, the first task follows nothing.
 
 `--follow` and `--follow-end` wire the first task instead, and move no other task. Any recipe
 flag overrides every file's value, the same way `add --from` flags override the copied recipe.
-The set is one notebook write. On an error — missing file, bad frontmatter, no title — every
+The set is one Task tracker write. On an error — missing file, bad frontmatter, no title — every
 file is left untouched and no task is created.
 
 ### Approving in the orchestrator UI
@@ -156,7 +156,7 @@ button reads **Approve and create 3 tasks**, one per draft. Pressing it on any d
 every draft the tag named, in the order it named them. The set splices
 in after the planning task, as `mael task promote` does.
 
-The whole set is one notebook write. A draft that will not parse creates nothing, deletes
+The whole set is one Task tracker write. A draft that will not parse creates nothing, deletes
 nothing, and leaves the drafts awaiting review with a message naming the file to fix. On success
 the tab lists the ids it created and every draft moves to approved.
 
@@ -441,7 +441,7 @@ The skill works with two plugins from `claude-plugins-official`. Install them on
 
 ## Linear stays a mirror
 
-The plan of record lives in the notebook chain, not in a Linear description. The planning
+The plan of record lives in the chain of tasks, not in a Linear description. The planning
 skill mirrors *status* with `set-status … planned`, but never writes the plan body back to
 Linear.
 

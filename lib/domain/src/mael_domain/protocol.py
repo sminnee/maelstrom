@@ -406,11 +406,11 @@ class Task(TypedDict):
     priority: str
     model: str
     executeModel: str
-    #: The Registered PRs, oldest first. See CONTEXT.md, "Registered PR".
+    #: The Registered PRs, oldest first. See docs/specs/tasks/CONTEXT.md, "Registered PR".
     prs: list[LinkedPr]
-    #: The work after the merge; ``""`` for none. See CONTEXT.md, "Post-merge work".
+    #: The work after the merge; ``""`` for none. See docs/specs/tasks/CONTEXT.md, "Post-merge work".
     postMerge: str
-    #: Whether the status is one the task counts as done. See CONTEXT.md, "Done".
+    #: Whether the status is one the task counts as done. See docs/specs/tasks/CONTEXT.md, "Done".
     done: bool
     content: str
     log: list[TaskLogEntry]
@@ -424,7 +424,7 @@ class Task(TypedDict):
     landing: TaskLanding | None
     #: The ids of the comms the task feeds, such as ``c3``. Global, so bare.
     comms: list[str]
-    #: A template's cron schedule, and what else fires it. See CONTEXT.md, "Trigger".
+    #: A template's cron schedule, and what else fires it. See docs/specs/tasks/CONTEXT.md, "Trigger".
     schedule: str
     trigger: str
     #: When a template last fired, ISO 8601; ``""`` when it never has.
@@ -432,7 +432,7 @@ class Task(TypedDict):
     #: The schedule zone the cron is read in, as a label, such as
     #: ``Pacific/Auckland``. ``""`` for a task with no ``schedule``.
     scheduleZone: str
-    #: The task's sessions, oldest first. See CONTEXT.md, "Task session id".
+    #: The task's sessions, oldest first. See docs/specs/tasks/CONTEXT.md, "Task session id".
     sessions: list[TaskSession]
 
 
@@ -527,7 +527,7 @@ class CommItem(TypedDict):
 
 
 class CommUpdate(TypedDict):
-    """One **Comm update** on the wire. See ``CONTEXT.md``, "Comm update".
+    """One **Comm update** on the wire. See ``docs/specs/tasks/CONTEXT.md``, "Comm update".
 
     ``state`` is ``draft`` or ``sent``; ``sentAt`` is ``""`` while a draft.
     """
@@ -542,7 +542,7 @@ class CommUpdate(TypedDict):
 
 
 class Comm(TypedDict):
-    """One **Comm** on the wire. See ``CONTEXT.md``, "Comm".
+    """One **Comm** on the wire. See ``docs/specs/tasks/CONTEXT.md``, "Comm".
 
     ``taskIds`` are the wire ids of the tasks that name it in their ``comms``.
     ``closedAt`` is ``""`` while the comm is open. ``category`` is free text;
@@ -690,7 +690,7 @@ class Attention(TypedDict):
 
 
 class DocumentGroup(TypedDict):
-    """The review group a document is a member of — see ``CONTEXT.md``, "Review group".
+    """The review group a document is a member of — see ``docs/specs/tasks/CONTEXT.md``, "Review group".
 
     ``position`` is the member's place in the tag: a task set's chain order.
     """
