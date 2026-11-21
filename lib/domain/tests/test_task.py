@@ -954,7 +954,7 @@ class TestSafeId:
 
     @pytest.mark.parametrize(
         "bad",
-        # `:` `@` `#` delimit a Task document reference: see CONTEXT.md, "Task document".
+        # `:` `@` `#` delimit a Task document reference: see docs/specs/tasks/CONTEXT.md, "Task document".
         ["", ".", "..", "a/b", "../x", "a b", "a\tb", "a/../b", "a:b", "a@b", "a#b"],
     )
     def test_rejects_unsafe(self, bad):

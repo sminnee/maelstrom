@@ -26,7 +26,7 @@ from .desk import split_desk_id
 from .world_build import split_task_key
 
 #: The statuses a move names: each stored status, and the ``done`` verb that
-#: resolves to the task's done status. See CONTEXT.md, "Done".
+#: resolves to the task's done status. See docs/specs/tasks/CONTEXT.md, "Done".
 TASK_STATUSES = (*VALID_STATUSES, STATUS_DONE)
 
 #: The keys ``task.update`` writes. Anything else in ``fields`` is not an edit.

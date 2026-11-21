@@ -13,7 +13,7 @@ export interface ReviewGroup {
 
 /**
  * The current members of review group `groupId`, in tag order. A superseded
- * member was dropped from its group, so it is left out — see `CONTEXT.md`,
+ * member was dropped from its group, so it is left out — see `docs/specs/tasks/CONTEXT.md`,
  * "Review group".
  */
 export function groupMembers<T extends DocumentRow>(documents: readonly T[], groupId: string): T[] {

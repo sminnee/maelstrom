@@ -64,7 +64,7 @@ STATUS_MERGED = "merged"
 STATUS_PUBLISHED = "published"
 STATUS_CANCELLED = "cancelled"
 # Not a stored status: a verb that :func:`move` resolves to the task's done
-# status. See CONTEXT.md, "Done".
+# status. See docs/specs/tasks/CONTEXT.md, "Done".
 STATUS_DONE = "done"
 # A parking folder for tasks you duplicate *from* regularly (templates). Kept
 # out of the actionable/WIP scans (next_task/list_tasks default, is_actionable),
@@ -187,15 +187,15 @@ TASK_FIELDS = (
     # The execute model. Appended at the end so existing files keep a stable
     # diff. See CONTEXT.md, "Execute model".
     _FieldSpec("execute-model", block=True),
-    # What fires a template. See CONTEXT.md, "Trigger".
+    # What fires a template. See docs/specs/tasks/CONTEXT.md, "Trigger".
     _FieldSpec("trigger"),
     # The comms the task feeds. A new task inherits them. See
-    # CONTEXT.md, "Comm".
+    # docs/specs/tasks/CONTEXT.md, "Comm".
     _FieldSpec("comms", block=True),
     # The Registered PRs. Written by ``register_pr``, never by a block. See
-    # CONTEXT.md, "Registered PR".
+    # docs/specs/tasks/CONTEXT.md, "Registered PR".
     _FieldSpec("prs"),
-    # The work the agent does after the merge. See CONTEXT.md, "Post-merge work".
+    # The work the agent does after the merge. See docs/specs/tasks/CONTEXT.md, "Post-merge work".
     _FieldSpec("post-merge", block=True),
 )
 
@@ -293,10 +293,10 @@ class Task:
     model: str = ""
     # The execute model; empty means no switch. See CONTEXT.md.
     execute_model: str = ""
-    # The Registered PRs, oldest first. See CONTEXT.md, "Registered PR".
+    # The Registered PRs, oldest first. See docs/specs/tasks/CONTEXT.md, "Registered PR".
     prs: list[LinkedPr] = field(default_factory=list)
     # The work after the merge; empty when there is none. It sets which
-    # statuses count as done. See CONTEXT.md, "Post-merge work".
+    # statuses count as done. See docs/specs/tasks/CONTEXT.md, "Post-merge work".
     post_merge: str = ""
     # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
     trigger: str = ""
@@ -306,7 +306,7 @@ class Task:
     log: str = ""
     status: str = DEFAULT_STATUS
     # The task's agent sessions, oldest first. Machine-owned: not in the
-    # frontmatter. See CONTEXT.md, "Task session id".
+    # frontmatter. See docs/specs/tasks/CONTEXT.md, "Task session id".
     sessions: list["TaskSession"] = field(default_factory=list)
 
     # --- serialization ---
@@ -620,7 +620,7 @@ def done_statuses(post_merge: str) -> tuple[str, ...]:
 
     With no post-merge work, a task is done once it is merged. With post-merge
     work, a merged task still has that work to do, so only ``published``
-    counts. See CONTEXT.md, "Done".
+    counts. See docs/specs/tasks/CONTEXT.md, "Done".
     """
     if post_merge.strip():
         return (STATUS_PUBLISHED,)
@@ -633,7 +633,7 @@ def done_status(post_merge: str) -> str:
 
 
 def is_done(task: Task) -> bool:
-    """Whether ``task`` is done. See CONTEXT.md, "Done"."""
+    """Whether ``task`` is done. See docs/specs/tasks/CONTEXT.md, "Done"."""
     return task.status in done_statuses(task.post_merge)
 
 
@@ -1496,7 +1496,7 @@ async def register_pr(
     """Link PR ``number`` to the task, after any PRs it already links.
 
     A PR the task already links is left as it is, except that a URL fills in
-    a link that has none. The one write path for the list; see CONTEXT.md,
+    a link that has none. The one write path for the list; see docs/specs/tasks/CONTEXT.md,
     "Registered PR".
     """
     task = await load(table, project, id)
@@ -1524,7 +1524,7 @@ async def withdraw_pr(
 
     The next :func:`register_pr` links it again. Returns the task and the PR it
     unlinked. Raises ``ValueError`` when the task does not link that PR. See
-    CONTEXT.md, "Registered PR".
+    docs/specs/tasks/CONTEXT.md, "Registered PR".
     """
     task = await load(table, project, id)
     if number is None:

@@ -23,7 +23,7 @@ export const TASK_STATUSES = [
 
 /**
  * A status a move may name: each stored status, and `done`, which the server
- * resolves to the task's done status. See CONTEXT.md, "Done".
+ * resolves to the task's done status. See docs/specs/tasks/CONTEXT.md, "Done".
  */
 export type StatusMove = TaskStatus | 'done';
 
@@ -381,9 +381,9 @@ export interface Task {
   model: string;
   /** The model the session switches to when its plan is approved; '' = no switch. */
   executeModel: string;
-  /** The Registered PRs, oldest first. See CONTEXT.md, "Registered PR". */
+  /** The Registered PRs, oldest first. See docs/specs/tasks/CONTEXT.md, "Registered PR". */
   prs: LinkedPr[];
-  /** The work after the merge; `''` for none. See CONTEXT.md, "Post-merge work". */
+  /** The work after the merge; `''` for none. See docs/specs/tasks/CONTEXT.md, "Post-merge work". */
   postMerge: string;
   /** Whether the status is one the task counts as done. Derived by the backend. */
   done: boolean;
@@ -409,7 +409,7 @@ export interface Task {
   lastRun: string;
   /** The **Schedule zone** the cron is read in, as a label, or `''` with no `schedule`. */
   scheduleZone: string;
-  /** The task's sessions, oldest first. See CONTEXT.md, "Task session id". */
+  /** The task's sessions, oldest first. See docs/specs/tasks/CONTEXT.md, "Task session id". */
   sessions: TaskSession[];
 }
 
@@ -469,11 +469,11 @@ export interface Comm {
   createdAt: string;
   /** `''` while the comm is open. */
   closedAt: string;
-  /** Free text. See `CONTEXT.md`, "Comm category". */
+  /** Free text. See `docs/specs/tasks/CONTEXT.md`, "Comm category". */
   category: string;
   /** The project a task made from the comm goes to, or `''`. */
   project: string;
-  /** See `CONTEXT.md`, "Comm codename". `''` before one is made: show the id. */
+  /** See `docs/specs/tasks/CONTEXT.md`, "Comm codename". `''` before one is made: show the id. */
   codename: string;
   taskIds: TaskId[];
   queued: CommItem[];

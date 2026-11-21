@@ -32,7 +32,7 @@ the database; the two below are what is left:
 Three bug classes followed from the columns not sharing a row. Moving the tasks closed each one
 for them, and the two subsystems above still carry all three.
 
-**A cache outlives a rollback.** A store transaction rolled the notebook back, but not a SQLite
+**A cache outlives a rollback.** A store transaction rolled the Task tracker back, but not a SQLite
 index beside it nor a file written next to it, so a failed multi-task write left a partial
 state. A task now carries its prose in its own row: one write, one transaction, nothing beside
 it to disagree.
@@ -45,7 +45,7 @@ costs the rows that changed.
 
 The cost was measurable. On a machine with 16 projects, 96 worktrees and 794 tasks, a task read
 parsed every task file in **2.8 s**, and a worktree read took **4.1 s** — of which **2.4 s**
-was the task notebook being parsed a second time, by a different subsystem, for one column of
+was the Task tracker being parsed a second time, by a different subsystem, for one column of
 the worktree table. A task read is now a query.
 
 ## The five patterns
@@ -185,7 +185,7 @@ Pass-through is a real answer, not a compromise. Naming it stops a reviewer prop
 for data that does not want one.
 
 It is not a place to put data that is merely expensive to read today. A task's `content` looked
-like a candidate while tasks were markdown files, because the whole notebook had to be parsed to
+like a candidate while tasks were markdown files, because the whole Task tracker had to be parsed to
 answer for one task. Now that tasks are rows, one task's prose is a single-row query, and it sits
 in the canonical table with the rest of the task.
 
@@ -336,7 +336,7 @@ the revision counter**: its rows name `revision = 0` themselves, so a client pol
 `changed_since` reads them as the state it started from rather than as a change. The rung runs
 inside the migration's own transaction, so a rung that raises rolls the whole run back with it. It is
 also handed the directory the database file is in, and reads its files from there. So it imports
-the notebook beside the database it fills, whatever `MAEL_NOTEBOOK_ROOT` names.
+the Task tracker beside the database it fills, whatever `MAEL_NOTEBOOK_ROOT` names.
 
 Lower refuses rather than upgrading because several processes share one notebook root, and a
 background process that rewrote the schema under a running server is worse than a stop with a

@@ -1,7 +1,7 @@
 # The orchestrator server
 
 The server builds the world the orchestrator UI shows — tasks, worktrees, agents,
-attention — from the task notebook, `list-all` and the agent host, and serves it over HTTP:
+attention — from the Task tracker, `list-all` and the agent host, and serves it over HTTP:
 resources by REST, change notices on one stream, and one socket per open agent transcript.
 `mael-orchestrator serve` runs it.
 
@@ -27,7 +27,7 @@ carries and nothing maps between a dataclass and the wire.
 | `notices.py` | pure | `notices_for`: which change notices a batch of events amounts to |
 | `transcript_log.py` | pure | `TranscriptLog`: one agent's items, its seq, and the ring of frames a resume replays |
 | `hubs.py` | adapter | `NoticeHub`: change notices to every open notice stream, coalesced per subscriber. `TranscriptHub`: transcript frames to every socket open on an agent, bounded per socket |
-| `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the notebook and `list_all.build_list_all_data`. `WorktreeOpener` opens the worktree an agent starts in. `TaskHomes` gives each agent's `TaskHome`: the notebook, or a `RemoteTaskSource` on its **Parent server**. See [remote-hosts.md](remote-hosts.md#the-task-seam-and-taskhomes) |
+| `sources.py` | storage | `TaskSource` and `WorktreeSource`, over the Task tracker and `list_all.build_list_all_data`. `WorktreeOpener` opens the worktree an agent starts in. `TaskHomes` gives each agent's `TaskHome`: the Task tracker, or a `RemoteTaskSource` on its **Parent server**. See [remote-hosts.md](remote-hosts.md#the-task-seam-and-taskhomes) |
 | `remote_hosts.py` | adapter | `RemoteHost`: the link to one **Remote host**, its merged slices, and the forward of a request for an id it owns |
 | `linear_source.py` | storage | `cycle_issues` and `plan_fields`: the server's one door onto Linear |
 | `daemon_bridge.py` | storage | `DaemonRouter`: the agent-host protocol and its reply mapping. The socket client is `agent_transport.SocketAsyncDaemonClient`, and its fake is `agent_transport.ScriptedAsyncDaemonClient` |
@@ -326,7 +326,7 @@ drops the listener first, because a shielded read outlives its cancelled caller.
 
 **Two triggers.** The listener checks a PR that a read moved. A world change checks a PR that
 just gained a recipient, against what the cache already holds: `create-pr` registers its PR in the
-notebook after its own read, and at start the agents are read after the worktrees. Both schedule
+Task tracker after its own read, and at start the agents are read after the worktrees. Both schedule
 `_pr_watch` off the read, so a slow `say` never holds a read in flight. One lock serialises the
 checks, so two reads cannot tell the same news.
 
@@ -337,7 +337,7 @@ away".
 ### Task edits
 
 An edit of a task tells the task's live top-level agents, so an agent does not work from stale
-content. `_apply` finds the edit, so every write path counts: the UI, the API, and a notebook
+content. `_apply` finds the edit, so every write path counts: the UI, the API, and a Task tracker
 write by `mael task update` that the poll publishes.
 
 `_task_edits` pairs each task upsert with the task as the world holds it before the apply. A new
@@ -362,7 +362,7 @@ out. `mael task status`, `mael task follow` and `mael task unfollow` send `sessi
 `CLAUDE_CODE_SESSION_ID`. `_write_task` keeps it in `_task_edit_senders`, by task, until its
 forced refresh ends, because the poll can publish the write first. An agent whose `session` is
 the sender hears nothing. `task.queued` ignores the sender: the agent must stop even when it
-added the follow itself. `mael task update` and `mael task edit` write the notebook directly and
+added the follow itself. `mael task update` and `mael task edit` write the Task tracker directly and
 send no sender, so an agent that edits its own task with them hears the edit back.
 
 The suppression is keyed by task, not by write. An edit by someone else that the same forced
@@ -839,7 +839,7 @@ turn's session, so the "end wins" rule above applies only to the plain marker.
 
 ### Approving a task set
 
-A draft's inertness is the approval gate — see `CONTEXT.md`, "Draft". A session in a terminal gates on
+A draft's inertness is the approval gate — see `docs/specs/tasks/CONTEXT.md`, "Task draft". A session in a terminal gates on
 the user saying yes in the chat. The orchestrator UI has no chat, so the document's Approve button is
 what runs the promote; otherwise approval would be advice the agent may ignore rather than a gate.
 
@@ -849,7 +849,7 @@ group. So approving a member of a group whose members are all `tasks` documents 
 group stays the verdict alone. A `source` names a registry id, so the paths come back from the
 registry that validated them when the tag was read — see "The file registry". A member with no id
 was unreadable, and refuses the promote with its path.
-The set **splices** in after the planning task — see `CONTEXT.md`, "Splice". The document's
+The set **splices** in after the planning task — see `docs/specs/tasks/CONTEXT.md`, "Splice". The document's
 `taskId` names the planning task in the world. Its notebook id plays the part `$MAEL_TASK_ID`
 plays for `mael task promote`. A free agent has no task, so its set follows nothing. The reply carries the created ids,
 because an approve that reports nothing reads as an approve that did nothing.
@@ -865,17 +865,17 @@ failure path safe:
 
 - **One transaction.** Several drafts are several task writes, and a failure part-way would
   leave some tasks created and some not. `TaskTable.transact` gives the set a true rollback, so
-  an invalid draft leaves the notebook untouched and the document still `awaiting-review`. The
+  an invalid draft leaves the Task tracker untouched and the document still `awaiting-review`. The
   refusal names the file, since the user is looking at the document and needs to know which one
   to fix.
 - **One store.** A task's prose is in its row, so there is no second place a rolled-back write
-  can survive in. That is what the cache beside the notebook used to cost, and why promote had
+  can survive in. That is what the cache beside the Task tracker used to cost, and why promote had
   to work around it.
 - **Deferred deletion.** The caller deletes the files only once `promote_chain` has committed:
   the approve after its promote, and `mael task promote` after a `2xx` reply. A rollback restores the rows but cannot restore a deleted
   file, so deleting as it went would leave the user a half-deleted plan.
 
-The task refresh is forced afterwards, as every other notebook write forces it: the poll is 2 s
+The task refresh is forced afterwards, as every other Task tracker write forces it: the poll is 2 s
 away, and the user who approved would otherwise see nothing until it came round.
 
 ## A shown image
@@ -928,7 +928,7 @@ random and then rely on them being unguessable.
 
 The registry is not persisted. It dies with a server restart, and a re-normalised transcript
 registers its files again. An image URL from before a restart is a 404. A **Task document** does
-not depend on the registry: its media are served from the notebook.
+not depend on the registry: its media are served from the Task tracker.
 
 | Route | Serves |
 | --- | --- |
@@ -1148,11 +1148,11 @@ snapshot and its first live one.
 | Gate jobs | Pushed by the gate watch. See "The gate watch" | on each change |
 | Merge requests | Pushed by the Build queue on each change. See "The Build queue" | on each change |
 
-Blocking reads run on one worker thread. The SQLite index behind the notebook is bound to the
+Blocking reads run on one worker thread. The SQLite index behind the Task tracker is bound to the
 thread that opens it, so a pool of one keeps every read on the same connection.
 
 Worktree operations run on a second, wider pool. They touch git, ports and the process table and
-never the notebook, so they have no reason to queue behind a task read — and a fetch would stall
+never the Task tracker, so they have no reason to queue behind a task read — and a fetch would stall
 one for seconds.
 
 The pool is handed to each operation's sequence rather than applied at the call site: an operation
@@ -1172,12 +1172,12 @@ one. Four rules keep that cost inside the budget, one spends a read where it is 
 last one reads the PR state the query cannot.
 
 **The poll asks only about the branches on the desk.** `desk.active_branches` joins each desk
-entry to its branch: a `task:` entry through the notebook, an `agent:` entry through its
+entry to its branch: a `task:` entry through the Task tracker, an `agent:` entry through its
 worktree. `worktreeId` carries that join, and the agent poll relinks it; between a worktree
 appearing and that relink the id is empty, so the agent's `cwd` answers instead.
 
-A `task:` entry contributes two names: the branch the notebook records, and the branch its agent
-is really on. A task that recorded none is given a generated name, so the notebook's answer is a
+A `task:` entry contributes two names: the branch the Task tracker records, and the branch its agent
+is really on. A task that recorded none is given a generated name, so the Task tracker's answer is a
 guess, while the node draws the worktree its agent runs in. Ask about the guess alone and a row
 draws a branch nobody looked up, so its pull request never appears. The agent is reached through
 `taskId`, because the world keys agents by their own id.
@@ -1356,7 +1356,7 @@ and a comm notice together.
 
 A link is `PATCH /api/tasks/{project}/{id}` with `comms`. The list replaces the task's own, and
 each id must name a comm the world holds. `task.create` takes `comms` too, so a task made from
-a comm is linked in the same write. Without `comms`, a new task inherits comms as **Comm** in CONTEXT.md describes.
+a comm is linked in the same write. Without `comms`, a new task inherits comms as **Comm** in docs/specs/tasks/CONTEXT.md describes.
 
 A comm's `category` and `project` are plain fields of `comm.create` and `comm.update`. `project`
 is `""` or a project the world holds. The **Default project** of a category is derived in the
@@ -1656,7 +1656,7 @@ user takes a task off with **Off desk**.
   | the launch steps | with `launch`, as **Launch** |
 
   `parent` and `post_action` bind the task to its issue and are not in `validate.EDITABLE`, so
-  they reach the notebook through `create`'s `extra` argument — the server's own to set, never a
+  they reach the Task tracker through `create`'s `extra` argument — the server's own to set, never a
   client's. The optional `command` and `mode` override the planning level, as the CLI's
   `--command` and `--mode` flags do. The `linear.plan` check refuses a null or an unknown mode, as
   `task.create`'s does. Without them, the task gets the High level that `build_plan_task` writes.
@@ -1874,9 +1874,9 @@ A `done` operation is seen when it ends. See `CONTEXT.md`, "Unseen".
 A notebook id such as `2026-06-11.1` is unique inside its project and repeats across projects.
 The wire therefore qualifies it: a task's `id` is `<project>/<notebook id>`, built by `task_key`
 and split back by `split_task_key`. The bare id travels beside it as `notebookId`, because the
-launch and the agent link both need the notebook's own id.
+launch and the agent link both need the Task tracker's own id.
 
-The notebook stores a `follows` entry bare when the followed task is in the task's own project,
+The Task tracker stores a `follows` entry bare when the followed task is in the task's own project,
 and as a **Qualified id** when it is in another project. `is_safe_id` forbids `/` in an id, so the
 two forms cannot collide. `split_follow_ref` and `follow_ref` convert between the two. `world_build`
 qualifies every entry on the way out, so the wire `follows` holds only qualified ids. A task's
@@ -1895,8 +1895,8 @@ The world is served over REST, from memory, once the first source reads have fin
 route is under `/api` and answers JSON. A task id is two path segments, because the wire id is
 `<project>/<notebookId>`.
 
-The two task reads, and a task status move, first re-read the tasks when the notebook moved. Some
-`mael task` commands still write the notebook directly, and the next command must see that write
+The two task reads, and a task status move, first re-read the tasks when the Task tracker moved. Some
+`mael task` commands still write the Task tracker directly, and the next command must see that write
 without waiting for the poll.
 
 | Route | Returns |
@@ -1913,7 +1913,7 @@ without waiting for the poll.
 | `GET /api/worktrees/{id}/raw?rev=&path=&side=&oldPath=` | One side, `old` or `new`, of one file of a rev, as its bytes, with a `Content-Type` from the path. The reply is a sandbox (`Content-Security-Policy: sandbox`, `nosniff`), so an SVG opened on its own runs no script. A missing side is `unknown_id`; a side over 20 MB is `invalid` |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
-| `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the notebook renders it, read from the notebook. `mael task read` prints it |
+| `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the Task tracker renders it, read from the Task tracker. `mael task read` prints it |
 | `GET /api/tasks/{project}/{id}/documents` | `{owned, linked}`: the **Task documents** the task owns and links. Each is `{id, uri, taskId, name, kind, archived, title, version, updatedAt}`, from its latest version |
 | `GET /api/task-documents?ref=` | `{document, versions, version, links, findings}` for one full reference, `<project>:<task-id>:<name>[@v<n>]`. `versions` has no bodies. `version` is the selected one, with `body`. `links` maps each fragment to the linking task ids; `""` is the whole document. `findings` lists a SARIF document's findings, each with the `key` a link names. The ref is a query parameter because a name can hold `/` |
 | `GET /api/comms` | `{comms: [Comm]}`, open and closed. A comm is `{id, title, content, recipients, createdAt, closedAt, category, project, codename, taskIds, queued, updates}`. A queued item is `{taskId, step}`; an update is `{id, commId, createdAt, items, content, state, sentAt}`. The `ETag` changes with every comm change; `If-None-Match` answers 304 |
@@ -2326,13 +2326,13 @@ and the client gives that one call a longer timeout.
 
 The desk commands and the task commands never reach the host. Both desk commands carry a desk
 id, not a bare task id, and the desk is the server's own table. A task write goes to the
-notebook. A status change moves the task through `move_with_actions`, so the status actions fire
+Task tracker. A status change moves the task through `move_with_actions`, so the status actions fire
 as `mael task status` fires them. The actions run in a thread, because the Linear client is sync
 HTTP. A patch writes the fields it is given. Both force a task refresh, as a launch does, so the
 change is in the world before the reply.
 
 The two document commands are the server's own too: a document lives in the world, not in the
-notebook and not on the host. Each names one document and acts on its review group's current
+Task tracker and not on the host. Each names one document and acts on its review group's current
 members — every member not `superseded`. **Approve** moves them to `approved`, then tells the agent
 with an `agent.say` that names the group title, and for a task set the created ids (see
 "Approving a task set"). The agent asked for the verdict and waits on it. The message is
@@ -2345,7 +2345,7 @@ never reached the agent, so the group stays awaiting a review nobody has answere
 attention items the members raised. Both store the status before the world changes, and a store
 that fails refuses the command. For request changes the agent has then heard the summary, and
 hears it again on a retry. The other order would leave a stored verdict the agent never heard.
-Neither touches the notebook. Both **refuse a plan document**: a plan review is the agent's own
+Neither touches the Task tracker. Both **refuse a plan document**: a plan review is the agent's own
 wait, ended by `agent.approve` or `agent.deny` on the request it blocks. Settling the document
 instead would flip its status, retire the attention item pointing the user at it, and leave the
 child blocked on a control request nobody could now answer. The UI draws no review bar on a plan

@@ -184,7 +184,7 @@ class Normalised:
     #: ``""``. The caller registers it on the agent's task, for the reason the
     #: caller writes a milestone.
     pr_link: str = ""
-    #: Whether that link unlinks the PR. See CONTEXT.md, "Registered PR".
+    #: Whether that link unlinks the PR. See docs/specs/tasks/CONTEXT.md, "Registered PR".
     pr_withdrawn: bool = False
     #: The live feedback params the agent set, in order. Not a
     #: :class:`ServerEvent` either: the params are the server's, and live

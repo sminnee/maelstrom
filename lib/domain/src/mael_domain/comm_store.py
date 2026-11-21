@@ -1,4 +1,4 @@
-"""Where comms and their updates are kept. See ``CONTEXT.md``, "Comm".
+"""Where comms and their updates are kept. See ``docs/specs/tasks/CONTEXT.md``, "Comm".
 
 :mod:`mael_domain.comms` decides what to write; this module only stores it.
 The tasks a comm links to are not here: each task names its comms.
@@ -24,7 +24,7 @@ SENT = "sent"
 
 @dataclass
 class Comm:
-    """One **Comm**. See ``CONTEXT.md``, "Comm".
+    """One **Comm**. See ``docs/specs/tasks/CONTEXT.md``, "Comm".
 
     ``content`` is the request as it came in. ``recipients`` are free strings: a
     Slack channel, an email address, or a note. ``closed_at`` is empty while the
@@ -55,7 +55,7 @@ class CommItem:
 
 @dataclass
 class CommUpdate:
-    """One **Comm update**. See ``CONTEXT.md``, "Comm update".
+    """One **Comm update**. See ``docs/specs/tasks/CONTEXT.md``, "Comm update".
 
     ``items`` are every step it reports, which is what keeps a step from
     queueing twice. ``content`` is the text sent. ``sent_at`` is empty while

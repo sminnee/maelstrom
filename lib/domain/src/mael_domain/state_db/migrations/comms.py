@@ -1,6 +1,6 @@
 """The comms ladder.
 
-Canonical: maelstrom alone authors a comm. See ``CONTEXT.md``, "Comm". The
+Canonical: maelstrom alone authors a comm. See ``docs/specs/tasks/CONTEXT.md``, "Comm". The
 link to tasks is not here: it is the task's own ``comms`` column.
 """
 

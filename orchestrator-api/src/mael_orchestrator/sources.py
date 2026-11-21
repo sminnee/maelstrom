@@ -280,7 +280,7 @@ class TaskReading:
 class TaskSource(Protocol):
     """The notebook, as tasks across every project."""
 
-    #: The Task documents. See ``CONTEXT.md``, "Task document".
+    #: The Task documents. See ``docs/specs/tasks/CONTEXT.md``, "Task document".
     documents: TaskAttachmentTable
 
     async def version(self) -> str | None:
@@ -578,7 +578,7 @@ class NotebookTaskSource:
         documents: TaskAttachmentTable | None = None,
     ) -> None:
         self.table = table
-        #: The Task documents. See ``CONTEXT.md``, "Task document".
+        #: The Task documents. See ``docs/specs/tasks/CONTEXT.md``, "Task document".
         self.documents = (
             documents if documents is not None else InMemoryTaskAttachmentTable()
         )

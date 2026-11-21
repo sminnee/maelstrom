@@ -6,7 +6,7 @@ what each one is doing, and in what order.
 
 Maelstrom automates that. It uses git worktrees to isolate code, Claude Code as its agent, and
 an orchestrator UI to show every agent. Integrations with Linear, Sentry and GitHub keep the workflow
-streamlined. Maelstrom adds two things of its own. A task notebook tracks what each agent is
+streamlined. Maelstrom adds two things of its own. A Task tracker records what each agent is
 doing and in what order. A dev environment manager gives each worktree isolated services and
 ports. It is a highly opinionated Swiss-army knife.
 
@@ -93,7 +93,7 @@ Each component earns its place by the role it plays in the loop.
 | [Orchestrator UI](docs/guide/concepts.md#the-orchestrator-ui-and-server) | Shows every agent, and where you watch and answer them |
 | [git worktrees](docs/guide/worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
-| [Task notebook](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
+| [Task tracker](docs/guide/tasks.md) | Detailed task management — what each agent is doing, in what order |
 | [Wiki](docs/guide/concepts.md#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
 | [Dev environments](docs/guide/dev-environments.md) | Isolated services and ports per worktree |
 | [Linear / Sentry / GitHub](docs/guide/integrations.md) | Streamline the workflow |
@@ -132,6 +132,7 @@ CLI in your shell by default.
 ### For contributors
 
 - [Domain glossary](CONTEXT.md) — the domain terms, and the words to avoid for each.
+- [The map](docs/README.md) — the subdomains, their subsystems, and where the code of each is.
 - [Architecture patterns](docs/dev/architecture-patterns.md) — the storage / model / CLI layering.
 - [The task domain model](docs/dev/tasks.md) — `parent` vs `follows`, ids, session discovery.
 - [Scheduled tasks](docs/dev/scheduled-tasks.md) — launchd and systemd firing mechanics.

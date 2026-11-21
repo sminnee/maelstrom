@@ -350,12 +350,12 @@ None of the other commands here take options beyond `--help`.
 
 ## Tasks
 
-The task notebook. See [tasks.md](../guide/tasks.md).
+The Task tracker. See [tasks.md](../guide/tasks.md).
 
 | Command | Description |
 |---|---|
 | `mael task add [TITLE]` | Create a task and print its id. |
-| `mael task draft FILE [TITLE]` | Write a draft task file — a task recipe outside the notebook. |
+| `mael task draft FILE [TITLE]` | Write a draft task file — a task recipe outside the Task tracker. |
 | `mael task promote FILES...` | Create one task per draft file, chained in order. Print the ids and delete the files. |
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
@@ -479,7 +479,7 @@ mael task draft .drafts/d1.md "Add avatar upload" --mode plan \
 Parses each draft file, creates one task per file in `todo`, prints the new ids one per line,
 and deletes the files. Each task follows the one before it. Recipe fields come from each file;
 any flag given here overrides every file's value (the same semantics as `add --from`). The set
-is one notebook write. On an error — missing file, bad frontmatter, no title — every file is
+is one Task tracker write. On an error — missing file, bad frontmatter, no title — every file is
 left untouched and no task is created.
 
 With no `--follow` or `--follow-end`, the set **splices** in after `$MAEL_TASK_ID`. The first
@@ -846,7 +846,7 @@ uv run mael-agent-daemon gc                     # after a daemon died: kill its 
 
 ## The orchestrator server
 
-`mael-orchestrator` serves the world to the orchestrator UI: tasks from the notebook, worktrees
+`mael-orchestrator` serves the world to the orchestrator UI: tasks from the Task tracker, worktrees
 from `list-all`, and agents from the agent host, over HTTP. It is a separate command, not a `mael`
 group: the published `mael` package does not include the server. A release bundle installs it, and
 runs it as the `orchestrator` host service. In a maelstrom checkout, run it with `uv run`. See
@@ -1222,7 +1222,7 @@ See [integrations.md](../guide/integrations.md).
 
 | Command | Description |
 |---|---|
-| `mael linear plan ISSUE_ID` | Seed a notebook planning task from a Linear issue and launch it. |
+| `mael linear plan ISSUE_ID` | Seed a planning task from a Linear issue and launch it. |
 | `mael linear list-tasks` | List tasks in the current cycle, or all active tasks if there is no cycle. |
 | `mael linear read-task ISSUE_ID` | Read task details as markdown. |
 | `mael linear create-task TITLE [DESCRIPTION]` | Create a task in the project backlog. |
@@ -1536,7 +1536,7 @@ scheduler. The OS supervisor runs all three: launchd on macOS, systemd user unit
 | `mael self check-host` | Check this host's tools, sign-ins, git identity, Docker, browser tool, Tailscale and secret file permissions, and offer to fix each. `install.sh` runs it with `--quiet` on each install. Every step is safe to repeat. See below. |
 | `mael self update` | Install the latest release, then run its setup. See below. |
 | `mael self status` | Report the release and its component versions, each host service and the scheduler (loaded, pid, last exit, log), the `mael` shim, and the last update job. |
-| `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the notebook. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
+| `mael self uninstall` | Remove the host services, the scheduler and the `mael` shim. Keeps `~/.maelstrom/install` and the Task tracker. On macOS, it also clears a repeating `pmset` wake an older scheduler set, and asks for sudo only if one is set. |
 | `mael self restart [orchestrator\|agent-daemon]...` | Restart host services through the supervisor. Default: both. A restart of the agent daemon stops its agents; they resume after it. |
 | `mael self export [PATH]` | Write this host's [State archive](../../CONTEXT.md): one zip of the state database and the attachments. It runs while the host services run. See below. |
 | `mael self import PATH [--replace]` | Load a State archive into this host. It stops the host services, then starts them again. See below. |
