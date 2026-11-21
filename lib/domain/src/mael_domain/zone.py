@@ -1,7 +1,7 @@
 """The **Schedule zone**: which time zone a template schedule is read in.
 
 ``schedule_timezone:`` in the config names it; :func:`zone_named` turns the name
-into a zone, and :func:`host_zone` is the default. See CONTEXT.md, "Schedule zone".
+into a zone, and :func:`host_zone` is the default. See docs/specs/tasks/CONTEXT.md, "Schedule zone".
 """
 
 import os

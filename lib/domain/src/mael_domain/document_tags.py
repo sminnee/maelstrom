@@ -100,7 +100,7 @@ _LINK_TAG = re.compile(
 )
 #: The attribute that marks the PR as withdrawn, read from the opening with its
 #: quoted values cut out. Present means withdrawn, whatever its value, as an
-#: HTML boolean attribute does. See CONTEXT.md, "Withdrawn PR".
+#: HTML boolean attribute does. See docs/specs/tasks/CONTEXT.md, "Withdrawn PR".
 _WITHDRAWN = re.compile(r"\swithdrawn(?=[\s/>=])")
 _QUOTED = re.compile(r'"[^"]*"|\'[^\']*\'')
 

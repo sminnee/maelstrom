@@ -178,13 +178,13 @@ TASK_FIELDS = (
     # diff. See CONTEXT.md, "Execute model".
     _FieldSpec("execute-model", block=True),
     # The Registered PR. Written by ``register_pr``, never by a block. See
-    # CONTEXT.md, "Registered PR".
+    # docs/specs/tasks/CONTEXT.md, "Registered PR".
     _FieldSpec("pr", attr_name="pr_number"),
     _FieldSpec("pr-url"),
-    # What fires a template. See CONTEXT.md, "Trigger".
+    # What fires a template. See docs/specs/tasks/CONTEXT.md, "Trigger".
     _FieldSpec("trigger"),
     # The comms the task feeds. A new task inherits them. See
-    # CONTEXT.md, "Comm".
+    # docs/specs/tasks/CONTEXT.md, "Comm".
     _FieldSpec("comms", block=True),
     # Set while the agent does more work after the push. See CONTEXT.md,
     # "Withdrawn PR".
@@ -280,7 +280,7 @@ class Task:
     # The Registered PR; 0 and "" when nothing registered one. See CONTEXT.md.
     pr_number: int = 0
     pr_url: str = ""
-    # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
+    # The Registered PR is withdrawn. See docs/specs/tasks/CONTEXT.md, "Withdrawn PR".
     pr_withdrawn: bool = False
     # What fires a template, such as ``gh-action/nightly.yml``. See CONTEXT.md.
     trigger: str = ""
@@ -290,7 +290,7 @@ class Task:
     log: str = ""
     status: str = DEFAULT_STATUS
     # The task's agent sessions, oldest first. Machine-owned: not in the
-    # frontmatter. See CONTEXT.md, "Task session id".
+    # frontmatter. See docs/specs/tasks/CONTEXT.md, "Task session id".
     sessions: list["TaskSession"] = field(default_factory=list)
 
     # --- serialization ---
@@ -1415,7 +1415,7 @@ async def register_pr(
 ) -> Task:
     """Record ``number`` as the task's Registered PR, replacing any earlier one.
 
-    The one write path for the registry; see CONTEXT.md, "Registered PR".
+    The one write path for the registry; see docs/specs/tasks/CONTEXT.md, "Registered PR".
     """
     task = await load(table, project, id)
     task.pr_number = number
@@ -1436,7 +1436,7 @@ async def withdraw_pr(
     """Mark the task's Registered PR as withdrawn while more work is done.
 
     The next :func:`register_pr` clears it. Raises ``ValueError`` when the task
-    has no Registered PR. See CONTEXT.md, "Withdrawn PR".
+    has no Registered PR. See docs/specs/tasks/CONTEXT.md, "Withdrawn PR".
     """
     task = await load(table, project, id)
     if not task.pr_number:

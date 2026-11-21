@@ -25,14 +25,14 @@ MAEL_FEEDBACK_URL=wss://desk.tailnet.ts.net:2772/api/live-feedback?path=/Users/m
 | `sig` | Hex HMAC-SHA256 of `path`, a NUL byte, and `service`. The key is `live-feedback.key` in the notebook root. |
 
 - The path names the worktree, not its id: `_main` has the same id in every project.
-- The URL comes from the notebook's `orchestrator_url:`. A `.env` value overrides it: see
+- The URL comes from the Task tracker's `orchestrator_url:`. A `.env` value overrides it: see
   [environment.md](../reference/environment.md).
 - No `path`, or no `service`, closes the socket with code `4404`.
 - A `sig` that does not verify closes the socket with code `4403`. Only a URL that
   `mael env start` signed opens a socket, because a worktree path is easy to guess. The check
   runs before the path lookup, so an unsigned caller cannot learn which paths are real.
 - A signed URL whose path names no worktree closes the socket with code `4404`.
-- Each notebook has its own key. An orchestrator refuses a URL signed for another notebook.
+- Each Task tracker has its own key. An orchestrator refuses a URL signed for another Task tracker.
 
 A worktree on a **Remote host** gets the host's URL from the host's own `mael env start`. So
 the client and the jig talk to the host. A parent forwards the params switch

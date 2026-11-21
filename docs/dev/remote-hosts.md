@@ -106,12 +106,12 @@ The calls the server makes for one agent go through a narrow `TaskHome` protocol
 | `create` | the reopen task of a Shelve | `POST /api/tasks` |
 
 `NotebookTaskSource` and `RemoteTaskSource` both satisfy `TaskHome`.
-`TaskHomes.for_parent(parent_url)` chooses one. An empty URL gives the local notebook. Any other
+`TaskHomes.for_parent(parent_url)` chooses one. An empty URL gives the local Task tracker. Any other
 URL gives the one `RemoteTaskSource` for that URL, with a lazy aiohttp session.
 `Orchestrator._home(agent)` calls it with the agent's `parentUrl` when the agent is delegated.
 
 A worktree has a **Task home** too. `Orchestrator._worktree_home(worktree_id)` gives the home of
-the newest delegated agent in the worktree, or the local notebook when there is none. A Shelve
+the newest delegated agent in the worktree, or the local Task tracker when there is none. A Shelve
 writes its reopen task there: the server passes the home to the `force_close` port.
 
 When the parent does not answer, `RemoteTaskSource` raises `TaskSourceRemote` ("Tasks for this
@@ -205,7 +205,7 @@ Other rules of the merge:
 - A worktree merges only when the parent has its project.
 - Merged documents are list rows, with no detail fields. The detail comes through the forward.
 - `_merged_agent` clears `taskId` on an agent whose `parentUrl` is not the parent's own URL.
-  That task id names a task in another notebook, and the parent can hold a task with the same
+  That task id names a task in another Task tracker, and the parent can hold a task with the same
   id.
 - `_merged_operation` applies the same rule to an operation, through the operation's agent.
 - The operations are read in the UI's window of 200. An older host operation leaves the

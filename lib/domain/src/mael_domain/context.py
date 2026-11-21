@@ -432,7 +432,7 @@ def validate_project_name(name: str) -> None:
         raise ValueError(
             f"Invalid project name '{name}': project names cannot contain dots"
         )
-    # These delimit a Task document reference: see CONTEXT.md, "Task document".
+    # These delimit a Task document reference: see docs/specs/tasks/CONTEXT.md, "Task document".
     delimiter = next((c for c in ":@#" if c in name), None)
     if delimiter:
         raise ValueError(

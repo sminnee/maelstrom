@@ -166,8 +166,8 @@ path takes the scopes, not the shape.
 A blocking step runs on the executor the sequence was given. `None` uses the loop's default, which
 is right for the CLI: one operation, one process.
 
-The server passes its bounded worktree pool, which is a second pool beside the notebook's. The
-notebook's SQLite index is bound to the thread that opened it, so it must stay one worker — and a
+The server passes its bounded worktree pool, which is a second pool beside the Task tracker's. The
+Task tracker's SQLite index is bound to the thread that opened it, so it must stay one worker — and a
 fetch holding that thread would stall every task read for as long as it ran.
 
 **The pool is handed to the sequence, not applied at the call site.** An operation is a coroutine

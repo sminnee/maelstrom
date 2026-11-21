@@ -339,7 +339,7 @@ function OpenCloseButton({
   );
 }
 
-/** The comm's updates, newest first. See CONTEXT.md, "Comm update". */
+/** The comm's updates, newest first. See docs/specs/tasks/CONTEXT.md, "Comm update". */
 function Updates({ comm }: { comm: Comm }) {
   const now = useNow();
   return (

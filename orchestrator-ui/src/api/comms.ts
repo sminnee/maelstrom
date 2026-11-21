@@ -16,7 +16,7 @@ export interface CommEdit {
   category?: string;
   /** `''` or a project the world holds. */
   project?: string;
-  /** One or two words no other comm uses, or `''` to show the id. See CONTEXT.md, "Comm codename". */
+  /** One or two words no other comm uses, or `''` to show the id. See docs/specs/tasks/CONTEXT.md, "Comm codename". */
   codename?: string;
   /** `true` closes the comm and stamps `closedAt`; `false` opens it again. */
   closed?: boolean;

@@ -104,7 +104,7 @@ client resolves the environment and the files:
 | No actionable or next filter on `GET /api/tasks` | `task next`. It could filter the full list, as `task list` does. |
 | No streamed long command | `sync` and `create-pr` with a `pre_push_cmd`, and `env start`. They run for minutes, and the agent reads their output. This needs a job id and a log stream, on the WebSocket pattern the transcripts use. |
 
-The wire task is a projection of the notebook row: `branch` is the default branch when the row
+The wire task is a projection of the Task tracker row: `branch` is the default branch when the row
 has none, and `log` is a list of entries. So `task read` prints the server's own rendering,
 `GET /api/tasks/{project}/{id}/markdown`, not a rebuild from the wire. `task show` prints the
 default branch.

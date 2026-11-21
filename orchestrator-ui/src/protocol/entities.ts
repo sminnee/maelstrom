@@ -359,7 +359,7 @@ export interface Task {
   /** The Registered PR: its number, 0 for none, and its URL. */
   prNumber: number;
   prUrl: string;
-  /** The Registered PR is withdrawn while the agent works. See CONTEXT.md, "Withdrawn PR". */
+  /** The Registered PR is withdrawn while the agent works. See docs/specs/tasks/CONTEXT.md, "Withdrawn PR". */
   prWithdrawn: boolean;
   content: string;
   log: TaskLogEntry[];
@@ -383,7 +383,7 @@ export interface Task {
   lastRun: string;
   /** The **Schedule zone** the cron is read in, as a label, or `''` with no `schedule`. */
   scheduleZone: string;
-  /** The task's sessions, oldest first. See CONTEXT.md, "Task session id". */
+  /** The task's sessions, oldest first. See docs/specs/tasks/CONTEXT.md, "Task session id". */
   sessions: TaskSession[];
 }
 
@@ -437,11 +437,11 @@ export interface Comm {
   createdAt: string;
   /** `''` while the comm is open. */
   closedAt: string;
-  /** Free text. See `CONTEXT.md`, "Comm category". */
+  /** Free text. See `docs/specs/tasks/CONTEXT.md`, "Comm category". */
   category: string;
   /** The project a task made from the comm goes to, or `''`. */
   project: string;
-  /** See `CONTEXT.md`, "Comm codename". `''` before one is made: show the id. */
+  /** See `docs/specs/tasks/CONTEXT.md`, "Comm codename". `''` before one is made: show the id. */
   codename: string;
   taskIds: TaskId[];
   queued: CommItem[];

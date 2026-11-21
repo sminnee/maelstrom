@@ -48,7 +48,7 @@ words come from one traversal, so they cannot disagree. The drift kinds mirror `
 
 ### The life of a task
 
-A task's node reads from two fields at once: the notebook status, and the agent observed on it.
+A task's node reads from two fields at once: the status of the task, and the agent observed on it.
 The ordinary run through them, in order:
 
 | Node reads | Task status | Agent | Zone |
@@ -468,7 +468,7 @@ backdrop. The editor renders from `AppShell`, above both views, and its open tas
 Each row also has a checkbox, and the header has one that ticks every listed row. When a row is
 ticked, a bar above the table offers three bulk actions: set a status, On desk, and Off
 desk. The server has no batch route, so `tasklist/BulkActions.tsx` calls the per-task routes
-one at a time: each status write re-reads the notebook, and parallel re-reads race. A row already
+one at a time: each status write re-reads the Task tracker, and parallel re-reads race. A row already
 in the target state sends nothing. A refused row does not stop the others. The bar then shows
 the failed count and the first reason, and keeps only the refused rows ticked. The ticked set is
 local state in `TaskList`, and holds listed rows only: a row the filter hides is unticked, so the
@@ -490,7 +490,7 @@ a task or free-agent node in the canvas **Selection**. With two or more selected
 every **Holder** of it, and then the last selected node in it closes it. When the plan terminates
 a live agent, the button asks first and names the count.
 
-A node is one of two kinds. A **task** node stands for a notebook task, with or without an
+A node is one of two kinds. A **task** node stands for a task of the Task tracker, with or without an
 agent. A **freeAgent** node stands for an agent with no task, and takes its title, branch and
 lane from the worktree it runs in. A `mael add --daemon` session is exactly that: the
 launch starts a driven agent and passes no task, so the session draws as a freeAgent node. An
@@ -509,7 +509,7 @@ the one field the canvas writes that the task editor does not, so it is not part
 draft. Hovering a wire draws it thicker and darker, and offers the button that cuts it, which
 writes the target's `follows` without the id.
 
-The board draws fewer wires than the notebook holds. `canvas/reduce.ts` drops an edge that a path
+The board draws fewer wires than the Task tracker holds. `canvas/reduce.ts` drops an edge that a path
 of unfinished work already implies: when C follows both A and B, and B follows A and has still to
 finish, B gates C on A's behalf and A→C says nothing new. Only `done` releases a follower, the
 rule `is_actionable` applies, so a cancelled intermediate still hides the edge and a done one
@@ -640,7 +640,7 @@ An agent with no task shows its own agent id in that same slot, on the node and 
 the **Failover id** rule, which `CONTEXT.md` defines.
 
 Clicking a task node expands it in place, showing the state in words ("Needs you · plan
-review", never a raw agent state). The state strip also carries the task's notebook status, which
+review", never a raw agent state). The state strip also carries the task's status, which
 the user can set from there. Where the words would only restate the status — `done` and
 `cancelled` — the card drops them and the status stands alone. The collapsed node
 keeps them: it has no status control, so there the words are the only reading. A free agent has
@@ -1427,7 +1427,7 @@ for. Every other status keeps the bar — `awaiting-review` offers Approve, or D
 present, and
 the rest read "This version is {status}." One verdict settles the whole review group, so for a
 group of more than one the labels count it: "Approve all 3", "Approve and create 3 tasks",
-"Decline all 3", and "All 3 are {status}." See `CONTEXT.md`, "Document tag", for how an agent asks
+"Decline all 3", and "All 3 are {status}." See `docs/specs/tasks/CONTEXT.md`, "Document tag", for how an agent asks
 for one status or the other.
 
 Each lane shows the project's worktrees as **Worktree boxes**. A task reaches its worktree
@@ -1507,7 +1507,7 @@ moves. The form is one step: everything the work needs is on one surface.
   They start at High, which is what `mael linear plan` writes with no flags.
 
 The Linear kind is walled off in `newwork/LinearFields.tsx` and `api/linear.ts`, because the
-Linear integration is expected to go once the task notebook covers the same ground.
+Linear integration is expected to go once the Task tracker covers the same ground.
 
 ### The project radios
 
@@ -1631,7 +1631,7 @@ believing it went. A paste is intercepted only when it carries an image, so past
 reaches the textarea.
 
 The ref is appended to the text rather than held beside it. For a task the content is what the
-notebook stores and what `build_prompt` sends, so a ref kept outside it would never reach the
+Task tracker stores and what `build_prompt` sends, so a ref kept outside it would never reach the
 agent. It also keeps `TaskEditor`'s `changed()` diffing strings.
 
 The chat box sends an image's URL as well, and the agent host sends the bytes as an image block on
@@ -2034,7 +2034,7 @@ the module loads or hot-updates. A `MutationObserver` moves the jig's elements b
 a monkeypatch rule wins a tie of specificity. The controls `<style>` comes last, so its `:root`
 rule beats the app's own value for a token.
 
-**`MAEL_FEEDBACK_URL` points at the notebook's orchestrator.** The agents run under the
+**`MAEL_FEEDBACK_URL` points at the Task tracker's orchestrator.** The agents run under the
 orchestrator that `orchestrator_url:` names, not under the worktree's own dev orchestrator.
 `mael env start` sets the variable for every service.
 See [environment.md](../reference/environment.md).
@@ -2259,7 +2259,7 @@ Canvas nodes are clicked with `fireEvent.click`, not user-event — see `clickNo
 Against the server, documents can be read but not reviewed: comments, review actions and
 shaping answer `not_implemented`, and the controls say so. The server drives agents, edits the
 desk, and writes a task's status, its fields, new tasks and deletions. It does nothing else to
-the notebook.
+the Task tracker.
 
 The desk is the exception to persistence: it lives on the server and survives a restart. The
 open tabs, the filters and the expanded node do not. The distinction is deliberate rather than

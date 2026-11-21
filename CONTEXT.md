@@ -1,7 +1,9 @@
 # Maelstrom
 
 Maelstrom orchestrates several Claude Code agents working on one repository at the same time.
-This file defines the domain terms. Use these words, in these meanings, in code and in prose.
+This file defines the domain terms that two or more subdomains use. Use these words, in these
+meanings, in code and in prose. `docs/README.md` maps the subdomains and their subsystems. A
+subdomain with a glossary of its own has it at `docs/specs/<subdomain>/CONTEXT.md`.
 
 ## Project and code isolation
 
@@ -126,7 +128,19 @@ read that asked about it, so its verdict can be old. **Dirty files** do not coun
 other than the local work.
 _Avoid_: In sync, up to date
 
-## Task notebook
+## Tasks
+
+The Tasks subdomain has its own glossary, `docs/specs/tasks/CONTEXT.md`: Status, Follows, Chain,
+Task draft, Task document, Comm and the other terms of its four subsystems. The terms below are
+the ones that each subdomain uses.
+
+**Task tracker**:
+The subsystem that holds every task maelstrom knows: each current, future and past task, its
+status and its order. The tasks are rows in the **State database**. A task's media attachments are
+in the **Attachments directory**. The set of all tasks has no name of its own: say "the tasks of
+the Task tracker", or "the tasks of a project".
+_Avoid_: Task notebook, notebook, backlog, task board. The code still says `notebook`, as in
+`MAEL_NOTEBOOK_ROOT` and `notebookId`.
 
 **Task**:
 One unit of agent work, stored as one row in the **State database**. A task carries a plan in
@@ -134,196 +148,12 @@ its body and launches exactly one Claude session. The row carries the prose, so 
 and written whole.
 _Avoid_: Ticket, issue, job
 
-**Status**:
-A column on the task row. The five statuses are `todo`, `in-progress`, `done`, `cancelled` and
-`template`. Changing one is a single-column update, not a move. No status means "waiting": see
-**Follows**.
-_Avoid_: State, folder
-
-**Parent**:
-The grouping key that puts a task in a chain sharing one branch and one pull request — "one PR
-per parent". In a `merge: local` project, the chain has one **Merge request** in place of a PR. A
-task with an empty parent roots its own chain. A parent is often virtual, such
-as `linear.NORT-123`, and is never checked against a real task.
-_Avoid_: Epic, group
-
-**Follows**:
-The ordering relationship. A task becomes actionable only once every id it follows reaches
-`done`. Follows is the one way to make a task wait, and it is independent of parent.
-`mael task follow` adds follows to a task that already exists. A task can follow a task in
-another project by its **Qualified id**.
-_Avoid_: Depends-on, blocked-by
-
-**Parked task**:
-An `in-progress` task that follows unfinished work. Its agent ended its session to wait, and the
-task keeps its status and its session. Its node is in the queued zone, with the queued styling.
-When every followed task is `done`, the node is a stopped node in the running zone again, and the
-user resumes it. A parked task is not drift: `mael task reconcile --fix` leaves it.
-_Avoid_: Blocked task, paused task
-
-**Dotted id**:
-Lineage expressed in a task's name. `PROJ-12.3` is a child of `PROJ-12`, and
-`maintenance.2026-07-02` is a scheduled run of the `maintenance` template. Lineage and parent
-are separable on purpose: a scheduled run is named under its template yet has an empty parent,
-so each firing roots its own chain.
-
-**Qualified id**:
-A task id that names its project: `northwind/NORT-7`, against the bare `NORT-7`. A surface
-shows the qualified id when it must tell two projects' tasks apart, and the bare id when
-something else on screen already names the project, such as a node in its lane or a panel tab
-under the panel sidebar.
-
 **Failover id**:
 The rule that fills an id slot when no task holds it. An agent with no task shows its own
 agent id where a task would show its id, in the same slot and the same register. The slot is
 one field, so a free agent's node and tab name themselves as plainly as a task's do, and
 nothing marks a free agent as lacking a task.
 _Avoid_: Fallback id, placeholder id
-
-**Actionable**:
-A task maelstrom may launch now: not `done`, not `cancelled`, not a template, and every followed
-id is `done`.
-_Avoid_: Ready, unblocked
-
-**Template**:
-A task parked in `template/` as a recipe to duplicate from. A template never launches directly.
-A `schedule`, a `trigger`, or both on a template drive the scheduler.
-
-**Schedule zone**:
-The time zone every template `schedule` on a host is read in. `schedule_timezone:` in
-`~/.maelstrom/config.yaml` sets it. With no key, it is the host's own zone.
-_Avoid_: Cron zone, local time
-
-**Trigger**:
-The event that fires a template, written `<kind>/<spec>`. `gh-action/nightly.yml` fires when a
-run of that GitHub Actions workflow finishes with a listed conclusion. With a `schedule` too, a
-cron boundary fires only when the newest completed run has a listed conclusion.
-_Avoid_: Gate, condition
-
-**Chain**:
-The sibling tasks that share one parent, ordered by follows, merging as a single pull request.
-
-**Splice**:
-A promote that puts a **Task set** after one task in a chain. The first new task follows that
-task, and every task that followed it now follows the last new task. `A → P → C` spliced after
-`P` becomes `A → P → N1 → N2 → C`. A promote with no follow flag splices after `$MAEL_TASK_ID`,
-and approving a task set splices after the planning task. A task can thus expand the middle of
-its own chain without forking it.
-_Avoid_: Insert, rewire
-
-**Cross-project task**:
-A plan-mode task that a session in one project creates and launches in another project. It has
-an empty parent, so it roots its own chain there, and it follows no task. Its own plan mode plans
-that project's code.
-_Avoid_: Remote task, foreign task
-
-**Registered PR**:
-The pull request recorded on a task as its own: a number and a URL. `mael gh create-pr`,
-`mael gh link-pr` and the **PR link tag** write it, and a later registration replaces the
-earlier one. A registration also clears a **Withdrawn PR**. A task card shows its task's Registered PR only, never one its **Chain** or its
-branch has. The worktree table shows the branch's PR.
-_Avoid_: Linked PR, task PR
-
-**Withdrawn PR**:
-A **Registered PR** that is not ready for review, because the agent does more work on the
-task after the push. `mael gh withdraw-pr` and the **PR link tag** with a bare `withdrawn`
-attribute set it. The task keeps the PR number and URL, and the card draws the PR grey and struck
-through. The next registration, such as the next `mael gh create-pr` push, makes the PR ready
-again. Landing does not change.
-_Avoid_: Hidden PR, retracted PR, draft (a draft is GitHub's state)
-
-**Landing**:
-A task's status after `done`: `done → merged → uat → live`. Each of these is a **Landing
-step**. The landing is derived, never stored on the task. It joins the task's **Registered PR**
-to GitHub's data about that PR, which the orchestrator server reads on its worktree poll.
-- `merged` comes from the PR's merge commit. `uat` and `live` come from the deploys to the
-  GitHub environment that `deploy.environments` names for each step.
-- An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
-  `unknown` never counts as reached.
-- In a `merge: local` project, `merged` comes from the **Build queue**'s record of the
-  **Merge request**'s merge, not from a PR.
-- A project with no `deploy:` block stops at `merged`.
-- The server records each landing step the first time a task reaches it, with the time it
-  recorded it.
-- A landing belongs to one task. There is no chain landing.
-_Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phase, milestone
-
-**Comm**:
-Something to tell people outside the team when some work lands. It has an id (`c1`, `c2`, …,
-one sequence across every project), a title, its content (the request as it came in) and its
-recipients. A recipient is free text: a Slack channel, an email address or a note. A comm also
-has a **Comm category** and a project: the project a task made from the comm goes to.
-- A new comm's project defaults to the **Default project** of its category.
-- A comm links to tasks, and task ↔ comm is many-to-many. The link is the task's `comms`
-  field, so a task names the comms it feeds.
-- A new task gets the comms of every task it is made from: its parent, its follows tasks, and
-  the task whose session made it. A duplicate (`--from`) also gets the comms of the task it
-  copies. A promoted chain gets the planning task's comms. A
-  Reopen-branch task gets the comms of the tasks on its branch. An explicit list wins.
-- New work opened under a Comm filter links the task to that comm.
-- You close a comm when everyone is told. A closed comm leaves the open list.
-_Avoid_: outcome, promise, communiqué, notification, announcement, ticket
-
-**Comm codename**:
-A one- or two-word name for a **Comm**, such as `Lantern` or `Night Owl`, unique across all
-comms. The **Task metadata generator** makes it when the comm is made. The UI shows a comm as its codename, in
-the one comm colour.
-- Without an OpenAI key, or when the generator fails twice, the codename stays blank. The UI then
-  shows the comm id in its place. The server tries again for each blank comm when it starts.
-- You can change the codename. A codename another comm uses is refused.
-_Avoid_: nickname, alias, label, tag
-
-**Comm category**:
-Free text that groups comms of one kind, such as `release` or `support`. You pick an existing
-category or type a new one.
-_Avoid_: tag, label, type, channel
-
-**Comm update**:
-What a **Comm** tells its recipients at one time, with the news of its linked tasks. Its id is `<comm id>.<n>`, such
-as `c3.2`. It holds the **Landing** steps it reports, its content and its state: `draft` or
-`sent`.
-- A comm's queue is the landing steps of its linked tasks that no update of the comm holds. A
-  step is held once it is in an update, so a step never queues twice for one comm.
-- A task linked late queues the steps it reached before the link. A closed comm queues nothing.
-- The content starts as one line per task, at the furthest step it queued.
-- You edit the content while the update is a draft. Mark sent records that you sent it; maelstrom
-  sends nothing itself. A sent update does not change.
-_Avoid_: flush, message, notification, digest
-
-**Draft updates**:
-The action that writes a new **Comm update** for each open comm with a non-empty queue. An unsent
-draft stays as it is: the action adds an update, it does not merge into the old one.
-_Avoid_: flush, triage, send
-
-**Default project**:
-The project a new comm in a category gets: the most common non-blank project among the comms in
-that category, closed comms included. A tie goes to the project of the newest comm. It is derived
-from the comms each time, not stored, so it follows how the category is used. A comm with no
-category has no default project. With no comm in
-the category, the CLI uses the project of the current directory and the UI uses the filter bar's
-project.
-_Avoid_: category project, project mapping
-
-**Draft**:
-A task file outside the notebook, written by a planning session into the worktree's `.drafts/`
-directory.
-A draft is inert — invisible to listing, `next` and follow-end resolution — until a promote
-creates the real task from it and deletes the file. That gap is the approval gate. Two surfaces
-open it: `mael task promote` in a session, and approving the task set's document in the
-orchestrator UI, which calls the same step.
-_Avoid_: Proposal, pending task, plan file
-
-**Task metadata generator**:
-The component that names a task's title, branch and command from its prose. It asks OpenAI's
-`gpt-6-luna` when `OPENAI_API_KEY` resolves. With no key, every name is the deterministic slug
-of the prose's first line.
-_Avoid_: Branch namer, inference model
-
-**Task set**:
-The drafts of one chain, shown as one **Review group**. Its `<doc-file>` tag names every file in
-chain order, and that order is the order approval promotes and chains them in. Each draft is its
-own document.
-_Avoid_: Batch, plan bundle
 
 ## Sessions
 
@@ -343,22 +173,6 @@ session as its first turn. A stopped session keeps its spawn record, which is wh
 transcript, which says what it was doing. A session started by hand has no record and is not a
 stopped session. `mael agent list --stopped` lists them.
 _Avoid_: Closed session (a closed worktree is a different thing), ended session, dead session
-
-**Task session id**:
-The id of one of a task's agent sessions. A task stores a list of them, oldest first, and each
-entry names its harness. For Claude, maelstrom makes the id at the first launch and passes it as
-`--session-id`. Each `/clear` of the task's driven agent appends the id that Claude Code moves to. For
-Codex, the id is the thread id that Codex returns. The newest entry for a
-harness is the current one, and a launch on that harness resumes it. The task table finds a task
-by any of its ids, and an agent row reports one. Use the task session id to answer "which task
-is this?".
-_Avoid_: Session id (for this concept)
-
-**New session**:
-A launch of a task on a new **Task session id**, in place of a resume of the current one. The
-prompt names the earlier session ids, oldest first. A new session can reopen a done task. The
-Resume menu of a task's agent offers it, and `mael task run --new-session` starts one.
-_Avoid_: Fresh session, restart
 
 **Session id**:
 The id of the conversation running now, reported by Claude Code as `CLAUDE_CODE_SESSION_ID`. A
@@ -647,29 +461,6 @@ that has said nothing, stay idle. An idle agent whose worktree has a **Gate job*
 unanswered: it ended its turn to wait on the gate.
 _Avoid_: Comment, Waiting, Blocked
 
-**Drift**:
-A task status that disagrees with the agent observed on the task. Three kinds, the same three
-`mael task reconcile` names: *finished*, *never-ran*, *orphan-session*. The agent wins when the
-two disagree, because an agent state is observed from events and a task status is a file that
-goes out of date. A closed task with an agent still on it is not drift — that is
-**Finalising**. Drift is a bookkeeping note, never something waiting on the user: it is not
-counted in attention.
-_Avoid_: Stale (a stale prompt is a different thing), out of date, orphaned
-
-**Finalising**:
-A task that is `done` while an agent still runs on it. That is the ordinary tail of the
-task-completion flow: the PR is pushed, the task is closed, and `watch-pr` carries CI to green.
-The node draws its own state and sits in the running zone, because the work is not settled until
-CI is. It carries no drift mark. When the agent stops, the node reads Done.
-_Avoid_: Orphan session, lingering session, post-done
-
-**Reconcile**:
-Reading every in-progress task against the sessions running now, and reporting each drift with
-the status that would correct it. `mael task reconcile` lists the findings; `--fix` applies
-them. Reconcile never guesses at a terminal task: a done task with a session still up is
-reported, not moved.
-_Avoid_: Repair, sync, heal
-
 **Agent message**:
 One thing a driven agent said, in its own words. Text blocks only — a `thinking` block is
 reasoning the agent did not choose to say, and a `tool_use` block is an action. The daemon keeps
@@ -747,9 +538,9 @@ direct agents. Not the task **Parent**, which groups a chain.
 _Avoid_: Master, primary
 
 **Task home**:
-Where the task work of one agent or worktree goes: this server's notebook, or the **Parent
-server**'s notebook for a **Delegated agent**. A worktree's task home is that of its newest
-delegated agent, else this server's notebook. A Shelve writes its reopen task there.
+Where the task work of one agent or worktree goes: this server's Task tracker, or the **Parent
+server**'s Task tracker for a **Delegated agent**. A worktree's task home is that of its newest
+delegated agent, else this server's Task tracker. A Shelve writes its reopen task there.
 _Avoid_: Task server, task target
 
 **Id prefix**:
@@ -772,7 +563,7 @@ no `dev_host:`.
 _Avoid_: SSH URL, SSH address
 
 **Orchestrator server**:
-The process that builds the world from the notebook, `list-all` and the agent host, and serves
+The process that builds the world from the Task tracker, `list-all` and the agent host, and serves
 it to the orchestrator UI over HTTP: resources by REST, change notices on one stream, one socket
 per open agent transcript. `mael-orchestrator serve` runs it.
 _Avoid_: Backend, API server
@@ -1042,14 +833,21 @@ its own.
 _Avoid_: owning layer, driving port, entry point
 
 **Feature file**:
-A Gherkin file in `docs/specs/<subsystem>/`. It holds the contract of one command or query, or
+A Gherkin file in `docs/specs/<subdomain>/<subsystem>/`. It holds the contract of one command or query, or
 the invariants of one **Domain type**, as **Contract rules** with examples.
 _Avoid_: spec file, scenario file
 
+**Subdomain**:
+A part of what maelstrom does, with one language: Tasks, Code, Delivery, Agents, Desk, Method or
+Platform. It groups **Subsystems** and has one glossary, `docs/specs/<subdomain>/CONTEXT.md`.
+`docs/README.md` lists them. Maelstrom as a whole is the domain.
+_Avoid_: domain (for a part), area, bounded context
+
 **Subsystem**:
-A slice of behaviour with its own glossary, **Domain types** and **Feature files**. It can span
-packages.
-_Avoid_: bounded context, component
+A slice of behaviour in one **Subdomain**, with its own **Domain types** and **Feature files**.
+It owns its code at each layer: model, CLI, routes, UI and skills. A subsystem of the Platform
+subdomain is infrastructure: the frame of one layer, or a service that each other subsystem uses.
+_Avoid_: bounded context, component, module
 
 **Suite outline**:
 The test names of a module's **Owning suite**, without the bodies. A plan reads it to find the
@@ -1063,6 +861,23 @@ _Avoid_: wrapper tests
 
 ## Pull requests
 
+**Landing**:
+How far the work of a `done` task has gone: `done → merged → uat → live`. It is not a
+task **Status**, which ends at `done`. Each of these is a **Landing step**. The landing is
+derived, never stored on the task. It joins the task's **Registered PR**
+to GitHub's data about that PR, which the orchestrator server reads on its worktree poll.
+- `merged` comes from the PR's merge commit. `uat` and `live` come from the deploys to the
+  GitHub environment that `deploy.environments` names for each step.
+- An environment's state is `landed`, `not_yet` or `unknown`. A failed read is `unknown`, and
+  `unknown` never counts as reached.
+- In a `merge: local` project, `merged` comes from the **Build queue**'s record of the
+  **Merge request**'s merge, not from a PR.
+- A project with no `deploy:` block stops at `merged`.
+- The server records each landing step the first time a task reaches it, with the time it
+  recorded it.
+- A landing belongs to one task. There is no chain landing.
+_Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phase, milestone
+
 **Orchestrator token**:
 The GitHub token the orchestrator server uses for UI actions that write to GitHub. One token
 serves every project. Set as `github.orchestrator_token`, read from `config.yaml` only.
@@ -1072,11 +887,6 @@ _Avoid_: Merge token, server token
 The `GITHUB_TOKEN` a project's `.env` gives every service and agent. It may lack merge rights,
 and may reach only its own project.
 _Avoid_: Narrow token, inherited credentials
-
-**PR draft**:
-The file `.drafts/pr.md`, holding the body a PR will get. `mael gh create-pr` reads it, writes it
-to the PR, then deletes it. A missing draft leaves an existing PR's body alone.
-_Avoid_: PR description file, body file, draft PR (which is GitHub's own unready-for-review state)
 
 **Working history**:
 The ref `refs/mael/history/<branch>/<stamp>`, holding the chronological commits that
@@ -1120,34 +930,6 @@ _Avoid_: Curate, reorganise, tidy
 
 ## Orchestrator UI
 
-**Phase**:
-Which of four stages a task's work is in: shape, plan, build, land. A phase is named as the
-imperative of the work, which is what keeps it apart from the agent's state — a task is in build
-whether or not an agent runs on it now. Read from the task's `command`, and never stored: an
-agent shows the phase of its task. A build task in plan mode reads plan until its agent leaves
-plan mode, which plan approval does. A command nobody recognises has no phase, and neither does an
-agent with no task.
-_Avoid_: Stage, step, executing, finalising. **Shape** and **plan** are the phases' own names, so
-they are used for those phases and not as loose synonyms: shaping creates the tasks that planning
-then plans. The `plan-task` skill shapes: it drafts and promotes tasks. `plan` belongs to the
-`plan-next-step` skill and to an agent's plan mode.
-
-**Shape**:
-Exploring a brief until a set of tasks is agreed and created. Ends at a user checkpoint. May be
-skipped.
-
-**Plan**:
-Producing an agreed plan for one task. Ends at the plan-review checkpoint.
-
-**Build**:
-Building the code, running its own review, presenting it, opening the PR. Ends when the PR first
-ships. In a `merge: local` project, it ends at the first `mael merge submit`. Not the **Queue
-build**, the gate run of a Merge request.
-
-**Land**:
-Answering CI failures and review feedback on an open PR. Ends when it merges. In a `merge: local`
-project, the **Chaperone** answers `build.*` events and review feedback on its **Merge request**.
-
 **Held text**:
 What the user typed into a surface of the orchestrator UI and has not submitted, kept in the
 browser so that closing a dialog, switching a tab or reloading the page does not lose it. Held
@@ -1155,80 +937,6 @@ text is browser-local and per surface. It is cleared when the work is submitted,
 surface offers a control to clear it — never when the surface closes. View state — the open tabs,
 the filters, the expanded node — is not held.
 _Avoid_: Draft (a task file in `.drafts/`), autosave, cache, unsaved changes
-
-**Document**:
-A versioned markdown artefact an agent puts in front of the user: a plan, a task draft, a PR
-description, a review, a document bound for the repo. Every document but a plan is one file, and
-its worktree-relative path is its identity within the task (or within the agent when it has no
-task). Presenting the same path again makes the next version of the same document, whatever its
-status. A document that stands at a checkpoint awaits review. A document the user was only asked
-to read is a **draft**, and blocks nothing.
-_Avoid_: Artefact, output
-
-**Verification**:
-A **Document** of kind `verification`. It holds the evidence that the work is complete: prose,
-images and video. An agent writes it at `.drafts/verification.md` after the gates pass.
-_Avoid_: Proof, evidence document, demo
-
-**Task document**:
-A file one task owns, with every version kept. Its kind is `markdown` or `sarif`. Its name is
-unique within that task, and it may hold `/`. A reference names it as
-`<project>:<task-id>:<name>`, with an optional `@v<n>` for one version and `#<fragment>` for one
-part. Without `@v<n>`, a reference reads the latest version. Each **Document** a task's agent
-shows with a **Document tag** stores a version, and so does each plan it submits. A free agent
-stores none. A version keeps its review status, its agent and its **Review group**. Each verdict
-writes the status. The rows are in the **State database**, and the media are in the task's
-**Bucket**. See `docs/adr/0001-task-documents.md` for archiving, plans and storage.
-_Avoid_: Attached document, kept document, saved document, persisted document, report
-
-**Document role**:
-The kind of the **Document** that stored a **Task document**: `plan`, `tasks`, `pr`, `review`,
-`verification` or `other`. The card shows `plan` under Plans, `verification` under
-Verifications, and every other role under Other. `mael doc add --as` sets it for a hand-added
-document. The **Task document**'s own `kind` is its format, `markdown` or `sarif`.
-_Avoid_: Type, category, section
-
-**Document link**:
-A task's link to a **Task document** that another task owns, or to one **Fragment** of it. The
-owner's link is implicit. A link is deleted, not archived.
-_Avoid_: Reference (that is the text that names a document), relation
-
-**Fragment**:
-One part of a **Task document** that a reference names after `#`. In markdown it is a heading's
-slug, made as GitHub makes it: `## Set up` is `set-up`, and a second `## Set up` is `set-up-1`. In
-SARIF it is a **Finding key**.
-_Avoid_: Anchor, section id
-
-**Finding**:
-One result in a SARIF **Task document**: a rule, a level, a location and the tool's prose. The
-findings are parsed from the stored SARIF each time, so no table holds them.
-_Avoid_: Issue, alert, vulnerability
-
-**Finding key**:
-The name of one **Finding** that stays the same across scans. It is the Claude Security finding
-id, else a SARIF fingerprint, else a hash of the tool, the rule and the location. A URL loses its
-host and port, because each worktree serves on its own port. A line number never counts. Two
-findings with one key in one scan get `-2`, `-3` in SARIF order.
-_Avoid_: Finding id, label (`F3` names a finding inside one scan only)
-
-**Document tag**:
-The marker an agent writes in the text of an ordinary message to put a document in front of the
-user: `<doc-file>`, naming files in the agent's worktree, comma-separated, resolved against that
-directory and nothing outside it. Each file becomes one document, and the files of one tag form a
-**Review group** the tag's `title` names. The tag is cut out of the message the transcript shows.
-A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
-what raises an attention item.
-One of the markers, with the **Image tag**, the **Note**, the **Milestone**, the **PR link
-tag** and `<live-feedback>`. The names carry
-nothing maelstrom-specific, so another frontend may render them its own way.
-_Avoid_: Directive, macro, shortcode
-
-**Review group**:
-The documents one **Document tag** named, settled by one verdict. Approving or sending back any
-member settles every current member, and raises or clears one attention item for the group. Each
-member keeps its own version. A member the agent leaves out when it presents the tag again is
-**superseded**, and drops off the card. A plan is a group of one.
-_Avoid_: Bundle, batch, set (except **Task set**)
 
 **Note**:
 What an agent says it is doing now, written as `<note>Rebasing onto main</note>` in the text of an
@@ -1309,24 +1017,6 @@ write one. An agent that spent nothing since its last stage gets none.
 _Avoid_: Final milestone, shipped. A **milestone** is a stage the agent declares; this one closes
 the ledger instead.
 
-**Image tag**:
-The marker an agent writes in the text of an ordinary message to show the user a picture:
-`<image src="docs/shot.png" alt="The failing dialog">`. The tag becomes a picture where it was
-written, so an image is read in the flow of the message and is not a document. `src` names a file
-in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
-may not show, or one that is not there, leaves prose saying so, never a broken picture. One of the
-markers, with the **Document tag**, the **Note**, the **Milestone**, the **PR link tag** and `<live-feedback>`.
-_Avoid_: Screenshot tag, figure, embed
-
-**PR link tag**:
-The marker an agent writes in the text of an ordinary message to register a PR on its task:
-`<link rel="gh-pr">118</link>`, with a PR number, `#118` or a GitHub PR URL. The server cuts it
-from the message and makes the PR the task's **Registered PR**. With a bare `withdrawn`
-attribute, `<link rel="gh-pr" withdrawn>118</link>`, it marks that PR as a **Withdrawn PR**
-instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
-markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<live-feedback>`.
-_Avoid_: PR tag, link tag
-
 **User attention**:
 The rank an agent sets with `<user-attention high>` or `<user-attention low>` in an ordinary
 message. High prose is for the user to read. Low prose is working detail. The renderer draws low
@@ -1342,17 +1032,6 @@ user turn, which is that command's only trace, so the transcript folds it to one
 status and summary and drops the ids and the output path it also carries — addresses of files on
 the agent's host, which the reader cannot open.
 _Avoid_: Task update, background result, completion message
-
-**File registry**:
-The ids that stand for the files agents named, and the only route to a file's bytes. A `<doc-file>`
-or an `<image>` registers its file, and the URL carries the id and never a path, so a file nobody
-registered cannot be reached. An id is not a secret — it is guessable, and what it cannot do is
-name a file nobody registered. Not persisted, as a document is not.
-_Avoid_: File table, allow-list, handle
-
-**Comment**:
-Feedback anchored to a span of one document version. Requesting changes sends the unresolved
-comments back to the agent. For feedback on a diff, see **Change comment**.
 
 **Change comment**:
 Feedback on a range of lines in the **Changes tab**. A change comment names its rev, its file and
@@ -1436,15 +1115,12 @@ properties. The values are kept in `.drafts/jig-values.json`, so every page shar
 One thing waiting on the user: a wait kind, a document awaiting review, an exited agent. Raised
 and cleared by the backend, never inferred by the UI. An **Unanswered agent** is not one.
 
-**Brief**:
-The free-text starting point for shaping.
-
 **Desk**:
 The sticky record of what the canvas draws: tasks, and free agents. The server adds an entry for
 every agent it sees start, and the entry outlives the agent, so stopped work stays on the
 canvas until the user takes it **Off desk**. A restart rebuilds the agents, so an entry naming an agent
 that is gone is dropped as the desk loads. Each entry names its kind — `task:<project>/<notebook id>`
-or `agent:<agent id>`. The desk is tracked apart from the notebook and is not a status, so a
+or `agent:<agent id>`. The desk is tracked apart from the Task tracker and is not a status, so a
 task stays on the desk whatever its status. A task joins the desk by **On desk**, and a node leaves it by **Off desk**. There is
 one desk today, and one per user later.
 _Avoid_: Workspace, board, pinned
@@ -1505,7 +1181,7 @@ place.
 _Avoid_: Placeholder node, pending node, ghost node
 
 **Active branch**:
-A branch with a desk entry at it — a task through the notebook, an agent through its worktree.
+A branch with a desk entry at it — a task through the Task tracker, an agent through its worktree.
 The worktree poll asks GitHub about active branches only, because GraphQL is charged by node
 count against a budget that refills hourly. A branch off the desk keeps the pull request the last
 read saw, rather than reading as having none.
@@ -1605,47 +1281,6 @@ it takes a click, as the agents chip does on the Desk. It takes this height eith
 up with the top bar.
 _Avoid_: Touch size, button size
 
-**Task list**:
-The view that lists every task the server knows, with filters for status, project, branch and
-text. The canvas shares the project, branch and text filters. The task list is where a task joins the desk, and one of the places it leaves it. A task
-node's expanded card offers the same toggle for every task its task follows or is followed by.
-The task list lists tasks only: a free agent has no row, and is taken **Off desk** from its node on the canvas.
-_Avoid_: Table view, index
-
-**Comms**:
-The view that lists the open **Comms** and edits them: a row per comm, with its recipients, its
-linked task count and the highest **Landing** status among its tasks. The editor links and
-unlinks tasks, and shows each linked task's landing strip. The **Draft updates** button shows
-how many tasks the open comms queue. A row with an unsent **Comm update** says `draft`, and the
-editor lists the comm's updates, newest first. Its New task button opens New work on
-the comm's title, content and project, and the task it writes is linked to the comm. The task
-count opens Tasks with the Comm filter set. A comm's chip shows its **Comm codename**; a click
-on a chip on a task's node or card opens the comm's editor. On a kanban or list row the chip is
-text, because the row is itself a link. The **Task editor** links comms too. Each picker
-offers the five comms or tasks this browser viewed or linked most recently, before a search. A person works here; an agent uses
-`mael comms`.
-_Avoid_: Inbox, outbox, notifications tab
-
-**Task editor**:
-The form that edits one task's fields: title, status, content and branch, with the planning level
-shown above Advanced, and command, mode, priority, model and follows folded away there.
-Below the fields, a Comms section links and unlinks comms at once, not through Save. It
-opens from the task list or a task's node on the desk, and writes through `task.update`, except
-status, which writes through its own route since it is folder-derived. New work composes the same
-field components, so both surfaces read and order fields the same way — except status, which new
-work has no control for.
-_Avoid_: Task modal, edit form, task detail
-
-**Planning level**:
-How much planning a new task gets before it is built: high, regular or none. The level is a
-reading over the task's `command` and `mode`, never stored as a field of its own — high is
-`plan-task` under `normal`, regular is no command under `plan`, none is no command under `auto`.
-High and none mirror `mode_for_command`; regular has no equivalent in Python, where an empty
-command means `auto`. New work and the task editor both offer the three as radios and read them
-back off the two fields, so editing either field re-derives the level and a pair no level names
-reads as N/A.
-_Avoid_: Planning depth, plan mode (that is a permission mode), autonomy
-
 **Expanded node**:
 A node grown in place into a card that shows its status, the decision it waits on, and links
 into the panel. One node is expanded at a time. The narrow layout has no canvas to grow on, so
@@ -1668,12 +1303,6 @@ An approve that also tells the agent not to ask again. The agent offers it with 
 **Decision** shows it as a button beside Approve, labelled with what it remembers. The agent
 keeps the rule; Maelstrom keeps none.
 _Avoid_: Always allow (as a term), auto-approve, trust
-
-**Review dock**:
-The band under a document holding whatever waits on the user there: an agent's own wait, or the
-document's own review route. One dock, so a reader answers in one place whoever is asking. See
-`orchestrator-ui/DESIGN.md`, "Review Dock".
-_Avoid_: Action bar, footer
 
 **Panel**:
 The tabs, drawn in one slot. A tab holds a session, a document, a worktree's changes (see
@@ -1762,14 +1391,14 @@ flow does not draw also makes a pin. A pin lives per rev, in **Held text**. Unpi
 the diff stays.
 _Avoid_: Addition, added file, bookmark, attachment
 
-**Fragment**:
+**Snippet**:
 A **Pin** of the lines of one function or class, or of a top-level TypeScript `const`, reached
 by following a symbol. When none holds the target, the pin is a plain range **Pin** around it.
-_Avoid_: Snippet, excerpt (the wire read), slice
+_Avoid_: Fragment (a part of a **Task document**), excerpt (the wire read), slice
 
 **Reference menu**:
 The menu that a click on a definition in the **Changes tab** opens: each use of the name in the
-rev. A pick pins the **Fragment** that holds the use.
+rev. A pick pins the **Snippet** that holds the use.
 _Avoid_: Dropdown, references popup
 
 **Symbol card**:
@@ -1961,44 +1590,17 @@ leaves it where it was. It is not an **Epoch**: an epoch names one life of a str
 revision orders writes within one database.
 _Avoid_: Version, sequence, generation, epoch
 
-## Knowledge stores
-
-**Task notebook**:
-Every task maelstrom knows, as rows in the **State database**. A task's media attachments are in
-the **Attachments directory**.
+## Wiki and archive
 
 **Wiki**:
 Curated markdown pages for design patterns that apply to more than one project, one row each in
 the `wiki_pages` table of the **State database**. The wiki fills the gap that per-project memory
 and a repo's own `docs/` both leave open.
 
-**Attachment**:
-Something the task notebook stores for one task. There are two kinds. A media attachment is an
-image, a video, or any other file the user attaches, in the **Attachments directory**, under
-`<project>/images/<bucket>/`. A **Task document** is rows in the **State database**. Task content,
-the body of a task document, and a message to an agent reference a media attachment by a
-`{{MAEL_TASK_DIR}}` token, which expands to an absolute path when the agent gets it. An image is
-embedded and any other file is linked; see "Attachments" in `docs/dev/orchestrator-server.md`. A
-brief from Linear, a screenshot pasted into the orchestrator UI and a text note are all media
-attachments.
-_Avoid_: Upload, asset; "file" for an attachment in general (a `file` attachment is the non-image
-kind)
-
-**Attachments directory**:
-The plain directory `<notebook root>/attachments/` that holds every media attachment. The
-`{{MAEL_TASK_DIR}}` token expands to `<notebook root>/attachments/<project>`.
-_Avoid_: Task repo, notebook repo, images folder
-
 **State archive**:
 The zip that `mael self export` writes and `mael self import` reads. It holds the **State
 database** and the **Attachments directory**, and a manifest of their schema versions.
 _Avoid_: Backup, dump, snapshot
-
-**Bucket**:
-The directory that groups one piece of work's attachments. A task uses its notebook id, a
-Linear issue its identifier, an agent tied to no task `agent-<id>`, and a task that does not
-exist yet `draft-<random>`.
-_Avoid_: Folder, group, album
 
 ## Code layout
 
@@ -2074,11 +1676,3 @@ The optional plugin in `shared/plugins/` that holds the development practices, s
 `design-build-test`, `code-review` and `writing-for-humans`. A user installs it globally. A
 **Core plugin** skill that names a minnstack skill works without it.
 _Avoid_: optional skills
-
-## Open questions
-
-This is unresolved. Do not treat it as settled intent.
-
-**Cancelled dependencies**: Follows gating tests for `done` only, so a cancelled task stalls
-everything that follows it permanently. Whether cancelling should release or block its
-followers is undecided.
