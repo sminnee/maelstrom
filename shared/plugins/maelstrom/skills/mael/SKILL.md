@@ -30,7 +30,7 @@ Task documents:
 - To store a file that needs no review, such as a scan or a note for a later task, run `mael doc add <path> --as <role>`.
 - To use a document, or one heading or finding of it, that another task owns, run `mael doc link <project>:<task-id>:<name>[#<fragment>]`.
 
-`$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the notebook holds the plan. Do not write the plan into Linear.
+`$MAEL_TASK_ID` identifies the running task and `$MAEL_TASK_PARENT` identifies the shared chain parent. Linear mirrors status; the Task tracker holds the plan. Do not write the plan into Linear.
 
 ## Waiting on other work
 

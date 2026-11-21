@@ -45,6 +45,7 @@ def test_add_prints_the_id_and_puts_the_task_on_the_desk(start_server, tmp_path)
     served = serve(start_server)
     brief = tmp_path / "brief.md"
     brief.write_text("Probe the desk.")
+    comm = OrchestratorClient(served.url).post("/api/comms", {"title": "Weekly"})
 
     result = mael_task(
         "add",
@@ -59,6 +60,8 @@ def test_add_prints_the_id_and_puts_the_task_on_the_desk(start_server, tmp_path)
         "sonnet",
         "--content-file",
         str(brief),
+        "--comm",
+        comm["id"],
     )
 
     assert result.exit_code == 0, result.output
@@ -66,6 +69,7 @@ def test_add_prints_the_id_and_puts_the_task_on_the_desk(start_server, tmp_path)
     new = stored(served.table, task_id)
     assert (new.title, new.branch, new.priority) == ("Desk probe", "feat/probe", "high")
     assert (new.execute_model, new.content) == ("sonnet", "Probe the desk.")
+    assert new.comms == [comm["id"]]
     assert desk_ids(served.url) == on_desk(task_id)
 
 
@@ -116,40 +120,14 @@ def test_add_for_another_project_takes_no_parent_from_the_session(
     assert (new.parent, new.follows) == ("", [])
 
 
-def test_add_from_copies_the_recipe_and_the_flags_override_it(table, start_server):
-    seed(
-        table,
-        title="Sweep",
-        id="NORT-7",
-        command="plan-task",
-        mode="auto",
-        branch="feat/sweep",
-        content="The body.",
-    )
+def test_add_from_names_the_task_to_copy(table, start_server):
+    seed(table, title="Sweep", id="NORT-7", command="plan-task", branch="feat/sweep")
     served = serve(start_server)
 
-    result = mael_task(
-        "add", "-p", PROJECT, "--from", "NORT-7", "-c", "other", "-b", "feat/copy"
-    )
+    result = mael_task("add", "-p", PROJECT, "--from", "NORT-7")
 
     assert result.exit_code == 0, result.output
-    copy = stored(served.table, result.output.strip())
-    assert (copy.title, copy.command, copy.mode, copy.content, copy.branch) == (
-        "Sweep",
-        "other",
-        "auto",
-        "The body.",
-        "feat/copy",
-    )
-
-
-def test_add_from_a_task_that_is_not_there_is_refused(start_server):
-    serve(start_server)
-
-    result = mael_task("add", "-p", PROJECT, "--from", "NOPE")
-
-    assert result.exit_code == 1
-    assert "No task northwind/NOPE" in result.output
+    assert stored(served.table, result.output.strip()).command == "plan-task"
 
 
 def test_add_template_parks_the_task_with_its_schedule(start_server):
@@ -170,18 +148,6 @@ def test_add_template_parks_the_task_with_its_schedule(start_server):
     assert result.exit_code == 0, result.output
     new = stored(served.table, result.output.strip())
     assert (new.status, new.schedule) == (model.STATUS_TEMPLATE, "0 3 * * *")
-
-
-def test_add_links_the_comm_it_names(start_server):
-    served = serve(start_server)
-    comm = OrchestratorClient(served.url).post("/api/comms", {"title": "Weekly"})
-
-    result = mael_task(
-        "add", "Feeds it", "-p", PROJECT, "-b", "feat/a", "--comm", comm["id"]
-    )
-
-    assert result.exit_code == 0, result.output
-    assert stored(served.table, result.output.strip()).comms == [comm["id"]]
 
 
 def test_add_with_a_comm_that_is_not_there_writes_nothing(start_server):

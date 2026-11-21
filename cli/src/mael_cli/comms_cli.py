@@ -1,6 +1,6 @@
 """``mael comms``: change comms, and read each tracked task's landing.
 
-See ``CONTEXT.md``, "Comm" and "Landing". The orchestrator server writes the
+See ``docs/specs/tasks/CONTEXT.md``, "Comm", and ``CONTEXT.md``, "Landing". The orchestrator server writes the
 landing rows on its worktree poll; ``comms landings`` only reads them.
 """
 

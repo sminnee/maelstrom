@@ -29,7 +29,7 @@ New tasks default to plan mode, so a bare `--run` opens a planning session.
 Inside that session, the agent researches the codebase, discusses the approach with you,
 and sculpts **draft task files** — one file per future task, each shown as a document in the
 orchestrator UI.
-A draft is inert: it becomes a real task only when it is promoted into the notebook.
+A draft is inert: it becomes a real task only when it is promoted into the Task tracker.
 
 ### Drafts become tasks
 
@@ -128,8 +128,8 @@ every small step its own test, so the suite grows with duplicates. A bug fix is 
 its regression test is written first, and seen to fail, so it proves it catches the bug.
 
 The plan's **Contract changes** section lists each contract rule that the work adds, changes, or
-withdraws. A subsystem's feature files, in `docs/specs/<subsystem>/`, are the durable record of
-its rules: the plan cites their rule ids, and the build edits the feature file before the test.
+withdraws. A subsystem's feature files, at the `Specs:` path of its `docs/README.md` entry, are
+the durable record of its rules: the plan cites their rule ids, and the build edits the feature file before the test.
 That section is also the plan of the tests: a plan has no separate test plan. Each rule is
 tested at its primary seam, the one interface in the code where its contract holds in full. The
 feature file names the seam, or the plan's line does. Approving the plan agrees both. The session

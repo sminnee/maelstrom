@@ -162,22 +162,22 @@ TASKS: tuple[Rung, ...] = (
             "ALTER TABLE tasks DROP COLUMN steps",
         )
     ),
-    # The Registered PR. See CONTEXT.md, "Registered PR".
+    # The Registered PR. See docs/specs/tasks/CONTEXT.md, "Registered PR".
     Migration(
         (
             "ALTER TABLE tasks ADD COLUMN pr_number INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE tasks ADD COLUMN pr_url TEXT NOT NULL DEFAULT ''",
         )
     ),
-    # What fires a template. See CONTEXT.md, "Trigger".
+    # What fires a template. See docs/specs/tasks/CONTEXT.md, "Trigger".
     Migration(("ALTER TABLE tasks ADD COLUMN trigger TEXT NOT NULL DEFAULT ''",)),
-    # The comms a task feeds: a JSON list, like ``follows``. See CONTEXT.md, "Comm".
+    # The comms a task feeds: a JSON list, like ``follows``. See docs/specs/tasks/CONTEXT.md, "Comm".
     Migration(("ALTER TABLE tasks ADD COLUMN comms TEXT NOT NULL DEFAULT '[]'",)),
-    # The Registered PR is withdrawn. See CONTEXT.md, "Withdrawn PR".
+    # The Registered PR is withdrawn. See docs/specs/tasks/CONTEXT.md, "Withdrawn PR".
     Migration(
         ("ALTER TABLE tasks ADD COLUMN pr_withdrawn INTEGER NOT NULL DEFAULT 0",)
     ),
-    # Each task stores its sessions. See CONTEXT.md, "Task session id".
+    # Each task stores its sessions. See docs/specs/tasks/CONTEXT.md, "Task session id".
     PythonMigration(
         run=_store_sessions,
         description="store each task's sessions on the task",
@@ -185,7 +185,7 @@ TASKS: tuple[Rung, ...] = (
     # Branch stacking is gone, and the task base with it. See ADR 0004.
     Migration(("ALTER TABLE tasks DROP COLUMN base",)),
     # The ``blocked`` status is gone: follows are the one way to make a task
-    # wait. See CONTEXT.md, "Parked task".
+    # wait. See docs/specs/tasks/CONTEXT.md, "Parked task".
     Migration(("UPDATE tasks SET status = 'todo' WHERE status = 'blocked'",)),
     # Each open task held a codename. A later rung drops it.
     Migration(

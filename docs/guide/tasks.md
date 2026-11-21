@@ -1,6 +1,6 @@
 # Tasks
 
-The task notebook is how maelstrom knows what each agent is doing, and in what order.
+The Task tracker is how maelstrom knows what each agent is doing, and in what order.
 
 ## What a task is
 
@@ -158,7 +158,7 @@ mirrors itself without manual `set-status` calls.
 
 ## Drafts and promotion
 
-A **draft** is a task file outside the notebook. It sits in the worktree's `.drafts/` directory, invisible
+A **draft** is a task file outside the Task tracker. It sits in the worktree's `.drafts/` directory, invisible
 to `list`, `next`, and follow-end resolution, until `promote` loads it into the store. This
 is how planning sessions hand work off — the draft is sculpted first, then promoted on
 approval. See [planning.md](planning.md).
@@ -183,7 +183,7 @@ happens here, when the ids exist:
   first task follows nothing.
 - `--follow <id>` and `--follow-end '*'` wire the first task instead, and move no other task.
 
-Any recipe flag overrides every file's value. The set is one notebook write. On an error —
+Any recipe flag overrides every file's value. The set is one Task tracker write. On an error —
 missing file, bad frontmatter, no title — every file is left untouched and no task is created.
 
 ## Bulk chains with load-many

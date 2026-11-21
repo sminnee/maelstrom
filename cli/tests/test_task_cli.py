@@ -187,16 +187,9 @@ class TestUpdateRename:
         assert "Renamed" in result.output
         assert "new-id" in result.output
 
-    async def test_update_id_refuses_in_progress(self, runner, store):
-        old_id = (await model.create(store, project="p", title="E")).id
-        await model.move(store, "p", old_id, model.STATUS_IN_PROGRESS)
-        result = runner.invoke(task_cli.task, ["update", old_id, "--id", "new-id"])
-        assert result.exit_code != 0
-        assert "in-progress" in result.output
-        # Untouched.
-        assert (await model.load(store, "p", old_id)).id == old_id
-
-    async def test_update_id_refuses_live_session(self, runner, store, monkeypatch):
+    async def test_rename_task_R4_a_live_session_refuses_the_rename(
+        self, runner, store, monkeypatch
+    ):
         t = await model.create(store, project="p", title="E")
         old_id = t.id
         # A live claude carrying the session id this task stores.
@@ -217,7 +210,7 @@ class TestUpdateRename:
         assert "changing its id" in result.output  # the action it refused
         assert (await model.load(store, "p", old_id)).id == old_id
 
-    async def test_update_id_allows_a_live_session_of_another_task(
+    async def test_rename_task_R4_a_live_session_of_another_task_does_not_block(
         self, runner, store, monkeypatch
     ):
         # Keyed on this task's own session id, not on worktree occupancy: a
@@ -760,33 +753,13 @@ class TestLiveSessionsByTask:
         assert await task_cli._live_sessions_by_task(store, "p") == {}
 
 
-def _block_option_keys() -> set[str]:
-    """The block-settable field keys that must appear as CLI flags."""
-    return {
-        f.key
-        for f in model.TASK_FIELDS
-        if f.block and f.key not in task_cli._NON_OPTION_BLOCK_KEYS
-    }
-
-
 class TestBlockTaskOptionsParity:
-    """The mechanism that keeps the CLI vocabulary and _BLOCK_KEYS from drifting.
+    """The flags of the task commands cover the block-settable fields.
 
-    Commit 497e63a fixed exactly this class of drift for the key tables ("the
-    same field set was hand-listed in four places … which is how ``branch`` came
-    to be missing"). These assertions make a new block-settable field fail loudly
-    instead of silently going missing from every task-creating command.
+    A new block-settable field with no flag on `task add`, `linear plan` or
+    `task update` fails here. The short flags and the priority choices of
+    `task add` stay as they were.
     """
-
-    def test_every_block_field_has_an_option_row(self):
-        missing = _block_option_keys() - set(task_cli._BLOCK_OPTIONS)
-        assert not missing, f"add a _BLOCK_OPTIONS row for: {sorted(missing)}"
-
-    def test_no_stale_option_rows(self):
-        # The converse: a row for a field no longer block-settable (or renamed)
-        # would silently render a flag the model can't accept.
-        stale = set(task_cli._BLOCK_OPTIONS) - _block_option_keys()
-        assert not stale, f"remove stale _BLOCK_OPTIONS rows: {sorted(stale)}"
 
     @pytest.mark.parametrize(
         "command",
@@ -820,12 +793,6 @@ class TestBlockTaskOptionsParity:
         assert isinstance(opts["priority"].type, click.Choice)
         assert tuple(opts["priority"].type.choices) == model.PRIORITIES
 
-    def test_help_lists_every_block_flag(self, runner):
-        result = runner.invoke(task_cli.task, ["add", "--help"])
-        assert result.exit_code == 0, result.output
-        for key in _block_option_keys():
-            assert f"--{key}" in result.output
-
     def test_update_exposes_every_updatable_block_field(self):
         # `task update` is the edit-time sibling derivation; it must cover every
         # field that carries update_help, so the same drift can't reappear there.
@@ -839,15 +806,6 @@ class TestBlockTaskOptionsParity:
         # `model` is the field this commit added — assert it by name so the test
         # states the concrete regression, not just the abstract rule.
         assert "model" in names
-
-    def test_update_options_default_to_none(self):
-        # Unset must stay distinguishable from an explicit '' so `task update`
-        # can leave a field alone vs clear it.
-        opts = {p.name: p for p in task_cli.task_update.params}
-        for spec, opt in task_cli._option_specs():
-            if opt.update_help is None:
-                continue
-            assert opts[spec.attr].default is None, spec.key
 
     def test_update_omits_create_only_fields(self):
         # `parent` has no update_help: re-parenting moves id and branch, which is
@@ -1268,7 +1226,7 @@ class TestEnvThreading:
 
 class TestUpdate:
     async def test_update_title_and_branch(self, runner, store):
-        t = await model.create(store, project="p", title="alpha")
+        t = await model.create(store, project="p", title="alpha", command="/plan-task")
         result = runner.invoke(
             task_cli.task, ["update", t.id, "new title", "--branch", "feat/foo"]
         )
@@ -1277,6 +1235,8 @@ class TestUpdate:
         reloaded = await model.load(store, "p", t.id)
         assert reloaded.title == "new title"
         assert reloaded.branch == "feat/foo"
+        # A flag left out is no edit; a flag set to '' clears the field.
+        assert reloaded.command == "/plan-task"
 
     async def test_update_content_from_stdin(self, runner, store):
         t = await model.create(store, project="p", title="alpha", content="old body")

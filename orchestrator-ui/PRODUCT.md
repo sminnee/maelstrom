@@ -33,7 +33,7 @@ what is happening.
 The guiding metaphor is a real-time strategy game: everything running is on one canvas, and a
 unit that needs orders shows it on the canvas itself. This metaphor is a binding commitment.
 
-What a neighbouring tool could not truthfully copy is the notebook underneath it. Maelstrom
+What a neighbouring tool could not truthfully copy is the Task tracker underneath it. Maelstrom
 already models order of work (`follows`), grouping into one pull request (`parent`) and the
 four phases of a task's life. The UI shows agents against that model, so it can say what work
 is blocked on what, and by whom, rather than listing running processes.
@@ -87,7 +87,7 @@ Constraints:
 - The orchestrator server, or a fake server that holds a scenario of the world in the browser.
   The fake server is a design surface, not throwaway.
 - Against the real server, documents, comments and shaping answer `invalid`. The server serves
-  agents, the desk, and the notebook writes: a task's status, its fields, and new tasks.
+  agents, the desk, and the Task tracker writes: a task's status, its fields, and new tasks.
 - The desk persists on the server. Open tabs, filters and the expanded node do not.
 - No embedded terminal and no auth. One global key: Ctrl-` opens the console.
 

@@ -25,6 +25,9 @@ bin/knip-check                     # dead code in orchestrator-ui/
 
 ## Developer Documentation
 
+`docs/README.md` is the map: the subdomains, their subsystems, and the code, the glossary and
+the feature files of each.
+
 See `docs/dev/` for architecture and design docs:
 
 - `docs/dev/architecture-patterns.md` — canonical layered-architecture conventions for the
@@ -63,7 +66,8 @@ See `docs/dev/` for architecture and design docs:
 - `docs/dev/cli-over-api.md` — moving `mael` commands onto the orchestrator API: the
   Orchestrator client, the command classes, the API gaps, and the migration order.
 - `docs/adr/` — architecture decision records: each choice, the options rejected, and why.
-  `0001-task-documents.md` covers Task documents.
+  `0001-task-documents.md` covers Task documents. `0005-feature-files-hold-the-contracts.md`
+  covers feature files, and lists the subsystems that have them.
 
 ## User Documentation
 
@@ -80,7 +84,7 @@ change behaviour a user can see, and update it in the same change:
 
 Maelstrom is an orchestration layer for multi-agent development. It uses git worktrees to
 isolate code, Claude Code as its agent, and an orchestrator UI to show every agent. It has its own
-task notebook and its own dev environment manager. Worktrees use NATO phonetic alphabet
+Task tracker and its own dev environment manager. Worktrees use NATO phonetic alphabet
 names (alpha, bravo, charlie, …) in a bare-like repository structure.
 
 The CLI is built with **Click**. `cli/src/mael_cli/cli.py` is the entry point; each subsystem

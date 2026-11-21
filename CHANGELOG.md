@@ -113,14 +113,22 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **The skills give one map of a project's glossary, decisions and contracts.** The
   `domain-modeling` skill names four documents and the job of each:
-  - The glossary, `CONTEXT.md`. A project with subsystems lists them in `docs/README.md` and keeps
-    each subsystem's terms in `docs/specs/<subsystem>/CONTEXT.md`. An agent proposes this split
-    before it adds a term to a root glossary of more than 500 lines. `CONTEXT-MAP.md` is withdrawn.
-  - A feature file in `docs/specs/<subsystem>/`: the contract of one command or query, or the
-    invariants of one domain type. Each Gherkin `Rule` is one clause with a stable id, and a test
-    cites the rule. A subsystem has domain types, and a domain type has commands and queries.
+  - The glossary, `CONTEXT.md`. A project lists its subdomains and their subsystems in
+    `docs/README.md`. A subdomain is where one language holds, and it keeps its terms in
+    `docs/specs/<subdomain>/CONTEXT.md`. An agent proposes this split before it adds a term to a
+    root glossary of more than 500 lines. `CONTEXT-MAP.md` is withdrawn.
+  - A feature file in `docs/specs/<subdomain>/<subsystem>/`: the contract of one command or
+    query, or the invariants of one domain type. Each Gherkin `Rule` is one clause with a stable
+    id, and a test cites the rule. A feature file describes the model that the project wants: a
+    `Held today at:` line names the code that holds the contract until the code gets there.
   - An ADR. A decision that needs a rollout records its progress in a `Rollout:` state and a
     checklist with one line for each component.
+- **maelstrom has a map, and the Task tracker has its contract in feature files.**
+  `docs/README.md` lists maelstrom's 7 subdomains and 22 subsystems, with the code of each. The
+  Tasks subdomain has its own glossary, `docs/specs/tasks/CONTEXT.md`. The 7 write commands of
+  the Task tracker have feature files in `docs/specs/tasks/task-tracker/`, and each test of a
+  rule cites the rule id in its name. The docs and the glossary now say **Task tracker**, not
+  Task notebook. See [ADR 0005](docs/adr/0005-feature-files-hold-the-contracts.md).
 - **A plan lists its contract changes.** A **Contract changes** section is now directly below a
   plan's opening paragraphs. Each line is one rule that the work adds, changes, or withdraws,
   with its rule id when the subsystem has a feature file, and with the caller named. A plan with

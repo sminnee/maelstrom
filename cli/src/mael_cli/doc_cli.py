@@ -1,6 +1,6 @@
 """``mael doc``: add, list, show, link and archive Task documents.
 
-A thin client over the orchestrator server. See ``CONTEXT.md``, "Task document",
+A thin client over the orchestrator server. See ``docs/specs/tasks/CONTEXT.md``, "Task document",
 and ``docs/adr/0001-task-documents.md``. A task argument defaults to
 ``$MAEL_TASK_ID``, and ``--project`` to the cwd's project.
 """

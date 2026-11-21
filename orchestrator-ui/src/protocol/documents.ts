@@ -23,10 +23,10 @@ export type DocumentSource =
    * null when the file could not be read.
    */
   | { type: 'draft_file'; fileId: string | null; filename: string }
-  /** A task's document read back from the store, with no live presentation — see `CONTEXT.md`, "Task document". */
+  /** A task's document read back from the store, with no live presentation — see `docs/specs/tasks/CONTEXT.md`, "Task document". */
   | { type: 'stored'; name: string };
 
-/** The review group a document is a member of — see `CONTEXT.md`, "Review group". */
+/** The review group a document is a member of — see `docs/specs/tasks/CONTEXT.md`, "Review group". */
 export interface DocumentGroup {
   id: string;
   title: string;

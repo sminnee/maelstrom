@@ -8,7 +8,7 @@ first — the other guides assume the vocabulary it introduces.
 Maelstrom is an orchestration layer for multi-agent development. It uses git worktrees to
 isolate code, Claude Code as its agent, and an orchestrator UI to show every agent. Integrations with
 Linear, Sentry and GitHub keep the workflow streamlined. Maelstrom adds two things of its
-own. A task notebook tracks what each agent is doing and in what order. A dev environment
+own. A Task tracker records what each agent is doing and in what order. A dev environment
 manager gives each worktree isolated services and ports. It is a highly opinionated
 Swiss-army knife.
 
@@ -33,7 +33,7 @@ Each component earns its place by the role it plays in the loop.
 | [Orchestrator UI](#the-orchestrator-ui-and-server) | Shows every agent, and where you watch and answer them |
 | [git worktrees](worktrees.md) | Isolate code — a branch and a working directory per unit of work |
 | Claude Code | The agent that does the work |
-| [Task notebook](tasks.md) | Detailed task management — what each agent is doing, in what order |
+| [Task tracker](tasks.md) | Detailed task management — what each agent is doing, in what order |
 | [Wiki](#the-wiki--cross-project-patterns) | Design patterns that apply to more than one project |
 | [Dev environments](dev-environments.md) | Isolated services and ports per worktree |
 | [The jig](jig.md) | An overlay on each dev page, to change the page and send feedback to the agent |
@@ -55,7 +55,7 @@ its worktree. Your board names that worktree `<host>:<nato>`, such as `cobalt:br
 remote host's board marks it `in use by <your server>` while the agent lives. The task stays on
 your orchestrator, and the agent's `mael task` commands reach it there. You follow and answer an agent on a remote host as a local one, and your desk shows the
 remote host's other agents too. Its closes, syncs and stops show in your console as local ones
-do. A Shelve of a worktree you launched there writes its "Reopen" task to your notebook, and that
+do. A Shelve of a worktree you launched there writes its "Reopen" task to your Task tracker, and that
 task goes on your desk. When the remote host sleeps, its agents show their last state and the host
 shows "offline". See [Remote hosts](../reference/configuration.md#remote-hosts).
 
@@ -109,9 +109,9 @@ the session. `minnstack` holds optional development practices, such as `design-b
 `code-review`, and you install it yourself. `mael self check-host` offers it, and
 [the CLI reference](../reference/cli.md) shows how to install or remove either plugin.
 
-### The task notebook — what each agent is doing
+### The Task tracker — what each agent is doing
 
-The notebook is a database maelstrom keeps for itself. Each task is one record, and **its
+The Task tracker is a database maelstrom keeps for itself. Each task is one record, and **its
 status is a field on it** — `todo`, `in-progress`, `done`, `cancelled` or `template`. See
 [Tasks](tasks.md).
 
@@ -203,7 +203,7 @@ The server names an empty title or branch from the prose you type, and the node 
 while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line
 otherwise.
 `uv run mael-orchestrator serve` runs the orchestrator server behind it, which builds that world
-from the task notebook, `list-all` and the agent host. See
+from the Task tracker, `list-all` and the agent host. See
 [the orchestrator UI](../dev/orchestrator-ui.md) for how the app is built and how to run it, and
 [the orchestrator server](../dev/orchestrator-server.md) for the server and its wire protocol.
 
@@ -229,7 +229,7 @@ Some services should not be duplicated — a database is the usual case. Mark th
 These are not peers of the components above. They remove manual steps:
 
 - **Linear** is the product-level mirror. Read briefs, mirror status. The plan of record
-  lives in the notebook, not in a Linear description.
+  lives in the Task tracker, not in a Linear description.
 - **GitHub** is where pull requests land and CI runs.
 - **Sentry** turns production errors into work.
 

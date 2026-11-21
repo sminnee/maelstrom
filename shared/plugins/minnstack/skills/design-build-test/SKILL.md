@@ -5,9 +5,9 @@ description: Break work into deep modules, build it, then test its contract chan
 
 # Design, build, test
 
-Read `CONTEXT.md` when present. When `docs/README.md` lists subsystems, also read the glossary of the subsystem you work in. Use `codebase-design` for the vocabulary: module, interface, seam, depth. See [examples.md](examples.md) for good and bad tests, and [mocking.md](mocking.md) before you mock anything.
+Read `CONTEXT.md` when present. When `docs/README.md` lists subsystems, also read the glossary of the subdomain you work in. Use `codebase-design` for the vocabulary: module, interface, seam, depth. See [examples.md](examples.md) for good and bad tests, and [mocking.md](mocking.md) before you mock anything.
 
-A contract is the set of rules of one command or query. A rule is one clause: what the command or query requires of its caller, what it ensures, or what always holds for its domain type. `domain-modeling` has the model behind these terms. Test observable behaviour at the aggregate boundary (Khorikov): the primary seam of a rule is that boundary. A subsystem can hold its rules in feature files under `docs/specs/<subsystem>/`: `domain-modeling`'s FEATURE-FORMAT.md has the format.
+A contract is the set of rules of one command or query. A rule is one clause: what the command or query requires of its caller, what it ensures, or what always holds for its domain type. `domain-modeling` has the model behind these terms. Test observable behaviour at the boundary of the domain type (Khorikov): the primary seam of a rule is that boundary. A subsystem can hold its rules in feature files, at the `Specs:` path of its `docs/README.md` entry: `domain-modeling`'s FEATURE-FORMAT.md has the format.
 
 1. **Break the problem into modules.** Find deep modules, as `codebase-design` defines them.
 2. **Find the contract changes and the primary seam of each.** The contract changes say what to test. The primary seam says where.
@@ -21,7 +21,7 @@ A contract is the set of rules of one command or query. A rule is one clause: wh
 3. **Build the code.** When a contract change edits a feature file, edit the file first: add, change, or withdraw the rule. Run the existing suite as you go. It guards what already works.
 4. **Select the tests.** The contract changes select them.
    - Give each contract change a test at its primary seam, an ephemeral check, or a reason for neither.
-   - Choose the cases of a rule by equivalence class: a representative case, then a boundary.
+   - Choose the cases of a rule by equivalence class: a representative case, then a boundary. Fields that the code maps one by one are not one class: give each field a case.
    - Add a test that no contract change asks for only when the build shows a notable risk that no rule covers, such as a race or a path that loses data. First ask if it is a rule that the contract missed: when it is, add the rule. When it is not, test that one risk and say so in the PR. This is the exception, not a second pass over the code.
    - Before you add a test, look for an existing test to extend, change, or delete.
    - When a rule gets a new owning test, delete the old tests of it in the same commit.
@@ -49,6 +49,17 @@ In plan mode, do steps 1 and 2. Write the plan's **Contract changes**: each rule
 ## Reshaping a suite
 
 Keep the production code unchanged and the suite green while you move tests. Move each contract's tests to its primary seam, and delete the copies at other seams. Agree each move as you would agree a primary seam.
+
+To move a suite onto feature files, do these steps in order:
+
+1. Write the feature files first, from the glossary and the purpose of each command, as `domain-modeling`'s FEATURE-FORMAT.md says. Get the user's verdict on the rules.
+2. Record the test count and the run time of each suite. Run a mutation tool over the code of the contract and keep the result of each mutant. This is an ephemeral check: commit no config and no result.
+3. Classify each test against the rule ids. Give each one verdict: a rule id, a duplicate of a named test, a test of an outer seam to keep, a surplus test of an outer seam, an orphan, or out of scope.
+4. Sort the orphans into two lists: behaviour that a rule missed, each with a proposed rule, and implementation detail to delete. Add a third list: each rule that the user intends and the code does not keep. Get the user's verdict on the lists. Delete nothing before it.
+5. Add the accepted rules. Rename each test to cite its rule. Split a parametrized test that mixes rules into one test for each rule.
+6. Delete the duplicates, the surplus tests, and the implementation-detail tests. Do not thin by field: when a rule covers several fields, keep one parametrized test of the rule with one case for each field. An outer seam keeps one success and one handled refusal for each command, and the facts that only it owns.
+7. Run the mutation tool again. Compare the sets, not the scores: for each mutant that the first run killed and the second does not, restore a test or add a rule.
+8. Report the counts and the run times before and after, and each rule that has no test.
 
 ## Test rules
 

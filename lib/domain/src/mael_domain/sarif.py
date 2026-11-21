@@ -1,6 +1,6 @@
 """SARIF: read a scan's findings, and the key that names each one across scans.
 
-See ``CONTEXT.md``, "Finding" and "Finding key".
+See ``docs/specs/tasks/CONTEXT.md``, "Finding" and "Finding key".
 """
 
 import hashlib
@@ -89,7 +89,7 @@ def parse(text: str) -> SarifReport:
 
 
 def finding_key(result: dict[str, Any], tool: str) -> str:
-    """The key that names one finding across scans. See ``CONTEXT.md``, "Finding key"."""
+    """The key that names one finding across scans. See ``docs/specs/tasks/CONTEXT.md``, "Finding key"."""
     plugin = _get(result, "properties", "claudeSecurityPlugin") or {}
     if plugin.get("claudeSecurityPluginFindingId"):
         return str(plugin["claudeSecurityPluginFindingId"])

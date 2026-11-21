@@ -82,8 +82,10 @@ covers every command and flag, `docs/reference/configuration.md` every config ke
 `docs/reference/environment.md` every environment variable.
 
 `CONTEXT.md` is the domain glossary. Read it before you name anything or write prose, and reuse
-its terms verbatim — including the words each term says to avoid. New domain terms belong there
-rather than defined inline.
+its terms verbatim — including the words each term says to avoid. `docs/README.md` maps the
+subdomains and their subsystems. A subdomain with its own glossary has it at
+`docs/specs/<subdomain>/CONTEXT.md`: read that one too, and add a new term to the glossary of
+the subdomain that defines it.
 
 ## Releasing
 
