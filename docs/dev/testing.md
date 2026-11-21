@@ -9,11 +9,30 @@ alone when the rule breaks.
 | Contract                        | Owning suite                                               |
 | ------------------------------- | ---------------------------------------------------------- |
 | Store contracts                 | The contract classes in `lib/domain/tests/test_*_store.py` |
+| The task store contract         | `lib/domain/tests/test_task_table.py`                      |
 | Model rules                     | `lib/domain/tests`                                         |
 | Harness model and wire builders | `lib/agent/tests`                                          |
 | Daemon reducer                  | `agent-daemon/tests/test_agent_model.py`                   |
 | Command refusals                | `orchestrator-api/tests/test_orchestrator_validate.py`     |
 | Document tag parsing            | `lib/domain/tests/test_document_tags.py`                   |
+
+A subsystem that has feature files states its contract there, and each test of a rule cites the
+rule id in its name. `docs/README.md` lists the subsystems and their feature files, and
+[ADR 0006](../adr/0006-feature-files-hold-the-contracts.md) lists how far the rollout is.
+
+The Task tracker is the first. Its feature files are in `docs/specs/tasks/task-tracker/`. Each
+file names the model as its primary seam. Its `Held today at:` line, when it has one, names the
+code that holds each kind of rule now. This table gives the owning suite of each:
+
+| Rules                                        | Held today at             | Owning suite                                           |
+| -------------------------------------------- | ------------------------- | ------------------------------------------------------ |
+| The `R` rules of a task command              | `validate_command`        | `orchestrator-api/tests/test_orchestrator_validate.py` |
+| The `E` rules of a task command              | `mael_domain.task`        | `lib/domain/tests/test_task.py`                        |
+| The Status action rules of `set-task-status` | `mael_domain.task_actions` | `lib/domain/tests/test_task_actions.py`                |
+| The rules of `task-repository`               | `TaskTable`               | `lib/domain/tests/test_task_table.py`                  |
+
+A test of a rule is named `test_<feature file stem>_<rule id>_<what it shows>`, for example
+`test_update_task_R7_a_cycle_is_refused`. A test at an outer layer cites no rule.
 
 An **Outer layer** keeps two tests per command: one success and one handled failure. It also tests
 the rules that only it owns:
