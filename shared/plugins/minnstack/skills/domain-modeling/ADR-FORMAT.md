@@ -72,7 +72,8 @@ Done for a component means: {one or two checks an agent can run}.
 When you write the ADR:
 
 - Write one line for each component. Each component is small enough for one agent session.
-- Take the components from the subsystem list in `docs/README.md`. When a subsystem is too large for one session, split it by code directory. When the project has no map, use its top-level packages.
+- Take the components from the subsystem list in `docs/README.md`, grouped by subdomain when the map has subdomains. When a subsystem is too large for one session, split it by code directory. When the project has no map, use its top-level packages.
+- A line that is part done stays open, and says what is done and what is open.
 - The lines cover the whole repo. Tick a component that the decision does not apply to as `n/a`, with the reason.
 - State once what "done" means, as a check that an agent can run.
 
