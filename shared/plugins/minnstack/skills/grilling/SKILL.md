@@ -15,6 +15,8 @@ Ask every frontier question in one round. Number each question and give a recomm
 ➡️ <recommended answer>
 ```
 
+When you ask through a dialog tool, each question stands alone: the user can see only the dialog. Put the list, the table, or the names that the question is about in the question or its preview, not in the text before it.
+
 Wait for answers before the next round. Recompute the frontier each time. Defer questions that depend on another open question.
 
 Find facts yourself. If a fact needs exploration, delegate it and ask the other frontier questions now. The user makes decisions. Finish only when the frontier is empty and the user confirms the shared understanding.
