@@ -11,8 +11,8 @@ is acceptable, and the reader knows the project's architecture. Do not explain c
 `CONTEXT.md` at the repo root is the domain glossary. Read it before you write prose or name
 anything, and reuse its terms verbatim, including each term's `_Avoid_` list. Add new domain
 terms there rather than defining them inline. When `docs/README.md` lists subsystems, also read
-the glossary of the subsystem you work in, and add a term to the narrowest glossary that covers
-its users.
+the glossary of the subdomain you work in, and add a term below the heading of the subsystem
+that defines it.
 
 **This covers chat replies, not only files.** The rule is about the writing, not the file type. A
 long reply is as hard to read as a long paragraph in a doc.

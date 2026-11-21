@@ -1,6 +1,6 @@
 # Feature file format
 
-A feature file is a Gherkin file in `docs/specs/<subsystem>/`, or in `docs/specs/` when the project has no subsystems. It holds one of these:
+A feature file is a Gherkin file in `docs/specs/<subdomain>/<subsystem>/`. It is in `docs/specs/<subsystem>/` when the project has no subdomain level, and in `docs/specs/` when it has no subsystems. It holds one of these:
 
 | File | Holds |
 | --- | --- |
@@ -23,11 +23,12 @@ The reader is a software engineer. Write for someone who will change the code an
 
 - Name a feature for what the system does, not for a code module: `place-order.feature`, not `order_service.feature`.
 - A command that a CLI and an API both reach has one feature file.
-- A command that touches two domain types names the type whose state it changes.
+- A command that touches two domain types names the type whose state it changes. When it changes both, it belongs to the subsystem of its verb.
+- Two doors that do the same thing from two input forms, such as one file and many files, are one command with one feature file.
 
 ## Seams
 
-A feature names the code that its contract holds at, below the `Feature` line. `Primary seam:` is required. `Outer seams:` is there only when the feature has them:
+A feature names the code that its contract holds at, below the `Feature` line. `Primary seam:` is required. `Held today at:` and `Outer seams:` are there only when the feature needs them:
 
 ```gherkin
 @type:Order
@@ -37,6 +38,8 @@ Feature: Place order
 ```
 
 - The **primary seam** is the one interface in the code where the contract holds in full: most often a method of the domain type, or a use-case function. The tests of each rule call it. A feature has one.
+- A feature file describes the model that the project wants. When the code does not yet hold the contract in full at the primary seam, the primary seam is the target, and a `Held today at:` line below it says where each kind of clause is held now and which doors do not hold it: ``Held today at: `R` rules in `validate_order`, `E` rules in `Order.place`. The batch import skips the `R` rules``. The tests of a rule call the code that holds it today. Delete the line when the code reaches the target.
+- A `<type>.feature` can name a type that the target model has and the code does not. Its `Held today at:` line says what the code has in its place.
 - An **outer seam** is an interface that reaches the primary seam from outside: a handler, an API route, a CLI command, a page. It has no contract of its own. It gets a test only for what it adds: that it passes the request on, and that it shows a refusal.
 - `<type>.feature` names the type as its primary seam. `<type>-repository.feature` names the repository interface.
 - Name a symbol or a route, not a file path or a line. When the code moves the symbol, edit the line in the same commit.
@@ -48,7 +51,7 @@ A rule id is a prefix and a number. The prefix is the kind of clause. The three 
 
 | Prefix | Clause | Who it binds | Typical example |
 | --- | --- | --- | --- |
-| `R` | Requires: a precondition | The caller | A refusal with a named domain error |
+| `R` | Requires: a precondition | The caller | A refusal with a named domain error, or with its reason |
 | `E` | Ensures: an outcome | The command | A resulting state, or a domain event |
 | `I` | Invariant | The domain type, always | Holds before and after each command |
 
@@ -77,7 +80,7 @@ Feature: Place order
 - The prefix is the kind of clause. The tag is the kind of evidence. They are separate choices.
 - Never use an id again. A changed rule keeps its id.
 - To withdraw a rule, delete its examples and its evidence tag, and write `@id:R2 @withdrawn` above `Rule: withdrawn`. The tag stays, so the id stays used.
-- A test cites a rule as `<feature file stem>:<id>`, for example `place-order:E1`, in its name. Where a test name cannot hold `-` or `:`, write `_`: `test_place_order_E1_single_line_cart`. The feature file does not name its tests: a path or a test name in a feature file goes stale.
+- A test cites a rule as `<feature file stem>:<id>`, for example `place-order:E1`, in its name. Where a test name cannot hold `-` or `:`, write `_`: `test_place_order_E1_single_line_cart`. A test class keeps its name: each test method in it cites the rule. A test cites one rule. A test of the case that an `R` rule permits cites that rule. The stem names the command, not the door: when a command has two doors, the rest of the name says which. The feature file does not name its tests: a path or a test name in a feature file goes stale.
 - A feature file that has no ids gets them when it is next edited.
 
 ## Evidence tags
@@ -114,6 +117,7 @@ Feature: Order
 ```
 
 - Write an `I` rule for a domain type only when more than one command must keep it true. Its evidence is one predicate, not a test for each command. Do not state it again as an `E` rule of a command.
+- When the code has no such predicate yet, tag the `I` rule `@unit`. Each command that must keep it then has one `R` rule as its illustration, and the tests cite that `R` rule.
 - A constraint that one command guards is an `R` or `E` rule of that command, not an invariant. When a second command must keep it, withdraw the rule in the command's file and add an `I` rule to the type.
 - When an invariant needs an illustration, such as the refusal to remove the last line of a placed order, that is an `R` rule in the feature of that command.
 
@@ -156,5 +160,5 @@ A contract is partial by design. A command with few rules is not a defect. `desi
 - A rule that is a table stays one rule. Give it `@cases:<path>` and one decision table, not one rule for each row.
 - Behaviour that crosses subsystems or services is not a rule: a saga, eventual consistency, a message schema. Name its event in the glossary. An ADR or a schema holds the agreement.
 - Choose examples by equivalence class: a representative case, then a boundary. Do not add variations of the usual case. A rule that needs more than two examples is a `@cases` or `@unit` rule.
-- The example of an `R` rule names the domain error of the refusal, as the glossary has it.
+- The example of an `R` rule names the domain error of the refusal, as the glossary has it. When the project has no named domain errors, the example states the reason in prose: `Then it is refused: a task cannot follow itself`.
 - A precondition is an `R` rule only when the caller can check it before the call. When the caller cannot, such as stock that runs out meanwhile, it is an `E` rule whose outcome is a refusal.

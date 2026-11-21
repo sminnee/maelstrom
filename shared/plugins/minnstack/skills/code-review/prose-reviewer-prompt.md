@@ -114,7 +114,7 @@ Fingerprint each concept instead:
 2. **Fingerprint.** Take a 3–6 word phrase from each concept's explanation. A formula
    (`PORT_BASE * 10`), a rationale phrase (`separability`), a rejected-alternative name, or a
    figure (`0.03s`) all work.
-3. **Grep.** Search that fingerprint across `CONTEXT.md`, `docs/` (the subsystem glossaries are
+3. **Grep.** Search that fingerprint across `CONTEXT.md`, `docs/` (the subdomain glossaries are
    in `docs/specs/`), `src/`, and the root `*.md` together. Markdown and source in one pass — a docstring copying a doc is the common case.
 4. **Split the hits.** A site that *uses* the concept is free. A site that *explains* it is a
    copy. Only explanations count.

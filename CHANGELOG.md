@@ -113,12 +113,14 @@ release while that section is empty, and retitles it to the version it is releas
 
 - **The skills give one map of a project's glossary, decisions and contracts.** The
   `domain-modeling` skill names four documents and the job of each:
-  - The glossary, `CONTEXT.md`. A project with subsystems lists them in `docs/README.md` and keeps
-    each subsystem's terms in `docs/specs/<subsystem>/CONTEXT.md`. An agent proposes this split
-    before it adds a term to a root glossary of more than 500 lines. `CONTEXT-MAP.md` is withdrawn.
-  - A feature file in `docs/specs/<subsystem>/`: the contract of one command or query, or the
-    invariants of one domain type. Each Gherkin `Rule` is one clause with a stable id, and a test
-    cites the rule. A subsystem has domain types, and a domain type has commands and queries.
+  - The glossary, `CONTEXT.md`. A project lists its subdomains and their subsystems in
+    `docs/README.md`. A subdomain is where one language holds, and it keeps its terms in
+    `docs/specs/<subdomain>/CONTEXT.md`. An agent proposes this split before it adds a term to a
+    root glossary of more than 500 lines. `CONTEXT-MAP.md` is withdrawn.
+  - A feature file in `docs/specs/<subdomain>/<subsystem>/`: the contract of one command or
+    query, or the invariants of one domain type. Each Gherkin `Rule` is one clause with a stable
+    id, and a test cites the rule. A feature file describes the model that the project wants: a
+    `Held today at:` line names the code that holds the contract until the code gets there.
   - An ADR. A decision that needs a rollout records its progress in a `Rollout:` state and a
     checklist with one line for each component.
 - **A plan lists its contract changes.** A **Contract changes** section is now directly below a
