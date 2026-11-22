@@ -26,10 +26,11 @@ export function SegmentedControl<T extends string>({
           type="button"
           className={`${styles.segment} nowrap`}
           aria-pressed={pressed === item.id}
+          title={item.label}
           disabled={item.disabled}
           onClick={() => onPress(item.id)}
         >
-          {item.label}
+          <span className="truncate">{item.label}</span>
         </button>
       ))}
     </div>

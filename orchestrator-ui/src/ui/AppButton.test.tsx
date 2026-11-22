@@ -127,7 +127,26 @@ describe('AppButton', () => {
     const svg = button.querySelector('svg');
     expect(svg).not.toBeNull();
     expect(svg).toHaveAttribute('aria-hidden', 'true');
-    expect(button).not.toHaveAttribute('title');
+  });
+
+  it('takes its text label as its title, unless the caller gives one', () => {
+    render(
+      <>
+        <AppButton>Start</AppButton>
+        <AppButton>Fix {3} files</AppButton>
+        <AppButton title="Start the env">Go</AppButton>
+        <AppButton>
+          <em>Bold</em>
+        </AppButton>
+      </>,
+    );
+    expect(screen.getByRole('button', { name: 'Start' })).toHaveAttribute('title', 'Start');
+    expect(screen.getByRole('button', { name: 'Fix 3 files' })).toHaveAttribute(
+      'title',
+      'Fix 3 files',
+    );
+    expect(screen.getByRole('button', { name: 'Go' })).toHaveAttribute('title', 'Start the env');
+    expect(screen.getByRole('button', { name: 'Bold' })).not.toHaveAttribute('title');
   });
 
   it('draws the spinner in place of the icon while the handler is pending', () => {
