@@ -60,7 +60,10 @@ export function AppButton({
 
   // A label that wraps makes a pill a blob: the row wraps, not the label. A link
   // is text and follows the Wide Content Rule (DESIGN.md).
-  const classes = [styles.button, styles[variant], variant === 'link' ? null : 'nowrap', className]
+  const pill = variant !== 'link';
+  const label = (content: ReactNode) =>
+    pill && textOf(content) !== undefined ? <span className="truncate">{content}</span> : content;
+  const classes = [styles.button, styles[variant], pill ? 'nowrap' : null, className]
     .filter(Boolean)
     .join(' ');
   return (
@@ -72,24 +75,34 @@ export function AppButton({
       aria-busy={state.kind === 'processing' || undefined}
       data-state={state.kind}
       data-icon={icon === undefined ? undefined : ''}
-      title={state.kind === 'error' ? state.message : title}
+      title={
+        state.kind === 'error' ? state.message : (title ?? (pill ? textOf(children) : undefined))
+      }
       onClick={handleClick}
     >
       {state.kind === 'processing' ? (
         <>
           <Spinner />
-          {processingChildren ?? children}
+          {label(processingChildren ?? children)}
         </>
       ) : state.kind === 'error' ? (
-        <span role="alert">
+        <span role="alert" className="truncate">
           {typeof errorChildren === 'function' ? errorChildren(state.error) : errorChildren}
         </span>
       ) : (
         <>
           {icon}
-          {children}
+          {label(children)}
         </>
       )}
     </button>
   );
+}
+
+/** The label as text, when it is only text: a pill cuts it, and `title` holds it whole. */
+function textOf(children: ReactNode): string | undefined {
+  const parts = Array.isArray(children) ? children : [children];
+  if (!parts.every((p) => typeof p === 'string' || typeof p === 'number')) return undefined;
+  const text = parts.join('');
+  return text === '' ? undefined : text;
 }

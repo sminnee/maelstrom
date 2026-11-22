@@ -958,7 +958,8 @@ the heading `Last said`, the agent's last three messages, and a reply field. The
 - **One line:** a pill holds its label on one line. `AppButton` adds `nowrap` to every variant but
   Link; a raw `<button>` drawn as a pill adds it itself. `base.css` does not set it on `button`,
   because a `<button>` means clickable, not a pill. A `<button>` that draws a title or a row
-  follows the Wide Content Rule.
+  follows the Wide Content Rule. A text label longer than its row is cut with an ellipsis, and
+  is also the button's `title` unless the caller passes one.
 - **Focus:** the global 2px Signal Blue ring at 2px offset. Never removed.
 
 #### Icons

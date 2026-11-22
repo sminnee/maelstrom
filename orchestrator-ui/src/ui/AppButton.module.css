@@ -8,6 +8,9 @@
   align-items: center;
   justify-content: center;
   gap: var(--u-half);
+  /* A pill never grows past its row: its label truncates instead. */
+  max-width: 100%;
+  min-width: 0;
 }
 /* A label that wraps in a narrow column must not squeeze its icon. */
 .button > svg {
@@ -67,5 +70,8 @@
     padding: 0 var(--u);
     font-size: var(--text-caption);
     line-height: var(--leading-tight);
+  }
+  .button[data-icon] > :global(.truncate) {
+    max-width: 100%;
   }
 }
