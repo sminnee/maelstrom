@@ -185,6 +185,16 @@
   .close {
     min-width: var(--control);
   }
+  /* See DESIGN.md, § Dialog headers. */
+  .header {
+    flex-wrap: wrap;
+  }
+  .headerControls {
+    order: 1;
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
   /* Focus mode: a focused textarea fills the box under its label, and only it
      scrolls. A zero basis overrides the height the script fit writes. See
      DESIGN.md, § Fields. */

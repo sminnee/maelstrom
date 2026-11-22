@@ -986,6 +986,12 @@ shows the icon over a caption. The button keeps the 48px height of the Thumb Flo
 a pill. Its width is only the caption's, so five actions fit one row at 390px. A button with no
 icon keeps the pill above, with its text at `--text-control`.
 
+#### Dialog headers
+
+On the narrow layout the title and the close button keep the first row. The controls drop to the
+rows under it, one group to a row when two do not fit, so their labels stay whole at 390px.
+Truncation is only the fallback.
+
 #### Dialog footers
 
 A dialog footer ranks its actions. The primary and the secondary buttons sit on the right, with
