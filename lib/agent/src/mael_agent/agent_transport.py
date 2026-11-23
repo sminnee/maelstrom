@@ -79,6 +79,11 @@ class DaemonPaths:
         return self.root / "agent-daemon.log"
 
     @property
+    def audit_log(self) -> Path:
+        """Where the daemon appends an **Audit record** for each command that changes an agent."""
+        return self.root / "audit.jsonl"
+
+    @property
     def spec_dir(self) -> Path:
         """One spawn record per agent this daemon holds."""
         return self.root / "agents"

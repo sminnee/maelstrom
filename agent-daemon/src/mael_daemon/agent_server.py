@@ -73,6 +73,7 @@ from mael_agent.harness_model import (
     resolve_model_reference,
 )
 from mael_common import shell
+from mael_common.audit_log import AuditLog
 from mael_common.claude_paths import has_claude_transcript
 from mael_common.image import MAX_BYTES, image_extension, is_image
 from mael_common.process_table import (
@@ -123,6 +124,7 @@ from .agent_model import (
 )
 from .agent_reconcile import Reconciliation, reconcile
 from .agent_spec_store import AgentSpecStore, JsonAgentSpecStore
+from .peer import caller_record, peer_of
 from .transcript_store import ClaudeTranscriptStore, TranscriptStore
 
 log = logging.getLogger(__name__)
@@ -771,6 +773,9 @@ DRIVING_COMMANDS = (
     "recover",
 )
 
+#: The commands that change an agent or the daemon. Each writes an **Audit record**.
+AUDITED_COMMANDS = frozenset({*DRIVING_COMMANDS, "start", "shutdown", "gc"})
+
 #: One shared instance: it is stateless, and every restored agent wants the same.
 _DEAD_PROC: Any = _DeadProcess()
 
@@ -829,6 +834,9 @@ class AgentDaemon:
         self.paths: DaemonPaths = daemon_paths(root)
         self.socket_path = str(self.paths.socket)
         self.specs = specs or JsonAgentSpecStore(self.paths.spec_dir)
+        #: Who ran each command that changes an agent. See "Audit log" in
+        #: ``docs/dev/agent-daemon.md``.
+        self.audit = AuditLog(self.paths.audit_log)
         self.has_transcript = has_transcript
         #: Reads the process table for `gc` and the stopped listing; a test
         #: hands in a literal list.
@@ -1931,6 +1939,8 @@ class AgentDaemon:
         ``attach`` holds the connection open and streams the agent's events;
         every other command is a single round-trip.
         """
+        # At accept: the kernel names the peer while it is still connected.
+        peer = peer_of(writer)
         try:
             while True:
                 line = await reader.readline()
@@ -1940,7 +1950,8 @@ class AgentDaemon:
                     payload = json.loads(line)
                 except json.JSONDecodeError:
                     payload = {}
-                if payload.get("cmd") == "attach":
+                command = payload.get("cmd")
+                if command == "attach":
                     await self._attach(
                         payload.get("id", ""),
                         writer,
@@ -1948,11 +1959,57 @@ class AgentDaemon:
                         epoch=str(payload.get("epoch") or ""),
                     )
                     return
-                reply = await self.handle(payload)
+                if isinstance(command, str) and command in AUDITED_COMMANDS:
+                    # Before the reply: the caller may exit once it has it.
+                    caller = await asyncio.to_thread(caller_record, peer)
+                    reply = await self._audited(command, payload, caller)
+                else:
+                    reply = await self.handle(payload)
                 writer.write((json.dumps(reply) + "\n").encode())
                 await writer.drain()
         finally:
             writer.close()
+
+    async def _audited(
+        self, command: str, payload: dict[str, Any], caller: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Run one command, and write its **Audit record** before the reply goes.
+
+        Before, not after: a caller that has gone fails the reply's write, and
+        the action has run all the same. A command that raises is recorded too.
+        """
+        try:
+            reply = await self.handle(payload)
+        except Exception as exc:
+            self._audit(command, payload, {"error": repr(exc)}, caller)
+            raise
+        self._audit(command, payload, reply, caller)
+        return reply
+
+    def _audit(
+        self,
+        command: str,
+        payload: dict[str, Any],
+        reply: dict[str, Any],
+        caller: dict[str, Any],
+    ) -> None:
+        error = reply.get("error")
+        agent_id = reply.get("id") if command == "start" else payload.get("id")
+        self.audit.write(
+            {
+                "source": "daemon",
+                "command": command,
+                "agentId": agent_id,
+                **(
+                    {"cwd": payload.get("cwd")}
+                    if command in ("start", "resume")
+                    else {}
+                ),
+                "ok": error is None,
+                **({"error": error} if error is not None else {}),
+                "caller": caller,
+            }
+        )
 
     async def _attach(
         self,

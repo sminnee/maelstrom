@@ -768,8 +768,8 @@ daemon is a service of its environment, so its lifetime is the environment's. No
 command, session launch or orchestrator poll starts one. A command that finds no daemon names the
 root it looked for and both ways to start one.
 
-Everything a daemon owns lives under its root: its socket, lock, pid file, log and `agents/`
-spawn records. `MAEL_AGENT_ROOT` names that root, and the environment manager writes it into each
+Everything a daemon owns lives under its root: its socket, lock, pid file, log, `audit.jsonl`
+and `agents/` spawn records. `MAEL_AGENT_ROOT` names that root, and the environment manager writes it into each
 worktree's `.env`. There is no fallback and no `--root` flag, so a daemon cannot be started on a
 root its environment does not own.
 
