@@ -37,6 +37,7 @@ from mael_agent.agent_wire import (
     reply_for_denial,
 )
 from mael_agent.host_ids import IdSpace
+from mael_common.audit_log import AuditLog
 from mael_daemon.agent_model import (
     AgentState,
     build_agent_row,
@@ -14652,7 +14653,7 @@ class Cobalt:
 
 
 @asynccontextmanager
-async def cobalt_and_parent(store, cobalt_path: Path):
+async def cobalt_and_parent(store, cobalt_path: Path, **parent_over):
     """``cobalt`` served on loopback, and a served parent that lists it in ``hosts:``.
 
     Yields the child, the parent's harness, the parent's API client, and the
@@ -14666,7 +14667,7 @@ async def cobalt_and_parent(store, cobalt_path: Path):
         port = await served.enter_async_context(child.serve())
         child.served = served
         link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
-        parent = Harness(store, remote_hosts={"cobalt": link})
+        parent = Harness(store, remote_hosts={"cobalt": link}, **parent_over)
         api = await stack.enter_async_context(parent.client())
         parent.orch.own_url = str(api.session._base_url).rstrip("/")
         await until(api, "/api/host", online)
@@ -15046,9 +15047,15 @@ def test_a_forwarded_close_shows_the_hosts_operation_in_the_parents_world(
     store, tmp_path
 ):
     ran: list[str] = []
+    audit = tmp_path / "parent-audit.jsonl"
 
     async def scenario():
-        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+        async with cobalt_and_parent(store, tmp_path, audit=AuditLog(audit)) as (
+            child,
+            parent,
+            api,
+            port,
+        ):
             child.harness.worktrees.close = two_step_close(ran)
             parent.worktrees.close = refuse_here(ran)
             await until(
@@ -15067,6 +15074,13 @@ def test_a_forwarded_close_shows_the_hosts_operation_in_the_parents_world(
     assert ran == ["stop_agents", "git_close"]
     assert [s["name"] for s in log["steps"]] == ["stop_agents", "git_close"]
     assert "cobalt:op1" in [o["id"] for o in listed["operations"]]
+    # The parent records the forward, and the status the host answered.
+    (record,) = _audit_records(audit)
+    assert (record["route"], record["forwardedTo"], record["status"]) == (
+        "/api/worktrees/{id}/close",
+        "cobalt",
+        202,
+    )
 
 
 @pytest.mark.parametrize(
@@ -15349,6 +15363,76 @@ def test_a_state_change_from_another_origin_is_refused(harness):
     # Past the check, the desk route answers: it has no such task.
     assert replies["same"] == 404
     assert replies["none"] == 404
+
+
+# --- the audit log -----------------------------------------------------------
+
+
+def _audit_records(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines()]
+
+
+def test_each_state_changing_request_writes_one_audit_record(store, tmp_path):
+    audit = tmp_path / "audit.jsonl"
+    harness = Harness(store, audit=AuditLog(audit))
+
+    async def scenario():
+        async with harness.client() as api:
+            await api.get_json("/api/desk")
+            refused = await api.session.post(
+                "/api/desk",
+                json={"id": "task:northwind/x"},
+                headers={"Origin": "https://example.com", "User-Agent": "probe/1"},
+            )
+            refused.release()
+            async with api.session.post(
+                "/api/agents",
+                json={"project": PROJECT, "branch": "feat/orders", "prompt": "Look."},
+                headers={"User-Agent": "mael/1", "X-Forwarded-For": "10.0.0.9"},
+            ) as response:
+                assert response.status == 202
+                operation_id = (await response.json())["operationId"]
+            await ended(api, operation_id)
+            return operation_id
+
+    operation_id = run(scenario())
+    records = _audit_records(audit)
+    assert all(r.pop("ts") for r in records)
+    # The GET writes none. The refusal is recorded, then the start, then the
+    # agent the operation started.
+    assert records == [
+        {
+            "source": "http",
+            "method": "POST",
+            "path": "/api/desk",
+            "route": "/api/desk",
+            "params": {},
+            "peer": "127.0.0.1",
+            "forwardedFor": None,
+            "userAgent": "probe/1",
+            "origin": "https://example.com",
+            "status": 403,
+        },
+        {
+            "source": "http",
+            "method": "POST",
+            "path": "/api/agents",
+            "route": "/api/agents",
+            "params": {},
+            "peer": "127.0.0.1",
+            "forwardedFor": "10.0.0.9",
+            "userAgent": "mael/1",
+            "origin": None,
+            "status": 202,
+            "operationId": operation_id,
+        },
+        {
+            "source": "operation",
+            "operationId": operation_id,
+            "kind": "start",
+            "agentId": "new1",
+        },
+    ]
 
 
 def test_the_pr_routes_register_and_withdraw_a_tasks_pr(harness):

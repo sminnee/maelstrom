@@ -36,6 +36,7 @@ from mael_agent.agent_wire import (
 )
 from mael_agent.harness_model import HARNESS_CODEX, resolve_model_reference
 from mael_agent.host_ids import PARENT_URL_ENV, IdSpace, owner_of
+from mael_common.audit_log import AuditLog
 from mael_common.image import MAX_BYTES, is_image
 from mael_common.shell import run_cmd_async
 from mael_common.util import now_iso
@@ -699,8 +700,11 @@ class Orchestrator:
         ids: IdSpace | None = None,
         own_url: str = "",
         own_name: str = "",
+        audit: AuditLog | None = None,
     ) -> None:
         self.tasks = tasks
+        #: Where each state-changing request and operation writes its **Audit record**.
+        self.audit = audit
         #: Where each agent's task work goes: see "The task seam" in
         #: ``docs/dev/remote-hosts.md``.
         self.homes = TaskHomes(tasks)
@@ -804,6 +808,7 @@ class Orchestrator:
             self._apply,
             clock,
             self.ids,
+            audit,
         )
         #: The **Build queue**: the Merge requests and their Builds. Started
         #: after the agents are read, because a re-tell may resume one.

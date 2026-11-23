@@ -103,7 +103,8 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
 
     ``web_root`` is the built UI, served beside the API on one origin.
     """
-    app = web.Application(middlewares=[_json_errors, _same_origin, _host_owned])
+    # The audit first, so it records the refusals and forwards of the rest.
+    app = web.Application(middlewares=[_audit, _json_errors, _same_origin, _host_owned])
     app[ORCH] = orch
 
     app[SOCKETS] = set()
@@ -315,6 +316,64 @@ async def _json_errors(request: web.Request, handler: Handler) -> web.StreamResp
 #: Methods that change nothing, which a page on another site may send.
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
+#: Where a handler or a middleware puts what it adds to the request's
+#: **Audit record**. See :func:`audit_note`.
+_AUDIT: web.RequestKey[dict[str, Any]] = web.RequestKey("audit", dict)
+
+
+def audit_note(request: web.Request, **fields: Any) -> None:
+    """Add ``fields`` to the request's **Audit record**, if it gets one."""
+    note = request.get(_AUDIT)
+    if note is not None:
+        note.update(fields)
+
+
+@web.middleware
+async def _audit(request: web.Request, handler: Handler) -> web.StreamResponse:
+    """Write one **Audit record** for each state-changing ``/api/`` request, refusals included.
+
+    See "Audit log" in ``docs/dev/orchestrator-server.md``.
+    """
+    audit = request.app[ORCH].audit
+    if (
+        audit is None
+        or request.method in _SAFE_METHODS
+        or not request.path.startswith("/api/")
+    ):
+        return await handler(request)
+    note: dict[str, Any] = {}
+    request[_AUDIT] = note
+    status: int | None = 500
+    try:
+        response = await handler(request)
+        status = response.status
+        return response
+    except web.HTTPException as exc:
+        status = exc.status
+        raise
+    except asyncio.CancelledError:
+        # The client hung up. The action may still have run, so no status.
+        status = None
+        raise
+    finally:
+        resource = request.match_info.route.resource
+        headers = request.headers
+        audit.write(
+            {
+                "source": "http",
+                "method": request.method,
+                "path": request.path,
+                "route": resource.canonical if resource is not None else None,
+                "params": dict(request.match_info),
+                "peer": request.remote,
+                "forwardedFor": headers.get("X-Forwarded-For"),
+                "userAgent": headers.get("User-Agent"),
+                "origin": headers.get("Origin"),
+                "status": status,
+                **note,
+            }
+        )
+
 
 @web.middleware
 async def _same_origin(request: web.Request, handler: Handler) -> web.StreamResponse:
@@ -376,6 +435,7 @@ async def _host_owned(request: web.Request, handler: Handler) -> web.StreamRespo
     forward = owner != orch.ids.prefix and canonical not in ANSWERED_HERE
     remote = orch.remote_hosts.get(owner) if forward else None
     if remote is not None:
+        audit_note(request, forwardedTo=owner)
         try:
             return await remote.forward(request)
         except HostUnreachable as exc:
@@ -967,6 +1027,8 @@ async def _command(
         code = error.pop("code")
         return error_response(code, error.pop("message"), **error)
     result = reply["result"]
+    if isinstance(result, dict) and "operationId" in result:
+        audit_note(request, operationId=result["operationId"])
     return web.json_response(
         result, status=status(result) if callable(status) else status
     )

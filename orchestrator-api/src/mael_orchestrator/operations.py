@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mael_agent.host_ids import IdSpace
+from mael_common.audit_log import AuditLog
 from mael_domain import operations as model
 from mael_domain.operation_store import (
     OperationRecord,
@@ -102,6 +103,18 @@ class OperationHook(StepHook):
                 op, worktree_id=worktree_id, task_id=task_id, agent_id=agent_id
             ),
         )
+        audit = self._runner.audit
+        if agent_id is not None and audit is not None:
+            # The request that began the operation was answered before the
+            # agent existed, so its **Audit record** names only the operation.
+            audit.write(
+                {
+                    "source": "operation",
+                    "operationId": self._id,
+                    "kind": self._runner._records[self._id].operation["kind"],
+                    "agentId": agent_id,
+                }
+            )
 
     def planned(self, names: list[str]) -> None:
         self._runner._change(self._id, lambda op: model.plan(op, names))
@@ -163,8 +176,11 @@ class OperationRunner:
         apply: Callable[[list[ServerEvent]], None],
         clock: Callable[[], str],
         ids: IdSpace,
+        audit: AuditLog | None = None,
     ) -> None:
         self.store = store
+        #: Where an operation records the agent it started, if anywhere.
+        self.audit = audit
         #: Mints each id with the server's **Id prefix**: ``cobalt:op12``.
         self.ids = ids
         self._apply = apply
