@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Anchor, DocumentDetail } from '../protocol/documents';
+import type { Anchor, Document, DocumentDetail } from '../protocol/documents';
 import type { CommentId, DocumentId, TaskId } from '../protocol/ids';
 import type { DocumentRow } from '../selectors/world';
 import { useApi } from './ApiProvider';
@@ -23,8 +23,18 @@ export function useDocument(documentId: DocumentId | null, version?: number) {
   const query = version === undefined ? '' : `?version=${version}`;
   return useQuery({
     queryKey: keys.documents.detail(documentId ?? '', version),
-    queryFn: ({ signal }) =>
-      api.get<DocumentDetail>(`/api/documents/${documentId}${query}`, { signal }),
+    queryFn: async ({ signal }): Promise<DocumentDetail> => {
+      // An older Remote host answers without the stored fields.
+      const detail = await api.get<
+        Document & Partial<Pick<DocumentDetail, 'ref' | 'versions' | 'fragments'>>
+      >(`/api/documents/${documentId}${query}`, { signal });
+      return {
+        ...detail,
+        ref: detail.ref ?? null,
+        versions: detail.versions ?? [],
+        fragments: detail.fragments ?? [],
+      };
+    },
     enabled: documentId !== null,
   });
 }
