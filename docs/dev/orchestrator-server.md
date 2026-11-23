@@ -2381,6 +2381,48 @@ Two rules keep the file worth reading:
 Logging is configured in `cli.setup_logging`, not in `build_app`. The test suite runs
 the real app, and a global logging setup inside `build_app` would follow it into every test.
 
+### Audit log
+
+The server appends one **Audit record** to `<notebook root>/audit.jsonl` for each `POST`, `PUT`,
+`PATCH` or `DELETE` under `/api/`. A `GET` writes none. The `_audit` middleware writes it after
+the request answers. It is first in `build_app`'s middleware list, so a refusal and a forward to
+a **Remote host** are recorded too.
+
+| Field | What it holds |
+| --- | --- |
+| `ts` | The time, UTC, ISO 8601 |
+| `source` | `http` |
+| `method`, `path` | The request line |
+| `route`, `params` | The route template and its path params: `/api/agents/{id}/say`, `{"id": "new1"}` |
+| `peer` | The IP address of the connection. This is the trusted caller |
+| `forwardedFor` | `X-Forwarded-For`, as sent. A client can forge it, so it is kept apart from `peer` |
+| `userAgent`, `origin` | The `User-Agent` and `Origin` headers |
+| `status` | The HTTP status of the reply. `null` when the client hung up before the reply |
+| `forwardedTo` | The **Remote host** the request went to, when it was forwarded |
+| `operationId` | The **Operation** the request began, when it began one |
+
+A handler adds a field with `routes.audit_note(request, **fields)`. No request body is recorded:
+a message or a prompt can be large and private, and the transcript holds it.
+
+A launch or a free agent start answers `202` before its agent exists. So the request's record
+names the operation, and the operation writes a second record when it learns its agent:
+`{"source": "operation", "operationId", "kind", "agentId"}`.
+
+A forward appends the peer IP to `X-Forwarded-For`. So the Remote host's record names the
+browser, and its `peer` names the parent server.
+
+The file rolls over at 10 MB and keeps 5 old files, `audit.jsonl.1` to `audit.jsonl.5`. Its mode
+is `0600`. Each record is also one `info` line in the server log. A record that cannot be written
+logs a warning, and the request answers as it would without it.
+
+To find the request that started an agent:
+
+```bash
+log=$MAEL_NOTEBOOK_ROOT/audit.jsonl
+op=$(jq -r 'select(.agentId == "new1") | .operationId' "$log")
+jq -c --arg op "$op" 'select(.source == "http" and .operationId == $op)' "$log"
+```
+
 ### Loop stalls
 
 The server has one event loop. A sync call on it — a `subprocess.run`, a `flock`, a `urllib`

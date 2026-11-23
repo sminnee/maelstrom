@@ -27,6 +27,7 @@ import click
 
 from mael_agent.agent_transport import RootUnset, SocketAsyncDaemonClient, daemon_paths
 from mael_agent.host_ids import IdSpace
+from mael_common.audit_log import AuditLog
 from mael_domain import github
 from mael_domain.agent_store import SqliteAgentStore, SqliteMilestoneStore
 from mael_domain.cmux.mael_layout import MaelCmux
@@ -42,7 +43,7 @@ from mael_domain.landing_github import GhLandingSignals
 from mael_domain.landing_store import SqlitePullRequestStore, SqliteTaskStepStore
 from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.merge_request_store import SqliteBuildStore, SqliteMergeRequestStore
-from mael_domain.notebook_root import NotebookRootUnset
+from mael_domain.notebook_root import NotebookRootUnset, notebook_root
 from mael_domain.operation_store import SqliteOperationStore
 from mael_domain.orchestrator_data import SqliteOrchestratorDataStore
 from mael_domain.pr_ledger_store import SqlitePrLedgerStore
@@ -435,6 +436,7 @@ def build_orchestrator(
         ids=ids,
         own_url=config.orchestrator_url or "",
         own_name=config.server_name(),
+        audit=AuditLog(notebook_root() / "audit.jsonl"),
     )
 
 
