@@ -1854,6 +1854,7 @@ without waiting for the poll.
 | `GET /api/desk` | `{desk: [DeskEntry]}` |
 | `GET /api/gate-jobs` | `{gateJobs: GateJob[]}`: every queued or running **Gate job** on the machine, as the gate watch last saw them, each with its `usage` (CPU, memory, process count), or `null` when tangier's last sample found no live process. Empty on a server with no tangier |
 | `GET /api/system` | `{version: {tag, commit, dirty} \| null, home, configDir, projectsDir, skillsDir, skills, practices, update, updateChannel, canUpdate}`: the install, for the **Welcome dialog**. `version` is the running release's manifest, `null` with none. `skillsDir` is the **Core plugin**'s `skills/` dir, and `skills` names each skill in it. `practices` says whether Claude Code has **minnstack** installed. `update` is the last **Update job**'s record, `null` with none (see [host services](host-services.md#the-update-record)). `updateChannel` is the stored channel. `canUpdate` is true only for an installed release that runs as a host service. Read on each request |
+| `GET /api/hosts/{name}/system` | The same body, from the named **Remote host**. See [dispatch by name](remote-hosts.md#by-name) |
 | `GET /api/host` | `{host: Host \| null, loop: {maxGapMs, lastStallAt}}`: whether the agent host answers, since when, and on which socket. `null` until the first agent poll has settled. `loop` is the longest gap between two event-loop ticks, and the time of the last stall; see "Loop stalls". `host.remoteHosts` holds each **Remote host** in `hosts:` as `{name, online, since}` |
 | `GET /api/client` | `{local, host}`: whether the browser is on this machine, and the host it is on: this server's id prefix, a **Remote host**'s name, or `""` for neither. See [Remote clients](cmux.md#remote-clients) |
 | `GET /api/operations?limit=` | `{operations: [Operation]}`, newest first. `limit` keeps the newest that many; without it, every operation the server keeps, at most 500 |
@@ -2045,7 +2046,8 @@ over the hottest core. macOS has no sensor API, so there the temperature is `nul
 
 `GET /api/machine/metrics/stream` is a WebSocket on the ring. Only an open Welcome dialog opens
 it. Machine metrics are not a world entity: a notice every 15 s to every client would serve one
-dialog.
+dialog. The dialog opens `GET /api/hosts/{name}/machine/metrics/stream` for each online **Remote host**,
+and the parent joins it to the host's own socket.
 
 ```json
 {"type": "metrics.snapshot", "samples": [{"at": "…", "cpuPercent": 34.5, "cpuCount": 8, ...}]}
@@ -2122,6 +2124,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?, host?}` | `linear.plan` | `202 {operationId}`. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |
+| `POST /api/hosts/{name}/self/update` | | | The same, on the named **Remote host**. See [dispatch by name](remote-hosts.md#by-name) |
 | `POST /api/tasks/{project}/{id}/status` | `{status}` | `task.setStatus` | `StatusMoved`: `status`, the status the task moved to (the `done` verb resolves to one); `actionLines`, the lines the status actions reported; and, when the move makes the task **Done**, the `follower`, with its `state`: `running`, `resume`, `waiting` or `next` (see `FollowerState` in `protocol.py`). The source reports an in-progress follower as `running`; the server makes it `resume` or `waiting` when no agent is live on it. `actionLines` and `follower` are absent when empty |
 | `PATCH /api/tasks/{project}/{id}` | the fields to write | `task.update` | `{}` |
 | `DELETE /api/tasks/{project}/{id}` | | `task.delete` | `{}` |
