@@ -13,6 +13,7 @@ from mael_orchestrator.remote_hosts import (
     RemoteHost,
     resolve_addresses,
 )
+from mael_orchestrator.routes import serving
 
 
 class StubHost:
@@ -57,6 +58,12 @@ class StubHost:
         _route, key = MERGED_ROUTES[request.path]
         return web.json_response({key: self.operations if key == "operations" else []})
 
+    async def forwarded(self, request: web.Request) -> web.Response:
+        """Answer with the ``X-Forwarded-For`` the request arrived with."""
+        return web.json_response(
+            {"forwardedFor": request.headers.get("X-Forwarded-For")}
+        )
+
     def go_down(self) -> None:
         self.up = False
         self.cut.set()
@@ -70,6 +77,7 @@ class StubHost:
 async def served(stub: StubHost):
     app = web.Application()
     app.router.add_get("/api/events", stub.events)
+    app.router.add_post("/api/forwarded", stub.forwarded)
     for path in MERGED_ROUTES:
         app.router.add_get(path, stub.empty)
     runner = web.AppRunner(app, shutdown_timeout=0.1)
@@ -117,6 +125,26 @@ async def until(predicate, timeout: float = 5.0) -> None:
     async with asyncio.timeout(timeout):
         while not predicate():
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.parametrize(
+    ("sent", "arrived"),
+    [({}, "127.0.0.1"), ({"X-Forwarded-For": "10.0.0.9"}, "10.0.0.9, 127.0.0.1")],
+)
+def test_a_forward_appends_the_callers_ip_to_x_forwarded_for(sent, arrived):
+    async def scenario():
+        stub = StubHost()
+        async with linked(stub) as (host, flips):
+            await until(lambda: flips == [True])
+            front = web.Application()
+            front.router.add_post("/api/forwarded", host.forward)
+            async with serving(front, [("127.0.0.1", None)], 0) as port:
+                async with host.session().post(
+                    f"http://127.0.0.1:{port}/api/forwarded", headers=sent
+                ) as response:
+                    return await response.json()
+
+    assert asyncio.run(scenario()) == {"forwardedFor": arrived}
 
 
 def test_a_host_goes_offline_on_a_drop_and_online_again_when_it_answers():

@@ -316,7 +316,8 @@ class RemoteHost:
         """Send ``request`` to the same path on the host, and stream its reply back.
 
         The method, the path, the query and the body go unchanged. The
-        browser's ``Origin`` and credentials do not.
+        browser's ``Origin`` and credentials do not. ``X-Forwarded-For`` gets
+        the browser's IP appended, so the host's **Audit record** names it.
         """
         if not self.online:
             raise HostUnreachable(f"{self.name} is offline")
@@ -325,8 +326,13 @@ class RemoteHost:
         headers = {
             k: v
             for k, v in request.headers.items()
-            if k.lower() not in _DROPPED_REQUEST
+            if k.lower() not in _DROPPED_REQUEST and k.lower() != "x-forwarded-for"
         }
+        forwarded_for = ", ".join(
+            v for v in (request.headers.get("X-Forwarded-For"), request.remote) if v
+        )
+        if forwarded_for:
+            headers["X-Forwarded-For"] = forwarded_for
         body = await request.read()
         try:
             async with self.session().request(
