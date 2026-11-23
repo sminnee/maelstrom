@@ -528,12 +528,19 @@ tests a change to the agent protocol without driving the agents its `_main` hold
 and the worktree its code came from.
 
 **Daemon root**:
-The one directory a daemon owns: its socket, its lock, its pid file, its log and its `agents/`
-spawn records. `MAEL_AGENT_ROOT` names it, and nothing else does — there is no default. One
+The one directory a daemon owns: its socket, its lock, its pid file, its log, its `audit.jsonl`
+and its `agents/` spawn records. `MAEL_AGENT_ROOT` names it, and nothing else does — there is no default. One
 daemon per root, enforced by the lock, so a session belongs to exactly one daemon. One owner per
 root too. The OS supervisor runs the production daemon as a **Host service** on
 `~/.maelstrom/state/daemon`, `mael env start` runs a worktree's, and nothing else starts one.
 _Avoid_: Socket directory, spec dir, daemon home, everyday daemon (say production daemon)
+
+**Audit record**:
+One JSON line that says who changed what. The **Orchestrator server** writes one for each
+state-changing `/api/` request, and one when an **Operation** learns the agent it started. The
+**Agent daemon** writes one for each socket command that changes an agent, with the calling
+process and its ancestry. They go to `<notebook root>/audit.jsonl` and `<daemon root>/audit.jsonl`.
+_Avoid_: Access log, event log
 
 **Wire contract**:
 What an agent daemon client sends and reads back: the request payloads, the replies to an ask,
