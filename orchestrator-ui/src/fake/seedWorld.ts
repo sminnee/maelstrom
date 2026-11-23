@@ -779,6 +779,7 @@ body rather than the query builder.
     agents: keyed(agents),
     documents: keyed(documents),
     earlierVersions: {},
+    olderHostDocuments: [],
     attention: keyed(attention),
     comms: {},
     // Two jobs run and one waits, as when worktrees share tangier's slots.

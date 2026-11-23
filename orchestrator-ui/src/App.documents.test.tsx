@@ -240,6 +240,19 @@ describe('a document an agent tagged in its own message', () => {
     );
   });
 
+  it('a document from an older host opens without versions, and draws its body', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.world.olderHostDocuments = ['doc-nort12-notes'];
+    clickNode('NORT-12');
+    await user.click(within(expanded()).getByRole('link', { name: /What is red on PR #118 v1/ }));
+    const tab = await screen.findByTestId('document-tab');
+    await waitFor(() => expect(tab).toHaveTextContent('fails on collation'));
+    expect(tab).toHaveTextContent('v1');
+    // With no store row, there is nothing to archive.
+    expect(within(tab).queryByRole('button', { name: 'Archive' })).toBeNull();
+  });
+
   it('a task set says its approve writes tasks, and reports the ones it created', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();

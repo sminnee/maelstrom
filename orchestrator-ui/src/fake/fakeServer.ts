@@ -68,6 +68,11 @@ export interface FakeWorld {
    * world document is the latest. A document with no task has no store row.
    */
   earlierVersions: Record<string, Document[]>;
+  /**
+   * Documents a **Remote host** on older code serves: their detail has no
+   * `ref`, `versions` or `fragments`.
+   */
+  olderHostDocuments: string[];
   attention: Record<string, Attention>;
   desk: Record<string, DeskEntry>;
   /** Each comm's `taskIds` and `queued` are derived from the tasks; see `deriveComms`. */
@@ -169,6 +174,7 @@ export function emptyFakeWorld(): FakeWorld {
     agents: {},
     documents: {},
     earlierVersions: {},
+    olderHostDocuments: [],
     attention: {},
     desk: {},
     comms: {},
@@ -798,6 +804,7 @@ function read(path: string, server: FakeServer): Reply {
  * answers it.
  */
 function documentDetail(world: FakeWorld, doc: Document, version: string | null): Reply {
+  if (world.olderHostDocuments.includes(doc.id)) return ok(doc);
   if (!doc.taskId) {
     if (version !== null) return notFound(`document ${doc.id} version ${version}`);
     return ok({ ...doc, ref: null, versions: [], fragments: [] });

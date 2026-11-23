@@ -204,6 +204,8 @@ Other rules of the merge:
 - Only rows the host owns merge. A host's merged rows from a host of its own do not.
 - A worktree merges only when the parent has its project.
 - Merged documents are list rows, with no detail fields. The detail comes through the forward.
+  A host on older code can send a detail with no `ref`, `versions` or `fragments`. The UI reads
+  that detail as it reads a free agent's document.
 - `_merged_agent` clears `taskId` on an agent whose `parentUrl` is not the parent's own URL.
   That task id names a task in another notebook, and the parent can hold a task with the same
   id.
