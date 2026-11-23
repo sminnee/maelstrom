@@ -25,6 +25,11 @@ release while that section is empty, and retitles it to the version it is releas
   status and route. Each agent daemon command that changes an agent appends one to
   `<daemon root>/audit.jsonl`, with the calling process, its command line and its working
   directory. See "Audit log" in `docs/dev/orchestrator-server.md` and `docs/dev/agent-daemon.md`.
+- **The Welcome dialog shows each remote host, and upgrades them with this server.** Each
+  remote host in `hosts:` gets a section: online or offline, and when online its version, last
+  update job, machine charts and an **Upgrade** button. The main **Upgrade** button upgrades
+  each online remote host that can update, then this server. Its menu upgrades this server
+  only. `mael self update` still updates this server only.
 - **Each comm has a codename, shown as a chip in one comm colour.** The task metadata generator gives a
   new comm a one- or two-word codename, such as `Lantern`, unique across all comms. A task's
   node shows its first comm's chip, and `+n` for more, where the phase word was. The expanded
@@ -116,6 +121,7 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **The Welcome dialog's "Update maelstrom" button is now "Upgrade".**
 - **The skills give one map of a project's glossary, decisions and contracts.** The
   `domain-modeling` skill names four documents and the job of each:
   - The glossary, `CONTEXT.md`. A project with subsystems lists them in `docs/README.md` and keeps

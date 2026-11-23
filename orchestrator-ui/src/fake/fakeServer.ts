@@ -84,6 +84,11 @@ export interface FakeWorld {
   gateJobs: Record<string, GateJob>;
   /** What `GET /api/system` answers: the install, not the world. */
   system: SystemBody;
+  /**
+   * What `GET /api/hosts/{name}/system` answers, per **Remote host** in
+   * `host.remoteHosts`. A host with no entry answers `fakeSystem()`, kept here.
+   */
+  remoteSystems: Record<string, SystemBody>;
   /** What `GET /api/client` answers: where the browser is. */
   client: ClientBody;
   /**
@@ -161,6 +166,30 @@ export function fakeSystem(): SystemBody {
   };
 }
 
+/**
+ * The routes the parent forwards to a named remote host. A copy of
+ * `HOST_SCOPED_ROUTES` in `routes.py`: keep the two in step.
+ */
+const HOST_SCOPED_ROUTES = ['GET system', 'POST self/update', 'GET machine/metrics/stream'];
+
+function remoteOnline(world: FakeWorld, name: string): boolean {
+  return world.host?.remoteHosts.some((h) => h.name === name && h.online) ?? false;
+}
+
+function remoteSystem(world: FakeWorld, name: string): SystemBody {
+  return (world.remoteSystems[name] ??= fakeSystem());
+}
+
+/** The parent's refusal of a host-scoped request, or `null` when it forwards it. */
+function refuseHostScoped(world: FakeWorld, name: string, route: string): Reply | null {
+  if (!world.host?.remoteHosts.some((h) => h.name === name))
+    return error(404, 'unknown_id', `No remote host ${name}`);
+  if (!HOST_SCOPED_ROUTES.includes(route))
+    return error(404, 'unknown_id', `${route} is not served for a remote host`);
+  if (!remoteOnline(world, name)) return error(502, 'unreachable', `${name} is offline`);
+  return null;
+}
+
 export function emptyFakeWorld(): FakeWorld {
   return {
     linearIssues: {},
@@ -181,6 +210,7 @@ export function emptyFakeWorld(): FakeWorld {
     comms: {},
     gateJobs: {},
     system: fakeSystem(),
+    remoteSystems: {},
     client: { local: true, host: '' },
     host: {
       id: 'agent-host',
@@ -276,6 +306,10 @@ export interface FakeServerOptions {
 }
 
 const METRICS_STREAM = '/api/machine/metrics/stream';
+/** A remote host's metrics stream, as the parent forwards it. */
+const HOST_METRICS_STREAM = /^\/api\/hosts\/([^/]+)\/machine\/metrics\/stream$/;
+/** A host-scoped route: `/api/hosts/{name}/{rest}`. */
+const HOST_SCOPED = /^\/api\/hosts\/([^/]+)\/(.+)$/;
 
 export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
   const autoOpen = opts.autoOpen ?? true;
@@ -360,7 +394,12 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       sockets.push(socket);
       queueMicrotask(() => {
         if (socket.closed) return;
-        if (path === METRICS_STREAM) {
+        const hostMetrics = HOST_METRICS_STREAM.exec(path);
+        if (hostMetrics && !remoteOnline(server.world, hostMetrics[1]!)) {
+          socket.serverClose(1011);
+          return;
+        }
+        if (path === METRICS_STREAM || hostMetrics) {
           socket.opened = true;
           socket.open();
           socket.receive({ type: 'metrics.snapshot', samples: server.metrics });
@@ -795,6 +834,13 @@ function read(path: string, server: FakeServer): Reply {
   }
   if (pathname === '/api/host') return ok({ host: world.host });
   if (pathname === '/api/system') return ok(world.system);
+  const scoped = HOST_SCOPED.exec(pathname);
+  // The metrics route is a socket: a plain GET of it gets no system body.
+  if (scoped && scoped[2] === 'system') {
+    const refused = refuseHostScoped(world, scoped[1]!, 'GET system');
+    if (refused) return refused;
+    return ok(remoteSystem(world, scoped[1]!));
+  }
   if (pathname === '/api/client') return ok(world.client);
   if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
@@ -1632,6 +1678,16 @@ function command(
     // The real server asks a model; this reads the draft's first line, so a
     // test gets a plausible naming with no network.
     return ok({ ...inferNames(draft), command: '', mode: 'auto' });
+  }
+
+  const scoped = HOST_SCOPED.exec(pathname);
+  if (scoped && method === 'POST') {
+    const [, name, rest] = scoped as unknown as [string, string, string];
+    const refused = refuseHostScoped(world, name, `POST ${rest}`);
+    if (refused) return refused;
+    if (!remoteSystem(world, name).canUpdate)
+      return error(409, 'cannot_update', 'This is a development build, not the host service.');
+    return { status: 202, body: {} };
   }
 
   if (pathname === '/api/self/update' && method === 'POST') {

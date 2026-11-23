@@ -1643,7 +1643,8 @@ bundle tagged `main-<commit>` and installs it. A tag that runs already is not bu
 Without `--detach`, run it from a shell, not from an agent of the production daemon. The daemon
 restart stops that agent. With `--detach`, the job runs apart from the daemon, and the agent
 resumes after the restart. `mael self status` shows the job's result. The Welcome dialog's
-**Update maelstrom** button starts the same job.
+**Upgrade** button starts the same job. It can also start it on each remote host in `hosts:`.
+`mael self update` updates this server only.
 
 **`mael self export`**
 

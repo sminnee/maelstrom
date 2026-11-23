@@ -10,7 +10,8 @@ export const keys = {
   desk: () => ['desk'] as const,
   host: () => ['host'] as const,
   client: () => ['client'] as const,
-  system: () => ['system'] as const,
+  /** The install's body: this server's with no host, else the named **Remote host**'s. */
+  system: (host?: string) => (host ? (['system', host] as const) : (['system'] as const)),
   gateJobs: () => ['gateJobs'] as const,
   attention: () => ['attention'] as const,
   tasks: {

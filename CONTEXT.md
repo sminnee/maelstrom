@@ -842,8 +842,11 @@ _Avoid_: Log panel, activity feed, drawer (alone), toast
 **Welcome dialog**:
 The orchestrator UI dialog that shows where this install keeps its projects, skills and config,
 whether **minnstack** is installed, its version, the last **Update job**, and whether the agent
-host answers. On the narrow layout it also holds the usage and gates readings. It opens by itself
-on a world with no **Project**, once per page load, and the mark opens it at any time. Its actions start Add project and an **Update job**.
+host answers. On the narrow layout it also holds the usage and gates readings. It also shows each
+**Remote host**: whether it is online, and when online its version, last **Update job** and
+**Machine metrics**. It opens by itself on a world with no **Project**, once per page load, and
+the mark opens it at any time. Its actions start Add project and an **Update job**: on this
+server, on one remote host, or on each remote host and then this server.
 _Avoid_: Onboarding, splash, about box
 
 **Project dialog**:
@@ -1013,7 +1016,7 @@ _Avoid_: Owner, watcher
 **Machine metrics**:
 The machine's CPU, memory and CPU temperature, with the usage of each running **Gate job**. The
 orchestrator server samples them every 15 s and keeps the last 15 minutes in memory. The
-**Welcome dialog** charts them.
+**Welcome dialog** charts them, and the metrics of each online **Remote host** too.
 _Avoid_: system stats, host metrics (the agent host is a separate thing)
 
 **Checkpoint**:
