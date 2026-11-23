@@ -20,6 +20,11 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **The orchestrator server and the agent daemon keep an audit log.** Each state-changing
+  `/api/` request appends one JSON line to `<notebook root>/audit.jsonl`, with the caller's IP,
+  status and route. Each agent daemon command that changes an agent appends one to
+  `<daemon root>/audit.jsonl`, with the calling process, its command line and its working
+  directory. See "Audit log" in `docs/dev/orchestrator-server.md` and `docs/dev/agent-daemon.md`.
 - **Each comm has a codename, shown as a chip in one comm colour.** The task metadata generator gives a
   new comm a one- or two-word codename, such as `Lantern`, unique across all comms. A task's
   node shows its first comm's chip, and `+n` for more, where the phase word was. The expanded

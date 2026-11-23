@@ -3793,20 +3793,101 @@ def test_the_socket_and_its_root_are_owner_only():
         else:
             task.cancel()
             pytest.fail("the daemon never bound and secured its socket")
+        # The audit log holds command lines and paths: owner-only too.
+        await _send_commands(paths, [{"cmd": "stop", "id": "nope"}])
         modes = (
             stat.S_IMODE(paths.socket.stat().st_mode),
             stat.S_IMODE(paths.root.stat().st_mode),
+            stat.S_IMODE(paths.audit_log.stat().st_mode),
         )
         os.kill(os.getpid(), signal.SIGTERM)
         await asyncio.wait_for(task, timeout=5)
         return modes
 
     try:
-        socket_mode, root_mode = asyncio.run(serve_briefly())
+        socket_mode, root_mode, audit_mode = asyncio.run(serve_briefly())
         assert socket_mode == 0o600, f"socket is {socket_mode:o}, not owner-only"
         assert root_mode == 0o700, f"root is {root_mode:o}, not owner-only"
+        assert audit_mode == 0o600, f"audit log is {audit_mode:o}, not owner-only"
     finally:
         shutil.rmtree(paths.root, ignore_errors=True)
+
+
+async def _send_commands(paths: DaemonPaths, commands: list[dict]) -> list[dict]:
+    """Send ``commands`` on one connection, as the CLI does, and read each reply."""
+    reader, writer = await asyncio.open_unix_connection(str(paths.socket))
+    replies = []
+    try:
+        for command in commands:
+            writer.write((json.dumps(command) + "\n").encode())
+            await writer.drain()
+            replies.append(json.loads(await reader.readline()))
+    finally:
+        writer.close()
+    return replies
+
+
+async def _serve_until_bound(daemon: AgentDaemon) -> asyncio.Task:
+    task = asyncio.create_task(daemon.serve())
+    for _ in range(100):
+        await asyncio.sleep(0.01)
+        if daemon.paths.socket.exists():
+            return task
+    task.cancel()
+    pytest.fail("the daemon never bound its socket")
+
+
+def test_each_command_that_changes_an_agent_writes_an_audit_record_with_its_caller():
+    paths = DaemonPaths(Path(tempfile.mkdtemp(prefix="mael-audit-")))
+    proc = _spawn_stub()
+    proc.stdout.readline = AsyncMock(side_effect=asyncio.Event().wait)
+
+    async def scenario():
+        daemon = AgentDaemon(paths.root, InMemoryAgentSpecStore())
+        task = await _serve_until_bound(daemon)
+        with patch.object(
+            agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
+        ):
+            replies = await _send_commands(
+                paths,
+                [
+                    {"cmd": "start", "cwd": "/tmp/x", "prompt": "go"},
+                    {"cmd": "list"},
+                    {"cmd": "ping"},
+                    {"cmd": "say", "id": "nope", "text": "hi"},
+                ],
+            )
+        daemon.stopping.set()
+        with _short_waits():
+            await asyncio.wait_for(task, timeout=5)
+        return replies
+
+    try:
+        start, _list, _ping, refused = asyncio.run(scenario())
+        records = [
+            json.loads(line) for line in paths.audit_log.read_text().splitlines()
+        ]
+    finally:
+        shutil.rmtree(paths.root, ignore_errors=True)
+    # `list` and `ping` read, so they write none.
+    assert [r["command"] for r in records] == ["start", "say"]
+    started, said = records
+    assert (started["agentId"], started["cwd"], started["ok"]) == (
+        start["id"],
+        "/tmp/x",
+        True,
+    )
+    assert (said["agentId"], said["ok"], said["error"]) == (
+        "nope",
+        False,
+        refused["error"],
+    )
+    # The caller is this test's own process, as the kernel names it.
+    caller = started["caller"]
+    assert (caller["pid"], caller["uid"]) == (os.getpid(), os.getuid())
+    assert caller["ancestry"][0]["pid"] == os.getpid()
+    assert caller["ancestry"][0]["cwd"] == os.getcwd()
+    assert caller["ancestry"][1]["pid"] == os.getppid()
 
 
 def test_a_signal_stops_the_daemon_the_way_the_command_does(tmp_path):
@@ -3868,14 +3949,7 @@ def test_the_daemon_stops_while_a_client_is_attached():
 
     async def serve_attach_stop():
         daemon = AgentDaemon(paths.root, specs, processes=no_processes)
-        task = asyncio.create_task(daemon.serve())
-        for _ in range(100):
-            await asyncio.sleep(0.01)
-            if paths.socket.exists():
-                break
-        else:
-            task.cancel()
-            pytest.fail("the daemon never bound its socket")
+        task = await _serve_until_bound(daemon)
         with patch.object(
             agent_server.asyncio, "create_subprocess_exec", AsyncMock(return_value=proc)
         ):

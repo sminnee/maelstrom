@@ -1294,6 +1294,47 @@ mints a fresh item id per copy.
 | Events queued for one slow attached client | 1000; past that the oldest is dropped and the client gets a `mael_truncated` marker saying how many |
 | Agent state | Spawn record on disk; events and live state in memory |
 
+## Audit log
+
+The daemon appends one **Audit record** to `<daemon root>/audit.jsonl` for each command that
+changes an agent or the daemon. The audited commands are `start`, `resume`, `run`, `say`, `stop`,
+`set-mode`, `recover`, `interrupt`, `answer`, `approve`, `deny`, `shutdown` and `gc`. A read —
+`list`, `show`, `ping`, `reconcile`, `attach` — writes none. `_on_client` writes the record after
+the reply.
+
+| Field | What it holds |
+| --- | --- |
+| `ts` | The time, UTC, ISO 8601 |
+| `source` | `daemon` |
+| `command` | The `cmd` of the payload |
+| `agentId` | The new agent's id for `start`; the payload's `id` for any other |
+| `cwd` | The payload's `cwd`, for `start` and `resume` only |
+| `ok`, `error` | Whether the reply was a success, and its error text when not |
+| `caller` | `{pid, uid, ancestry}`: the process on the far end of the socket |
+
+The kernel gives the caller's pid and uid, so a client cannot forge them. `peer.py` reads them at
+accept: `SO_PEERCRED` on Linux, `LOCAL_PEERPID` and `LOCAL_PEERCRED` on macOS. `ancestry` is the
+caller and up to 4 of its parents, each `{pid, cmdline, cwd}`. It is read in a thread before the
+reply, because the caller can exit once it has the reply. Linux reads `/proc`. macOS runs `ps`
+and `lsof` per process, so an audited command can take up to a second longer there. A read
+such as the orchestrator's 2-second `list` poll reads no ancestry. A part it cannot read is
+`null`. A command that raises is recorded with its exception as `error`.
+
+The ancestry names what ran the command: a `mael agent run` in a worktree, an agent's shell. A
+command from the **Orchestrator server** names the server's pid. The server's own record holds
+the browser's IP; match the two by time.
+
+The record is written before the reply, so a caller that has gone still leaves one. The file
+rotates and has mode `0600`, as "Audit log" in `docs/dev/orchestrator-server.md` says. The
+daemon configures no logging, so its log holds no copy of the record.
+
+To find who started an agent:
+
+```bash
+jq -c 'select(.command == "start" and .agentId == "a1b2") | .caller.ancestry' \
+  "$MAEL_AGENT_ROOT/audit.jsonl"
+```
+
 ## What is persisted
 
 **Claude keeps the conversation. The daemon keeps how to start it again.**
