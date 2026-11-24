@@ -22,7 +22,9 @@ STATUS_FOR_CODE = {
     "not_implemented": 501,
     "language_server_failed": 502,
     "unreachable": 502,
+    "auth_required": 401,
     "forbidden": 403,
+    "passkey_pending": 403,
 }
 
 

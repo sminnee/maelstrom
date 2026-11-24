@@ -43,6 +43,7 @@ from mael_domain.worktree_changes import (
     read_file_versions,
 )
 
+from .auth import AUTH, AuthParty, add_auth_routes, auth_middleware, origin_allowed
 from .clients import client_is_local
 from .errors import BadBody, error_response, read_body
 from .hubs import Lagging
@@ -81,17 +82,24 @@ CODE_FOR_STATUS = {404: "unknown_id", 501: "not_implemented"}
 Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
-def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Application:
+def build_app(
+    orch: Orchestrator, auth: AuthParty, web_root: Path | None = None
+) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
     The orchestrator starts with the app and stops with it, so anything that
     runs the app — the CLI, a test — gets a live world without wiring it.
 
-    ``web_root`` is the built UI, served beside the API on one origin.
+    ``auth`` decides who may reach each ``/api`` route. ``web_root`` is the
+    built UI, served beside the API on one origin.
     """
     # The audit first, so it records the refusals and forwards of the rest.
-    app = web.Application(middlewares=[_audit, _json_errors, _same_origin, _host_owned])
+    # Auth before the forward, so this server admits each request it forwards.
+    app = web.Application(
+        middlewares=[_audit, _json_errors, auth_middleware, _same_origin, _host_owned]
+    )
     app[ORCH] = orch
+    app[AUTH] = auth
 
     app[SOCKETS] = set()
 
@@ -116,6 +124,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
     app.on_cleanup.append(on_cleanup)
+    add_auth_routes(app)
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
@@ -1859,12 +1868,12 @@ async def _events(request: web.Request) -> web.StreamResponse:
         "X-Accel-Buffering": "no",
     }
     # The page is served by the dev server on its own port and dials this
-    # stream directly, so the read is cross-origin. The echo is equivalent to
-    # `*` here — the server has no auth, and the stream is read without
-    # credentials — but it keeps the header ready for an allowlist.
+    # stream directly, with its sign-in cookie, so the read is cross-origin.
+    # Only a UI origin is echoed: any other page may not read the stream.
     origin = request.headers.get("Origin")
-    if origin:
+    if origin and origin_allowed(request):
         headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
         headers["Vary"] = "Origin"
     response = web.StreamResponse(headers=headers)
     await response.prepare(request)

@@ -36,12 +36,14 @@ services:
   # Two listeners on one port. Loopback serves plain HTTP to the dev server's
   # proxy. The dev host serves the change stream, which a page loaded over
   # the tailnet dials directly rather than through the proxy; it speaks TLS
-  # under `dev_https:`, with the certificate the `.env` names.
+  # under `dev_https:`, with the certificate the `.env` names. The dev server
+  # is a UI origin: its pages may use a sign-in, and sign up a passkey.
   orchestrator:
     ports: [ORCHESTRATOR]
     command: >-
       uv run mael-orchestrator serve --host 127.0.0.1 --public-host ${DEV_HOST}
       --port ${ORCHESTRATOR_PORT}
+      --ui-origin ${DEV_SCHEME}://${DEV_HOST}:${FRONTEND_PORT}
 
   # The agent daemon of this environment. Its root comes from MAEL_AGENT_ROOT
   # in the worktree's `.env`, substituted per worktree from the project root's

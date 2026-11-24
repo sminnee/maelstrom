@@ -12,6 +12,7 @@ dependencies = [
     "click>=8.2",
     "aiohttp>=3.13",
     "psutil>=6",
+    "webauthn>=2.5",
 ]
 
 [project.scripts]
