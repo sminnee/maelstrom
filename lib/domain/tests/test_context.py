@@ -6,6 +6,7 @@ import pytest
 
 from mael_domain.context import (
     GlobalConfig,
+    RemoteHostEntry,
     ResolvedContext,
     detect_context_from_cwd,
     load_global_config,
@@ -580,14 +581,14 @@ def test_hosts_keeps_only_good_names_and_urls() -> None:
                 "bad:name": "https://b",
                 "Upper": "https://c",
                 "nourl": "cobalt.ts.net",
-                "zinc": {"url": "https://zinc.ts.net:2772"},
+                "zinc": {"url": "https://zinc.ts.net:2772", "token": " mael_zinc\n"},
             }
         }
     )
 
     assert config.hosts == {
-        "cobalt": "https://cobalt.ts.net:2772",
-        "zinc": "https://zinc.ts.net:2772",
+        "cobalt": RemoteHostEntry("https://cobalt.ts.net:2772"),
+        "zinc": RemoteHostEntry("https://zinc.ts.net:2772", "mael_zinc"),
     }
 
 

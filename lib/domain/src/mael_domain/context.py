@@ -46,19 +46,34 @@ def _host_name(value: object) -> str | None:
     return value if _HOST_NAME.fullmatch(value) else None
 
 
-def _remote_hosts(raw: object) -> dict[str, str]:
+@dataclass(frozen=True)
+class RemoteHostEntry:
+    """One ``hosts:`` entry: the **Remote host**'s URL, and its **Host key**.
+
+    ``token`` is ``""`` when the entry names none. The host then refuses each
+    call, as it refuses any client with no key.
+    """
+
+    url: str
+    token: str = ""
+
+
+def _remote_hosts(raw: object) -> dict[str, RemoteHostEntry]:
     """The ``hosts:`` map, less each entry with a bad name or URL.
 
-    An entry is ``name: <url>`` or ``name: {url: <url>}``. The second form has
-    room for the host's token later.
+    An entry is ``name: <url>`` or ``name: {url: <url>, token: <host key>}``.
     """
     if not isinstance(raw, dict):
         return {}
-    hosts: dict[str, str] = {}
+    hosts: dict[str, RemoteHostEntry] = {}
     for name, value in raw.items():
-        url = _url(value.get("url") if isinstance(value, dict) else value)
+        fields = value if isinstance(value, dict) else {"url": value}
+        url = _url(fields.get("url"))
+        token = fields.get("token")
         if isinstance(name, str) and SERVER_NAME.fullmatch(name) and url:
-            hosts[name] = url
+            hosts[name] = RemoteHostEntry(
+                url, token.strip() if isinstance(token, str) else ""
+            )
     return hosts
 
 
@@ -96,8 +111,8 @@ class GlobalConfig:
     #: ``Pacific/Auckland``. ``None`` means the host's own zone. Kept as
     #: written: :meth:`schedule_zone` checks it.
     schedule_timezone: str | None = None
-    #: Each **Remote host** this server delegates launches to: name to base URL.
-    hosts: dict[str, str] = field(default_factory=dict)
+    #: Each **Remote host** this server delegates launches to, by name.
+    hosts: dict[str, RemoteHostEntry] = field(default_factory=dict)
     #: This server's name, and so its **Id prefix**. ``""`` keeps ids bare.
     host_name: str = ""
 

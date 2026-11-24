@@ -11511,7 +11511,9 @@ async def laptop_and_server(store, laptop_cmux: Terminals, server_cmux=None):
     )
     laptop.worktrees.ssh_terminal = laptop_cmux
     async with laptop.serving() as port:
-        link = RemoteHost("laptop", f"http://127.0.0.1:{port}", backoff=0.02)
+        link = RemoteHost(
+            "laptop", f"http://127.0.0.1:{port}", token=HOST_KEY, backoff=0.02
+        )
         server = with_target(Harness(store, remote_hosts={"laptop": link}))
         server.worktrees.ssh_terminal = server_cmux
         async with server.client() as api:
@@ -14690,7 +14692,9 @@ async def cobalt_and_parent(store, cobalt_path: Path, **parent_over):
     async with AsyncExitStack() as served, AsyncExitStack() as stack:
         port = await served.enter_async_context(child.serve())
         child.served = served
-        link = RemoteHost("cobalt", f"http://127.0.0.1:{port}", backoff=0.02)
+        link = RemoteHost(
+            "cobalt", f"http://127.0.0.1:{port}", token=HOST_KEY, backoff=0.02
+        )
         parent = Harness(store, remote_hosts={"cobalt": link}, **parent_over)
         api = await stack.enter_async_context(parent.client())
         parent.orch.own_url = str(api.session._base_url).rstrip("/")

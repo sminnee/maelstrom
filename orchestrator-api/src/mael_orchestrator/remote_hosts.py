@@ -127,6 +127,8 @@ class RemoteHost:
 
     name: str
     base_url: str
+    #: The host's **Host key**, from its ``hosts:`` entry. ``""`` sends none.
+    token: str = ""
     clock: Callable[[], str] = now_iso
     online: bool = False
     #: When ``online`` last changed. ``""`` before the first change.
@@ -144,11 +146,13 @@ class RemoteHost:
     def session(self) -> aiohttp.ClientSession:
         """The one client session, made on first use so it binds the running loop.
 
-        A host token goes on this session's headers when bearer-token auth
-        comes: see "Room for auth" in ``docs/dev/remote-hosts.md``.
+        Every call to the host goes through it, a forward too, so the host's
+        key goes on its headers once. A forward drops the browser's own
+        ``Authorization`` first. See "Auth" in ``docs/dev/remote-hosts.md``.
         """
         if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
+            headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+            self._session = aiohttp.ClientSession(headers=headers)
         return self._session
 
     def url(self, path: str) -> str:
