@@ -3,6 +3,7 @@
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
+import aiohttp
 import pytest
 from aiohttp import web
 
@@ -59,9 +60,17 @@ class StubHost:
         return web.json_response({key: self.operations if key == "operations" else []})
 
     async def forwarded(self, request: web.Request) -> web.Response:
-        """Answer with the ``X-Forwarded-For`` the request arrived with."""
+        """Answer with the ``X-Forwarded-For`` the request arrived with.
+
+        The credentials the request carried go in the reply too, when it had any.
+        """
+        credentials = {
+            k: request.headers[k]
+            for k in ("Authorization", "Cookie")
+            if k in request.headers
+        }
         return web.json_response(
-            {"forwardedFor": request.headers.get("X-Forwarded-For")}
+            {"forwardedFor": request.headers.get("X-Forwarded-For"), **credentials}
         )
 
     def go_down(self) -> None:
@@ -104,11 +113,11 @@ async def noop_change(_host, _kinds) -> None:
 
 
 @asynccontextmanager
-async def linked(stub: StubHost, on_change=noop_change):
+async def linked(stub: StubHost, on_change=noop_change, token: str = ""):
     """Run a link named ``cobalt`` to ``stub``; yield it and its flips."""
     flips: list[bool] = []
     async with served(stub) as url:
-        host = RemoteHost("cobalt", url, backoff=0.02)
+        host = RemoteHost("cobalt", url, token=token, backoff=0.02)
         task = asyncio.create_task(
             host.run(lambda: flips.append(host.online), on_change)
         )
@@ -145,6 +154,32 @@ def test_a_forward_appends_the_callers_ip_to_x_forwarded_for(sent, arrived):
                     return await response.json()
 
     assert asyncio.run(scenario()) == {"forwardedFor": arrived}
+
+
+def test_a_forward_carries_the_hosts_key_in_place_of_the_browsers_credentials():
+    """The browser's sign-in is the parent's. The host knows only its own key."""
+
+    async def scenario():
+        stub = StubHost()
+        async with linked(stub, token="mael_cobalt") as (host, flips):
+            await until(lambda: flips == [True])
+            front = web.Application()
+            front.router.add_post("/api/forwarded", host.forward)
+            async with serving(front, [("127.0.0.1", None)], 0) as port:
+                async with aiohttp.ClientSession() as browser:
+                    async with browser.post(
+                        f"http://127.0.0.1:{port}/api/forwarded",
+                        headers={
+                            "Authorization": "Bearer mael_parent",
+                            "Cookie": "mael_login_2772=t",
+                        },
+                    ) as response:
+                        return await response.json()
+
+    assert asyncio.run(scenario()) == {
+        "forwardedFor": "127.0.0.1",
+        "Authorization": "Bearer mael_cobalt",
+    }
 
 
 def test_a_host_goes_offline_on_a_drop_and_online_again_when_it_answers():

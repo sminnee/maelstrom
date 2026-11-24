@@ -434,7 +434,8 @@ def build_orchestrator(
             production=os.environ.get("MAEL_PRODUCTION") == "1",
         ),
         remote_hosts={
-            name: RemoteHost(name, url) for name, url in config.hosts.items()
+            name: RemoteHost(name, entry.url, token=entry.token)
+            for name, entry in config.hosts.items()
         },
         opener=opener,
         ids=ids,
