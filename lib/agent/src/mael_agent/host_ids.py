@@ -19,6 +19,8 @@ HOST_NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 #: The variable a **Delegated agent**'s ``mael`` reads its parent's URL from.
 #: The parent's server sets it, and the agent's CLI reads it.
 PARENT_URL_ENV = "MAEL_PARENT_URL"
+#: The variable a **Delegated agent**'s ``mael`` reads its **Delegate key** from.
+PARENT_KEY_ENV = "MAEL_PARENT_KEY"
 
 
 def owner_of(entity_id: str) -> str:

@@ -20,6 +20,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mappi
 from concurrent.futures import Executor
 from contextlib import aclosing
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -35,7 +36,7 @@ from mael_agent.agent_wire import (
     is_compact_command,
 )
 from mael_agent.harness_model import HARNESS_CODEX, resolve_model_reference
-from mael_agent.host_ids import PARENT_URL_ENV, IdSpace, owner_of
+from mael_agent.host_ids import PARENT_KEY_ENV, PARENT_URL_ENV, IdSpace, owner_of
 from mael_common.audit_log import AuditLog
 from mael_common.image import MAX_BYTES, is_image
 from mael_common.shell import run_cmd_async
@@ -49,6 +50,8 @@ from mael_domain.agent_store import (
     MilestoneStore,
 )
 from mael_domain.attachments import attachment_urls
+from mael_domain.auth.model import DELEGATE, ApiKey, hash_secret, new_key
+from mael_domain.auth.store import AuthStore
 from mael_domain.cmux.mael_layout import remote_workspace_name, workspace_name
 from mael_domain.comm_store import Comm as DomainComm
 from mael_domain.comm_store import (
@@ -200,6 +203,7 @@ from .build_queue import BuildHost, BuildQueue, Run, run_process
 from .clients import normal_ip
 from .daemon_bridge import (
     EARLIER_SESSIONS,
+    PARENT_KEY,
     PARENT_URL,
     TASK_ID,
     AsyncDaemonClient,
@@ -556,6 +560,7 @@ START_SPEC_KEYS = (
     "env",
     "taskId",
     "parentUrl",
+    "parentKey",
 )
 
 
@@ -731,8 +736,12 @@ class Orchestrator:
         own_url: str = "",
         own_name: str = "",
         audit: AuditLog | None = None,
+        delegate_keys: AuthStore | None = None,
     ) -> None:
         self.tasks = tasks
+        #: Where each **Delegate key** this server mints is kept. ``None``
+        #: mints none: a delegated agent's calls then carry no key.
+        self.delegate_keys = delegate_keys
         #: Where each state-changing request and operation writes its **Audit record**.
         self.audit = audit
         #: Where each agent's task work goes: see "The task seam" in
@@ -958,6 +967,9 @@ class Orchestrator:
         self._host_failures = 0
         #: Per **Delegated agent**, the session last sent to its **Task home**.
         self._sessions_sent: dict[str, str] = {}
+        #: The **Delegate key** of each delegated agent, from its router row.
+        #: Kept here, not on the world's row: the world goes to the parent.
+        self._parent_keys: dict[str, str] = {}
         #: Per agent, the session whose append failed last, so one outage is
         #: logged once.
         self._sessions_refused: dict[str, str] = {}
@@ -980,6 +992,7 @@ class Orchestrator:
         await self.refresh_agents()
         await self._drop_dead_agent_entries()
         await self._drop_stale_conditional_ends()
+        await self._sweep_delegate_keys()
         await self.build_queue.start()
         self._started.set()
         self._pollers = [
@@ -1694,6 +1707,9 @@ class Orchestrator:
             if record["id"] in self.world["agents"]:
                 continue
             row = ended_agent_row(record)
+            if row.get(PARENT_KEY):
+                # A resume and a shelve of an ended agent still call its parent.
+                self._parent_keys[record["id"]] = str(row[PARENT_KEY])
             # Most records have no task. The set skips them before the scan.
             if row["session"] not in sessions and not row.get(PARENT_URL):
                 continue
@@ -1796,7 +1812,11 @@ class Orchestrator:
     def _home(self, agent: Agent | None) -> TaskHome:
         """Where ``agent``'s task work goes: its parent's tasks, or this server's."""
         delegated = agent if self._delegated(agent) else None
-        return self.homes.for_parent(delegated["parentUrl"] if delegated else "")
+        if delegated is None:
+            return self.homes.for_parent("")
+        return self.homes.for_parent(
+            delegated["parentUrl"], self._parent_keys.get(delegated["id"], "")
+        )
 
     def _remote_owner(self, entity_id: str) -> RemoteHost | None:
         """The **Remote host** that owns ``entity_id``, or ``None`` for this server's own."""
@@ -1883,6 +1903,9 @@ class Orchestrator:
             host_usage(reply.get("usage")), host_usage(reply.get("codex_usage"))
         )
         rows = {row["id"]: row for row in reply.get("agents", [])}
+        for agent_id, row in rows.items():
+            if row.get(PARENT_KEY):
+                self._parent_keys[agent_id] = str(row[PARENT_KEY])
         agents = self.world["agents"]
         for agent_id, row in rows.items():
             is_child = bool(row.get("parent"))
@@ -1932,7 +1955,9 @@ class Orchestrator:
         if row.get("parentUrl"):
             if self._sessions_sent.get(agent_id) == session:
                 return
-            home = self.homes.for_parent(str(row["parentUrl"]))
+            home = self.homes.for_parent(
+                str(row["parentUrl"]), str(row.get(PARENT_KEY) or "")
+            )
         elif link.session_due:
             home = self.homes.for_parent("")
         else:
@@ -4659,11 +4684,18 @@ class Orchestrator:
         if blocked is not None:
             return blocked
         assert launching.claim is not None
-        spec = {**self._spec_for(launching.claim), "parentUrl": self.own_url}
+        claim = launching.claim
+        key = await self._mint_delegate_key(claim.project, claim.task_id, host)
+        spec = {
+            **self._spec_for(claim),
+            "parentUrl": self.own_url,
+            **({"parentKey": key} if key else {}),
+        }
         try:
             reply = await remote.post_json("/api/agents", spec)
             operation_id = str(reply["operationId"])
         except (HostUnreachable, KeyError) as exc:
+            await self._revoke_delegate_key(key)
             return StepOutcome(blocked=f"{host} did not start the agent: {exc}")
         launching.handed_off = True
         try:
@@ -4676,7 +4708,9 @@ class Orchestrator:
         agent_id = str(operation.get("agentId") or "")
         if operation["state"] != DONE or not agent_id:
             launching.handed_off = False
+            await self._revoke_delegate_key(key)
             return StepOutcome(blocked=f"{host}: {operation.get('words') or 'failed'}")
+        await self._bind_delegate_key(key, agent_id)
         launching.agent_id = agent_id
         hook.target(agent_id=agent_id, worktree_id=operation.get("worktreeId"))
         # The remote host's router resumes a Codex thread by its bare id.
@@ -4685,6 +4719,54 @@ class Orchestrator:
         )
         await self._add_to_desk(desk_id_for_task(launching.task_id))
         return StepOutcome(messages=[f"Started {agent_id} on {host}."])
+
+    async def _mint_delegate_key(self, project: str, task_id: str, host: str) -> str:
+        """A new **Delegate key** for a launch on ``host``; ``""`` with no store."""
+        if self.delegate_keys is None:
+            return ""
+        key = new_key()
+        await self.delegate_keys.save_api_key(
+            ApiKey(
+                hash=hash_secret(key),
+                scope=DELEGATE,
+                task=wire_task_key(project, task_id),
+                host=host,
+                agent="",
+                created=self.clock(),
+            )
+        )
+        return key
+
+    async def _bind_delegate_key(self, key: str, agent_id: str) -> None:
+        """Name the agent a launch started, so its worktree's end revokes the key."""
+        if self.delegate_keys is None or not key:
+            return
+        found = await self.delegate_keys.read_api_key(hash_secret(key))
+        if found is not None and found.scope == DELEGATE:
+            found.agent = agent_id
+            await self.delegate_keys.save_api_key(found)
+
+    async def _revoke_delegate_key(self, key: str) -> None:
+        if self.delegate_keys is not None and key:
+            await self.delegate_keys.delete_api_keys([hash_secret(key)])
+
+    async def _sweep_delegate_keys(self) -> None:
+        """Drop each **Delegate key** whose work is gone: run at start.
+
+        A key goes when its host has left ``hosts:``, when its task is gone,
+        or when its launch never named an agent within an hour: the server
+        stopped mid-launch.
+        """
+        if self.delegate_keys is None:
+            return
+        unstarted = datetime.fromisoformat(self.clock()) - timedelta(hours=1)
+        await self.delegate_keys.delete_api_keys(
+            k.hash
+            for k in await self.delegate_keys.list_api_keys(DELEGATE)
+            if k.host not in self.remote_hosts
+            or k.task not in self.world["tasks"]
+            or (not k.agent and datetime.fromisoformat(k.created) < unstarted)
+        )
 
     def _agent_start_steps(
         self,
@@ -4778,9 +4860,12 @@ class Orchestrator:
         session = str(spec.get("session") or "")
         model = str(spec.get("model") or "") or None
         parent_url = str(spec.get("parentUrl") or "")
+        parent_key = str(spec.get("parentKey") or "")
         env = dict(spec.get("env") or {})
         if parent_url:
             env[PARENT_URL_ENV] = parent_url
+        if parent_key:
+            env[PARENT_KEY_ENV] = parent_key
         codex = bool(model) and resolve_model_reference(model).harness == HARNESS_CODEX
         payload = build_start_payload(
             setup.path,
@@ -4797,6 +4882,7 @@ class Orchestrator:
         )
         if parent_url:
             payload[PARENT_URL] = parent_url
+            payload[PARENT_KEY] = parent_key
             payload[TASK_ID] = str(spec.get("taskId") or "")
         return payload
 
@@ -5329,6 +5415,12 @@ class Orchestrator:
         """
         method, suffix = _HOST_WORKTREE_ROUTES[ending]
         path = f"/api/worktrees/{worktree_id}{suffix}"
+        # Read before the end: the worktree's agents may leave the world with it.
+        agents = {
+            a["id"]
+            for a in self.world["agents"].values()
+            if a["worktreeId"] == worktree_id
+        }
         try:
             if method == "DELETE":
                 reply = await remote.delete_json(path)
@@ -5337,9 +5429,18 @@ class Orchestrator:
         except HostUnreachable as exc:
             return StepOutcome(blocked=str(exc))
         _op_kind, _attr, _cannot, _doing, done, _failing = _OPERATION_COMMANDS[ending]
-        return await self._await_remote(
+        outcome = await self._await_remote(
             remote, reply, f"{done} {worktree_id} on {remote.name}."
         )
+        # Only an end that happened ends the agents' task calls: a refused one
+        # leaves them running.
+        if self.delegate_keys is not None and not outcome.blocked:
+            await self.delegate_keys.delete_api_keys(
+                k.hash
+                for k in await self.delegate_keys.list_api_keys(DELEGATE)
+                if k.host == remote.name and k.agent in agents
+            )
+        return outcome
 
     async def _await_remote(
         self, remote: RemoteHost, reply: dict[str, Any], done: str

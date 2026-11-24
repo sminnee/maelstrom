@@ -570,6 +570,7 @@ def run_server(
         for scope in await ensure_keys(auth_store):
             log.info("minted the %s key", scope)
         await sweep(auth_store, datetime.now(timezone.utc))
+        orchestrator.delegate_keys = auth_store
         party = AuthParty(
             auth_store, user_name=user_name(), ui_origins=frozenset(ui_origins)
         )

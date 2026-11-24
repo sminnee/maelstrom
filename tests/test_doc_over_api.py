@@ -5,6 +5,7 @@ on the test's thread. The Task document rules are tested in the domain suite;
 this proves the wire and what the commands print.
 """
 
+import asyncio
 import subprocess
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from served_orchestrator import PROJECT, point_config_at, seed
 
 from mael_cli.doc_cli import doc
 from mael_domain import sarif
+from mael_domain.auth.model import DELEGATE, ApiKey, hash_secret
 
 pytestmark = pytest.mark.binds_socket
 
@@ -176,9 +178,29 @@ def test_a_delegated_agent_s_doc_commands_reach_its_parent(
     monkeypatch.setenv("MAEL_TASK_ID", "NORT-7")
     notes = tmp_path / "notes.md"
     notes.write_text("# Notes\n")
+    # A key the parent never minted: the CLI sends it, and not the host key.
+    monkeypatch.setenv("MAEL_PARENT_KEY", "mael_not-minted")
+    refused = mael_doc("add", str(notes))
+    # The key a delegated launch of NORT-7 gets.
+    asyncio.run(
+        parent.auth.save_api_key(
+            ApiKey(
+                hash_secret("mael_launch"),
+                DELEGATE,
+                "",
+                f"{PROJECT}/NORT-7",
+                "cobalt",
+                "cobalt:a1",
+            )
+        )
+    )
+    monkeypatch.setenv("MAEL_PARENT_KEY", "mael_launch")
 
     added = mael_doc("add", str(notes))
     listed = mael_doc("list")
+    shown = mael_doc("show", "notes.md")
 
+    assert refused.exit_code == 1
     assert added.output == f"{PROJECT}:NORT-7:notes.md@v1\n"
     assert f"{PROJECT}:NORT-7:notes.md" in listed.output
+    assert shown.exit_code == 0, shown.output

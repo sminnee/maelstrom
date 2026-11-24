@@ -48,6 +48,9 @@ START_GRACE_SECONDS = 60.0
 #: The start-payload key that names a **Parent server**: the URL of the orchestrator
 #: that holds a **Delegated agent**'s task. The router keeps it on the record.
 PARENT_URL = "parentUrl"
+#: The start-payload key that holds the **Delegate key** the parent minted for
+#: the launch. The router keeps it on the record, and the world never shows it.
+PARENT_KEY = "parentKey"
 #: The start-payload key that names a delegated agent's task, by wire id.
 TASK_ID = "taskId"
 #: The row key for the session ids an agent left at each `/clear`, oldest first.
@@ -224,7 +227,11 @@ class DaemonRouter:
         reply = await self._start_or_resume(
             client,
             harness,
-            {k: v for k, v in payload.items() if k not in (PARENT_URL, TASK_ID)},
+            {
+                k: v
+                for k, v in payload.items()
+                if k not in (PARENT_URL, PARENT_KEY, TASK_ID)
+            },
         )
         if command == "start" and reply.get("ok") and reply.get("id"):
             agent_id = str(reply["id"])
@@ -246,6 +253,7 @@ class DaemonRouter:
                     or payload.get("env", {}).get("MAEL_TASK_ID", "")
                 ),
                 parent_url=str(payload.get(PARENT_URL) or ""),
+                parent_key=str(payload.get(PARENT_KEY) or ""),
                 cwd=str(payload.get("cwd") or ""),
                 model=str(payload.get("model") or ""),
                 mode=str(payload.get("mode") or "normal"),
@@ -580,7 +588,11 @@ def _stored_agent_row(
         # A delegated agent's task is on its parent, so the session join
         # cannot find it: the record names it.
         **(
-            {"task_id": agent.get("task_id") or "", PARENT_URL: agent["parent_url"]}
+            {
+                "task_id": agent.get("task_id") or "",
+                PARENT_URL: agent["parent_url"],
+                PARENT_KEY: agent.get("parent_key") or "",
+            }
             if agent.get("parent_url")
             else {}
         ),

@@ -1083,6 +1083,7 @@ def test_a_prefixed_router_names_its_agents_with_the_prefix_and_daemons_bare() -
                 "env": {"MAEL_TASK_ID": "2026-09-16.4"},
                 "taskId": "maelstrom/2026-09-16.4",
                 "parentUrl": "https://monolith:2772",
+                "parentKey": "mael_launch",
             }
         )
         claude.rows["r1.1"] = live_row("r1.1", parent="r1")
@@ -1102,13 +1103,15 @@ def test_a_prefixed_router_names_its_agents_with_the_prefix_and_daemons_bare() -
     # The daemon hears its own bare ids, and not the router's own keys.
     assert [c.get("id") for c in calls if c["cmd"] == "say"] == ["r1"]
     start = next(c for c in calls if c["cmd"] == "start")
-    assert "parentUrl" not in start and "taskId" not in start
+    assert not {"parentUrl", "parentKey", "taskId"} & set(start)
     assert frames[0]["agent"]["id"] == "cobalt:r1"
     # The record is the prefixed id, with its task and its parent.
     assert set(rows) == {"cobalt:r1"}
     assert rows["cobalt:r1"]["task_id"] == "maelstrom/2026-09-16.4"
     assert rows["cobalt:r1"]["parent_url"] == "https://monolith:2772"
+    assert rows["cobalt:r1"]["parent_key"] == "mael_launch"
     assert listed["agents"][0]["parentUrl"] == "https://monolith:2772"
+    assert listed["agents"][0]["parentKey"] == "mael_launch"
     assert listed["agents"][0]["task_id"] == "maelstrom/2026-09-16.4"
 
 

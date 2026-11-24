@@ -240,6 +240,11 @@ class TestSanitiseChildEnv:
         )
         assert env == {"DEV_HOST": "d"}
 
+    def test_drops_the_delegate_key(self):
+        """A dev service runs project code: it must not open the parent's tasks."""
+        env = sanitise_child_env({"MAEL_PARENT_KEY": "mael_k", "MAEL_PARENT_URL": "u"})
+        assert env == {"MAEL_PARENT_URL": "u"}
+
     def test_leaves_path_alone(self):
         # PATH is deliberately untouched: a child that resolves `mael` or `uv`
         # through it must keep finding the same binary.
