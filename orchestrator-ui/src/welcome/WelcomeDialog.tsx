@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
-import { useHost } from '../api/host';
+import { useQueries } from '@tanstack/react-query';
+import { useApi } from '../api/ApiProvider';
+import { useHost, useOwnHost } from '../api/host';
 import {
-  JOB_START_MS,
   awaitingJob,
   jobStalled,
-  useSystem,
-  type StartedJob,
+  systemQuery,
+  useFollowedSystem,
   type SystemBody,
 } from '../api/system';
 import { useLayoutMode } from '../layout/useLayoutMode';
@@ -19,7 +19,9 @@ import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
 import { MachineMetrics } from './MachineMetrics';
+import { RemoteHostSection } from './RemoteHostSection';
 import { UpdateRow } from './UpdateRow';
+import { versionWords } from './versionWords';
 import styles from './WelcomeDialog.module.css';
 
 /** The **Welcome dialog**. `shell/ProjectOverlays.tsx` decides when it opens itself. */
@@ -27,21 +29,25 @@ export function WelcomeDialog() {
   const welcome = useWelcome();
   const addProject = useAddProjectDialog();
   const { world } = useWorld();
-  const [startedJob, setStartedJob] = useState<StartedJob>();
-  const system = useSystem({ startedJob });
+  const { system, startedJob, markStarted } = useFollowedSystem();
   const host = useHost();
+  const ownName = useOwnHost().name;
+  const remoteHosts = host.data?.host?.remoteHosts ?? [];
+  const api = useApi();
+  // The main row offers each online remote host that can update. Its body
+  // shares the host section's query, so the two read once.
+  const online = remoteHosts.filter((h) => h.online).map((h) => h.name);
+  const remoteSystems = useQueries({ queries: online.map((name) => systemQuery(api, name)) });
+  const remotes = online.filter((_, i) => remoteSystems[i]?.data?.canUpdate === true);
   const firstProject = Object.keys(world.projects).length === 0;
   const info = system.data;
   // A subagent stops and resumes with its parent: count the top-level agents.
-  const liveAgents = Object.values(world.agents).filter((a) => !a.parent && isLive(a)).length;
-  useEffect(() => {
-    if (!startedJob || startedJob.stalled) return;
-    const timer = setTimeout(
-      () => setStartedJob((job) => job && { ...job, stalled: true }),
-      JOB_START_MS,
-    );
-    return () => clearTimeout(timer);
-  }, [startedJob]);
+  // An agent is a remote host's when its host is one; else it is this server's.
+  const remoteNames = new Set(remoteHosts.map((h) => h.name));
+  const liveAgents = (hosts: string[]) =>
+    Object.values(world.agents).filter(
+      (a) => !a.parent && isLive(a) && hosts.includes(remoteNames.has(a.host) ? a.host : ''),
+    ).length;
   const reachable = host.data?.host?.reachable;
   const narrow = useLayoutMode() === 'narrow';
 
@@ -76,11 +82,13 @@ export function WelcomeDialog() {
               {info ? (
                 <UpdateRow
                   info={info}
+                  ownName={ownName}
+                  remotes={remotes}
                   liveAgents={liveAgents}
                   awaiting={awaitingJob(info, startedJob)}
                   stalled={jobStalled(info, startedJob)}
                   startedHere={startedJob !== undefined}
-                  onStarted={() => setStartedJob({ after: info.update?.startedAt ?? null })}
+                  onStarted={() => markStarted(info)}
                 />
               ) : (
                 '…'
@@ -106,6 +114,9 @@ export function WelcomeDialog() {
             </dd>
           </dl>
         )}
+        {remoteHosts.map((remote) => (
+          <RemoteHostSection key={remote.name} host={remote} liveAgents={liveAgents} />
+        ))}
       </div>
       <DialogFooter
         aside={
@@ -150,9 +161,4 @@ function Practices({ info }: { info: SystemBody }) {
       <span className={styles.mono}>claude plugin install minnstack@maelstrom --scope user</span>.
     </>
   );
-}
-
-function versionWords({ version }: SystemBody): string {
-  if (!version) return 'development build';
-  return `${version.tag} (${version.commit.slice(0, 12)}${version.dirty ? ', dirty' : ''})`;
 }

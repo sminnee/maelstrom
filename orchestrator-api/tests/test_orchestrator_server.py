@@ -15615,6 +15615,66 @@ def test_a_local_refresh_leaves_a_merged_row_alone(harness):
     }
 
 
+def test_a_host_scoped_route_answers_as_the_named_hosts_own_route(store, tmp_path):
+    """System, update and metrics reach ``cobalt`` through ``/api/hosts/cobalt``."""
+    start = FakeUpdateStart()
+
+    async def scenario():
+        async with cobalt_and_parent(store, tmp_path) as (child, parent, api, port):
+            child.harness.orch.system = _installed_system(tmp_path, production=True)
+            child.harness.orch.start_update = start
+            child.harness.orch.metrics.add(SAMPLE)
+            system = await api.get("/api/hosts/cobalt/system")
+            update = await api.post("/api/hosts/cobalt/self/update")
+            async with api.session.ws_connect(
+                "/api/hosts/cobalt/machine/metrics/stream"
+            ) as ws:
+                opening = await ws_next(ws)
+            return system, update, opening
+
+    system, update, opening = run(scenario())
+    assert {
+        "system": (
+            system.status,
+            system.body["version"]["tag"],
+            system.body["canUpdate"],
+        ),
+        "update": (update.status, start.calls),
+        "metrics": opening,
+    } == {
+        "system": (200, "v1", True),
+        "update": (202, 1),
+        "metrics": {"type": "metrics.snapshot", "samples": [SAMPLE]},
+    }
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "code"),
+    [
+        ("GET", "/api/hosts/nowhere/system", 404, "unknown_id"),
+        ("GET", "/api/hosts/cobalt/tasks", 404, "unknown_id"),
+        ("POST", "/api/hosts/cobalt/system", 404, "unknown_id"),
+        ("GET", "/api/hosts/cobalt/system", 502, "unreachable"),
+    ],
+)
+def test_a_host_scoped_route_refuses_what_it_cannot_send(
+    harness_factory, method, path, status, code
+):
+    """An unknown host or a route not in the table; an offline host."""
+    # Nothing listens on port 9, so the link never comes up.
+    cobalt = RemoteHost("cobalt", "http://127.0.0.1:9", backoff=10.0)
+    harness = harness_factory(remote_hosts={"cobalt": cobalt})
+
+    async def scenario():
+        async with harness.client() as api:
+            if method == "GET":
+                return await api.get(path)
+            return await api.post(path)
+
+    reply = run(scenario())
+    assert (reply.status, reply.body["error"]["code"]) == (status, code)
+
+
 def test_a_bare_worktree_id_resolves_to_the_servers_own_prefix(store):
     harness = Harness(store, ids=IdSpace("cobalt"))
 

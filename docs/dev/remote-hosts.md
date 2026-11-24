@@ -230,6 +230,15 @@ agents. When the link comes back, the `reset` reads every kind again.
 
 ### Dispatch
 
+The parent sends a request to a remote host in two ways. Both use `RemoteHost.forward`:
+
+| Dispatch | Reads the host from | Table | Handler |
+|---|---|---|---|
+| By id | the entity id's owner, `cobalt:…` | `HOST_OWNED_ROUTES` | the `_host_owned` middleware |
+| By name | the path prefix `/api/hosts/{name}/` | `HOST_SCOPED_ROUTES` | the `_host_scoped` route |
+
+#### By id
+
 One aiohttp middleware in `routes.py`, `_host_owned`, sends each request for a host-owned id to
 that host. Its table, `HOST_OWNED_ROUTES`, covers each route at or under:
 
@@ -242,6 +251,33 @@ that host. Its table, `HOST_OWNED_ROUTES`, covers each route at or under:
 When `match_info["id"]` has an owner in `hosts:`, `RemoteHost.forward` sends the method, path,
 query and body unchanged, and streams the reply back. A WebSocket is joined frame for frame. An
 offline host answers `unreachable` at once. Desk ids (`agent:cobalt:x`) are never read for a host.
+The browser's headers drop as `_DROPPED_REQUEST` lists.
+
+#### By name
+
+Some routes have no entity id: the install, the **Update job** and **Machine metrics**. The
+Welcome dialog reaches them on a host as `/api/hosts/{name}/{rest}`. The parent answers each one
+as `/api/{rest}` answers on the named host. `HOST_SCOPED_ROUTES` lists each method and `{rest}`:
+
+| Method | `{rest}` |
+|---|---|
+| `GET` | `system` |
+| `POST` | `self/update` |
+| `GET` | `machine/metrics/stream`, a WebSocket |
+
+A pair not in the table, or a name not in `hosts:`, answers `unknown_id`. An offline host answers
+`unreachable`. The parent's Origin check covers the `POST`, as for each other route.
+
+A route goes in the table only when it means the same on the host as on the parent. The table is
+not a complete proxy, for these reasons:
+
+- A task route would reach the host's notebook, not the parent's.
+- `terminal` would open on the host's machine, not the browser's.
+- Project add and the other `self` routes would act on the host with no choice made by the user.
+
+Each later need is one line in the table, and that line is the choice for its route.
+
+#### After the forward
 
 A forwarded command answers with the host's operation id. The merge brings that operation to
 the parent, so the parent's console and cards show it like a local one.

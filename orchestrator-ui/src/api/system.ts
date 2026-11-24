@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { useApi } from './ApiProvider';
+import { hostPrefix } from './hosts';
 import { keys } from './keys';
 
 /** The release that runs. */
@@ -58,16 +60,48 @@ export const UPDATE_POLL_MS = 2000;
  * {@link UPDATE_POLL_MS}. The orchestrator restarts in the job, so some reads
  * fail; the last good body stays.
  */
-export function useSystem({ startedJob }: { startedJob?: StartedJob } = {}) {
+export function useSystem({ host, startedJob }: { host?: string; startedJob?: StartedJob } = {}) {
   const api = useApi();
   return useQuery({
-    queryKey: keys.system(),
-    queryFn: ({ signal }) => api.get<SystemBody>('/api/system', { signal }),
+    ...systemQuery(api, host),
     refetchInterval: (query) =>
       awaitingJob(query.state.data, startedJob) || query.state.data?.update?.state === 'running'
         ? UPDATE_POLL_MS
         : false,
   });
+}
+
+/**
+ * The read of one install: this server's with no `host`, else the named
+ * **Remote host**'s, through the parent's `/api/hosts/{name}` routes.
+ */
+export function systemQuery(api: ReturnType<typeof useApi>, host?: string) {
+  return {
+    queryKey: keys.system(host),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      api.get<SystemBody>(`${hostPrefix(host)}/system`, { signal }),
+  };
+}
+
+/**
+ * {@link useSystem} for `host`, and the job this client started there: set
+ * `startedJob` with `markStarted` when the server accepts a job. Past
+ * {@link JOB_START_MS} with no record of its own, the job is `stalled`.
+ */
+export function useFollowedSystem(host?: string) {
+  const [startedJob, setStartedJob] = useState<StartedJob>();
+  const system = useSystem({ host, startedJob });
+  useEffect(() => {
+    if (!startedJob || startedJob.stalled) return;
+    const timer = setTimeout(
+      () => setStartedJob((job) => job && { ...job, stalled: true }),
+      JOB_START_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [startedJob]);
+  const markStarted = (info: SystemBody) =>
+    setStartedJob({ after: info.update?.startedAt ?? null });
+  return { system, startedJob, markStarted };
 }
 
 /**
@@ -97,12 +131,26 @@ export function jobStalled(info: SystemBody | undefined, started: StartedJob | u
   return started?.stalled === true && (info?.update?.startedAt ?? null) === started.after;
 }
 
-/** Start an **Update job**. The server answers once the OS supervisor has it. */
+/**
+ * Start an **Update job** on each host `mutate(hosts)` names, in turn; `''` is
+ * this server. A host that refuses stops the rest. The server answers once
+ * the OS supervisor has the job.
+ */
 export function useStartUpdate() {
   const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<Record<string, never>>('/api/self/update', {}),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.system() }),
+    mutationFn: async (hosts: string[]) => {
+      for (const host of hosts) {
+        try {
+          await api.post<Record<string, never>>(`${hostPrefix(host)}/self/update`, {});
+        } catch (err) {
+          // A remote host's refusal does not name the host: say whose it is.
+          if (!host || !(err instanceof Error)) throw err;
+          throw new Error(`${host}: ${err.message}`, { cause: err });
+        }
+        void queryClient.invalidateQueries({ queryKey: keys.system(host), exact: true });
+      }
+    },
   });
 }

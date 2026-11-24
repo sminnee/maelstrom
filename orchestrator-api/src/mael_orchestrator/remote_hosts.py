@@ -312,17 +312,25 @@ class RemoteHost:
             await asyncio.sleep(OPERATION_POLL_SECS)
         raise HostUnreachable(f"{self.name}: operation {operation_id} ran too long")
 
-    async def forward(self, request: web.Request) -> web.StreamResponse:
-        """Send ``request`` to the same path on the host, and stream its reply back.
+    async def forward(
+        self, request: web.Request, path: str | None = None
+    ) -> web.StreamResponse:
+        """Send ``request`` to the host, and stream its reply back.
 
-        The method, the path, the query and the body go unchanged. The
-        browser's ``Origin`` and credentials do not. ``X-Forwarded-For`` gets
-        the browser's IP appended, so the host's **Audit record** names it.
+        The method, the query and the body go unchanged. The path goes
+        unchanged too, unless ``path`` replaces it. The browser's ``Origin``
+        and credentials do not go. ``X-Forwarded-For`` gets the browser's IP
+        appended, so the host's **Audit record** names it.
         """
         if not self.online:
             raise HostUnreachable(f"{self.name} is offline")
+        if path is None:
+            target = request.path_qs
+        else:
+            query = request.rel_url.raw_query_string
+            target = f"{path}?{query}" if query else path
         if request.headers.get("Upgrade", "").lower() == "websocket":
-            return await self._forward_socket(request)
+            return await self._forward_socket(request, target)
         headers = {
             k: v
             for k, v in request.headers.items()
@@ -337,7 +345,7 @@ class RemoteHost:
         try:
             async with self.session().request(
                 request.method,
-                self.url(request.path_qs),
+                self.url(target),
                 headers=headers,
                 data=body or None,
                 allow_redirects=False,
@@ -367,11 +375,13 @@ class RemoteHost:
         except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as exc:
             raise HostUnreachable(f"{self.name}: {_words(exc)}") from exc
 
-    async def _forward_socket(self, request: web.Request) -> web.WebSocketResponse:
-        """Join the browser's socket to one on the host, frame for frame."""
+    async def _forward_socket(
+        self, request: web.Request, target: str
+    ) -> web.WebSocketResponse:
+        """Join the browser's socket to one on the host at ``target``, frame for frame."""
         try:
             upstream = await asyncio.wait_for(
-                self.session().ws_connect(self.url(request.path_qs), heartbeat=20.0),
+                self.session().ws_connect(self.url(target), heartbeat=20.0),
                 REQUEST_SECS,
             )
         except (aiohttp.ClientError, OSError, asyncio.TimeoutError) as exc:

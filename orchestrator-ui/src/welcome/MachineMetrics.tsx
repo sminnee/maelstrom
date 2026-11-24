@@ -13,9 +13,12 @@ const HEIGHT = 56;
 const TEMP_MIN_C = 20;
 const TEMP_MAX_C = 100;
 
-/** The Welcome dialog's Machine entry: 15 minutes of charts, then each gate job's share. */
-export function MachineMetrics() {
-  const samples = useMetricsStream();
+/**
+ * The Welcome dialog's Machine entry: 15 minutes of charts, then each gate
+ * job's share. `host` names a **Remote host**; with none, this server's.
+ */
+export function MachineMetrics({ host }: { host?: string }) {
+  const samples = useMetricsStream({ host });
   const [hover, setHover] = useState<number | null>(null);
   if (samples === null) return <>…</>;
   const latest = samples.at(-1);

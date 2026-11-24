@@ -173,6 +173,7 @@ def build_app(orch: Orchestrator, web_root: Path | None = None) -> web.Applicati
     app.router.add_get("/api/gate-jobs", _gate_jobs)
     app.router.add_get("/api/machine/metrics/stream", _metrics_stream)
     app.router.add_get("/api/events", _events)
+    app.router.add_route("*", "/api/hosts/{name}/{rest:.+}", _host_scoped)
     app.router.add_get("/api/live-feedback", _live_feedback_socket)
     app.router.add_post("/api/agents/{id}/{action}", _agent_command)
     app.router.add_post("/api/tasks/{project}/{id}/launch", _launch)
@@ -446,6 +447,34 @@ async def _host_owned(request: web.Request, handler: Handler) -> web.StreamRespo
     if not owner and _under(canonical, RESOLVED_ROUTES):
         request.match_info["id"] = orch.ids.resolve(entity_id)
     return await handler(request)
+
+
+#: The routes a browser may reach on a named **Remote host**, as
+#: ``/api/hosts/{name}/{rest}``: each ``(method, rest)`` answers as
+#: ``/api/{rest}`` on the host. Add a route only when it means the same on the
+#: host as here. See "By name" in ``docs/dev/remote-hosts.md``.
+HOST_SCOPED_ROUTES = (
+    ("GET", "system"),
+    ("POST", "self/update"),
+    ("GET", "machine/metrics/stream"),
+)
+
+
+async def _host_scoped(request: web.Request) -> web.StreamResponse:
+    """Send ``/api/hosts/{name}/{rest}`` to ``/api/{rest}`` on the named host."""
+    name = request.match_info["name"]
+    rest = request.match_info["rest"]
+    remote = request.app[ORCH].remote_hosts.get(name)
+    if remote is None:
+        return error_response("unknown_id", f"No remote host {name}")
+    if (request.method, rest) not in HOST_SCOPED_ROUTES:
+        return error_response(
+            "unknown_id", f"{request.method} {rest} is not served for a remote host"
+        )
+    try:
+        return await remote.forward(request, path=f"/api/{rest}")
+    except HostUnreachable as exc:
+        return error_response("unreachable", str(exc))
 
 
 async def _not_implemented(request: web.Request) -> web.Response:

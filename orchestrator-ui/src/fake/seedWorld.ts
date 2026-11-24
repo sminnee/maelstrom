@@ -730,6 +730,7 @@ body rather than the query builder.
 
   const world: FakeWorld = {
     system: fakeSystem(),
+    remoteSystems: {},
     client: { local: true, host: '' },
     host: {
       id: 'agent-host',

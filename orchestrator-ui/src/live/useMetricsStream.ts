@@ -1,5 +1,6 @@
 import { useContext, useEffect, useState } from 'react';
 import type { MetricsSample } from '../protocol/entities';
+import { hostPrefix } from '../api/hosts';
 import { SocketFactoryContext } from './socketFactory';
 import type { SocketLike } from './socketLike';
 
@@ -15,11 +16,15 @@ type MetricsFrame =
 /**
  * The machine metrics history, oldest first, kept live while the caller is
  * mounted. `null` until the first frame. A dropped socket reconnects with a
- * backoff, and its snapshot replaces what was kept.
+ * backoff, and its snapshot replaces what was kept. `host` names a **Remote
+ * host**: the parent forwards its stream.
  */
-export function useMetricsStream(opts: { reconnectMs?: number } = {}): MetricsSample[] | null {
+export function useMetricsStream(
+  opts: { reconnectMs?: number; host?: string } = {},
+): MetricsSample[] | null {
   const factory = useContext(SocketFactoryContext);
   const firstDelay = opts.reconnectMs ?? RECONNECT_MS;
+  const path = `${hostPrefix(opts.host)}/machine/metrics/stream`;
   const [samples, setSamples] = useState<MetricsSample[] | null>(null);
   useEffect(() => {
     let socket: SocketLike | null = null;
@@ -27,7 +32,7 @@ export function useMetricsStream(opts: { reconnectMs?: number } = {}): MetricsSa
     let delay = firstDelay;
     let stopped = false;
     const open = () => {
-      const s = factory('/api/machine/metrics/stream');
+      const s = factory(path);
       socket = s;
       s.onmessage = (event) => {
         delay = firstDelay;
@@ -48,6 +53,6 @@ export function useMetricsStream(opts: { reconnectMs?: number } = {}): MetricsSa
       clearTimeout(timer);
       socket?.close();
     };
-  }, [factory, firstDelay]);
+  }, [factory, firstDelay, path]);
   return samples;
 }

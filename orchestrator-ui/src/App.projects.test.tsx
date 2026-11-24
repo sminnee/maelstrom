@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { fakeSystem } from './fake/fakeServer';
 import { faultKey } from './fake/operations';
 import { paneItem } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
@@ -310,11 +311,127 @@ describe('the Welcome dialog', () => {
     expect(router.state.location.search).toBe('');
   });
 
+  /** This server's update row: the one outside each remote host's section. */
   async function openWelcome(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole('button', { name: 'About maelstrom' }));
     const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
-    return within(await dialog.findByTestId('welcome-update'));
+    const rows = await dialog.findAllByTestId('welcome-update');
+    return within(rows.find((row) => !row.closest('section'))!);
   }
+
+  /**
+   * The dialog over the `remote-host` scenario: cobalt is online and runs
+   * v0.8.0, zinc is not. Live top-level agents: 4 here, 1 on cobalt, 1 on zinc.
+   */
+  async function openWithRemoteHosts(user: ReturnType<typeof userEvent.setup>) {
+    const rendered = await renderApp({ scenario: 'remote-host' });
+    const { server } = rendered;
+    server.world.remoteSystems.cobalt = {
+      ...fakeSystem(),
+      version: { tag: 'v0.8.0', commit: '0a1b2c3d4e5f', dirty: false },
+    };
+    await act(async () => {
+      server.change({ kind: 'agent', ids: ['e5b1d8c3'] }, (w) => {
+        w.agents['e5b1d8c3'] = { ...w.agents['e5b1d8c3']!, host: 'cobalt' };
+      });
+    });
+    const own = await openWelcome(user);
+    const dialog = within(screen.getByRole('dialog', { name: 'Welcome to maelstrom' }));
+    const cobalt = within(await dialog.findByRole('region', { name: 'Remote host cobalt' }));
+    return { ...rendered, dialog, cobalt, own };
+  }
+
+  const updatePosts = (server: { requests: { method: string; path: string }[] }) =>
+    server.requests
+      .filter((r) => r.method === 'POST' && r.path.endsWith('/self/update'))
+      .map((r) => r.path);
+
+  it("shows each remote host's version, charts and state, and upgrades that host alone", async () => {
+    const user = userEvent.setup();
+    const { server, dialog, cobalt } = await openWithRemoteHosts(user);
+
+    expect(await cobalt.findByText('v0.8.0 (0a1b2c3d4e5f)')).toBeInTheDocument();
+    expect(cobalt.getByText('online')).toBeInTheDocument();
+    expect(await cobalt.findByRole('group', { name: 'CPU' })).toBeInTheDocument();
+    expect(server.sockets.map((s) => s.url)).toContain('/api/hosts/cobalt/machine/metrics/stream');
+    const zinc = within(dialog.getByRole('region', { name: 'Remote host zinc' }));
+    expect(zinc.getByText(/^offline/)).toBeInTheDocument();
+    expect(zinc.queryByTestId('welcome-update')).toBeNull();
+
+    await user.click(cobalt.getByRole('button', { name: 'Upgrade' }));
+    expect(
+      await cobalt.findByText(
+        "The update restarts cobalt's orchestrator and agent daemon. 1 live agent stops. It resumes after the restart.",
+      ),
+    ).toBeInTheDocument();
+    await user.click(cobalt.getByRole('button', { name: 'Upgrade' }));
+
+    expect(await cobalt.findByText('Updating…')).toBeInTheDocument();
+    expect(updatePosts(server)).toEqual(['/api/hosts/cobalt/self/update']);
+  });
+
+  it('upgrades each remote host, then this server, from the split button', async () => {
+    const user = userEvent.setup();
+    const { server, own } = await openWithRemoteHosts(user);
+
+    // zinc is offline, so the default names cobalt alone.
+    await user.click(await own.findByRole('button', { name: 'More upgrade actions' }));
+    expect(screen.getByRole('menuitem', { name: 'Upgrade monolith, cobalt' })).toBeInTheDocument();
+    await user.click(screen.getByRole('menuitem', { name: 'Upgrade monolith, cobalt' }));
+    expect(
+      await own.findByText(
+        'The update restarts the orchestrator and the agent daemon on cobalt, then monolith. 5 live agents stop. They resume after the restart.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(own.getByRole('button', { name: 'Upgrade' }));
+
+    expect(await own.findByText('Updating…')).toBeInTheDocument();
+    expect(updatePosts(server)).toEqual(['/api/hosts/cobalt/self/update', '/api/self/update']);
+  });
+
+  it('upgrades this server only from the menu', async () => {
+    const user = userEvent.setup();
+    const { server, own } = await openWithRemoteHosts(user);
+
+    await user.click(await own.findByRole('button', { name: 'More upgrade actions' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Upgrade monolith only' }));
+    expect(
+      await own.findByText(
+        'The update restarts the orchestrator and the agent daemon. 4 live agents stop. They resume after the restart.',
+      ),
+    ).toBeInTheDocument();
+    await user.click(own.getByRole('button', { name: 'Upgrade' }));
+
+    expect(await own.findByText('Updating…')).toBeInTheDocument();
+    expect(updatePosts(server)).toEqual(['/api/self/update']);
+  });
+
+  it("stops before this server's job when a remote host refuses, and says which", async () => {
+    const user = userEvent.setup();
+    const { server, own } = await openWithRemoteHosts(user);
+    server.refuse(/POST \/api\/hosts\/cobalt\/self\/update/, {
+      status: 409,
+      code: 'cannot_update',
+      message: 'An update is running.',
+    });
+
+    await own.findByRole('button', { name: 'More upgrade actions' });
+    await user.click(own.getByRole('button', { name: 'Upgrade' }));
+    await user.click(own.getByRole('button', { name: 'Upgrade' }));
+
+    expect(await own.findByText('cobalt: An update is running.')).toBeInTheDocument();
+    expect(updatePosts(server)).toEqual(['/api/hosts/cobalt/self/update']);
+  });
+
+  it('offers this server alone while no remote host can update', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'remote-host' });
+    server.world.remoteSystems.cobalt = { ...fakeSystem(), canUpdate: false };
+    const row = await openWelcome(user);
+
+    expect(row.getByRole('button', { name: 'Upgrade' })).toBeEnabled();
+    expect(row.queryByRole('button', { name: 'More upgrade actions' })).toBeNull();
+  });
 
   it('confirms an update with the live agent count, then follows the job through the restart', async () => {
     const user = userEvent.setup();
@@ -340,11 +457,11 @@ describe('the Welcome dialog', () => {
     const row = await openWelcome(user);
     expect(row.getByText('from the main channel')).toBeInTheDocument();
 
-    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
+    await user.click(row.getByRole('button', { name: 'Upgrade' }));
     expect(
       await row.findByText(/^The update restarts .* 5 live agents stop\./),
     ).toBeInTheDocument();
-    await user.click(row.getByRole('button', { name: 'Update' }));
+    await user.click(row.getByRole('button', { name: 'Upgrade' }));
 
     // The server answered, but the job has not written its record yet.
     expect(await row.findByText('Updating…')).toBeInTheDocument();
@@ -379,8 +496,8 @@ describe('the Welcome dialog', () => {
     });
     const row = await openWelcome(user);
 
-    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
-    await user.click(row.getByRole('button', { name: 'Update' }));
+    await user.click(row.getByRole('button', { name: 'Upgrade' }));
+    await user.click(row.getByRole('button', { name: 'Upgrade' }));
 
     expect(await row.findByText('An update is running.')).toBeInTheDocument();
     expect(row.queryByText('Updating…')).toBeNull();
@@ -391,10 +508,10 @@ describe('the Welcome dialog', () => {
     const { server } = await renderApp();
     const row = await openWelcome(user);
 
-    await user.click(row.getByRole('button', { name: 'Update maelstrom' }));
+    await user.click(row.getByRole('button', { name: 'Upgrade' }));
     await user.click(row.getByRole('button', { name: 'Cancel' }));
 
-    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeInTheDocument();
+    expect(row.getByRole('button', { name: 'Upgrade' })).toBeInTheDocument();
     expect(server.world.system.update).toBeNull();
   });
 
@@ -425,18 +542,18 @@ describe('the Welcome dialog', () => {
     const row = await openWelcome(user);
 
     expect(screen.getByTestId('welcome-update')).toHaveTextContent(words);
-    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeEnabled();
+    expect(row.getByRole('button', { name: 'Upgrade' })).toBeEnabled();
     // A job this page did not start: the page already runs its bundle.
     expect(row.queryByRole('button', { name: 'Reload' })).toBeNull();
   });
 
-  it('disables the update on a development build', async () => {
+  it('disables the upgrade on a development build', async () => {
     const user = userEvent.setup();
     const { server } = await renderApp();
     server.world.system.canUpdate = false;
     const row = await openWelcome(user);
 
-    expect(row.getByRole('button', { name: 'Update maelstrom' })).toBeDisabled();
+    expect(row.getByRole('button', { name: 'Upgrade' })).toBeDisabled();
     expect(row.getByText('development build')).toBeInTheDocument();
   });
 

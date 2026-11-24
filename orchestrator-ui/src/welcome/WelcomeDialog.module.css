@@ -65,3 +65,17 @@
   content: 'None yet';
   color: var(--fg-faint);
 }
+
+/* One remote host: a heading, then its own facts. */
+.host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u);
+  padding-top: var(--u-2);
+  border-top: 1px solid var(--border);
+}
+.hostHead {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}

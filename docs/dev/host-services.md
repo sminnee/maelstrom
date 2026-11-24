@@ -321,8 +321,8 @@ from the host services, as a one-shot unit of the OS supervisor:
   A `bootout` would kill a running launchd job, so `Launchd.submit` refuses while the job has a
   pid.
 
-`mael self update --detach` submits the job and returns. The Welcome dialog's **Update
-maelstrom** button calls `POST /api/self/update`, which runs that command from the server's own
+`mael self update --detach` submits the job and returns. The Welcome dialog's **Upgrade**
+button calls `POST /api/self/update`, which runs that command from the server's own
 venv. The import fence keeps `mael_cli` out of the server, so the server runs the command and
 does not import it. The server refuses on a development build: a checkout, or a release run
 without `MAEL_PRODUCTION=1`. That job would update the production install, not the server.

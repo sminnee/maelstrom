@@ -3,11 +3,17 @@ import { useStartUpdate, type SystemBody } from '../api/system';
 import { tildePath } from '../protocol/paths';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
+import { SplitButton, type SplitOption } from '../ui/SplitButton';
 import styles from './WelcomeDialog.module.css';
 
 /**
  * The **Welcome dialog**'s update row: start an **Update job**, and follow it
  * through the orchestrator restart it causes.
+ *
+ * `host` names the **Remote host** the row is for; with none, the row is this
+ * server's. This server's row can also start the job on each host of
+ * `remotes` first: each host's job runs before this server's, whose restart
+ * cuts the page's link.
  *
  * `awaiting` is true from a started job until its record replaces the old
  * one: the dialog polls the install through that gap. `stalled` says the
@@ -16,6 +22,9 @@ import styles from './WelcomeDialog.module.css';
  */
 export function UpdateRow({
   info,
+  host,
+  ownName = '',
+  remotes = [],
   liveAgents,
   awaiting,
   stalled,
@@ -23,16 +32,25 @@ export function UpdateRow({
   onStarted,
 }: {
   info: SystemBody;
-  liveAgents: number;
+  /** The remote host this row is for. */
+  host?: string;
+  /** This server's name, for the labels of this server's row. */
+  ownName?: string;
+  /** The online remote hosts that can update, which this server's row offers too. */
+  remotes?: string[];
+  /** The live top-level agents an update of `hosts` stops. `''` is this server. */
+  liveAgents: (hosts: string[]) => number;
   awaiting: boolean;
   stalled: boolean;
   /** This page started the job, so it still runs the old UI bundle. */
   startedHere: boolean;
   onStarted: () => void;
 }) {
-  const [confirming, setConfirming] = useState(false);
+  /** The hosts the confirm asks about, in the order their jobs start. `''` is this server. */
+  const [confirming, setConfirming] = useState<string[] | null>(null);
   const start = useStartUpdate();
   const record = info.update;
+  const own = ownName || 'this server';
   const log = record ? (
     <span className={styles.mono}>{tildePath(record.log, info.home)}</span>
   ) : null;
@@ -42,19 +60,21 @@ export function UpdateRow({
       <div className={styles.update} data-testid="welcome-update">
         <span>Updating…</span>
         <span className={styles.faint}>
-          The orchestrator restarts during the update.{log && <> The log is {log}.</>}
+          {host ? `${host}'s orchestrator restarts` : 'The orchestrator restarts'} during the
+          update.{log && <> The log is {log}.</>}
         </span>
       </div>
     );
 
-  if (confirming)
+  if (confirming) {
+    const count = liveAgents(confirming);
     return (
       <div className={styles.update} data-testid="welcome-update">
         <span>
-          The update restarts the orchestrator and the agent daemon.{' '}
-          {liveAgents === 1
+          {restartWords(confirming, own)}{' '}
+          {count === 1
             ? '1 live agent stops. It resumes after the restart.'
-            : `${liveAgents} live agents stop. They resume after the restart.`}
+            : `${count} live agents stop. They resume after the restart.`}
         </span>
         <div className={styles.actions}>
           <AppButton
@@ -63,19 +83,35 @@ export function UpdateRow({
             processingChildren="Starting…"
             errorChildren={(err) => (err instanceof Error ? err.message : 'Failed')}
             onClick={async () => {
-              await start.mutateAsync();
-              setConfirming(false);
+              await start.mutateAsync(confirming);
+              setConfirming(null);
               onStarted();
             }}
           >
-            Update
+            Upgrade
           </AppButton>
-          <AppButton icon={actionIcon('close')} onClick={() => setConfirming(false)}>
+          <AppButton icon={actionIcon('close')} onClick={() => setConfirming(null)}>
             Cancel
           </AppButton>
         </div>
       </div>
     );
+  }
+
+  const ask = (hosts: string[]) => async () => setConfirming(hosts);
+  const options: SplitOption[] = host
+    ? [{ label: `Upgrade ${host}`, buttonLabel: 'Upgrade', run: ask([host]) }]
+    : remotes.length > 0
+      ? [
+          {
+            label: `Upgrade ${[own, ...remotes].join(', ')}`,
+            buttonLabel: 'Upgrade',
+            isDefault: true,
+            run: ask([...remotes, '']),
+          },
+          { label: `Upgrade ${own} only`, run: ask(['']) },
+        ]
+      : [{ label: 'Upgrade', run: ask(['']) }];
 
   return (
     <div className={styles.update} data-testid="welcome-update">
@@ -103,19 +139,27 @@ export function UpdateRow({
         </div>
       )}
       <div className={styles.actions}>
-        <AppButton
-          icon={actionIcon('update')}
+        <SplitButton
+          options={options.map((o) => ({ ...o, icon: actionIcon('update') }))}
+          menuLabel="More upgrade actions"
           disabled={!info.canUpdate}
-          onClick={() => setConfirming(true)}
-        >
-          Update maelstrom
-        </AppButton>
+        />
         <span className={styles.faint}>
           {info.canUpdate ? `from the ${info.updateChannel} channel` : 'development build'}
         </span>
       </div>
     </div>
   );
+}
+
+/** What the confirm says the jobs of `hosts` restart. `''` is this server, named `own`. */
+function restartWords(hosts: string[], own: string): string {
+  const [only] = hosts;
+  if (hosts.length === 1 && only === '')
+    return 'The update restarts the orchestrator and the agent daemon.';
+  if (hosts.length === 1) return `The update restarts ${only}'s orchestrator and agent daemon.`;
+  const names = hosts.map((h) => h || own).join(', then ');
+  return `The update restarts the orchestrator and the agent daemon on ${names}.`;
 }
 
 function LastUpdate({

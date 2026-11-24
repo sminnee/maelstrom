@@ -347,13 +347,27 @@ directory, the core plugin's skills, whether `minnstack` is installed, the confi
 version, the last **Update job** and whether the agent host answers. A run with no release
 manifest reads "development build". Its main action opens Add project in its place.
 
-`welcome/UpdateRow.tsx` starts an **Update job** after a confirm that counts the live top-level
-agents. `useSystem` then reads `/api/system` every `UPDATE_POLL_MS`: from the click until the job's
+`welcome/UpdateRow.tsx` starts an **Update job** after a confirm. The confirm counts the live
+top-level agents that the chosen scope stops. On this server's row the control is a split button.
+The default upgrades each online **Remote host** that can update, then this server. The menu
+upgrades this server only. With no such host, it is a plain "Upgrade". The hosts go first,
+because this server's job restarts it and cuts the page's link. A host that refuses stops the
+sequence, and the row shows `<host>: <its words>`.
+
+`useFollowedSystem` (in `api/system.ts`) holds the started job and its `JOB_START_MS` timer.
+`useSystem` then reads `/api/system` every `UPDATE_POLL_MS`: from the click until the job's
 record replaces the old one, and while the record says `running`. The orchestrator restarts in
 the job, so a failed read keeps the last good body. A job that writes no record in `JOB_START_MS`
 reads "did not start". After a job this page started installs a new tag, the row offers Reload,
 because the page still runs the old bundle. A development build (`canUpdate` false) disables
 the button.
+
+`welcome/RemoteHostSection.tsx` adds one section for each **Remote host** in `remoteHosts`. It
+shows the host's name and online state, then its Version, Update row and Machine charts. It reads
+each one through `/api/hosts/{name}/…` (see [dispatch by name](remote-hosts.md#by-name)). An
+offline host shows its heading only. A full upgrade from this server's row does not mark a
+started job in a host section. The section sees the host's `running` record after this server's
+restart, when the change stream reconnects and reads every query again.
 
 It opens itself when the world is ready and holds no project. A close sets `welcomeDismissed` in
 the store, which a reload clears, so it does not open again in that page load. The logo in the
@@ -364,7 +378,8 @@ The **Machine** entry, `welcome/MachineMetrics.tsx`, charts the **Machine metric
 minutes:
 
 - `live/useMetricsStream.ts` opens the metrics socket while the dialog is mounted, so the dialog
-  shows the server's whole history at once.
+  shows the server's whole history at once. With a `host`, the hook opens
+  `/api/hosts/<name>/machine/metrics/stream`, which the parent joins to the host's own socket.
 - The CPU and memory charts stack the gate jobs' share under the rest. `welcome/machineShares.ts`
   makes the split; a gate job's CPU is per core.
 - The charts sit in one row. Each chart's header names its latest figure. A left axis names
