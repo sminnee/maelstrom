@@ -1186,7 +1186,9 @@ async def _serve_attachment(request: web.Request) -> web.StreamResponse:
         return error_response("invalid", str(exc))
     except KeyError as exc:
         return error_response("unknown_id", str(exc))
-    headers = {"X-Content-Type-Options": "nosniff"}
+    # The server's own origin may hold a sign-in, so a shown file must not run
+    # script there.
+    headers = {"X-Content-Type-Options": "nosniff", **_RAW_HEADERS}
     media_type = inline_media_type(found)
     if media_type is None:
         headers["Content-Type"] = "application/octet-stream"
@@ -1209,7 +1211,7 @@ async def _serve_file(request: web.Request) -> web.StreamResponse:
         # A missing entry and a file since deleted read the same to the caller:
         # there is nothing to serve under that id.
         return error_response("unknown_id", "no such file")
-    return web.FileResponse(found)
+    return web.FileResponse(found, headers=_RAW_HEADERS)
 
 
 def _task_id(request: web.Request) -> str:
