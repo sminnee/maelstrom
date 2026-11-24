@@ -22,6 +22,7 @@ from ..worktree_model import MAIN_WORKTREE_FOLDER, parse_env_text
 from .db import StateDb
 from .migrations.agents import AGENTS
 from .migrations.attachments_move import ATTACHMENTS_MOVE
+from .migrations.auth import AUTH
 from .migrations.comms import COMMS
 from .migrations.desk import DESK
 from .migrations.landings import LANDINGS
@@ -49,6 +50,7 @@ LADDERS: dict[str, tuple[Rung, ...]] = {
     "pr_events": PR_EVENTS,
     "wiki": WIKI,
     "merge_requests": MERGE_REQUESTS,
+    "auth": AUTH,
     # Reads `tasks` and `task_attachments`, so it climbs after both.
     "attachments_move": ATTACHMENTS_MOVE,
 }
@@ -91,6 +93,11 @@ TABLES: dict[str, TableSpec] = {
     # publishes each change on the worktree it shows on, so a write is not news.
     "merge_requests": TableSpec("merge_requests", notifies=False),
     "builds": TableSpec("builds", notifies=False),
+    # Passkeys, API keys and sign-ins. Canonical. No client draws them, and a
+    # key or a sign-in is a secret's hash, so a write is not news.
+    "auth_passkeys": TableSpec("auth_passkeys", notifies=False),
+    "auth_api_keys": TableSpec("auth_api_keys", notifies=False),
+    "auth_sign_ins": TableSpec("auth_sign_ins", notifies=False),
 }
 
 
