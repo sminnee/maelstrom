@@ -22,6 +22,8 @@ from urllib.parse import quote
 import click
 
 from mael_agent.host_ids import PARENT_URL_ENV
+from mael_domain.auth.keys import key_path, read_key
+from mael_domain.auth.model import HOST
 from mael_domain.context import load_global_config
 from mael_domain.notebook_root import NOTEBOOK_ROOT_ENV
 
@@ -83,6 +85,16 @@ class OrchestratorUnreachable(OrchestratorError):
         self.url = url
 
 
+class OrchestratorUnauthorised(OrchestratorError):
+    """The server did not accept the client's key, or the client had none."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(
+            f"{reason} Start the orchestrator once: it writes the host key to "
+            f"{key_path(HOST)}."
+        )
+
+
 class OrchestratorRefused(OrchestratorError):
     """The server answered ``{"error": {code, message}}``."""
 
@@ -93,10 +105,18 @@ class OrchestratorRefused(OrchestratorError):
 
 
 class OrchestratorClient:
-    """JSON calls to one orchestrator server."""
+    """JSON calls to one orchestrator server, with the host key as a bearer.
 
-    def __init__(self, base_url: str, *, timeout: float = TIMEOUT_SECS) -> None:
+    ``key`` defaults to the host key file under the notebook root, read at
+    each call: the server may write it after the client is made. ``""``
+    sends no key.
+    """
+
+    def __init__(
+        self, base_url: str, *, key: str | None = None, timeout: float = TIMEOUT_SECS
+    ) -> None:
         self.base_url = base_url.rstrip("/")
+        self.key = key
         self.timeout = timeout
 
     @classmethod
@@ -133,10 +153,16 @@ class OrchestratorClient:
     def _call(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
         url = f"{self.base_url}{path}"
         data = None if body is None else json.dumps(body).encode()
+        # With no key file the call still goes out, so a server that is not
+        # running is reported as that, and a refusal as the missing key.
+        key = self.key if self.key is not None else read_key(HOST)
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         request = urllib.request.Request(
             url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method=method,
         )
         try:
@@ -160,13 +186,20 @@ class OrchestratorClient:
             ) from exc
 
 
-def _refusal(exc: urllib.error.HTTPError) -> OrchestratorRefused:
-    """The server's ``{"error": …}`` reply, or the bare status when it sent none."""
+def _refusal(exc: urllib.error.HTTPError) -> OrchestratorError:
+    """The server's ``{"error": …}`` reply, or the bare status when it sent none.
+
+    A 401 means the server does not know the key. A 403 is a refusal like any
+    other: a key outside its scope, or a write from another origin.
+    """
     try:
         error = json.loads(exc.read())["error"]
-        return OrchestratorRefused(str(error["code"]), str(error["message"]), exc.code)
+        code, message = str(error["code"]), str(error["message"])
     except (ValueError, KeyError, TypeError):
-        return OrchestratorRefused("invalid", f"HTTP {exc.code}", exc.code)
+        code, message = "invalid", f"HTTP {exc.code}"
+    if exc.code == 401:
+        return OrchestratorUnauthorised(f"The server refused the key: {message}.")
+    return OrchestratorRefused(code, message, exc.code)
 
 
 def tell_orchestrator(path: str, body: dict[str, Any] | None = None) -> None:

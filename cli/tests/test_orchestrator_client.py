@@ -20,6 +20,7 @@ from mael_cli.orchestrator_client import (
     PARENT_URL_ENV,
     OrchestratorClient,
     OrchestratorRefused,
+    OrchestratorUnauthorised,
     OrchestratorUnconfigured,
     OrchestratorUnreachable,
     tell_orchestrator,
@@ -47,6 +48,8 @@ class Stub:
         self.status = status
         self.body = body
         self.heard: list[tuple[str, str]] = []
+        #: The ``Authorization`` header of each request.
+        self.authorization: list[str | None] = []
 
 
 @contextmanager
@@ -56,6 +59,7 @@ def serve_stub(stub: Stub, tls: ssl.SSLContext | None = None) -> Iterator[str]:
             length = int(self.headers.get("Content-Length") or 0)
             self.rfile.read(length)
             stub.heard.append((self.command, self.path))
+            stub.authorization.append(self.headers.get("Authorization"))
             self.send_response(stub.status)
             self.send_header("Content-Length", str(len(stub.body)))
             self.end_headers()
@@ -141,6 +145,43 @@ def test_an_error_reply_with_no_json_is_refused_with_its_status(home):
             OrchestratorClient(url).get("/api/tasks")
 
     assert (caught.value.code, caught.value.message) == ("invalid", "HTTP 502")
+
+
+@pytest.mark.binds_socket
+def test_each_call_carries_the_host_key_from_the_notebook_root(home):
+    key_file = Path(os.environ["MAEL_NOTEBOOK_ROOT"]) / "auth" / "host.key"
+    key_file.parent.mkdir(parents=True, exist_ok=True)
+    key_file.write_text("mael_the-host-key\n")
+    stub = Stub(200, b"{}")
+    with serve_stub(stub) as url:
+        OrchestratorClient(url).get("/api/tasks")
+
+    assert stub.authorization == ["Bearer mael_the-host-key"]
+
+
+@pytest.mark.binds_socket
+def test_a_refused_key_says_where_the_server_writes_it(home):
+    """A notebook whose server never ran has no key file, so the server says 401."""
+    body = json.dumps({"error": {"code": "auth_required", "message": "No key"}})
+    stub = Stub(401, body.encode())
+    with serve_stub(stub) as url:
+        with pytest.raises(OrchestratorUnauthorised) as caught:
+            OrchestratorClient(url).get("/api/tasks")
+
+    assert stub.authorization == [None]
+    assert "auth/host.key" in caught.value.message
+    assert "Start the orchestrator once" in caught.value.message
+
+
+@pytest.mark.binds_socket
+def test_a_key_outside_its_scope_is_a_refusal_not_a_bad_key(home):
+    body = json.dumps({"error": {"code": "forbidden", "message": "Not this route"}})
+    stub = Stub(403, body.encode())
+    with serve_stub(stub) as url:
+        with pytest.raises(OrchestratorRefused) as caught:
+            OrchestratorClient(url, key="mael_launch").post("/api/agents")
+
+    assert (caught.value.code, caught.value.status) == ("forbidden", 403)
 
 
 def test_telling_with_no_configured_url_is_silent(home):
