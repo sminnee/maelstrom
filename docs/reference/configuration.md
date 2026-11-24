@@ -356,7 +356,7 @@ uptimerobot:
 | `open_command` | string | `code` | Editor command that `mael ide` and `mael add --open` run. |
 | `dev_host` | string | `localhost` | The dev host: the host name in every dev environment URL that maelstrom reports. A bare host name: maelstrom ignores a value with a scheme, a port or a path. Run `mael env reset` in a worktree after a change. The installed orchestrator also listens on this host; run `mael self setup` after a change. See [Open an environment from another device](../guide/dev-environments.md#open-an-environment-from-another-device). |
 | `dev_https` | bool | `false` | Report `https://` URLs and issue the dev certificate for the dev host. Has no effect without `dev_host`. Only `true` turns it on. Under it, the installed orchestrator serves TLS on the dev host, and `mael self setup` renews the certificate. Run `mael env reset` in a worktree, and `mael self setup`, after a change. See [Serve over HTTPS](../guide/dev-environments.md#serve-over-https). |
-| `orchestrator_url` | string | — | The URL of a dev environment's orchestrator server, in that environment's own notebook root `config.yaml`; see below. Production does not read it from `~/.maelstrom/config.yaml`: it derives the URL from `dev_host:` and `dev_https:`, as `https://desk.tailnet.ts.net:2772` or `http://localhost:2772`. The port is 2772. `mael self setup` deletes a stored value. The installed orchestrator serves plain HTTP on `127.0.0.1:2772`, and, with `dev_host:` set, a second listener on the dev host's addresses, with TLS under `dev_https:`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no server on it, these commands fail. Restart the server with `mael self restart orchestrator`. The client does not verify the server's TLS certificate. |
+| `orchestrator_url` | string | — | The URL of a dev environment's orchestrator server, in that environment's own notebook root `config.yaml`; see below. Production does not read it from `~/.maelstrom/config.yaml`: it derives the URL from `dev_host:` and `dev_https:`, as `https://desk.tailnet.ts.net:2772` or `http://localhost:2772`. The port is 2772. `mael self setup` deletes a stored value. The installed orchestrator serves plain HTTP on `127.0.0.1:2772`, and, with `dev_host:` set, a second listener on the dev host's addresses, with TLS under `dev_https:`. Only an `http://` or `https://` URL counts. `mael task show`, `read`, `list` and `status` call it. With no server on it, these commands fail. Restart the server with `mael self restart orchestrator`. The client does not verify the TLS certificate of a server on this machine: at `localhost`, `127.0.0.1` or the dev host. It verifies any other server's, such as a delegated agent's parent. |
 | `service_path` | string | set by `mael self setup` | The `PATH` of the host services and the scheduler. Read from `~/.maelstrom/config.yaml`. The first setup writes it: `~/.local/bin`, then the `PATH` setup ran with, less any venv `bin`, then the system directories. Later setups reuse it, so a setup from another shell restarts nothing. Edit it to change the units' `PATH`, then run `mael self setup`. |
 | `host_check_declined` | list | `[]` | The optional `mael self check-host` items you said no to. `check-host --quiet`, which each install runs, does not offer them again. `check-host` writes it. Remove an entry to be asked again. |
 | `update_channel` | string | `stable` | Where `mael self update` gets a release: `stable`, the latest GitHub Release, or `main`, a bundle built from the maelstrom project's `_main`. Any other value reads as `stable`. `mael self update --channel` writes this line and keeps the rest of the file. `install-main.sh` writes `main`. |
@@ -367,7 +367,7 @@ uptimerobot:
 | `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
 | `github.orchestrator_token` | string | — | GitHub token the orchestrator uses for UI actions that write to GitHub. Read from this file only. See [API keys](#api-keys). |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
-| `hosts` | map | `{}` | Each remote host this orchestrator server can delegate a launch to: its name and the base URL of its orchestrator server, as `name: <url>` or `name: {url: <url>}`. The name must be the remote host's own `host_name:`. A name is lower-case letters, digits and `-`. An entry with a bad name or a URL that is not `http://` or `https://` is ignored. See [Remote hosts](#remote-hosts). |
+| `hosts` | map | `{}` | Each remote host this orchestrator server can delegate a launch to: its name and the base URL of its orchestrator server, as `name: <url>` or `name: {url: <url>, token: <host key>}`. `token` is the remote host's **Host key**: without it, the remote host refuses each call. The name must be the remote host's own `host_name:`. A name is lower-case letters, digits and `-`. An entry with a bad name or a URL that is not `http://` or `https://` is ignored. See [Remote hosts](#remote-hosts). |
 | `host_name` | string | — | This server's name, and so its id prefix: each agent, worktree, gate job and operation id it makes starts with `<host_name>:`. Unset, ids are bare. Lower-case letters, digits and `-`; any other value is ignored. See [Remote hosts](#remote-hosts). |
 
 ```yaml
@@ -440,16 +440,22 @@ Name the remote host under `hosts:` on the parent. The key must equal the remote
 `host_name:`. A mismatch keeps the host offline, and the parent logs it once. Restart the
 parent's server after a change.
 
+Copy the remote host's **Host key** into the entry as `token`. The remote host refuses a call
+with no key. The key is in `<notebook root>/auth/host.key` on the remote host, which is
+`~/.maelstrom/state/auth/host.key` in production.
+
 ```yaml
 # ~/.maelstrom/config.yaml on the parent (monolith)
 hosts:
-  cobalt: https://cobalt.tailnet.ts.net:2772
-  # or: cobalt: {url: https://cobalt.tailnet.ts.net:2772}
+  cobalt:
+    url: https://cobalt.tailnet.ts.net:2772
+    token: mael_...   # cobalt's ~/.maelstrom/state/auth/host.key
 ```
 
 The parent gives the remote host its own `orchestrator_url` with each launch, and refuses a
-remote launch when it has none. The agent gets it as `MAEL_PARENT_URL`. Nothing on the remote
-host names the parent.
+remote launch when it has none. The agent gets it as `MAEL_PARENT_URL`, with a **Delegate key**
+of that launch alone as `MAEL_PARENT_KEY`. Nothing on the remote host names the parent, or holds
+a long-lived key for it.
 
 Set `dev_host:` on the remote host too. The parent's UI opens the remote host's dev env URLs,
 and without `dev_host` they read `localhost`, which is the user's own machine. When the parent's

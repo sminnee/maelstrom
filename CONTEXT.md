@@ -801,6 +801,50 @@ it to the orchestrator UI over HTTP: resources by REST, change notices on one st
 per open agent transcript. `mael-orchestrator serve` runs it.
 _Avoid_: Backend, API server
 
+**Passkey**:
+A WebAuthn credential on one device that signs a browser in to one orchestrator server. A
+server has one implicit user, and each passkey is one device of that user. It is pending or
+verified.
+_Avoid_: Account, login, user
+
+**Pending passkey**:
+A **Passkey** that has signed up and has no access yet. It waits for `mael auth verify <code>`
+on the host, which makes it verified. Only the **Host key** can verify, so only a person with a
+shell on the host admits a device.
+_Avoid_: Unapproved device, guest
+
+**Verify code**:
+The short code, such as `K7QF-2M9D`, that the sign-up screen shows for a **Pending passkey**.
+`mael auth verify` names it, so the host admits that passkey and no other.
+_Avoid_: PIN, OTP, token
+
+**Sign-in**:
+A browser's access to an orchestrator server: a cookie that names one **Passkey**, kept 30 days.
+A revoked passkey ends its sign-ins.
+_Avoid_: Session, login session (a **Session** is a Claude conversation)
+
+**API key**:
+A secret a non-browser client carries to the orchestrator server, as a bearer token. The server
+keeps only its SHA-256. It is a **Host key** or a **Delegate key**.
+_Avoid_: Orchestrator token, server token (both name the GitHub token), API token
+
+**Host key**:
+The **API key** of scope `host`. It opens each route. The server mints it at start, into
+`<notebook root>/auth/host.key`. The CLI carries it. A parent names each
+**Remote host**'s host key as `token:` in `hosts:`.
+_Avoid_: Admin key, root key
+
+**Delegate key**:
+An **API key** of scope `delegate`, minted by a parent for one delegated launch. It opens only
+`/api/tasks`, `/api/task-documents` and the operation reads. The **Delegated agent** carries it as `MAEL_PARENT_KEY`.
+Ending the agent's worktree revokes it.
+_Avoid_: Parent token, launch token
+
+**UI origin**:
+An origin that may use a **Sign-in**: the server's own, and each `--ui-origin`. A request that
+carries the cookie and writes, or opens a socket, must come from one.
+_Avoid_: Allowed host, CORS origin
+
 **Change notice**:
 One message on the orchestrator server's event stream saying which entities of one kind changed,
 by id, and nothing else. The UI refetches what it shows and finds each id present or gone.
