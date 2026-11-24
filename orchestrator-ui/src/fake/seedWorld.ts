@@ -731,6 +731,7 @@ body rather than the query builder.
   const world: FakeWorld = {
     system: fakeSystem(),
     client: { local: true, host: '' },
+    auth: { state: 'signed_in', label: 'Chrome on macOS' },
     host: {
       id: 'agent-host',
       name: 'monolith',

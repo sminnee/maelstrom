@@ -33,7 +33,8 @@ describe('loading', () => {
 describe('the change stream', () => {
   it('shows "Connecting…" at once, before any data', async () => {
     await renderApp({ ready: false });
-    expect(screen.getByRole('status')).toHaveTextContent(/^Connecting…$/);
+    // The app mounts once the sign-in status reads, which a held server still answers.
+    expect(await screen.findByRole('status')).toHaveTextContent(/^Connecting…$/);
   });
 
   it('waits out a short drop, then shows a grey and then an orange banner, and keeps the nodes', async () => {

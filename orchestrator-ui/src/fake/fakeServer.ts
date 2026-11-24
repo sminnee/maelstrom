@@ -5,6 +5,7 @@ import { trackedAgents } from '../selectors/worktrees';
 import type { ApiClient } from '../api/http';
 import type { ClientBody } from '../api/client';
 import type { SystemBody } from '../api/system';
+import type { AuthStatus } from '../api/auth';
 import { createApiClient } from '../api/http';
 import type { ChangeNotice, TaskEdit } from '../api/types';
 import type { EventSourceLike } from '../live/changeStream';
@@ -86,6 +87,8 @@ export interface FakeWorld {
   system: SystemBody;
   /** What `GET /api/client` answers: where the browser is. */
   client: ClientBody;
+  /** What `GET /api/auth/status` answers: this browser's sign-in. */
+  auth: AuthStatus;
   /**
    * Each project's Linear issues for the current cycle. Not part of the world
    * the server polls -- the real one reads these straight from Linear -- but
@@ -182,6 +185,7 @@ export function emptyFakeWorld(): FakeWorld {
     gateJobs: {},
     system: fakeSystem(),
     client: { local: true, host: '' },
+    auth: { state: 'signed_in', label: 'Chrome on macOS' },
     host: {
       id: 'agent-host',
       name: 'monolith',
@@ -253,7 +257,7 @@ export interface FakeServer {
   refuse(route: RegExp, error: Refusal): void;
   /** Forget every refusal. */
   allow(): void;
-  /** Hold every request until `release`, so a test can see the loading state. */
+  /** Hold every request but the sign-in until `release`, so a test can see the loading state. */
   hold(): void;
   release(): void;
   /** Drop every open stream; `how` says whether the browser is still retrying. */
@@ -296,8 +300,10 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     server.transcripts[agentId] ?? { agentId, items: [], truncatedBefore: false };
 
   const fetchImpl: typeof fetch = async (input, init) => {
-    if (held) await held;
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    // The sign-in is not the world: a held server still answers it, so the
+    // app gets as far as its loading state.
+    if (held && !url.includes('/api/auth/')) await held;
     const method = init?.method ?? 'GET';
     const path = url.replace(/^https?:\/\/[^/]+/, '');
     const body =
@@ -349,9 +355,12 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     eventSourceFactory: (url) => {
       const source = new FakeEventSource(url);
       sources.push(source);
-      // Deferred: the stream assigns its handlers after it has the source.
+      // Deferred: the stream assigns its handlers after it has the source. A
+      // held server holds the stream's open too, as it holds every reply.
       if (autoOpen) {
-        queueMicrotask(() => source.readyState === FakeEventSource.CONNECTING && source.open());
+        const open = () => source.readyState === FakeEventSource.CONNECTING && source.open();
+        if (held) void held.then(open);
+        else queueMicrotask(open);
       }
       return source;
     },
@@ -796,6 +805,7 @@ function read(path: string, server: FakeServer): Reply {
   if (pathname === '/api/host') return ok({ host: world.host });
   if (pathname === '/api/system') return ok(world.system);
   if (pathname === '/api/client') return ok(world.client);
+  if (pathname === '/api/auth/status') return ok(world.auth);
   if (pathname === '/api/gate-jobs') return ok({ gateJobs: Object.values(world.gateJobs) });
   return error(404, 'unknown_id', `No route GET ${pathname}`);
 }
@@ -912,6 +922,25 @@ function command(
   const str = (name: string) => (b[name] === undefined ? undefined : String(b[name]));
   const { world } = server;
   const now = () => new Date().toISOString();
+
+  // The passkey ceremonies, with options no authenticator would accept: a
+  // test stubs the browser half. A new passkey waits for the host, as on the
+  // server; a test verifies it by setting `world.auth`.
+  if (key === 'POST /api/auth/register/options' || key === 'POST /api/auth/login/options') {
+    return ok({ challenge: 'fake-challenge', rpId: 'localhost' });
+  }
+  if (key === 'POST /api/auth/register') {
+    world.auth = { state: 'pending', code: 'K7QF-2M9D', label: str('label') ?? 'Passkey' };
+    return ok(world.auth);
+  }
+  if (key === 'POST /api/auth/login') {
+    world.auth = { state: 'signed_in', label: 'Chrome on macOS' };
+    return ok(world.auth);
+  }
+  if (key === 'POST /api/auth/logout') {
+    world.auth = { state: 'anonymous' };
+    return ok(world.auth);
+  }
 
   // The slow worktree changes run as operations: the route answers at once with
   // the id, and the steps move on `server.stepMs`. A refusal the real step
