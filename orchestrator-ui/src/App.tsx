@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { createBrowserRouter } from 'react-router';
 import type { QueryClient } from '@tanstack/react-query';
 import { ApiProvider } from './api/ApiProvider';
+import { AuthGate } from './auth/AuthGate';
 import type { ApiClient } from './api/http';
 import { createQueryClient } from './api/queryClient';
 import type { EventSourceLike } from './live/changeStream';
@@ -34,14 +35,16 @@ export function App({ deps }: { deps: AppDeps }) {
   const [router] = useState(() => deps.router ?? createBrowserRouter(routes));
   return (
     <ApiProvider api={deps.api} queryClient={queryClient}>
-      <LiveProvider
-        url={EVENTS_URL}
-        eventSourceFactory={deps.eventSourceFactory}
-        socketFactory={deps.webSocketFactory}
-        reconnectMs={deps.streamReconnectMs}
-      >
-        <NavRouter router={router} />
-      </LiveProvider>
+      <AuthGate>
+        <LiveProvider
+          url={EVENTS_URL}
+          eventSourceFactory={deps.eventSourceFactory}
+          socketFactory={deps.webSocketFactory}
+          reconnectMs={deps.streamReconnectMs}
+        >
+          <NavRouter router={router} />
+        </LiveProvider>
+      </AuthGate>
     </ApiProvider>
   );
 }
