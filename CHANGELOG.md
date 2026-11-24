@@ -12,6 +12,16 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Security
 
+- **The orchestrator server refuses each `/api` request without a credential.** A browser signs
+  in with a **Passkey**, over HTTPS or at `localhost`. A new passkey has no access until you run
+  the `mael auth verify` command it shows, on the host. `mael auth list` and `mael auth revoke`
+  manage the passkeys. The CLI carries the **Host key**, which the server writes to
+  `<notebook root>/auth/host.key` at start. Before the upgrade, copy each remote host's
+  `~/.maelstrom/state/auth/host.key` into the parent's `hosts:` entry as `token:`, and update
+  the parent and its remote hosts together. See
+  [Remote hosts](docs/reference/configuration.md#remote-hosts).
+- **`/api/files` and `/api/attachments` send the sandbox CSP.** An HTML or SVG file shown there
+  cannot run script.
 - **The orchestrator refuses an unsigned Live feedback URL.** `mael env start` signs the URL it
   gives each service. The orchestrator closes a socket with `4403` when its `sig` does not
   verify. Before, any process that guessed a worktree path could send feedback to its agents.

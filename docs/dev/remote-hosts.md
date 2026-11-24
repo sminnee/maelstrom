@@ -45,7 +45,7 @@ A delegated launch has two parts:
    empty `session`.
 
 The start spec holds `project`, `branch`, `prompt`, `mode`, `model`, `executeModel`,
-`session`, `env`, `taskId` and `parentUrl`. A free agent posts the same route with fewer fields.
+`session`, `env`, `taskId`, `parentUrl` and `parentKey`. A free agent posts the same route with fewer fields.
 A free agent's start has no `parentUrl`, so it cannot name a `session`, `env` or `taskId`. Only a
 delegated start can: without a parent, a `session` would resume a task's agent past the claim.
 
@@ -313,17 +313,49 @@ remote host's direct agents, and the agents of other parents on that host.
 
 A per-host view would be a filter on this desk. It is not built.
 
-## Room for auth
+## Auth
 
-The tailnet is the only auth today. Bearer-token auth is planned. Each cross-host call goes
-through one of two client sessions, so a token goes on that session's headers:
+Each server refuses an `/api` request with no credential (see "Authentication" in
+[orchestrator-server.md](orchestrator-server.md)). Each cross-host call goes through one of two
+client sessions, and each session carries one key on its headers:
 
-| Direction | Session | Where a token goes |
+| Direction | Session | Key |
 |---|---|---|
-| Parent to remote host | `RemoteHost.session()` | `hosts:` accepts `name: {url: <url>}`, which has room for a `token` beside `url`. |
-| Remote host to parent | `RemoteTaskSource.session()` | A per-launch token beside `parentUrl` in the start spec, and beside `MAEL_PARENT_URL` in the agent's env. The remote host then stores no long-lived key for the parent. |
+| Parent to remote host | `RemoteHost.session()` | The remote host's **Host key**, from `token:` in its `hosts:` entry |
+| Remote host to parent | `RemoteTaskSource.session()` | The launch's **Delegate key** |
 
-The forward removes the browser's `Authorization`, `Cookie`, `Origin` and `Referer`.
+**The forward replaces the browser's credentials.** The parent checks the browser's sign-in
+first, then forwards. The forward removes the browser's `Authorization`, `Cookie`, `Origin` and
+`Referer`, and the session adds the host key.
+
+**A delegated launch gets a key of its own.** `start_on_host` mints a **Delegate key** and sends
+it as `parentKey` beside `parentUrl`. The parent keeps only its hash, with the task and the host.
+The remote host's router keeps the key on the agent's record, and its row carries it as
+`parentKey`. `world_build` does not copy that field, so the key never reaches the world that
+the parent merges. The agent gets the key as `MAEL_PARENT_KEY`, and its `mael` sends it to
+`MAEL_PARENT_URL`. A dev service that the agent starts does not get it. The remote host holds no
+key for the parent beyond the keys of its launches.
+
+**A delegate key opens only the task routes:** each `/api/tasks` and `/api/task-documents`
+route, and `GET` of `/api/operations`.
+
+**The parent revokes a key when its work ends.** Each key names the agent its launch started.
+
+- A launch that the host refuses revokes its key at once.
+- An end of a remote worktree (`end_on_host`) that the host completes revokes the key of each
+  agent in that worktree. A relaunch of the same task in another worktree keeps its own key.
+- At start, the parent drops each key whose host left `hosts:`, whose task is gone, or whose
+  launch named no agent within an hour.
+
+A delegated agent that exits keeps its key: a resume, or a reopen task written at a shelve, still
+calls the parent. A restarted remote host reads each agent's key back from its record.
+
+**One session per parent.** `TaskHomes` keeps one client session for each parent URL. Each
+launch's `RemoteTaskSource` sends its key on each request, so a launch opens no connection of its
+own.
+
+**The agent's `mael` verifies the parent's certificate.** The CLI skips the TLS check only for a
+server on this machine. The parent is on another one, and the call carries a key.
 
 ## Not covered
 
