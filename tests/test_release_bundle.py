@@ -68,8 +68,10 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _get(url: str) -> tuple[str, bytes]:
-    with urllib.request.urlopen(url, timeout=5) as response:
+def _get(url: str, key: str | None = None) -> tuple[str, bytes]:
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=5) as response:
         return response.headers["Content-Type"], response.read()
 
 
@@ -102,11 +104,14 @@ def test_the_installed_orchestrator_serves_the_ui_and_the_api(installed, tmp_pat
         stderr=log.open("w"),
     )
     base = f"http://127.0.0.1:{port}"
+    # The server writes the host key before it listens.
+    key_file = home / ".maelstrom" / "auth" / "host.key"
     try:
         deadline = time.monotonic() + 30
         while True:
             try:
-                host_type, host = _get(f"{base}/api/host")
+                key = key_file.read_text().strip() if key_file.exists() else None
+                host_type, host = _get(f"{base}/api/host", key)
                 break
             except OSError:
                 if server.poll() is not None:
