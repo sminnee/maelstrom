@@ -113,7 +113,9 @@ def atomic_write_json(
 #: The dev certificate paths come from a service's ``.env``, so the orchestrator
 #: and every agent carry them. Inherited after ``dev_https:`` is turned off, a
 #: stale pair would turn TLS back on in whatever server the child starts.
-STRIPPED_CHILD_ENV = ("VIRTUAL_ENV", "DEV_TLS_CERT", "DEV_TLS_KEY")
+#: ``MAEL_PARENT_KEY`` opens the parent's tasks. A dev service the agent starts
+#: runs project code, so it does not get the key.
+STRIPPED_CHILD_ENV = ("VIRTUAL_ENV", "DEV_TLS_CERT", "DEV_TLS_KEY", "MAEL_PARENT_KEY")
 
 
 def sanitise_child_env(env: Mapping[str, str]) -> dict[str, str]:

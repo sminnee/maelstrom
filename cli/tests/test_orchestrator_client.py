@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 from mael_cli.orchestrator_client import (
+    PARENT_KEY_ENV,
     PARENT_URL_ENV,
     OrchestratorClient,
     OrchestratorRefused,
@@ -24,6 +25,7 @@ from mael_cli.orchestrator_client import (
     OrchestratorUnconfigured,
     OrchestratorUnreachable,
     tell_orchestrator,
+    tls_for,
 )
 
 
@@ -105,6 +107,17 @@ def test_a_delegated_agents_task_client_calls_the_parent(home, monkeypatch):
     assert OrchestratorClient.from_config().base_url == "https://child:3030"
 
 
+def test_a_delegated_agents_task_client_carries_its_delegate_key(home, monkeypatch):
+    """The parent does not know this host's key, so it must never be sent there."""
+    configure(home, "https://child:3030")
+    monkeypatch.setenv(PARENT_URL_ENV, "https://parent:3030")
+    monkeypatch.setenv(PARENT_KEY_ENV, "mael_launch")
+    assert OrchestratorClient.for_tasks().key == "mael_launch"
+
+    monkeypatch.delenv(PARENT_KEY_ENV)
+    assert OrchestratorClient.for_tasks().key == ""
+
+
 def test_without_a_parent_the_task_client_is_the_configured_one(home, monkeypatch):
     configure(home, "https://child:3030")
     monkeypatch.setenv(PARENT_URL_ENV, "")
@@ -174,6 +187,20 @@ def test_a_refused_key_says_where_the_server_writes_it(home):
 
 
 @pytest.mark.binds_socket
+def test_a_refused_delegate_key_does_not_point_at_the_local_key_file(home):
+    """A delegated agent's key is the parent's to accept: no local restart helps."""
+    body = json.dumps({"error": {"code": "auth_required", "message": "No key"}})
+    stub = Stub(401, body.encode())
+    with serve_stub(stub) as url:
+        with pytest.raises(OrchestratorUnauthorised) as caught:
+            OrchestratorClient(url, key="mael_launch").get("/api/tasks")
+
+    assert stub.authorization == ["Bearer mael_launch"]
+    assert PARENT_KEY_ENV in caught.value.message
+    assert "Start the orchestrator once" not in caught.value.message
+
+
+@pytest.mark.binds_socket
 def test_a_key_outside_its_scope_is_a_refusal_not_a_bad_key(home):
     body = json.dumps({"error": {"code": "forbidden", "message": "Not this route"}})
     stub = Stub(403, body.encode())
@@ -182,6 +209,29 @@ def test_a_key_outside_its_scope_is_a_refusal_not_a_bad_key(home):
             OrchestratorClient(url, key="mael_launch").post("/api/agents")
 
     assert (caught.value.code, caught.value.status) == ("forbidden", 403)
+
+
+@pytest.mark.parametrize(
+    ("url", "verified"),
+    [
+        ("https://127.0.0.1:2772", False),
+        ("https://localhost:2772", False),
+        ("https://desk.ts.net:2772", False),  # this machine's dev host
+        ("https://parent.ts.net:2772", True),  # a delegated agent's parent
+    ],
+)
+def test_only_a_server_on_another_machine_must_prove_its_name(home, url, verified):
+    """A key goes on each call: across the tailnet, the server's certificate must match."""
+    config = Path(os.environ["MAEL_NOTEBOOK_ROOT"]) / "config.yaml"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text("dev_host: desk.ts.net\n")
+
+    tls = tls_for(url)
+
+    assert (tls.verify_mode == ssl.CERT_REQUIRED, tls.check_hostname) == (
+        verified,
+        verified,
+    )
 
 
 def test_telling_with_no_configured_url_is_silent(home):

@@ -983,6 +983,8 @@ def test_a_delegated_start_naming_its_task_session_and_env_is_allowed():
         ),
         ({**DELEGATED, "taskId": ""}, "A delegated start names its task"),
         ({"session": "sess-1"}, "Only a delegated start names a session, env or task"),
+        ({"parentKey": "mael_k"}, "Only a delegated start carries a parentKey"),
+        ({**DELEGATED, "parentKey": 7}, "parentKey must be a string"),
         (
             {"taskId": "northwind/NORT-7"},
             "Only a delegated start names a session, env or task",

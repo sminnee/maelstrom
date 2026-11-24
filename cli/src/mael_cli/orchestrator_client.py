@@ -17,11 +17,11 @@ import time
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import click
 
-from mael_agent.host_ids import PARENT_URL_ENV
+from mael_agent.host_ids import PARENT_KEY_ENV, PARENT_URL_ENV
 from mael_domain.auth.keys import key_path, read_key
 from mael_domain.auth.model import HOST
 from mael_domain.context import load_global_config
@@ -37,12 +37,27 @@ TIMEOUT_SECS = 30.0
 #: work and holds the user's terminal open only for this.
 NOTIFY_TIMEOUT_SECS = 2.0
 
-#: TLS without verification. The server is on this machine and its dev
+#: TLS without verification, for a server on this machine: its dev
 #: certificate names the dev host, and a uv-built Python may have no CA store.
 #: Plain ``http://`` URLs ignore it.
 _LOCAL_TLS = ssl.create_default_context()
 _LOCAL_TLS.check_hostname = False
 _LOCAL_TLS.verify_mode = ssl.CERT_NONE
+
+#: The names that reach this machine without the dev host.
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def tls_for(url: str) -> ssl.SSLContext:
+    """The TLS a call to ``url`` uses: unverified on this machine, else verified.
+
+    A key goes on each call, so a server on another machine, such as a
+    delegated agent's parent, must prove its name.
+    """
+    host = urlsplit(url).hostname or ""
+    if host in _LOOPBACK or host == load_global_config().dev_host:
+        return _LOCAL_TLS
+    return ssl.create_default_context()
 
 
 def parent_url() -> str:
@@ -86,13 +101,21 @@ class OrchestratorUnreachable(OrchestratorError):
 
 
 class OrchestratorUnauthorised(OrchestratorError):
-    """The server did not accept the client's key, or the client had none."""
+    """The server did not accept the client's key, or the client had none.
 
-    def __init__(self, reason: str) -> None:
-        super().__init__(
-            f"{reason} Start the orchestrator once: it writes the host key to "
+    ``delegated`` is a client that carries a **Delegate key** to its parent,
+    which no local fix restores.
+    """
+
+    def __init__(self, reason: str, *, delegated: bool = False) -> None:
+        fix = (
+            f"The parent no longer accepts {PARENT_KEY_ENV}: the work it was "
+            "minted for has ended on the parent."
+            if delegated
+            else "Start the orchestrator once: it writes the host key to "
             f"{key_path(HOST)}."
         )
+        super().__init__(f"{reason} {fix}")
 
 
 class OrchestratorRefused(OrchestratorError):
@@ -129,10 +152,15 @@ class OrchestratorClient:
 
     @classmethod
     def for_tasks(cls, *, timeout: float = TIMEOUT_SECS) -> "OrchestratorClient":
-        """The client for task state: the parent's when ``MAEL_PARENT_URL`` is set."""
+        """The client for task state: the parent's when ``MAEL_PARENT_URL`` is set.
+
+        The parent's client carries the **Delegate key** from ``MAEL_PARENT_KEY``,
+        never this host's own key: the parent does not know that one.
+        """
         url = parent_url()
         if url:
-            return cls(url, timeout=timeout)
+            key = os.environ.get(PARENT_KEY_ENV, "").strip()
+            return cls(url, key=key, timeout=timeout)
         return cls.from_config(timeout=timeout)
 
     def get(self, path: str) -> Any:
@@ -167,11 +195,11 @@ class OrchestratorClient:
         )
         try:
             with urllib.request.urlopen(
-                request, timeout=self.timeout, context=_LOCAL_TLS
+                request, timeout=self.timeout, context=tls_for(url)
             ) as response:
                 status, reply = response.status, response.read()
         except urllib.error.HTTPError as exc:
-            raise _refusal(exc) from exc
+            raise _refusal(exc, delegated=self.key is not None) from exc
         except urllib.error.URLError as exc:
             raise OrchestratorUnreachable(self.base_url, exc.reason) from exc
         # A dropped connection raises from ``http.client``, which is not an
@@ -186,7 +214,7 @@ class OrchestratorClient:
             ) from exc
 
 
-def _refusal(exc: urllib.error.HTTPError) -> OrchestratorError:
+def _refusal(exc: urllib.error.HTTPError, *, delegated: bool) -> OrchestratorError:
     """The server's ``{"error": …}`` reply, or the bare status when it sent none.
 
     A 401 means the server does not know the key. A 403 is a refusal like any
@@ -198,7 +226,9 @@ def _refusal(exc: urllib.error.HTTPError) -> OrchestratorError:
     except (ValueError, KeyError, TypeError):
         code, message = "invalid", f"HTTP {exc.code}"
     if exc.code == 401:
-        return OrchestratorUnauthorised(f"The server refused the key: {message}.")
+        return OrchestratorUnauthorised(
+            f"The server refused the key: {message}.", delegated=delegated
+        )
     return OrchestratorRefused(code, message, exc.code)
 
 

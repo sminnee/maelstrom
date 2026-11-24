@@ -1056,19 +1056,13 @@ PARENT_CALL_SECS = 30.0
 DOCUMENT_CALL_SECS = 5.0
 
 
-class RemoteTaskSource:
-    """A **Parent server**'s tasks, through its task API: the home of a **Delegated agent**.
+class ParentSession:
+    """One client session to a **Parent server**, made on first use so it binds the loop."""
 
-    Only the calls a delegated agent's work makes are here. Each one raises
-    :class:`TaskSourceRemote` when the parent does not answer, or refuses.
-    """
-
-    def __init__(self, base_url: str) -> None:
-        self.base_url = base_url.rstrip("/")
+    def __init__(self) -> None:
         self._session: aiohttp.ClientSession | None = None
 
-    def session(self) -> aiohttp.ClientSession:
-        """One client session, made on first use so it binds the running loop."""
+    def get(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
@@ -1076,6 +1070,29 @@ class RemoteTaskSource:
     async def close(self) -> None:
         if self._session is not None:
             await self._session.close()
+
+
+class RemoteTaskSource:
+    """A **Parent server**'s tasks, through its task API: the home of a **Delegated agent**.
+
+    Only the calls a delegated agent's work makes are here. Each one raises
+    :class:`TaskSourceRemote` when the parent does not answer, or refuses.
+    """
+
+    def __init__(
+        self, base_url: str, key: str = "", sessions: "ParentSession | None" = None
+    ) -> None:
+        self.base_url = base_url.rstrip("/")
+        #: The **Delegate key** the parent gave the launch. ``""`` sends none.
+        self.key = key
+        #: Shared by every launch of one parent: the key goes on each request.
+        self.sessions = sessions if sessions is not None else ParentSession()
+
+    def session(self) -> aiohttp.ClientSession:
+        return self.sessions.get()
+
+    async def close(self) -> None:
+        await self.sessions.close()
 
     async def _call(
         self,
@@ -1095,6 +1112,7 @@ class RemoteTaskSource:
                 method,
                 f"{self.base_url}{path}",
                 json=body,
+                headers={"Authorization": f"Bearer {self.key}"} if self.key else None,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
                 reply = await response.json()
@@ -1194,26 +1212,28 @@ class TaskHomes:
     """Where each agent's task work goes: this server's notebook, or its parent's.
 
     An agent with no ``parentUrl`` works on this server's tasks. A **Delegated
-    agent** works on its **Parent server**'s, through one :class:`RemoteTaskSource`
-    per parent URL.
+    agent** works on its **Parent server**'s, through a :class:`RemoteTaskSource`
+    that carries its **Delegate key**. Each parent URL has one client session,
+    so a launch costs no connection of its own.
     """
 
     def __init__(self, local: TaskHome) -> None:
         self.local = local
-        self._remotes: dict[str, RemoteTaskSource] = {}
+        self._sessions: dict[str, ParentSession] = {}
 
-    def for_parent(self, parent_url: str) -> TaskHome:
-        """The home of an agent whose parent is ``parent_url``; ``""`` is local."""
+    def for_parent(self, parent_url: str, key: str = "") -> TaskHome:
+        """The home of an agent whose parent is ``parent_url``; ``""`` is local.
+
+        ``key`` is the agent's **Delegate key**, which its calls carry.
+        """
         if not parent_url:
             return self.local
-        remote = self._remotes.get(parent_url)
-        if remote is None:
-            remote = self._remotes[parent_url] = RemoteTaskSource(parent_url)
-        return remote
+        sessions = self._sessions.setdefault(parent_url, ParentSession())
+        return RemoteTaskSource(parent_url, key, sessions)
 
     async def close(self) -> None:
-        for remote in self._remotes.values():
-            await remote.close()
+        for sessions in self._sessions.values():
+            await sessions.close()
 
 
 class WorktreeOpener:

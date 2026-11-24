@@ -594,10 +594,16 @@ def test_an_agent_with_no_parent_works_on_this_servers_tasks(table):
     homes = TaskHomes(source)
 
     assert homes.for_parent("") is source
-    remote = homes.for_parent("https://monolith:2772")
-    assert isinstance(remote, RemoteTaskSource)
-    # One per parent, so its session is shared.
-    assert homes.for_parent("https://monolith:2772") is remote
+    one = homes.for_parent("https://monolith:2772", "mael_one")
+    two = homes.for_parent("https://monolith:2772", "mael_two")
+    other = homes.for_parent("https://zinc:2772", "mael_one")
+    assert isinstance(one, RemoteTaskSource) and isinstance(two, RemoteTaskSource)
+    assert isinstance(other, RemoteTaskSource)
+    # Each launch carries its own key, on the one session its parent has:
+    # a launch costs no connection of its own.
+    assert (one.key, two.key) == ("mael_one", "mael_two")
+    assert one.sessions is two.sessions
+    assert other.sessions is not one.sessions
 
 
 # --- RemoteTaskSource: a delegated agent's parent ---------------------------
@@ -605,7 +611,10 @@ def test_an_agent_with_no_parent_works_on_this_servers_tasks(table):
 
 @asynccontextmanager
 async def a_parent(
-    replies: dict[tuple[str, str], tuple[int, dict]], *, hang: bool = False
+    replies: dict[tuple[str, str], tuple[int, dict]],
+    *,
+    hang: bool = False,
+    key: str = "",
 ):
     """A stub **Parent server** that answers each ``(method, path)`` from ``replies``.
 
@@ -613,10 +622,13 @@ async def a_parent(
     ``hang``: the parent takes each request and answers only after 1 s.
     """
     sent: list[tuple[str, str, object]] = []
+    #: The ``Authorization`` of each request, in order.
+    authorization: list[str | None] = []
 
     async def answer(request: web.Request) -> web.Response:
         body = await request.json() if request.can_read_body else None
         sent.append((request.method, request.path, body))
+        authorization.append(request.headers.get("Authorization"))
         if hang:
             # Not forever: the runner's cleanup waits for each handler.
             await asyncio.sleep(1)
@@ -630,7 +642,8 @@ async def a_parent(
     site = web.TCPSite(runner, "127.0.0.1", 0)
     await site.start()
     port = site._server.sockets[0].getsockname()[1]  # type: ignore[union-attr]
-    source = RemoteTaskSource(f"http://127.0.0.1:{port}/")
+    source = RemoteTaskSource(f"http://127.0.0.1:{port}/", key)
+    source.authorization = authorization  # type: ignore[attr-defined]
     try:
         yield source, sent
     finally:
@@ -649,6 +662,16 @@ async def test_a_remote_source_reads_the_parents_tasks_and_skips_a_missing_one()
         assert await source.read_some(["northwind/NORT-7", "northwind/NORT-8"]) == [
             task
         ]
+
+
+async def test_each_call_to_the_parent_carries_the_launchs_delegate_key():
+    replies = {
+        ("GET", "/api/tasks/northwind/NORT-7"): (200, {"id": "northwind/NORT-7"})
+    }
+    async with a_parent(replies, key="mael_launch") as (source, _sent):
+        await source.read_some(["northwind/NORT-7", "northwind/NORT-8"])
+
+    assert source.authorization == ["Bearer mael_launch"] * 2  # type: ignore[attr-defined]
 
 
 async def test_a_remote_promote_sends_the_drafts_and_returns_the_new_ids():

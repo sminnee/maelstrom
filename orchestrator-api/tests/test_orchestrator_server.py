@@ -47,7 +47,7 @@ from mael_domain import operations as operations_model
 from mael_domain import task as model
 from mael_domain import task_documents
 from mael_domain.agent_store import SqliteAgentStore, new_agent_record
-from mael_domain.auth.model import HOST, ApiKey, hash_secret
+from mael_domain.auth.model import DELEGATE, HOST, ApiKey, hash_secret
 from mael_domain.auth.store import InMemoryAuthStore
 from mael_domain.comm_store import (
     CommItem,
@@ -237,6 +237,7 @@ class Harness:
             **options,
         )
         self.auth = InMemoryAuthStore([ApiKey(hash_secret(HOST_KEY), HOST, NOW)])
+        self.orch.delegate_keys = self.auth
         self.party = AuthParty(self.auth, user_name="maelstrom (test)")
 
     def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
@@ -14703,6 +14704,40 @@ async def cobalt_and_parent(store, cobalt_path: Path, **parent_over):
     db.close()
 
 
+def test_a_start_drops_each_delegate_key_whose_work_is_gone(store):
+    """A key that nothing revoked must not open the parent for ever."""
+    link = RemoteHost("cobalt", "http://127.0.0.1:9", token=HOST_KEY, backoff=10.0)
+    parent = Harness(store, remote_hosts={"cobalt": link})
+    parent.add_task("NORT-7")
+
+    def key(
+        name, host="cobalt", task="northwind/NORT-7", agent="cobalt:a1", created=NOW
+    ):
+        return ApiKey(name, DELEGATE, created, task, host, agent)
+
+    async def scenario():
+        for k in (
+            key("live"),
+            key("host-gone", host="zinc"),
+            key("task-gone", task="northwind/NORT-404"),
+            # A launch the server stopped in the middle of, and one under way.
+            key("unstarted", agent="", created="2026-08-31T22:00:00Z"),
+            key("starting", agent=""),
+        ):
+            await parent.auth.save_api_key(k)
+        async with parent.client():
+            pass
+        return {k.hash for k in await parent.auth.list_api_keys(DELEGATE)}
+
+    assert run(scenario()) == {"live", "starting"}
+
+
+def delegate_key_of(child: Cobalt) -> str:
+    """The **Delegate key** the parent sent with ``child``'s first start."""
+    start = next(c for c in child.claude.calls if c["cmd"] == "start")
+    return start["env"]["MAEL_PARENT_KEY"]
+
+
 def has_task(task_id: str):
     return lambda body: task_id in [t["id"] for t in body["tasks"]]
 
@@ -15059,7 +15094,7 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
             # A direct agent on cobalt works on cobalt's own tasks.
             child.claude.next_start_id = "own1"
             async with aiohttp.ClientSession(
-                base_url=f"http://127.0.0.1:{port}"
+                base_url=f"http://127.0.0.1:{port}", headers=HOST_AUTH
             ) as session:
                 child_api = Api(session)
                 await until(child_api, "/api/tasks", has_task("northwind/NORT-1"))
@@ -15069,6 +15104,10 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
             # The child's operation is merged, so the stop is followed here.
             stopping = await api.post("/api/agents/cobalt:new1/stop")
             seen["stop"] = await ended(api, stopping.body["operationId"])
+            # A resume, and a shelve's reopen task, still call the parent.
+            seen["kept"] = await parent.auth.read_api_key(
+                hash_secret(delegate_key_of(child))
+            )
             listed = await api.get_json("/api/operations")
             seen["operations"] = {o["id"]: o for o in listed["operations"]}
             return child
@@ -15084,6 +15123,15 @@ def test_a_launch_delegated_to_a_remote_host_runs_there_and_is_driven_from_the_p
     assert start["env"]["MAEL_PARENT_URL"].startswith("http://127.0.0.1:")
     assert start["resume"] is True
     assert "parentUrl" not in start
+    # The agent's `mael` carries a key of this launch alone, never the host key.
+    key = start["env"]["MAEL_PARENT_KEY"]
+    assert key.startswith("mael_") and key != HOST_KEY
+    assert "parentKey" not in start
+
+    # The key never reaches the world, which the parent and its UI read.
+    assert key not in json.dumps(seen["agents"])
+    # An agent that stops keeps its key: only its worktree's end revokes it.
+    assert seen["kept"] is not None
 
     # (2) The parent's world holds the agent with its task, on its desk.
     agent = next(a for a in seen["agents"]["agents"] if a["id"] == "cobalt:new1")
@@ -15212,14 +15260,18 @@ def test_a_delegated_launch_the_host_refuses_rolls_the_task_back(store, tmp_path
             child.claude.replies["start"] = [{"error": "could not start claude"}]
             await parent.add_task_async("NORT-7")
             await until(api, "/api/tasks", has_task("northwind/NORT-7"))
-            return await operated(
+            op = await operated(
                 api, "/api/tasks/northwind/NORT-7/launch", {"host": "cobalt"}
             )
+            key = delegate_key_of(child)
+            return op, await parent.auth.read_api_key(hash_secret(key))
 
-    op = run(scenario())
+    op, kept = run(scenario())
     assert op["state"] == "refused"
     assert "could not start claude" in op["words"]
     assert run(model.load(store, PROJECT, "NORT-7")).status == "todo"
+    # No agent runs, so the key it was minted for is revoked.
+    assert kept is None
 
 
 def test_a_delegated_launch_whose_wait_is_lost_keeps_the_claim(store, tmp_path):
@@ -15369,15 +15421,25 @@ def test_a_desk_dismiss_of_a_remote_worktree_ends_it_on_its_host(
             setattr(child.harness.worktrees, attr, two_step_close(ran))
             setattr(parent.worktrees, attr, refuse_here(ran))
             agent = await launched_on_cobalt(child, parent, api)
+            key_hash = hash_secret(delegate_key_of(child))
+            bound = await parent.auth.read_api_key(key_hash)
             op = await operated(
                 api,
                 "/api/desk/task%3Anorthwind%2FNORT-7/dismiss",
                 {"chain": chain, "worktreeId": agent["worktreeId"]},
             )
             host_op = await ended(api, "cobalt:op2")
-            return op, host_op, await api.get_json("/api/desk")
+            kept = await parent.auth.read_api_key(key_hash)
+            return op, host_op, await api.get_json("/api/desk"), bound, kept
 
-    op, host_op, desk = run(scenario())
+    op, host_op, desk, bound, kept = run(scenario())
+    # The key names the agent its launch started, and ending its worktree revokes it.
+    assert bound is not None and (bound.host, bound.task, bound.agent) == (
+        "cobalt",
+        "northwind/NORT-7",
+        "cobalt:new1",
+    )
+    assert kept is None
     assert op["state"] == "done", op
     assert [(s["name"], s["state"]) for s in op["steps"]] == [
         ("end_on_host", "done"),
