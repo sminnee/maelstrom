@@ -1,12 +1,11 @@
-@type:Template
+@type:Template @unit
 Feature: Template
-  Primary seam: `mael_domain.task.Template`
-  Held today at: no type. A template is a `Task` row with the status `template`. `is_actionable`
-    and the default view of `mael task list` keep I1.
+  A Template holds a Recipe that maelstrom copies into a new task, on a schedule or on a Trigger.
 
-  @id:I1 @unit
+  @id:I1
   Rule: A template is never Actionable
-    Example: a template that follows nothing
-      Given a template that follows no task
-      When the Task tracker is asked if it is Actionable
-      Then the answer is no
+
+  # --- Code ---
+  # Primary seam: `mael_domain.task.Template`
+  # Held today at: no type. A template is a `Task` row with the status `template`. `is_actionable`
+  #   and the default view of `mael task list` keep I1.

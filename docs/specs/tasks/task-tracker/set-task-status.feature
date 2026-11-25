@@ -1,30 +1,30 @@
-@type:Task
+@type:Task @unit
 Feature: Set task status
-  Primary seam: `mael_domain.task_actions.move_with_actions`
-  Held today at: R rules in `validate_command("task.setStatus")` and in `task.move`. E rules
-    in `task.move` and `move_with_actions`.
-  Outer seams: `mael task status`, `POST /api/tasks/{project}/{id}/status`, the kanban drop
+  Moves one task to a new Status. A move can also tell an outside service, such as Linear, that
+  the work started or ended: that is a Status action.
 
-  @id:R1 @unit
-  Rule: The task must exist
-    Example: an unknown task
-      When the status of "zzzz" is set to done
-      Then it is refused: no task zzzz
+  The Status must be legal, and the task must exist: see task.feature.
 
-  @id:R2 @unit
-  Rule: The status must be one that a task can have
-    Example: an unknown status
-      When the status of a task is set to "paused"
-      Then it is refused: no status paused
+  @id:E1
+  Rule: A move sets the Status that the caller names, and "done" names the first Status at which the task is Done
+    Scenario Outline: <case>
+      Given <task>
+      When its status is set to done
+      Then the task is <status>
 
-  @id:E3 @unit
-  Rule: The task has the new status
-    Example: a todo task is started
-      Given a todo task
-      When its status is set to in-progress
-      Then the task is in-progress
+      Examples:
+        | case                | task                                         | status    |
+        | no Post-merge work  | an in-progress task with no Post-merge work  | merged    |
+        | Post-merge work     | an in-progress task with Post-merge work     | published |
+        | a task that is Done | a published task with no Post-merge work     | published |
 
-  @id:E4 @unit
+  @id:E2
+  Rule: A move to the Status that the task has changes nothing in the task
+    # The Status action of the move still runs.
+
+  # --- Status actions ---
+
+  @id:E3
   Rule: A move to in-progress, and the end of the build, each run their Status action
     The end of the build is the move to built, or the move to Done of a task that was never
     built. A later move of a built task runs no Status action.
@@ -34,39 +34,17 @@ Feature: Set task status
       When its status is set to done
       Then the Linear issue NORT-12 is set to done
 
-  @id:E5 @unit
+  @id:E4
   Rule: A Status action that fails does not stop the move
     Example: the service refuses
       Given a task whose Status action for done fails
       When its status is set to done
       Then the task is Done, and the caller gets a warning
 
-  @id:E6 @unit
+  @id:E5
   Rule: The caller gets each line that a Status action reports
-    Example: done on a Linear task
-      Given a task with the Status action "linear.done" for done
-      When its status is set to done
-      Then the caller gets the line that says which issue was set to done
 
-  @id:E7 @unit
-  Rule: A move to the status that the task has changes nothing in the task
-    # The Status action of the move still runs.
-    Example: todo to todo
-      Given a todo task
-      When its status is set to todo
-      Then its updated time is as before
-
-  @id:E8 @unit
-  Rule: A move to done sets the first Status at which the task is Done
-    Example: no Post-merge work
-      Given an in-progress task with no Post-merge work
-      When its status is set to done
-      Then the task is merged
-    Example: Post-merge work
-      Given an in-progress task with Post-merge work
-      When its status is set to done
-      Then the task is published
-    Example: a task that is Done
-      Given a published task with no Post-merge work
-      When its status is set to done
-      Then the task is published, and its updated time is as before
+  # --- Code ---
+  # Primary seam: `mael_domain.task_actions.move_with_actions`
+  # Held today at: E1 and E2 in `task.move`. E3 to E5 in `move_with_actions`.
+  # Outer seams: `mael task status`, `POST /api/tasks/{project}/{id}/status`, the kanban drop

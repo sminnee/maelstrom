@@ -31,7 +31,8 @@ A contract is the set of rules of one command or query. A rule is one clause: wh
      2. Cite one rule id in the name of each new or changed test, in the form that FEATURE-FORMAT.md gives. With no rule, write no test, except the test of an outer seam. When the behaviour matters, add the rule, and say so in the PR.
      3. Give each rule one kind of evidence, as its tag says. A rule with a runnable example gets no unit test too.
      4. Assert nothing that the rule does not state.
-     5. Delete each test that you wrote only to drive the build, unless it cites a rule.
+     5. Give a table rule one parametrised test for each command that keeps it. Each row is one case, and the row name is the case id. Do not write one test function for each row.
+     6. Delete each test that you wrote only to drive the build, unless it cites a rule.
 5. **Write the tests and run the checks.**
    - Make each new test pass. Then break the behaviour it guards, for example flip a branch or return a wrong value, and see it fail on its assertion. A test that cannot fail proves nothing.
    - Run each ephemeral check.
@@ -56,7 +57,7 @@ To move a suite onto feature files, do these steps in order:
 2. Record the test count and the run time of each suite. Run a mutation tool over the code of the contract and keep the result of each mutant. This is an ephemeral check: commit no config and no result.
 3. Classify each test against the rule ids. Give each one verdict: a rule id, a duplicate of a named test, a test of an outer seam to keep, a surplus test of an outer seam, an orphan, or out of scope.
 4. Sort the orphans into two lists: behaviour that a rule missed, each with a proposed rule, and implementation detail to delete. Add a third list: each rule that the user intends and the code does not keep. Get the user's verdict on the lists. Delete nothing before it.
-5. Add the accepted rules. Rename each test to cite its rule. Split a parametrized test that mixes rules into one test for each rule.
+5. Add the accepted rules. Rename each test to cite its rule. Split a parametrized test that mixes rules into one test for each rule. Join the tests of the rows of one table rule into one parametrized test.
 6. Delete the duplicates, the surplus tests, and the implementation-detail tests. Do not thin by field: when a rule covers several fields, keep one parametrized test of the rule with one case for each field. An outer seam keeps one success and one handled refusal for each command, and the facts that only it owns.
 7. Run the mutation tool again. Compare the sets, not the scores: for each mutant that the first run killed and the second does not, restore a test or add a rule.
 8. Report the counts and the run times before and after, and each rule that has no test.

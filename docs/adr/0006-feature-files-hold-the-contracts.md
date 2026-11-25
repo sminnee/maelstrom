@@ -16,6 +16,14 @@ A **Feature file** under `docs/specs/<subdomain>/<subsystem>/` holds the contrac
 and each query, as **Contract rules** with stable ids. `docs/README.md` maps the subdomains and
 the subsystems. A subdomain has one glossary, `docs/specs/<subdomain>/CONTEXT.md`.
 
+- A feature file is documentation first. A developer or an analyst who is new reads it as an
+  explanation of the command: a purpose paragraph, then the rules in the order of the
+  explanation, then the code names.
+- A rule that more than one command keeps is stated once, in the file of the type. "Each field
+  holds a legal value" is one rule of `task.feature` with one row for each field, not one rule
+  for each field of each command.
+- Parallel facts are the rows of one table rule. An example is there only when it tells the
+  reader a fact that the rule text does not.
 - A feature file describes the model we want. Its `Primary seam:` line names the target. A
   `Held today at:` line names the code that holds each kind of clause now, until the code
   reaches the target.
@@ -27,6 +35,11 @@ the subsystems. A subdomain has one glossary, `docs/specs/<subdomain>/CONTEXT.md
 
 - **Runnable scenarios with a step layer.** The step layer is a second codebase: it costs about
   one line of step code for each line of feature file. Rejected.
+- **One rule for each clause of each command, each with an example.** This was the first form
+  of the trial: 84 rules for 7 commands. About 20 of them said "a thing that the caller names
+  must exist or be legal", once for each command, and most examples stated their rule again.
+  The files were an index of the tests, and were tiring to read as an explanation. Rejected:
+  the same contract is 50 rules in the form above.
 - **Contracts in test names only.** The rules stay spread over the suites, and nothing shows a
   rule that has no test or a test that has no rule. Rejected.
 
@@ -49,8 +62,8 @@ The trial on the Task tracker gave these results:
 
 Done for a subsystem means: each of its commands and queries has a feature file, and each test
 in its owning suites cites a rule id or is the test of an outer seam. Check it with a `grep` of
-each `@id:` of the subsystem's feature files, in its `_` form, over the test directories. An `I` rule of a
-domain type has no test of its own while an `R` rule of each command illustrates it.
+each `@id:` of the subsystem's feature files, in its `_` form, over the test directories. A
+test of a rule of a domain type cites the file of the type, and names its command.
 
 Tasks:
 

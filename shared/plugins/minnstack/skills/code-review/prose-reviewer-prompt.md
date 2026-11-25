@@ -44,6 +44,7 @@ Review every prose change in it:
 - comments and docstrings in source files;
 - `docs/`, README, `CONTEXT.md`, `CHANGELOG.md`, and any other Markdown;
 - skills under `.claude/skills/` or `shared/plugins/*/skills/`;
+- feature files under `docs/specs/` — see **Feature files** below;
 - `.drafts/pr.md` — see **The whole story** below.
 
 You have **free read-only access to the whole repo**. You need it: the duplication sweep reads
@@ -90,6 +91,20 @@ Documentation, specs, and PR descriptions carry the same standard:
   sentence, active voice. Reuse the glossary's terms verbatim; do not coin synonyms.
 - **Cut what the reader can derive.** Anything inferable from the source, the config, or the
   directory layout does not belong in prose.
+
+### Feature files
+
+A feature file is documentation first: a person who is new must be able to read it as an
+explanation of the command. `domain-modeling`'s `FEATURE-FORMAT.md`, in the skills directory the
+parent names, is the standard. Load it when the branch touches a `.feature` file. Report each of
+these as a finding, with the merged rule or the table written out:
+
+- **Rows written as rules.** Two rules that differ by one noun are two rows of one table.
+- **A rule stated once for each command.** The same rule text in two feature files is a rule of
+  the type: it goes in `<type>.feature`, once.
+- **A rule that says what the name of the command says**, or that the glossary states. Delete it.
+- **An example that states its rule again.** An example stays only when it adds a fact.
+- **No purpose paragraph**, or code names before the rules.
 
 ### Duplication — the fingerprint sweep
 

@@ -406,19 +406,50 @@ def test_accepts_removing_a_task_that_is_on_the_desk():
     assert validate_command(world, cmd) is None
 
 
-def test_set_task_status_R1_a_known_task_is_accepted():
+def test_task_I2_status_done_is_accepted_as_a_verb():
     """``done`` is a verb the source resolves, not a stored status."""
     world = world_with(tasks=[make_task()])
     cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"}
     assert validate_command(world, cmd) is None
 
 
-def test_set_task_status_R1_an_unknown_task_is_refused():
-    cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"}
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        pytest.param(
+            {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "done"},
+            id="set-status",
+        ),
+        pytest.param(
+            {
+                "type": "task.update",
+                "taskId": "northwind/NORT-7",
+                "fields": {"title": "x"},
+            },
+            id="update",
+        ),
+        pytest.param(
+            {"type": "task.create", "title": "One", "project": "nowhere"}, id="create"
+        ),
+        pytest.param(
+            {
+                "type": "task.promote",
+                "project": "nowhere",
+                "drafts": [{"name": "1.md", "text": "x"}],
+            },
+            id="promote",
+        ),
+        pytest.param(
+            {"type": "task.loadMany", "project": "nowhere", "text": "### One"},
+            id="load-many",
+        ),
+    ],
+)
+def test_task_I4_an_unknown_task_or_project_is_refused(cmd):
     assert code(validate_command(empty_world(), cmd)) == "unknown_id"
 
 
-def test_set_task_status_R2_an_unknown_status_is_refused():
+def test_task_I2_status_an_unknown_status_is_refused():
     world = world_with(tasks=[make_task()])
     cmd = {"type": "task.setStatus", "taskId": "northwind/NORT-7", "status": "finished"}
     assert code(validate_command(world, cmd)) == "invalid"
@@ -437,7 +468,7 @@ def test_invalid_for_a_task_write_whose_session_is_no_session_id(cmd):
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R2_one_field_is_a_change():
+def test_update_task_R1_one_field_is_a_change():
     world = world_with(tasks=[make_task()])
     cmd = {
         "type": "task.update",
@@ -450,59 +481,35 @@ def test_update_task_R2_one_field_is_a_change():
 @pytest.mark.parametrize(
     "fields", [{"executeModel": "claude:opus"}, {"postMerge": "Check the deploy."}]
 )
-def test_update_task_R2_a_renamed_field_alone_is_a_change(fields):
+def test_update_task_R1_a_renamed_field_alone_is_a_change(fields):
     # The membership check must go by the wire name, not the model's.
     world = world_with(tasks=[make_task()])
     cmd = {"type": "task.update", "taskId": "northwind/NORT-7", "fields": fields}
     assert validate_command(world, cmd) is None
 
 
-def test_update_task_R1_an_unknown_task_is_refused():
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"title": "x"},
-    }
-    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
-
-
-def test_update_task_R2_no_field_is_refused():
+def test_update_task_R1_no_field_is_refused():
     world = world_with(tasks=[make_task()])
     cmd = {"type": "task.update", "taskId": "northwind/NORT-7", "fields": {}}
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R3_a_blank_title_is_refused():
+@pytest.mark.parametrize(
+    ("fields", "refusal"),
+    [
+        pytest.param({"title": "  "}, "invalid", id="title"),
+        pytest.param({"priority": "urgent"}, "invalid", id="priority"),
+        pytest.param({"mode": "turbo"}, "invalid", id="mode"),
+        pytest.param({"follows": ["northwind/NOPE"]}, "unknown_id", id="follows"),
+    ],
+)
+def test_task_I2_an_update_refuses_an_illegal_value(fields, refusal):
     world = world_with(tasks=[make_task()])
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"title": "  "},
-    }
-    assert code(validate_command(world, cmd)) == "invalid"
+    cmd = {"type": "task.update", "taskId": "northwind/NORT-7", "fields": fields}
+    assert code(validate_command(world, cmd)) == refusal
 
 
-def test_update_task_R4_an_unknown_mode_is_refused():
-    world = world_with(tasks=[make_task()])
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"mode": "turbo"},
-    }
-    assert code(validate_command(world, cmd)) == "invalid"
-
-
-def test_update_task_R4_an_unknown_priority_is_refused():
-    world = world_with(tasks=[make_task()])
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"priority": "urgent"},
-    }
-    assert code(validate_command(world, cmd)) == "invalid"
-
-
-def test_update_task_R6_a_known_task_is_accepted():
+def test_task_I2_follows_an_update_accepts_a_known_task():
     world = world_with(tasks=[make_task(), make_task(id="northwind/NORT-8")])
     cmd = {
         "type": "task.update",
@@ -512,7 +519,7 @@ def test_update_task_R6_a_known_task_is_accepted():
     assert validate_command(world, cmd) is None
 
 
-def test_update_task_R6_an_empty_follows_is_accepted():
+def test_task_I2_follows_an_update_accepts_an_empty_list():
     world = world_with(tasks=[make_task()])
     cmd = {
         "type": "task.update",
@@ -532,20 +539,10 @@ def test_invalid_for_a_follows_that_is_not_a_list():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R6_an_unknown_task_is_refused():
-    world = world_with(tasks=[make_task()])
-    cmd = {
-        "type": "task.update",
-        "taskId": "northwind/NORT-7",
-        "fields": {"follows": ["northwind/NOPE"]},
-    }
-    assert code(validate_command(world, cmd)) == "unknown_id"
-
-
 CONTOSO = {"id": "contoso", "name": "contoso"}
 
 
-def test_update_task_R6_a_task_of_another_project_is_accepted():
+def test_task_I2_follows_an_update_accepts_a_task_of_another_project():
     world = world_with(
         projects=[CONTOSO],
         tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
@@ -559,7 +556,7 @@ def test_update_task_R6_a_task_of_another_project_is_accepted():
 
 
 @pytest.mark.parametrize("followed", ["contoso/CONT-9", "acme/CONT-1"])
-def test_update_task_R6_an_unknown_task_of_another_project_is_refused(followed):
+def test_task_I2_follows_an_update_refuses_an_unknown_task_of_another_project(followed):
     world = world_with(
         projects=[CONTOSO],
         tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
@@ -572,7 +569,7 @@ def test_update_task_R6_an_unknown_task_of_another_project_is_refused(followed):
     assert code(validate_command(world, cmd)) == "unknown_id"
 
 
-def test_update_task_R7_a_cycle_across_projects_is_refused():
+def test_task_I3_an_update_refuses_a_cycle_across_projects():
     """CONT-1 already follows NORT-7, so NORT-7 may not follow CONT-1 back."""
     world = world_with(
         projects=[CONTOSO],
@@ -591,7 +588,7 @@ def test_update_task_R7_a_cycle_across_projects_is_refused():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R5_a_task_that_follows_itself_is_refused():
+def test_task_I3_an_update_refuses_a_task_that_follows_itself():
     world = world_with(tasks=[make_task()])
     cmd = {
         "type": "task.update",
@@ -601,7 +598,7 @@ def test_update_task_R5_a_task_that_follows_itself_is_refused():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R7_a_cycle_of_two_is_refused():
+def test_task_I3_an_update_refuses_a_cycle_of_two():
     """NORT-8 already follows NORT-7, so NORT-7 may not follow NORT-8 back."""
     world = world_with(
         tasks=[
@@ -617,7 +614,7 @@ def test_update_task_R7_a_cycle_of_two_is_refused():
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_update_task_R2_a_null_field_is_no_change():
+def test_update_task_R1_a_null_field_is_no_change():
     world = world_with(tasks=[make_task()])
     cmd = {
         "type": "task.update",
@@ -718,23 +715,6 @@ def test_validate_command_accepts_a_full_create():
     assert validate_command(world_with(projects=[PROJECT]), _create()) is None
 
 
-def test_create_task_R15_an_unknown_project_is_refused():
-    cmd = {"type": "task.create", "title": "One", "project": "nowhere"}
-    assert code(validate_command(empty_world(), cmd)) == "unknown_id"
-
-
-@pytest.mark.parametrize(
-    "cmd",
-    [
-        {"type": "task.promote", "drafts": [{"name": "1.md", "text": "x"}]},
-        {"type": "task.loadMany", "text": "### One"},
-    ],
-)
-def test_load_tasks_R16_an_unknown_project_is_refused(cmd):
-    refusal = validate_command(empty_world(), {**cmd, "project": "nowhere"})
-    assert code(refusal) == "unknown_id"
-
-
 def test_create_task_R1_no_title_and_no_content_is_refused():
     world = world_with(projects=[PROJECT])
     assert code(validate_command(world, _create(title="  ", content=""))) == "invalid"
@@ -743,16 +723,6 @@ def test_create_task_R1_no_title_and_no_content_is_refused():
 def test_create_task_R1_content_alone_is_enough():
     world = world_with(projects=[PROJECT])
     assert validate_command(world, _create(title="", content="Do it.")) is None
-
-
-def test_create_task_R3_an_unknown_mode_is_refused():
-    world = world_with(projects=[PROJECT])
-    assert code(validate_command(world, _create(mode="turbo"))) == "invalid"
-
-
-def test_create_task_R3_an_unknown_priority_is_refused():
-    world = world_with(projects=[PROJECT])
-    assert code(validate_command(world, _create(priority="urgent"))) == "invalid"
 
 
 def test_invalid_for_a_create_whose_field_is_null():
@@ -783,7 +753,7 @@ def test_validate_command_accepts_a_create_with_every_wiring_field():
     assert validate_command(world, cmd) is None
 
 
-def test_create_task_R2_a_task_of_another_project_is_accepted():
+def test_task_I2_follows_a_create_accepts_a_task_of_another_project():
     world = world_with(
         projects=[PROJECT, CONTOSO],
         tasks=[make_task(), make_task(id="contoso/CONT-1", project="contoso")],
@@ -802,7 +772,7 @@ def _refusal_of_create(**over) -> str | None:
     return code(validate_command(world, _create(**over)))
 
 
-def test_create_task_R13_a_status_of_done_is_refused():
+def test_create_task_R2_a_status_of_done_is_refused():
     assert _refusal_of_create(status="done") == "invalid"
 
 
@@ -814,11 +784,23 @@ def test_create_template_R1_a_trigger_with_kind_and_spec_is_accepted():
     assert _refusal_of_create(trigger="gh-action/nightly.yml") is None
 
 
-def test_create_task_R5_a_link_to_an_unknown_comm_is_refused():
-    assert _refusal_of_create(comms=["ghost"]) == "unknown_id"
+@pytest.mark.parametrize(
+    ("over", "refusal"),
+    [
+        pytest.param({"priority": "urgent"}, "invalid", id="priority"),
+        pytest.param({"mode": "turbo"}, "invalid", id="mode"),
+        pytest.param({"follows": ["northwind/NOPE"]}, "unknown_id", id="follows"),
+        pytest.param(
+            {"follows": ["acme/NORT-7"]}, "unknown_id", id="follows-unknown-project"
+        ),
+        pytest.param({"comms": ["ghost"]}, "unknown_id", id="comm-link"),
+    ],
+)
+def test_task_I2_a_create_refuses_an_illegal_value(over, refusal):
+    assert _refusal_of_create(**over) == refusal
 
 
-def test_create_task_R5_a_link_to_a_known_comm_is_accepted():
+def test_task_I2_comm_link_a_create_accepts_a_known_comm():
     world = world_with(projects=[PROJECT])
     world["comms"]["c1"] = {"id": "c1"}
     assert validate_command(world, _create(comms=["c1"])) is None
@@ -836,38 +818,33 @@ def _update_comms(held: list[str], comms: list[str]) -> str | None:
     return code(validate_command(world, cmd))
 
 
-def test_update_task_R8_a_new_link_to_an_unknown_comm_is_refused():
+def test_task_I2_comm_link_an_update_refuses_a_new_unknown_comm():
     assert _update_comms(held=[], comms=["c1", "ghost"]) == "unknown_id"
 
 
-def test_update_task_R8_a_comm_the_task_already_holds_is_not_checked():
+def test_task_I2_comm_link_an_update_does_not_check_a_comm_that_the_task_holds():
     assert _update_comms(held=["ghost"], comms=["ghost", "c1"]) is None
 
 
-def test_delete_task_R2_a_task_with_a_running_agent_is_not_deleted():
+def test_delete_task_R1_a_task_with_a_running_agent_is_not_deleted():
     agent = make_agent(taskId="northwind/NORT-7", state="idle")
     world = world_with(agents=[agent], tasks=[make_task()])
     cmd = {"type": "task.delete", "taskId": "northwind/NORT-7"}
     assert code(validate_command(world, cmd)) == "invalid"
 
 
-def test_delete_task_R2_a_task_whose_agent_has_exited_is_deleted():
+def test_delete_task_R1_a_task_whose_agent_has_exited_is_deleted():
     agent = make_agent(taskId="northwind/NORT-7", state="exited", exitCode=0)
     world = world_with(agents=[agent], tasks=[make_task()])
     cmd = {"type": "task.delete", "taskId": "northwind/NORT-7"}
     assert validate_command(world, cmd) is None
 
 
-def test_create_task_R4_an_unknown_task_to_copy_is_refused():
+def test_task_I4_an_unknown_task_to_copy_is_refused():
     assert _refusal_of_create(**{"from": "northwind/NOPE"}) == "unknown_id"
 
 
-@pytest.mark.parametrize("followed", ["northwind/NOPE", "acme/NORT-7"])
-def test_create_task_R2_an_unknown_task_is_refused(followed):
-    assert _refusal_of_create(follows=[followed]) == "unknown_id"
-
-
-def test_create_task_R14_a_task_to_copy_of_another_project_is_refused():
+def test_create_task_R3_a_task_to_copy_of_another_project_is_refused():
     assert _refusal_of_create(**{"from": "acme/NORT-7"}) == "invalid"
 
 
@@ -913,20 +890,23 @@ def test_load_tasks_R1_no_task_file_is_refused():
     assert _refusal_of_promote(drafts=[]) == "invalid"
 
 
-def test_load_tasks_R2_an_unknown_task_is_refused():
-    assert _refusal_of_promote(follows=["northwind/NOPE"]) == "unknown_id"
+@pytest.mark.parametrize(
+    ("over", "refusal"),
+    [
+        pytest.param({"overrides": {"priority": "urgent"}}, "invalid", id="priority"),
+        pytest.param({"overrides": {"mode": "turbo"}}, "invalid", id="mode"),
+        pytest.param({"follows": ["northwind/NOPE"]}, "unknown_id", id="follows"),
+    ],
+)
+def test_task_I2_a_load_refuses_an_illegal_value(over, refusal):
+    assert _refusal_of_promote(**over) == refusal
 
 
-@pytest.mark.parametrize("overrides", [{"mode": "turbo"}, {"priority": "urgent"}])
-def test_load_tasks_R11_an_unknown_mode_or_priority_is_refused(overrides):
-    assert _refusal_of_promote(overrides=overrides) == "invalid"
-
-
-def test_load_tasks_R15_a_load_after_a_task_of_another_project_is_refused():
+def test_load_tasks_R3_a_load_after_a_task_of_another_project_is_refused():
     assert _refusal_of_promote(after="acme/NORT-7") == "invalid"
 
 
-def test_load_tasks_R14_a_title_from_the_caller_is_refused():
+def test_load_tasks_R2_a_title_from_the_caller_is_refused():
     overrides = {"title": "Not a recipe field"}
     assert _refusal_of_promote(overrides=overrides) == "invalid"
 

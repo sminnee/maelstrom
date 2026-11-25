@@ -20,7 +20,7 @@ NOW = "2026-06-08T12:00:00+00:00"
 
 
 class TestRunAction:
-    def test_set_task_status_E4_the_id_wins_over_the_parent(self, monkeypatch):
+    def test_set_task_status_E3_the_id_wins_over_the_parent(self, monkeypatch):
         calls = []
         from mael_domain.integrations import linear
 
@@ -30,7 +30,7 @@ class TestRunAction:
         task_actions.run_action(t, "linear.done", warn=[].append)
         assert calls == [("ABC-1", "done")]
 
-    def test_set_task_status_E6_the_caller_gets_each_line(self, monkeypatch):
+    def test_set_task_status_E5_the_caller_gets_each_line(self, monkeypatch):
         calls = []
         from mael_domain.integrations import linear
 
@@ -46,7 +46,7 @@ class TestRunAction:
             "action linear.done -> NORT-12 (task x)",
         ]
 
-    def test_set_task_status_E4_a_sentry_ref_in_the_id(self, monkeypatch):
+    def test_set_task_status_E3_a_sentry_ref_in_the_id(self, monkeypatch):
         calls = []
         from mael_domain.integrations import sentry
 
@@ -64,7 +64,7 @@ class TestRunAction:
             "action sentry.resolve -> abc123 (task sentry.abc123)",
         ]
 
-    def test_set_task_status_E4_no_action_runs_nothing(self, monkeypatch):
+    def test_set_task_status_E3_no_action_runs_nothing(self, monkeypatch):
         from mael_domain.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
@@ -73,13 +73,13 @@ class TestRunAction:
         task_actions.run_action(t, "", warn=lines.append)
         assert lines == []
 
-    def test_set_task_status_E5_an_unknown_action_warns(self):
+    def test_set_task_status_E4_an_unknown_action_warns(self):
         t = Task(id="x", title="t", project="p", parent="linear.NORT-12")
         lines: list[str] = []
         task_actions.run_action(t, "linear.bogus", warn=lines.append)
         assert lines == ["warning: unknown task action 'linear.bogus' on x"]
 
-    def test_set_task_status_E5_no_issue_ref_warns(self, monkeypatch):
+    def test_set_task_status_E4_no_issue_ref_warns(self, monkeypatch):
         from mael_domain.integrations import linear
 
         monkeypatch.setattr(linear, "set_issue_status", _fail("should not be called"))
@@ -91,7 +91,7 @@ class TestRunAction:
             "linear./sentry. ref in id or parent"
         ]
 
-    def test_set_task_status_E5_an_action_that_raises_warns(self, monkeypatch):
+    def test_set_task_status_E4_an_action_that_raises_warns(self, monkeypatch):
         from mael_domain.integrations import linear
 
         def boom(issue_id, status):
@@ -113,7 +113,7 @@ class TestMoveWithActions:
         return await model.create(store, project="p", title="t", now=NOW, **kwargs)
 
     @pytest.mark.parametrize("status", [model.STATUS_BUILT, model.STATUS_DONE])
-    async def test_set_task_status_E4_the_end_of_the_build_runs_its_action(
+    async def test_set_task_status_E3_the_end_of_the_build_runs_its_action(
         self, monkeypatch, store, status
     ):
         calls = []
@@ -125,7 +125,7 @@ class TestMoveWithActions:
         await task_actions.move_with_actions(store, "p", t.id, status, warn=[].append)
         assert calls == [("NORT-12", "done")]
 
-    async def test_set_task_status_E4_a_merge_after_the_build_runs_no_action(
+    async def test_set_task_status_E3_a_merge_after_the_build_runs_no_action(
         self, monkeypatch, store
     ):
         from mael_domain.integrations import linear
@@ -137,7 +137,7 @@ class TestMoveWithActions:
             store, "p", t.id, model.STATUS_DONE, warn=[].append
         )
 
-    async def test_set_task_status_E4_in_progress_runs_its_own(
+    async def test_set_task_status_E3_in_progress_runs_its_own(
         self, monkeypatch, store
     ):
         calls = []
@@ -156,7 +156,7 @@ class TestMoveWithActions:
         "status",
         [model.STATUS_TODO, model.STATUS_CANCELLED],
     )
-    async def test_set_task_status_E4_other_moves_run_nothing(
+    async def test_set_task_status_E3_other_moves_run_nothing(
         self, monkeypatch, status, store
     ):
         calls = []
@@ -178,7 +178,7 @@ class TestMoveWithActions:
         assert calls == []
         assert lines == []
 
-    async def test_set_task_status_E3_the_task_is_done(self, monkeypatch, store):
+    async def test_set_task_status_E1_the_task_is_done(self, monkeypatch, store):
         t = await self._seed(store)
         moved = await task_actions.move_with_actions(
             store, "p", t.id, model.STATUS_DONE, warn=[].append
