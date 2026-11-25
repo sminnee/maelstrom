@@ -20,19 +20,26 @@ A subsystem that has feature files states its contract there, and each test of a
 rule id in its name. `docs/README.md` lists the subsystems and their feature files, and
 [ADR 0006](../adr/0006-feature-files-hold-the-contracts.md) lists how far the rollout is.
 
-The Task tracker is the first. Its feature files are in `docs/specs/tasks/task-tracker/`. Each
-file names the model as its primary seam. Its `Held today at:` line, when it has one, names the
-code that holds each kind of rule now. This table gives the owning suite of each:
+The Task tracker is the first. Its feature files are in `docs/specs/tasks/task-tracker/`: read
+its `README.md` first. Each file ends with its code names. The primary seam is the model. A
+`Held today at:` line, when the file has one, names the code that holds each kind of rule now.
+This table gives the owning suite of each:
 
 | Rules                                        | Held today at             | Owning suite                                           |
 | -------------------------------------------- | ------------------------- | ------------------------------------------------------ |
 | The `R` rules of a task command              | `validate_command`        | `orchestrator-api/tests/test_orchestrator_validate.py` |
+| The rules of `task.feature`, for a create, an update and a load | `validate_command`, and `mael_domain.task` for the Priority | `orchestrator-api/tests/test_orchestrator_validate.py`, `lib/domain/tests/test_task.py` |
+| The rules of `task.feature`, for a move, a rename and a delete | `mael_domain.task` | `lib/domain/tests/test_task.py` |
 | The `E` rules of a task command              | `mael_domain.task`        | `lib/domain/tests/test_task.py`                        |
 | The Status action rules of `set-task-status` | `mael_domain.task_actions` | `lib/domain/tests/test_task_actions.py`                |
 | The rules of `task-repository`               | `TaskTable`               | `lib/domain/tests/test_task_table.py`                  |
 
 A test of a rule is named `test_<feature file stem>_<rule id>_<what it shows>`, for example
-`test_update_task_R7_a_cycle_is_refused`. A test at an outer layer cites no rule.
+`test_update_task_E2_the_fields_not_named_stay`. A test at an outer layer cites no rule.
+
+A rule that each command keeps is stated once, in `task.feature`. A test of it cites `task`, and
+the rest of its name says which command: `test_task_I2_an_update_refuses_an_illegal_value`. A
+rule that is a table gets one parametrised test for each command, with one case for each row.
 
 An **Outer layer** keeps two tests per command: one success and one handled failure. It also tests
 the rules that only it owns:

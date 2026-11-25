@@ -187,7 +187,7 @@ class TestUpdateRename:
         assert "Renamed" in result.output
         assert "new-id" in result.output
 
-    async def test_rename_task_R4_a_live_session_refuses_the_rename(
+    async def test_rename_task_R2_a_live_session_refuses_the_rename(
         self, runner, store, monkeypatch
     ):
         t = await model.create(store, project="p", title="E")
@@ -210,7 +210,7 @@ class TestUpdateRename:
         assert "changing its id" in result.output  # the action it refused
         assert (await model.load(store, "p", old_id)).id == old_id
 
-    async def test_rename_task_R4_a_live_session_of_another_task_does_not_block(
+    async def test_rename_task_R2_a_live_session_of_another_task_does_not_block(
         self, runner, store, monkeypatch
     ):
         # Keyed on this task's own session id, not on worktree occupancy: a

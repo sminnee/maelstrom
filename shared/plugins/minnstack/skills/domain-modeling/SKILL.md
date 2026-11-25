@@ -89,4 +89,6 @@ Expect the first split to be wrong. Look at the boundary again when one of these
 | An invariant spans two subsystems | They are one subsystem, or the invariant is eventual: name the event |
 | Many rules for little hidden behaviour | The module is shallow, as `codebase-design` defines it |
 | Rules in different features change together | Those features are one command |
+| The same rule text is in two feature files | It is a rule of the type: state it once, in `<type>.feature` |
+| A field has a fixed set of legal values | It is a value object: `<type>.feature` lists the legal values once, as one row of a table |
 | One subsystem owns the reference to each neighbour, and most of the terms | It is a hub: split out the part that has its own words |

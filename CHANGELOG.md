@@ -136,6 +136,9 @@ release while that section is empty, and retitles it to the version it is releas
     query, or the invariants of one domain type. Each Gherkin `Rule` is one clause with a stable
     id, and a test cites the rule. A feature file describes the model that the project wants: a
     `Held today at:` line names the code that holds the contract until the code gets there.
+    A feature file reads as an explanation for a person who is new: a purpose paragraph, the
+    rules in the order of the explanation, a table for parallel facts, and the code names last.
+    A rule that more than one command keeps is stated once, in the file of the type.
   - An ADR. A decision that needs a rollout records its progress in a `Rollout:` state and a
     checklist with one line for each component.
 - **maelstrom has a map, and the Task tracker has its contract in feature files.**
