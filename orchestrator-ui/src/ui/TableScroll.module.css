@@ -1,0 +1,22 @@
+/*
+ * `max-content` keeps a table at its own width between the bounds.
+ * `min-width: 100%` keeps a narrow table at the column's left edge.
+ *
+ * A surface sets `--table-breakout` to let a wide table outgrow its column
+ * (DESIGN.md § Measure); without it, the bounds meet and the table keeps to
+ * the column. The relative shift centres a wide one: a margin cannot refer to
+ * the element's own width.
+ *
+ * `--table-inset` is how far the column starts right of the measure's left
+ * edge. The shift centres the table on the column, not on the measure, so the
+ * breakout width gives up the inset to keep the table inside its container.
+ */
+.tableScroll {
+  width: max-content;
+  min-width: 100%;
+  max-width: calc(var(--table-breakout, 100%) - var(--table-inset, 0px));
+  overflow-x: auto;
+  position: relative;
+  left: 50%;
+  translate: -50%;
+}

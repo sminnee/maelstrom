@@ -4,6 +4,7 @@ import type { PluggableList } from 'unified';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
 import { ImageLightbox } from '../ui/ImageLightbox';
+import { TableScroll } from '../ui/TableScroll';
 import { QuietBlock } from './QuietBlock';
 import styles from './Markdown.module.css';
 
@@ -106,13 +107,12 @@ const MarkdownContent = memo(function MarkdownContent({
           }
           return <ImageLightbox src={src} alt={alt ?? ''} />;
         },
-        // The wrapper scrolls, not the table: a table set to `display: block`
-        // loses its semantics in some screen readers. Focusable, so a keyboard
-        // can scroll it.
+        // `node` has no parent, so Markdown.module.css keeps a nested table in
+        // its column.
         table: ({ children }) => (
-          <div className={styles.tableScroll} role="region" aria-label="Table" tabIndex={0}>
+          <TableScroll className={styles.tableScroll}>
             <table>{children}</table>
-          </div>
+          </TableScroll>
         ),
       }}
     >
