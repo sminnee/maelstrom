@@ -3,6 +3,7 @@ import { Markdown } from '../../markdown/Markdown';
 import { actionIcon } from '../../ui/actionIcons';
 import { AppButton } from '../../ui/AppButton';
 import { SIGN } from '../../ui/diffSign';
+import { TableScroll } from '../../ui/TableScroll';
 import type { Mode, RenderedProps } from '../plugin';
 import { TextView } from '../TextView';
 import styles from '../rendered.module.css';
@@ -159,52 +160,54 @@ function Feature({ diff, mode, single }: { diff: FeatureDiff; mode: Mode; single
           onShow={single ? show : undefined}
         />
         <article className={styles.feature} data-change={diff.change} data-testid="feature-view">
-          {mode === 'changes' && (
-            <p className={styles.summary}>
-              {`Scenarios: ${added} added, ${changed} changed, ${removed} removed`}
-            </p>
-          )}
-          <div className={`${styles.head} ${styles.featureHead}`}>
-            <h3 className={styles.featureName}>
-              <KindMark type="feature" change={diff.change} keyword={diff.keyword} />
-              {diff.name}
-            </h3>
-            <Tags tags={diff.tags} />
-            {single && all.length > 1 && (
-              <nav className={styles.pager} aria-label="Scenarios">
-                <AppButton
-                  variant="quiet"
-                  icon={actionIcon('pagePrevious')}
-                  aria-label="Previous scenario"
-                  title={previous?.name}
-                  disabled={!previous}
-                  onClick={() => previous && setCurrent(previous.id)}
-                />
-                <AppButton
-                  variant="quiet"
-                  icon={actionIcon('pageNext')}
-                  aria-label="Next scenario"
-                  title={next?.name}
-                  disabled={!next}
-                  onClick={() => next && setCurrent(next.id)}
-                />
-              </nav>
+          <div className={styles.measure}>
+            {mode === 'changes' && (
+              <p className={styles.summary}>
+                {`Scenarios: ${added} added, ${changed} changed, ${removed} removed`}
+              </p>
+            )}
+            <div className={`${styles.head} ${styles.featureHead}`}>
+              <h3 className={styles.featureName}>
+                <KindMark type="feature" change={diff.change} keyword={diff.keyword} />
+                {diff.name}
+              </h3>
+              <Tags tags={diff.tags} />
+              {single && all.length > 1 && (
+                <nav className={styles.pager} aria-label="Scenarios">
+                  <AppButton
+                    variant="quiet"
+                    icon={actionIcon('pagePrevious')}
+                    aria-label="Previous scenario"
+                    title={previous?.name}
+                    disabled={!previous}
+                    onClick={() => previous && setCurrent(previous.id)}
+                  />
+                  <AppButton
+                    variant="quiet"
+                    icon={actionIcon('pageNext')}
+                    aria-label="Next scenario"
+                    title={next?.name}
+                    disabled={!next}
+                    onClick={() => next && setCurrent(next.id)}
+                  />
+                </nav>
+              )}
+            </div>
+            <Description paragraphs={diff.description} />
+            {shown.map((entry, i) =>
+              'children' in entry ? (
+                <Fragment key={entry.id}>
+                  {i > 0 && <hr className={styles.ruleBreak} />}
+                  <Rule id={entry.id} rule={entry.child} blocks={entry.children} />
+                </Fragment>
+              ) : (
+                <Block key={entry.id} id={entry.id} block={entry.child} />
+              ),
+            )}
+            {children.length === 0 && mode === 'changes' && (
+              <p className={styles.note}>No scenario changed.</p>
             )}
           </div>
-          <Description paragraphs={diff.description} />
-          {shown.map((entry, i) =>
-            'children' in entry ? (
-              <Fragment key={entry.id}>
-                {i > 0 && <hr className={styles.ruleBreak} />}
-                <Rule id={entry.id} rule={entry.child} blocks={entry.children} />
-              </Fragment>
-            ) : (
-              <Block key={entry.id} id={entry.id} block={entry.child} />
-            ),
-          )}
-          {children.length === 0 && mode === 'changes' && (
-            <p className={styles.note}>No scenario changed.</p>
-          )}
         </article>
       </div>
     </div>
@@ -359,26 +362,34 @@ function StepRow({ step }: { step: Diffed<Step> }) {
   return (
     <div className={styles.step} data-kind={step.kind} data-testid="feature-step">
       <span className={styles.sign}>{SIGN[step.kind]}</span>
-      <div>
+      <div className={styles.stepText}>
         <span className={`${styles.keyword} ${styles.stepKeyword}`}>{keyword.trim()}</span> {text}
         {table && (
-          <table className={styles.table}>
-            <tbody>
-              {table.map((row, i) => {
-                // A step table's first row names its columns, as an outline's header does.
-                const Cell = i === 0 ? 'th' : 'td';
-                return (
-                  <tr key={i}>
-                    {row.map((cell, j) => (
-                      <Cell key={j}>{cell}</Cell>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className={styles.stepBlock}>
+            <TableScroll className={styles.tableScroll}>
+              <table className={styles.table}>
+                <tbody>
+                  {table.map((row, i) => {
+                    // A step table's first row names its columns, as an outline's header does.
+                    const Cell = i === 0 ? 'th' : 'td';
+                    return (
+                      <tr key={i}>
+                        {row.map((cell, j) => (
+                          <Cell key={j}>{cell}</Cell>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
+          </div>
         )}
-        {docString !== null && <pre className={styles.docString}>{docString}</pre>}
+        {docString !== null && (
+          <div className={styles.stepBlock}>
+            <pre className={styles.docString}>{docString}</pre>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -393,18 +404,20 @@ function ExamplesTable({ examples }: { examples: ExamplesDiff }) {
         </div>
         <Tags tags={examples.tags} />
       </div>
-      <table className={styles.table}>
-        <thead>
-          {examples.header.map((row, i) => (
-            <TableRow key={i} row={row} cell="th" />
-          ))}
-        </thead>
-        <tbody>
-          {examples.rows.map((row, i) => (
-            <TableRow key={i} row={row} cell="td" />
-          ))}
-        </tbody>
-      </table>
+      <TableScroll className={styles.tableScroll}>
+        <table className={styles.table}>
+          <thead>
+            {examples.header.map((row, i) => (
+              <TableRow key={i} row={row} cell="th" />
+            ))}
+          </thead>
+          <tbody>
+            {examples.rows.map((row, i) => (
+              <TableRow key={i} row={row} cell="td" />
+            ))}
+          </tbody>
+        </table>
+      </TableScroll>
     </div>
   );
 }

@@ -327,8 +327,10 @@ message there already reads narrower than the number says.
 
 A table is an inset object, not prose, so the measure does not bind it. On the document tab a
 table wider than the measure grows past it into the gutter, centred on the column, up to the
-width of the document body. It scrolls sideways only past that. Other surfaces keep a table
-inside the measure until they opt in with `--table-breakout`.
+width of the document body. It scrolls sideways only past that. The Rendered view of a feature
+file follows the same rule: a step table or an Examples table grows past the measure up to the
+width of the article. Other surfaces keep a table inside the measure until they opt in with
+`--table-breakout`.
 
 ### Rhythm
 
