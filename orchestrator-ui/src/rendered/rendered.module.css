@@ -57,9 +57,18 @@
 @container feature-view (max-width: 900px) {
   .featureLayout {
     grid-template-columns: minmax(0, 1fr);
+    padding: var(--u-2) var(--u);
   }
   .contents {
     display: none;
+  }
+  /* A phone cannot spare the keyword column: a table or a doc string
+     starts under the keyword. Scoped under `.feature` to outrank the wide rules below. */
+  .feature .step {
+    --table-inset: 0px;
+  }
+  .feature .table :is(th, td) {
+    padding: var(--u-half);
   }
 }
 
