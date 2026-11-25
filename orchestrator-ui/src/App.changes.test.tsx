@@ -1597,6 +1597,34 @@ ${PLACE}
     );
   });
 
+  it('puts a step table and an Examples table each in a Table region', async () => {
+    const tables = `Feature: Checkout
+
+  Scenario: Place an order
+    Given a cart with:
+      | item | count |
+      | tea  | 2     |
+
+  Scenario Outline: Ship an order
+    Then it ships by <carrier>
+
+    Examples:
+      | carrier |
+      | post    |
+`;
+    const { panel } = await openChanges((c) => {
+      c.diffs.uncommitted = [file('specs/checkout.feature', 'x', { status: 'added' })];
+      c.files = { uncommitted: { 'specs/checkout.feature': { old: null, new: tables } } };
+    });
+    const dialog = await view(panel, 'specs/checkout.feature');
+    await within(dialog).findByTestId('feature-view');
+    const regions = within(dialog).getAllByRole('region', { name: 'Table' });
+    expect(regions.map((region) => within(region).getByRole('table').textContent)).toEqual([
+      expect.stringContaining('tea'),
+      expect.stringContaining('post'),
+    ]);
+  });
+
   it('opens a deleted file on its removed side, with Final disabled', async () => {
     const { panel } = await openChanges((c) => {
       c.diffs.uncommitted = [file('specs/checkout.feature', 'x', { status: 'deleted' })];

@@ -26,8 +26,10 @@
  * of `Markdown.module.css`, with rules and scenarios as its subheadings. The
  * contents sit beside it while the view is wide enough for both.
  */
+/* Named: `.feature` is a container too, and the narrow rules below measure
+   the view, not the article. */
 .featureView {
-  container-type: inline-size;
+  container: feature-view / inline-size;
 }
 /* One hue per change, set where `data-change` is. The contents mark, the
    badge, the letter and the spine read `--change`, so they cannot drift. */
@@ -52,7 +54,7 @@
   gap: var(--u-3);
   padding: var(--u-2) var(--u-3);
 }
-@container (max-width: 900px) {
+@container feature-view (max-width: 900px) {
   .featureLayout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -110,19 +112,24 @@
 
 /* Block flow, not flex: heading margins collapse as markdown's do. The
    article takes the column, so a tinted file is one stable box and the pager
-   does not move between scenarios. Its parts keep the measure; a wide table
-   widens the article. --spine, --gutter and --chip place every heading's
-   letter on the spine's axis, left of the text. */
+   does not move between scenarios. --spine, --gutter and --chip place every
+   heading's letter on the spine's axis, left of the text.
+
+   The article is the size container its tables break out to (DESIGN.md
+   § Measure). A table never widens it: past the article's width, it scrolls. */
 .feature {
   --spine: 2px;
   --gutter: calc(var(--u) * 2.5);
   --chip: calc(var(--prose-row) * 0.75);
-  min-width: min-content;
+  --table-breakout: 100cqi;
+  container-type: inline-size;
   font-size: var(--text-md);
   line-height: var(--leading-prose);
 }
-.feature > :is(.summary, .description, .section, .ruleBreak, .note) {
+/* Centred, so a table centred on its column has even room on both sides. */
+.measure {
   max-width: var(--measure-prose);
+  margin-inline: auto;
 }
 .summary {
   margin: 0 0 var(--prose-gap);
@@ -248,14 +255,6 @@
   margin: 0 0 var(--prose-gap);
 }
 
-/*
- * A rule or a scenario. One wholly added or removed is one tinted block; its
- * rows and nested sections then drop their own tint, sign colour and badge.
- * The negative margin keeps its text in line with the untinted sections.
- */
-.section {
-  min-width: min-content;
-}
 /* A scenario is one unit on a spine that carries its change. The spine
    runs down from the centre of its letter, and the step rows run from the
    spine, their signs in the gutter. */
@@ -276,6 +275,11 @@
 .block:is([data-change='added'], [data-change='removed'])::before {
   top: calc(var(--prose-gap-tight) + var(--prose-row) / 2);
 }
+/*
+ * A file, rule or scenario wholly added or removed is one tinted block; its
+ * rows and nested sections then drop their own tint, sign colour and badge.
+ * The negative margin below keeps its text in line with the untinted sections.
+ */
 :is(.feature, .section:not(.block)):is([data-change='added'], [data-change='removed']) {
   border-radius: var(--radius);
 }
@@ -318,9 +322,15 @@
    spine. The keyword is right-aligned in a fixed column, as Cucumber prints
    it, so the step text keeps one left edge. */
 .step {
+  --table-inset: calc(3.4em + 0.25em);
   display: flex;
-  min-width: min-content;
   margin-left: calc(var(--spine) - var(--gutter));
+}
+/* Takes the row, so a step table's column is the text column whatever the
+   text's length. */
+.stepText {
+  flex: 1;
+  min-width: 0;
 }
 .step > .sign {
   width: calc(var(--gutter) - var(--spine));
@@ -331,8 +341,11 @@
   width: 3.4em;
   text-align: right;
 }
-.step :is(.table, .docString) {
-  margin-left: calc(3.4em + 0.25em);
+/* Under the step text, past the keyword column. On a wrapper at the step's
+   font size: the em in `--table-inset` resolves where it is used, and the
+   table and doc string are smaller. */
+.stepBlock {
+  margin-left: var(--table-inset);
 }
 .sign {
   width: 1ch;
@@ -395,8 +408,10 @@
 .examplesName {
   font-weight: var(--weight-semibold);
 }
-.table {
+.tableScroll {
   margin: var(--prose-gap-tight) 0;
+}
+.table {
   border-collapse: collapse;
   font-family: var(--mono);
   font-size: 0.92em;
@@ -408,7 +423,7 @@
   text-align: left;
   vertical-align: top;
   /* A cell is a literal, often a date or an id: it does not wrap at its
-     hyphens, and a wide table widens its step's band instead. */
+     hyphens, and a wide table scrolls instead. */
   white-space: pre;
 }
 .table th {

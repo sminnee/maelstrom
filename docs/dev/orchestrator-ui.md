@@ -1283,7 +1283,8 @@ as context.
   is narrower than 900px.
 - A wholly added or removed file, rule or scenario is one tinted block. The rows inside it drop
   their own tints.
-- A step table wider than the measure widens its band, and the dialog body scrolls.
+- A step table or an Examples table wider than the measure grows past it, centred, up to the
+  width of the article. Past that, it scrolls in its own region (DESIGN.md § Measure).
 - Displays: Formatted draws the whole document. Per scenario draws one scenario under its
   Backgrounds, with Previous and Next on the feature's row; a contents link shows its scenario.
 
