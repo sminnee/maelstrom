@@ -61,3 +61,14 @@ def notebook_root() -> Path:
     if not override:
         raise NotebookRootUnset()
     return Path(override).expanduser()
+
+
+def session_log_root() -> Path:
+    """Where the Task session logs are kept: ``<notebook root>/session-logs``.
+
+    See :mod:`mael_domain.session_logs`.
+
+    Raises:
+        NotebookRootUnset: If the variable is absent or empty.
+    """
+    return notebook_root() / "session-logs"
