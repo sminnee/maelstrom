@@ -4967,7 +4967,7 @@ class Orchestrator:
 
         async def start_agent() -> StepOutcome:
             assert launching.setup is not None  # open_worktree ran first
-            payload = self._start_payload(spec, launching.setup, prompt_file)
+            payload = self._start_payload(spec, launching.setup.path, prompt_file)
             reply = await self.daemon.request(payload)
             agent_id = reply.get("id") if "error" not in reply else None
             if not agent_id:
@@ -4995,9 +4995,9 @@ class Orchestrator:
         return open_worktree, write_env, start_agent
 
     def _start_payload(
-        self, spec: dict[str, Any], setup: WorktreeSetup, prompt_file: Path | None
+        self, spec: dict[str, Any], cwd: Path, prompt_file: Path | None
     ) -> dict[str, Any]:
-        """The daemon's ``start`` for ``spec`` in its opened worktree.
+        """The daemon's ``start`` for ``spec`` in ``cwd``: its opened worktree, or the foreman's.
 
         A task that has run before already owns its session id, so it resumes.
         For Codex, the session is the thread id the task stores.
@@ -5015,7 +5015,7 @@ class Orchestrator:
             env[PARENT_KEY_ENV] = parent_key
         codex = bool(model) and resolve_model_reference(model).harness == HARNESS_CODEX
         payload = build_start_payload(
-            setup.path,
+            cwd,
             prompt=str(spec.get("prompt") or ""),
             permission_mode=model_permission_mode(str(spec.get("mode") or "")),
             model=model,
@@ -5023,7 +5023,7 @@ class Orchestrator:
             session_id=session or None,
             env=env or None,
             resume=bool(session)
-            and (codex or self.opener.has_transcript(setup.path, session)),
+            and (codex or self.opener.has_transcript(cwd, session)),
             system_prompt_file=prompt_file or agent_prompt_file(),
             plugin_dir=core_plugin_dir(),
         )

@@ -57,22 +57,28 @@ def core_plugin_dir() -> Path | None:
 def investigation_prompt_file() -> Path | None:
     """The file for an investigation agent: the markers, then the no-code rules.
 
-    The daemon takes one prompt file, so the two shared files are joined into
-    ``~/.maelstrom/agent-prompts/investigation.md``. The file is rewritten only
-    when its content changes, so a resume names a stable path. The rewrite is
-    atomic: a spawn that reads it mid-write would run without the rules.
-
     ``None`` when either shared file is gone. Unlike the markers, the rules are
     the whole point of an investigation, so the caller refuses the start.
+    """
+    return _joined_prompt_file("investigation-prompt.md", "investigation.md")
+
+
+def _joined_prompt_file(rules_name: str, target_name: str) -> Path | None:
+    """The markers joined to the shared ``rules_name``, as ``agent-prompts/<target_name>``.
+
+    The daemon takes one prompt file, so the two shared files are joined into
+    ``~/.maelstrom/agent-prompts/``. The file is rewritten only when its
+    content changes, so a resume names a stable path. The rewrite is atomic: a
+    spawn that reads it mid-write would run without the rules.
     """
     markers = agent_prompt_file()
     if markers is None:
         return None
-    rules = markers.parent / "investigation-prompt.md"
+    rules = markers.parent / rules_name
     if not rules.exists():
         return None
     content = markers.read_text().rstrip("\n") + "\n\n" + rules.read_text()
-    target = get_maelstrom_dir() / "agent-prompts" / "investigation.md"
+    target = get_maelstrom_dir() / "agent-prompts" / target_name
     if target.exists() and target.read_text() == content:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
