@@ -1393,7 +1393,8 @@ content and marks the update sent. A sent update refuses either field with `inva
 On start the server first reads the `agents` table and puts each ended agent of a task in the
 world as `exited`. The host lists live agents only, so without this a task whose agent ended
 before the restart has no Session link and no Resume. A record links to its task by its session,
-as a live row does. A record with no task stays out. The restored agents are not in the router's
+as a live row does. A record with no task stays out, except the newest ended **Foreman**: no task
+holds its session, and `foreman.start` resumes it. The restored agents are not in the router's
 live set, so `list` does not report them. When the host lists one live again, it is revived.
 
 Then the server lists the host's agents and attaches to every one. A new id in a later `list`
@@ -1590,7 +1591,8 @@ A newly adopted live agent joins the desk: `task:` when the agent has a task, `a
 does not. The canvas draws running work whether or not the desk names it, so the entry is not
 what makes an agent visible — it is what keeps it visible after the agent stops, until the user
 takes it **Off desk**. The join runs once, at adoption, so a later poll cannot re-add an entry the
-user has taken off the desk.
+user has taken off the desk. The **Foreman** never joins: the Foreman pane shows it, and the
+canvas skips it.
 
 An `agent:` entry is never pruned during a run: an agent stays in the world once seen, so the
 entry always has an entity to draw. A restart is the exception. The world's agents are rebuilt
@@ -1680,6 +1682,22 @@ user takes a task off with **Off desk**.
   because the daemon takes one file. `validate.py` refuses `investigate` with `mode: "plan"`.
   When a shared prompt file is missing, the server refuses the start before the operation
   begins: without its rules an investigation is an ordinary free agent.
+- **`foreman.start`** starts the **Foreman**, and takes no fields. The server knows the foreman
+  by its cwd, `foreman_dir()`: the agent entity's `foreman` flag is set when a top-level row's
+  cwd is that directory. The command has three outcomes:
+
+  | The world holds | The reply |
+  | --- | --- |
+  | a live foreman | `{agentId}`, and nothing starts |
+  | an exited foreman, and no live one | an `agent.resume` operation of it, so its conversation goes on |
+  | no foreman | a `start` operation of one step, `start_agent` |
+
+  The new start opens no worktree and writes no `.env`: the directory is in no project. The
+  payload is in `auto` mode, names `foreman_prompt_file()` in place of `agent_prompt_file()`,
+  and gives a first turn, so the pane opens on a reply. When a shared prompt file is missing,
+  the command is refused before the daemon is asked, as an investigation is. The resume finds
+  a stopped foreman in the world, not through the daemon's `list` with `scope: "stopped"`: the
+  router counts each row a `list` returns as live.
 
 Not built: the opencode harness.
 
@@ -2197,6 +2215,7 @@ check being missing, both answer 400 `invalid`.
 | `POST /api/tasks/promote` | `{project, drafts: [{name, text}], parent?, overrides?, follows?, followEnds?, after?}` | `task.promote` | `{taskIds}` |
 | `POST /api/tasks/load-many` | `{project, text, defaultParent?, source?, launch?}` | `task.loadMany` | `{tasks: [{taskId, title, operationId?}], warnings}`; `202` when a task launched |
 | `POST /api/agents` | `{project, branch?, prompt, mode, model?}`; a delegated launch adds `executeModel, session, env, taskId, parentUrl` | `agent.start` | `202 {operationId}` |
+| `POST /api/foreman` | | `foreman.start` | `202 {operationId}` for a start or a resume; `200 {agentId}` when the foreman is live |
 | `POST /api/linear/tasks` | `{project, issueId, command?, mode?, launch?, host?}` | `linear.plan` | `202 {operationId}`. `host` names a **Remote host** to delegate the launch to, and needs `launch` |
 | `POST /api/projects` | `{gitUrl}` | `project.add` | `202 {operationId}`. A name the world holds is refused before the clone. The operation ends once the next read holds the project |
 | `POST /api/self/update` | | `self.update` | `202 {}` once the OS supervisor has the **Update job**. `409 cannot_update` on a development build, or with the stderr of a refused `mael self update --detach` |

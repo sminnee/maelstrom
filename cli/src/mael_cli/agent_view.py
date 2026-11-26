@@ -119,6 +119,7 @@ def _blank_agent(agent_id: str) -> Agent:
         "harness": HARNESS_CLAUDE,
         "host": "",
         "parentUrl": "",
+        "foreman": False,
     }
 
 

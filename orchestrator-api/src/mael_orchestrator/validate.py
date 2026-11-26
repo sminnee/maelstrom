@@ -1234,6 +1234,10 @@ def validate_command(
         # The server checks the install itself: the world does not hold it.
         return None
 
+    if kind == "foreman.start":
+        # No fields. The server reads the rules file and the foreman itself.
+        return None
+
     if kind in ("operation.seen", "operation.retry"):
         operation_id = cmd.get("operationId", "")
         operation = world["operations"].get(operation_id)

@@ -1,7 +1,8 @@
 """Where maelstrom's ``shared/`` directory is, and the files in it a client names.
 
-One of them is built: the investigation prompt joins two shared files into
-``~/.maelstrom/agent-prompts/``, because the daemon takes one file.
+Two of them are built: the investigation and foreman prompts each join two
+shared files into ``~/.maelstrom/agent-prompts/``, because the daemon takes one
+file.
 """
 
 import os
@@ -61,6 +62,25 @@ def investigation_prompt_file() -> Path | None:
     the whole point of an investigation, so the caller refuses the start.
     """
     return _joined_prompt_file("investigation-prompt.md", "investigation.md")
+
+
+def foreman_prompt_file() -> Path | None:
+    """The file for the **Foreman**: the markers, then its rules.
+
+    ``None`` when either shared file is gone, for the reason
+    :func:`investigation_prompt_file` gives.
+    """
+    return _joined_prompt_file("foreman-prompt.md", "foreman.md")
+
+
+def foreman_dir() -> Path:
+    """The **Foreman**'s working directory, ``~/.maelstrom/foreman``.
+
+    Outside every project, so no project's ``CLAUDE.md`` loads into it. The
+    server knows the foreman by this cwd. Not made here: a reader only compares
+    paths, and the start makes it.
+    """
+    return get_maelstrom_dir() / "foreman"
 
 
 def _joined_prompt_file(rules_name: str, target_name: str) -> Path | None:

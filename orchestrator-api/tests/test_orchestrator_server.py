@@ -44,8 +44,8 @@ from mael_daemon.agent_model import (
 )
 from mael_domain import comms as comms_model
 from mael_domain import operations as operations_model
+from mael_domain import shared_dir, task_documents
 from mael_domain import task as model
-from mael_domain import task_documents
 from mael_domain.agent_store import SqliteAgentStore, new_agent_record
 from mael_domain.auth.model import DELEGATE, HOST, ApiKey, hash_secret
 from mael_domain.auth.store import InMemoryAuthStore
@@ -5295,6 +5295,132 @@ def test_an_investigation_without_its_rules_is_refused_before_the_worktree(
     assert reply.status == 400
     assert reply.body["error"]["code"] == "invalid"
     assert opened == []
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
+# --- the foreman --------------------------------------------------------------
+
+
+@pytest.fixture
+def foreman_home(monkeypatch, tmp_path) -> Path:
+    """A maelstrom dir of the test's own: the foreman's directory and prompt go here."""
+    monkeypatch.setattr(shared_dir, "get_maelstrom_dir", lambda: tmp_path)
+    return tmp_path
+
+
+async def _start_foreman(api: Api) -> Reply:
+    """``POST /api/foreman``, and the operation's end when it starts one."""
+    reply = await api.post("/api/foreman")
+    if reply.status == 202:
+        await ended(api, reply.body["operationId"])
+    return reply
+
+
+def test_the_foreman_starts_in_its_directory_in_auto_mode_with_its_rules(
+    harness, foreman_home
+):
+    async def scenario():
+        async with harness.client() as api:
+            reply = await _start_foreman(api)
+            return (
+                reply,
+                await api.get_json("/api/agents/new1"),
+                await api.get_json("/api/desk"),
+            )
+
+    reply, agent, desk = run(scenario())
+    assert reply.status == 202
+    start = next(c for c in harness.daemon.calls if c["cmd"] == "start")
+    assert start["cwd"] == str(foreman_home / "foreman")
+    assert start["mode"] == "auto"
+    rules = (shared_dir.get_shared_dir() / "foreman-prompt.md").read_text()
+    assert (
+        Path(start["system_prompt_file"]).read_text().rstrip().endswith(rules.rstrip())
+    )
+    assert start["prompt"]
+    # The world names it the foreman, and the canvas draws no node for it.
+    assert agent["foreman"] is True
+    assert desk["desk"] == []
+
+
+def test_a_live_foreman_starts_nothing_and_stays_off_the_desk(harness, foreman_home):
+    """A second click, or a second browser, gets the foreman already running.
+
+    A subagent it spawns shares its directory, but is not the foreman.
+    """
+    cwd = str(foreman_home / "foreman")
+    harness.daemon.rows["fm1"] = agent_row("fm1", cwd=cwd)
+    harness.daemon.rows["fm1.1"] = agent_row("fm1.1", cwd=cwd, parent="fm1")
+
+    async def scenario():
+        async with harness.client() as api:
+            await until(api, "/api/agents/fm1", lambda a: a["foreman"])
+            return (
+                await _start_foreman(api),
+                await api.get_json("/api/desk"),
+                await api.get_json("/api/agents/fm1.1"),
+            )
+
+    reply, desk, subagent = run(scenario())
+    assert (reply.status, reply.body) == (200, {"agentId": "fm1"})
+    assert subagent["foreman"] is False
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+    assert desk["desk"] == []
+
+
+def test_a_stopped_foreman_resumes_after_a_restart(
+    harness_factory, foreman_home, tmp_path
+):
+    """Its conversation goes on: the newest ended record resumes, and none starts."""
+    db = open_state_db(tmp_path / "state.db")
+    run(db.migrate())
+    records = SqliteAgentStore(db)
+    harness = harness_factory(agent_records=records)
+
+    def ended(agent_id: str, ended_at: str) -> dict:
+        return {
+            **new_agent_record(
+                agent_id,
+                harness="claude",
+                task_session_id="",
+                task_id="",
+                cwd=str(foreman_home / "foreman"),
+                model="",
+                mode="auto",
+                started_at="2026-08-30T00:00:00Z",
+            ),
+            "status": "ended",
+            "ended_at": ended_at,
+        }
+
+    async def scenario():
+        await records.save(ended("fm-old", "2026-08-30T12:00:00Z"))
+        await records.save(ended("fm1", "2026-08-31T00:00:00Z"))
+        async with harness.client() as api:
+            return await _start_foreman(api)
+
+    reply = run(scenario())
+    assert reply.status == 202
+    assert [c["id"] for c in harness.daemon.calls if c["cmd"] == "resume"] == ["fm1"]
+    assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
+
+
+def test_a_foreman_without_its_rules_is_refused_before_the_daemon(
+    harness, monkeypatch, tmp_path
+):
+    """Without the rules it would be an ordinary agent in auto mode."""
+    markers_only = tmp_path / "shared"
+    markers_only.mkdir()
+    (markers_only / "agent-prompt.md").write_text("markers")
+    monkeypatch.setattr(shared_dir, "get_shared_dir", lambda: markers_only)
+
+    async def scenario():
+        async with harness.client() as api:
+            return await _start_foreman(api)
+
+    reply = run(scenario())
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
     assert not [c for c in harness.daemon.calls if c["cmd"] == "start"]
 
 

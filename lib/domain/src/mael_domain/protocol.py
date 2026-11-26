@@ -675,6 +675,8 @@ class Agent(TypedDict):
     #: The **Parent server** of a **Delegated agent**: the orchestrator that holds its
     #: task. ``""`` when the agent's task is on the server that runs it.
     parentUrl: str
+    #: Whether the agent is the **Foreman**.
+    foreman: bool
 
 
 class Attention(TypedDict):
