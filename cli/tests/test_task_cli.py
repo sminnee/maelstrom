@@ -5,6 +5,7 @@ patched to return a shared :class:`InMemoryTaskTable` and ``resolve_project`` to
 a fixed project, so no database or cwd resolution happens.
 """
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -20,13 +21,14 @@ from domain_fixtures import FakeBuildRuns
 from mael_cli import env_cli, task_cli, worktree_launcher
 from mael_cli.cli import cli
 from mael_cli.integrations.linear_cli import cmd_plan
-from mael_cli.orchestrator_client import PARENT_URL_ENV
+from mael_cli.orchestrator_client import PARENT_URL_ENV, OrchestratorRefused
 from mael_common.shell import describe
 from mael_domain import session_discovery
 from mael_domain import task as model
 from mael_domain.comm_store import Comm, InMemoryCommStore
 from mael_domain.context import GlobalConfig
 from mael_domain.env import EnvRefresh
+from mael_domain.session_logs import SessionLog
 from mael_domain.task_table import InMemoryTaskTable
 from mael_domain.worktree import SyncResult, WorktreeSetup
 from mael_domain.worktree_model import CopyBackResult
@@ -995,6 +997,61 @@ class TestAddRunCli:
         assert result.exit_code != 0
         assert message in result.output
         server.post.assert_not_called()
+
+
+class TestSessions:
+    """``mael task sessions`` prints the server's list of the task's session logs."""
+
+    LOGS = [
+        SessionLog(
+            "0b5a3c1e",
+            "claude",
+            Path("/notebook/session-logs/p/T-1/0b5a3c1e.jsonl"),
+            7654321,
+            "2026-11-20T09:30:00+00:00",
+        ).to_json(),
+        SessionLog("9c8b7a6d", "codex", None).to_json(),
+    ]
+
+    @pytest.fixture
+    def server(self, monkeypatch):
+        client = MagicMock()
+        client.get.return_value = {"sessionLogs": self.LOGS}
+        monkeypatch.setattr(task_cli.OrchestratorClient, "for_tasks", lambda: client)
+        return client
+
+    def test_the_table_names_each_session_and_the_path_of_its_log(
+        self, runner, server, monkeypatch
+    ):
+        monkeypatch.setenv("MAEL_TASK_ID", "T-1")
+        result = runner.invoke(task_cli.task, ["sessions", "--project", "p"])
+        assert result.exit_code == 0, result.output
+        server.get.assert_called_once_with("/api/tasks/p/T-1/session-logs")
+        rows = [line.split() for line in result.output.splitlines()[2:]]
+        assert rows == [
+            [
+                "0b5a3c1e",
+                "claude",
+                "7.3",
+                "MB",
+                "2026-11-20T09:30:00",
+                "/notebook/session-logs/p/T-1/0b5a3c1e.jsonl",
+            ],
+            ["9c8b7a6d", "codex", "-", "no"],
+        ]
+
+    def test_json_prints_the_list_as_the_server_sent_it(self, runner, server):
+        result = runner.invoke(
+            task_cli.task, ["sessions", "T-1", "--project", "p", "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.output) == self.LOGS
+
+    def test_an_unknown_task_is_refused(self, runner, server):
+        server.get.side_effect = OrchestratorRefused("unknown_id", "No task", 404)
+        result = runner.invoke(task_cli.task, ["sessions", "T-9", "--project", "p"])
+        assert result.exit_code != 0
+        assert "Task not found: T-9" in result.output
 
 
 class TestPrompt:

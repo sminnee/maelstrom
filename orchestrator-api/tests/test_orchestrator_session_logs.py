@@ -149,6 +149,42 @@ def test_a_delegated_agents_session_log_is_stored_on_its_parent(
     assert len(pushes) == 3
 
 
+def test_the_session_logs_route_lists_each_session_and_its_log(store, tmp_path):
+    logs = archive_in(tmp_path)
+    harness = Harness(store, session_logs=logs)
+    harness.add_task("NORT-7", session=session_of("NORT-7"))
+    run(model.add_session(store, "northwind", "NORT-7", "thread-1", "codex"))
+    write_transcript(logs, session_of("NORT-7"), "seven\n")
+
+    async def scenario():
+        async with harness.client() as api:
+            await until_file(archived(logs, session_of("NORT-7")), "seven\n")
+            listed = await api.get_json(f"/api/tasks/{TASK}/session-logs")
+            missing = await api.get("/api/tasks/northwind/NORT-404/session-logs")
+            return listed, missing
+
+    listed, missing = run(scenario())
+    assert [
+        {**e, "archivedAt": bool(e.get("archivedAt"))} for e in listed["sessionLogs"]
+    ] == [
+        {
+            "sessionId": session_of("NORT-7"),
+            "harness": "claude",
+            "archived": True,
+            "path": str(archived(logs, session_of("NORT-7"))),
+            "size": len("seven\n") + len("sub\n"),
+            "archivedAt": True,
+        },
+        {
+            "sessionId": "thread-1",
+            "harness": "codex",
+            "archived": False,
+            "archivedAt": False,
+        },
+    ]
+    assert missing.body["error"]["code"] == "unknown_id"
+
+
 OTHER_TASK_KEY = "mael_test-other-delegate-key"
 
 

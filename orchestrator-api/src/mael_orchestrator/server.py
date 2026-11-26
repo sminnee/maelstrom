@@ -161,7 +161,7 @@ from mael_domain.protocol import (
     World,
     group_members,
 )
-from mael_domain.session_logs import SessionLogArchive, SessionRef
+from mael_domain.session_logs import SessionLog, SessionLogArchive, SessionRef
 from mael_domain.shared_dir import (
     agent_prompt_file,
     core_plugin_dir,
@@ -3428,6 +3428,19 @@ class Orchestrator:
             session_id,
             data,
         )
+
+    async def session_log_list(self, task_id: str) -> list[dict[str, Any]] | None:
+        """The session log of each session on ``task_id``, oldest first; ``None`` for no task."""
+        task = self.world["tasks"].get(task_id)
+        if task is None:
+            return None
+        sessions = [SessionRef(s["id"], s["harness"]) for s in task["sessions"]]
+        if self.session_logs is None:
+            return [SessionLog(s.id, s.harness, None).to_json() for s in sessions]
+        logs = await asyncio.to_thread(
+            self.session_logs.logs, task["project"], task["notebookId"], sessions
+        )
+        return [entry.to_json() for entry in logs]
 
     # -- commands --
 

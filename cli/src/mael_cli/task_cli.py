@@ -5,6 +5,7 @@ from :mod:`mael_domain.task`, and prints the result. ``docs/dev/cli-over-api.md`
 says which commands call the server.
 """
 
+import json
 import os
 import subprocess
 import uuid
@@ -1804,6 +1805,46 @@ async def task_read(id: str, project: str | None) -> None:
     """
     reply = _task_call(resolve_project(project), id, "markdown")
     click.echo(reply["markdown"], nl=False)
+
+
+@task.command("sessions")
+@click.argument("id", required=False)
+@click.option("--project", default=None, help="Project name (default: from cwd).")
+@click.option("--json", "as_json", is_flag=True, help="Print the list as JSON.")
+async def task_sessions(id: str | None, project: str | None, as_json: bool) -> None:
+    """List a task's session logs and their paths, oldest first.
+
+    ID defaults to ``$MAEL_TASK_ID``. A session with no log is listed too.
+    """
+    task_id = _resolve_task_id(id)
+    logs = _task_call(resolve_project(project), task_id, "session-logs")["sessionLogs"]
+    if as_json:
+        click.echo(json.dumps(logs, indent=2))
+        return
+    if not logs:
+        click.echo("No sessions.")
+        return
+    rows = [
+        {
+            "SESSION": log["sessionId"],
+            "HARNESS": log["harness"],
+            "SIZE": _size_label(log["size"]) if log["archived"] else "-",
+            "ARCHIVED": log["archivedAt"][:19] if log["archived"] else "no",
+            "PATH": log["path"] if log["archived"] else "",
+        }
+        for log in logs
+    ]
+    draw_table(rows, ["SESSION", "HARNESS", "SIZE", "ARCHIVED", "PATH"])
+
+
+def _size_label(size: int) -> str:
+    """``size`` bytes as a short label: ``812 B``, ``4.1 KB``, ``7.3 MB``."""
+    value = float(size)
+    for unit in ("B", "KB", "MB"):
+        if value < 1024:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
 
 
 @task.command("prompt")
