@@ -197,6 +197,11 @@ export const byState: { state: NodeState; label: string; node: GraphNode }[] = [
     }),
   },
   {
+    state: 'awaiting-merge',
+    label: 'PR pushed, nothing works on it, the operator merges',
+    node: node({ task: task({ status: 'built' }), agent: agent({ state: 'idle' }) }),
+  },
+  {
     state: 'done',
     label: 'Settled',
     node: node({ task: task({ status: 'merged', done: true }), agent: undefined }),

@@ -521,7 +521,7 @@ body rather than the query builder.
       branch: 'spike/graphql',
       createdMinutesAgo: 800,
     }),
-    // Follows nothing, so it is ready to launch: the one task of the to-do zone.
+    // Follows nothing, so it is ready to launch: the one task of the Next zone.
     task({
       id: 'NORT-20',
       project: 'northwind',

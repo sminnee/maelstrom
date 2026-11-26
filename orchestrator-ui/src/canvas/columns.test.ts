@@ -10,13 +10,13 @@ describe('assignColumns', () => {
   it('gives an empty input no nodes and no width', () => {
     const result = assignColumns([]);
     expect([...result.byId]).toEqual([]);
-    expect(result.widths).toEqual({ queued: 0, todo: 0, running: 0, done: 0 });
+    expect(result.widths).toEqual({ queued: 0, todo: 0, running: 0, built: 0, done: 0 });
   });
 
   it('puts one node in the first column of its own zone', () => {
     const result = assignColumns([n('A', 'todo')]);
     expect(result.byId.get('A')).toEqual({ zone: 'todo', column: 0 });
-    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 0, done: 0 });
+    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 0, built: 0, done: 0 });
   });
 
   it('spreads a chain in one zone across columns', () => {
@@ -32,7 +32,7 @@ describe('assignColumns', () => {
     expect(result.byId.get('A')).toEqual({ zone: 'done', column: 0 });
     expect(result.byId.get('B')).toEqual({ zone: 'running', column: 0 });
     expect(result.byId.get('C')).toEqual({ zone: 'todo', column: 0 });
-    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 1, done: 1 });
+    expect(result.widths).toEqual({ queued: 0, todo: 1, running: 1, built: 0, done: 1 });
   });
 
   it('layers inside each zone and widens only that zone', () => {
@@ -43,7 +43,7 @@ describe('assignColumns', () => {
       n('D', 'todo'),
       n('E', 'todo', 'D'),
     ]);
-    expect(result.widths).toEqual({ queued: 0, todo: 2, running: 1, done: 2 });
+    expect(result.widths).toEqual({ queued: 0, todo: 2, running: 1, built: 0, done: 2 });
     expect(result.byId.get('A')?.column).toBe(0);
     expect(result.byId.get('B')?.column).toBe(1);
     expect(result.byId.get('C')?.column).toBe(0);

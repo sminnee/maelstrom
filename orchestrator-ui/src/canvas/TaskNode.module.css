@@ -137,9 +137,10 @@
 .node[data-state='unanswered'] .dot {
   background: var(--unanswered);
 }
-/* Hollow means the work has not started; filled means it is running. Both take
+/* Hollow means the node waits on the operator; filled means it is running. Both take
    the phase hue, so shape alone carries the difference. */
-.node[data-state='ready'] .dot {
+.node[data-state='ready'] .dot,
+.node[data-state='awaiting-merge'] .dot {
   background: transparent;
   box-shadow: inset 0 0 0 2px var(--phase);
 }

@@ -53,6 +53,7 @@ const NODE_STATES = all<NodeState>({
   unanswered: true,
   stopped: true,
   finalising: true,
+  'awaiting-merge': true,
   done: true,
   cancelled: true,
   exited: true,

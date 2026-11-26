@@ -1,7 +1,7 @@
 import { useWorld } from '../api/useWorld';
 import { showsProject } from '../selectors/filters';
 import { ZONES } from '../protocol/progress';
-import { emptyZoneWords, zoneLabel } from '../selectors/deck';
+import { emptyZoneWords, zoneLabel, zoneTabLabel } from '../selectors/deck';
 import { useDeck } from './useDeck';
 import { cardOf } from '../nav/useCard';
 import { toHref, withLoc } from '../nav/location';
@@ -67,9 +67,11 @@ export function DeckList() {
             aria-controls={DECK_PANEL_ID}
             tabIndex={z === zone ? 0 : -1}
             data-zone={z}
+            aria-label={`${zoneLabel(z)} ${deck.counts[z]}`}
+            title={zoneLabel(z)}
             onClick={() => go({ zone: z })}
           >
-            {zoneLabel(z)}
+            {zoneTabLabel(z)}
             <span className={styles.count}>{deck.counts[z]}</span>
           </button>
         ))}

@@ -10,10 +10,10 @@ import {
 } from './entities';
 
 /** Where a node sits in the progression of work. See `Zone` in `CONTEXT.md`. */
-export type Zone = 'queued' | 'todo' | 'running' | 'done';
+export type Zone = 'queued' | 'todo' | 'running' | 'built' | 'done';
 
 /** The zones in board order, leftmost first. */
-export const ZONES = ['queued', 'todo', 'running', 'done'] as const;
+export const ZONES = ['queued', 'todo', 'running', 'built', 'done'] as const;
 
 /** A record with one value per zone, each made by `make`, so no site lists the zones. */
 export function zoneRecord<T>(make: (zone: Zone) => T): Record<Zone, T> {
@@ -30,6 +30,7 @@ export type NodeState =
   | 'unanswered'
   | 'stopped'
   | 'finalising'
+  | 'awaiting-merge'
   | 'done'
   | 'cancelled'
   | 'exited';
@@ -108,8 +109,11 @@ function nodeState(
   if (open) return 'needs-attention';
   // A built task's agent is still about: it watches CI, or does post-merge work.
   if (task && isPastBuild(task) && live) return 'finalising';
-  // Ready is the one waiting state the operator can act on, so it is the one
-  // that gets a hue: queued is waiting on other work, ready is waiting on them.
+  // Awaiting merge: see docs/specs/tasks/CONTEXT.md. A merged task with
+  // post-merge work is past the merge, so it falls through.
+  if (task?.status === 'built') return 'awaiting-merge';
+  // Ready and awaiting-merge wait on the operator, so they get a hue; queued
+  // waits on other work, so it does not.
   if (!agent) return task?.actionable ? 'ready' : 'queued';
   // A stopped agent on a task that is not actionable waits on other work,
   // not on the user: see CONTEXT.md, Parked task.
@@ -147,6 +151,8 @@ function describeState(
       return workingWords(agent, gate);
     case 'finalising':
       return 'Finalising';
+    case 'awaiting-merge':
+      return 'Awaiting merge';
     case 'ready':
       return 'Ready to launch';
     case 'queued':
@@ -270,6 +276,8 @@ function restatesStatus(task: TaskFacts | undefined, state: NodeState): boolean 
   if (!task) return false;
   // The words say what the status cannot while an agent still carries the PR.
   if (state === 'finalising') return false;
+  // "Awaiting merge" says no more than `built`.
+  if (state === 'awaiting-merge') return true;
   return isTerminal(task);
 }
 
@@ -321,7 +329,7 @@ export function driftFixLabel(status: StatusMove): string {
   }
 }
 
-/** Which of the four progress zones a state falls in. See `Zone` in `CONTEXT.md`. */
+/** Which of the five progress zones a state falls in. See `Zone` in `CONTEXT.md`. */
 export function zoneForState(state: NodeState): Zone {
   switch (state) {
     case 'done':
@@ -338,6 +346,8 @@ export function zoneForState(state: NodeState): Zone {
     case 'finalising':
     case 'exited':
       return 'running';
+    case 'awaiting-merge':
+      return 'built';
     case 'ready':
       return 'todo';
     case 'queued':

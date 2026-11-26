@@ -58,10 +58,10 @@ describe('the desk modes', () => {
   it('draws one column per zone in board order, each with its count', async () => {
     await renderApp({ url: ONE_PROJECT });
     const heads = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
-    expect(heads).toEqual(['Queued', 'To do', 'Running', 'Done']);
+    expect(heads).toEqual(['Queued', 'Next', 'Running', 'Built', 'Done']);
     // NORT-20 follows nothing, so it is the one task ready to start.
-    expect(within(column('To do')).getByTestId('zone-count')).toHaveTextContent('1');
-    expect(within(column('To do')).getAllByTestId('deck-row')).toHaveLength(1);
+    expect(within(column('Next')).getByTestId('zone-count')).toHaveTextContent('1');
+    expect(within(column('Next')).getAllByTestId('deck-row')).toHaveLength(1);
     expect(board().queryByRole('group')).not.toBeInTheDocument();
   });
 
@@ -78,17 +78,18 @@ describe('the desk modes', () => {
         .map((h) => h.textContent),
     ).toEqual([
       expect.stringMatching(/^Queued/),
-      expect.stringMatching(/^To do/),
+      expect.stringMatching(/^Next/),
       expect.stringMatching(/^Running/),
+      expect.stringMatching(/^Built/),
       expect.stringMatching(/^Done/),
     ]);
     for (const name of lanes) {
       const zones = within(lane(name!)).getAllByRole('region');
       expect(zones.map((r) => r.getAttribute('aria-label'))).toEqual(
-        ['Queued', 'To do', 'Running', 'Done'].map((zone) => `${zone}, ${name}`),
+        ['Queued', 'Next', 'Running', 'Built', 'Done'].map((zone) => `${zone}, ${name}`),
       );
     }
-    expect(within(cell('northwind', 'To do')).getAllByTestId('deck-row')).toHaveLength(1);
+    expect(within(cell('northwind', 'Next')).getAllByTestId('deck-row')).toHaveLength(1);
   });
 
   it('refuses a drop in another project’s lane: a drop cannot move a task', async () => {

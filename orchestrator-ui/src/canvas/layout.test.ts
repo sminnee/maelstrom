@@ -86,7 +86,7 @@ describe('layoutSwimlanes', () => {
     ];
     const layout = layoutSwimlanes(graphOf(across));
     // C has no predecessor in its own band, so it takes the last column of
-    // the to-do zone, as A does, and the first row.
+    // the Next zone, as A does, and the first row.
     expect(layout.nodes['C']).toEqual(layout.nodes['A']);
     expect(layout.nodes['D']!.y).toBeGreaterThan(layout.nodes['C']!.y);
   });
@@ -155,11 +155,11 @@ describe('layoutSwimlanes', () => {
     expect(layout.nodes['C']!.x).toBeLessThan(layout.nodes['A']!.x);
   });
 
-  it('reports all four zones in board order, with a zero-width empty zone', () => {
+  it('reports all five zones in board order, with a zero-width empty zone', () => {
     const layout = layoutSwimlanes(
       graphOf([doneTask('A', 'p1'), makeTask({ id: 'B', project: 'p1' })]),
     );
-    expect(layout.zones.map((z) => z.zone)).toEqual(['queued', 'todo', 'running', 'done']);
+    expect(layout.zones.map((z) => z.zone)).toEqual(['queued', 'todo', 'running', 'built', 'done']);
     expect(layout.zones.map((z) => z.x)).toEqual(
       [...layout.zones.map((z) => z.x)].sort((a, b) => a - b),
     );

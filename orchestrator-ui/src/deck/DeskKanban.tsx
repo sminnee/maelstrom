@@ -22,7 +22,7 @@ const DRAG_TYPE = 'application/x-mael-node';
 
 /**
  * The desk in kanban mode: one column of cards per zone, in board order. With
- * the deck's lanes, one lane per project crosses the four columns. `dropStatus`
+ * the deck's lanes, one lane per project crosses the five columns. `dropStatus`
  * rules each drop.
  */
 export function DeskKanban() {
