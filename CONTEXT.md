@@ -1253,6 +1253,7 @@ UI: from the new-work form, or from a **Worktree card**, which opens that form o
 branch. A free agent takes its name, branch and lane from the worktree it runs in;
 an agent whose worktree the world has not read yet falls back to its own project and a generic
 name. A free agent has no task list row, so its node is the only place to take it **Off desk**.
+The **Foreman** is the one free agent with no node: the **Foreman pane** shows it.
 _Avoid_: Orphan agent, loose agent, unlinked agent
 
 **Investigation**:
@@ -1262,6 +1263,20 @@ changes code. It can write files under `.drafts/` and show them as documents.
 `shared/investigation-prompt.md` holds its rules. Only that prompt stops it changing code: no
 permission rule backs it.
 _Avoid_: Research agent, read-only agent
+
+**Foreman**:
+The one long-lived **Free agent** that manages work for the user. It reads and changes tasks,
+agents, comms and projects through the `mael` CLI, and changes no code: it makes a task for code
+work. It runs in `auto` mode in `~/.maelstrom/foreman`, a directory in
+no project, and the server knows it by that cwd. `shared/foreman-prompt.md` holds its rules, and,
+as for an investigation, no permission rule backs them. It never joins the desk. One host has one
+foreman.
+_Avoid_: Head agent, concierge, assistant
+
+**Foreman pane**:
+The top bar's pane that holds the **Foreman**'s conversation and message box. With no foreman,
+it holds a Start button. With a foreman that stopped, it holds a Resume button over the
+conversation, so the conversation goes on.
 
 **Canvas**:
 The desk in its graph **Desk mode**: one lane per project, with a **Worktree box** round the nodes of
@@ -1375,22 +1390,22 @@ _Avoid_: Sidebar (for the panel as a whole), drawer, detail pane
 
 **Slot**:
 One of the two places in the body, left and right, that draws a top bar item: the desk, the task
-list, the Comms view, the Projects view or the panel. The wide layout draws both slots. A click on a showing item
+list, the Comms view, the Projects view, the **Foreman pane** or the panel. The wide layout draws both slots. A click on a showing item
 closes its slot, and the other slot takes the full width. The body is never empty: closing the
 last open slot reopens the left slot on its most recent item. The code calls a top bar item a
 pane.
 _Avoid_: Column, region, split (a split inside the panel is a **Split tab**)
 
 **Anchor**:
-The side, left or right, that a top bar item shows on. The four main views start anchored left
-and the panel starts anchored right. A shift-click on the item moves its anchor to the other
+The side, left or right, that a top bar item shows on. The desk, the task list, the Comms view and
+the Projects view start anchored left. The **Foreman pane** and the panel start anchored right. A shift-click on the item moves its anchor to the other
 side. The top bar draws each item in the group of its anchor.
 _Avoid_: Dock, pin
 
 **Medium layout**:
 The layout from 840px to 1599px, except a short touch screen, such as a phone in landscape,
 which is narrow. A main view and the panel do not both fit, so the body has one
-slot and the top bar has one menu of four items. A click shows the item in place of the one in
+slot and the top bar has one menu of six items. A click shows the item in place of the one in
 front. Above it is the wide layout, with two slots; below it is the narrow layout.
 _Avoid_: Tablet layout, laptop layout
 

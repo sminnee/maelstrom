@@ -177,6 +177,11 @@ mael task reconcile         # show the mismatches
 mael task reconcile --fix   # apply the corrections
 ```
 
+To manage work by chat, open the **Foreman** pane in the orchestrator UI. Ask the foreman
+"what waits on me?" or "make a task in maelstrom to …". It runs the same `mael` commands, and
+it turns code work into tasks rather than doing it. See
+[the foreman](concepts.md#the-orchestrator-ui-and-server).
+
 ### How many at once?
 
 The limit is your attention, not the machine. Each agent needs review when it finishes.
