@@ -1,4 +1,4 @@
-import { ZONES, type Zone } from '../protocol/progress';
+import { ZONES, zoneRecord, type Zone } from '../protocol/progress';
 import type { Worktree } from '../protocol/entities';
 import { nodeZone, type Graph } from '../selectors/graph';
 import { assignColumns } from './columns';
@@ -100,11 +100,11 @@ export function layoutSwimlanes(graph: Graph): Layout {
 
   // The board's zone widths, so a boundary sits at the same x in every lane.
   // A zone no lane uses takes no columns and collapses to nothing.
-  const boardWidths: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
+  const boardWidths = zoneRecord(() => 0);
   for (const result of columnsPerGroup.values()) {
     for (const zone of ZONES) boardWidths[zone] = Math.max(boardWidths[zone], result.widths[zone]);
   }
-  const offsets: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
+  const offsets = zoneRecord(() => 0);
   let boardColumns = 0;
   for (const zone of ZONES) {
     offsets[zone] = boardColumns;

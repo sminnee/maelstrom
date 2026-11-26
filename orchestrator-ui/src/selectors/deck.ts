@@ -1,7 +1,6 @@
 import { doneStatuses, type StatusMove } from '../protocol/entities';
-import type { Zone } from '../protocol/progress';
 import { isActionable } from '../protocol/phase';
-import { ZONES, progressOf, zoneForState } from '../protocol/progress';
+import { ZONES, progressOf, zoneForState, zoneRecord, type Zone } from '../protocol/progress';
 import type { WorldView } from './world';
 import type { Filters } from './filters';
 import { deriveGraph, nodeZone, type GraphGroup, type GraphNode } from './graph';
@@ -51,7 +50,7 @@ export interface DeckLane {
  */
 export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   const graph = deriveGraph(world, { filters: opts.filters });
-  const zones: Record<Zone, GraphNode[]> = { queued: [], todo: [], running: [], done: [] };
+  const zones = zoneRecord<GraphNode[]>(() => []);
   for (const node of graph.nodes) zones[nodeZone(node)].push(node);
   for (const zone of ZONES) {
     // A stable sort, so each band keeps `deriveGraph`'s order.
@@ -60,12 +59,7 @@ export function deriveDeck(world: WorldView, opts: DeckOptions): Deck {
   return {
     zones,
     lanes: deriveLanes(graph.groups, zones),
-    counts: {
-      queued: zones.queued.length,
-      todo: zones.todo.length,
-      running: zones.running.length,
-      done: zones.done.length,
-    },
+    counts: zoneRecord((zone) => zones[zone].length),
   };
 }
 
@@ -76,7 +70,7 @@ function deriveLanes(groups: GraphGroup[], zones: Record<Zone, GraphNode[]>): De
     .map((g): DeckLane => ({
       id: g.id,
       label: g.label,
-      zones: { queued: [], todo: [], running: [], done: [] },
+      zones: zoneRecord(() => []),
       count: g.nodeIds.length,
     }));
   if (lanes.length < 2) return [];
