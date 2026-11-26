@@ -246,6 +246,13 @@ The node draws its own state and sits in the running zone, because the work is n
 CI is. It carries no drift mark. When the agent stops, the node of a **Done** task reads Done.
 _Avoid_: Orphan session, lingering session, post-done
 
+**Awaiting merge**:
+A `built` task that no agent works on: no agent, an idle agent, or a cleanly stopped one. Its PR
+is pushed and waits on the user to merge it, so the node sits in the built zone. An open
+attention item or a faulted agent outranks it and keeps the node in the running zone. While
+`watch-pr` still runs, the node is **Finalising** instead.
+_Avoid_: Ready to merge (a PR state), finished, idle
+
 **Reconcile**:
 Reading every in-progress task against the sessions running now, and reporting each drift with
 the status that would correct it. `mael task reconcile` lists the findings; `--fix` applies

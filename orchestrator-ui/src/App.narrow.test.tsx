@@ -72,7 +72,7 @@ describe('the narrow layout', () => {
     expect(deckRows()).toContain('NORT-9.1');
   });
 
-  it('draws the desk as the list in every mode, with four tabs and no mode switch', async () => {
+  it('draws the desk as the list in every mode, with five tabs and no mode switch', async () => {
     const { router } = await renderApp({
       viewport: 'narrow',
       url: '/desk/kanban/task/NORT-12?zone=done',
@@ -86,7 +86,28 @@ describe('the narrow layout', () => {
       'queued',
       'todo',
       'running',
+      'built',
       'done',
+    ]);
+  });
+
+  // Five tabs fit a phone only with short names; a screen reader still hears the full ones.
+  it('shortens two tab names, and keeps each full name as its accessible name', async () => {
+    await renderApp({ viewport: 'narrow', url: '/desk' });
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent?.replace(/\d+$/, ''))).toEqual([
+      'Q',
+      'Next',
+      'Run',
+      'Built',
+      'Done',
+    ]);
+    expect(tabs.map((t) => t.getAttribute('aria-label')?.replace(/ \d+$/, ''))).toEqual([
+      'Queued',
+      'Next',
+      'Running',
+      'Built',
+      'Done',
     ]);
   });
 
@@ -515,8 +536,8 @@ describe('the narrow layout', () => {
       app.server.change({ kind: 'task', ids: ['NORT-9.1'] }, (w) => {
         w.tasks['NORT-9.1'] = { ...w.tasks['NORT-9.1']!, actionable: true };
       });
-      // An actionable task moves to the to-do zone.
-      await userEvent.click(zoneTab(/^To do/));
+      // An actionable task moves to the Next zone.
+      await userEvent.click(zoneTab(/^Next/));
       await waitFor(() => expect(row('NORT-9.1')).toHaveAttribute('data-swipe', 'launch'));
       return app;
     }

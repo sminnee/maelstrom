@@ -222,14 +222,41 @@ const rows: Row[] = [
     fixStatus: 'done',
   },
 
-  // built — the PR is pushed and waits on its merge. The task is not done, so
-  // with no agent it is ready rather than settled; a live agent is finalising.
+  // built — the PR is pushed and waits on its merge. With nothing working on
+  // it, the PR waits on the user; a live agent is finalising.
   {
     status: 'built',
     actionable: true,
     agent: 'none',
-    state: 'ready',
-    words: 'Ready to launch',
+    state: 'awaiting-merge',
+    words: 'Awaiting merge',
+    drift: null,
+    fixStatus: null,
+  },
+  {
+    status: 'built',
+    actionable: true,
+    agent: 'idle',
+    state: 'awaiting-merge',
+    words: 'Awaiting merge',
+    drift: null,
+    fixStatus: null,
+  },
+  {
+    status: 'built',
+    actionable: true,
+    agent: 'finished',
+    state: 'awaiting-merge',
+    words: 'Awaiting merge',
+    drift: null,
+    fixStatus: null,
+  },
+  {
+    status: 'built',
+    actionable: true,
+    agent: 'fault',
+    state: 'exited',
+    words: 'Exited (code 1)',
     drift: null,
     fixStatus: null,
   },
@@ -403,7 +430,15 @@ describe('progressOf', () => {
   it('reads the done flag, not the status: merged with post-merge work is not done', () => {
     const task = makeTask({ status: 'merged', postMerge: 'Check the deploy', actionable: true });
     expect(task.done).toBe(false);
-    expect(progressOf(task, undefined, [], null).state).not.toBe('done');
+    expect(progressOf(task, undefined, [], null).state).toBe('ready');
+  });
+
+  // A CI failure or a question outranks the merge, so the node stays in running.
+  it('reads a built task with an open attention item as needs-attention', () => {
+    const task = makeTask({ status: 'built' });
+    const item = makeAttention({ kind: 'ci_failed', taskId: task.id });
+    expect(progressOf(task, AGENTS.idle, [item], null).state).toBe('needs-attention');
+    expect(progressOf(task, undefined, [item], null).state).toBe('needs-attention');
   });
 
   it('names the wait an awaiting agent is on, when attention is open', () => {
@@ -615,6 +650,7 @@ describe('echoesStatus', () => {
   it.each([
     ['a done task', makeTask({ status: 'merged' }), undefined, true],
     ['a cancelled task', makeTask({ status: 'cancelled' }), undefined, true],
+    ['a built task awaiting merge', makeTask({ status: 'built' }), AGENTS.idle, true],
     ['a queued task', makeTask({ status: 'todo', actionable: false }), undefined, false],
     ['a working agent', makeTask({ status: 'in-progress' }), AGENTS.live, false],
   ] as const)('is %s → %s', (_, task, agent, expected) => {
@@ -660,6 +696,7 @@ describe('zoneForState', () => {
     // A run that stopped without the task being marked done is unfinished
     // work, not history.
     ['exited', 'running'],
+    ['awaiting-merge', 'built'],
     ['ready', 'todo'],
     ['queued', 'queued'],
   ] as const)('%s sits in the %s zone', (state, zone) => {

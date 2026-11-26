@@ -87,17 +87,34 @@ function callRank(node: GraphNode): number {
   return node.progress.state === 'unanswered' ? 1 : 2;
 }
 
-/** What a zone's tab is called. The words the canvas's zone strip uses. */
+/** What a zone is called. The words the kanban heads and the canvas's zone strip use. */
 export function zoneLabel(zone: Zone): string {
   switch (zone) {
     case 'done':
       return 'Done';
+    case 'built':
+      return 'Built';
     case 'running':
       return 'Running';
     case 'queued':
       return 'Queued';
     case 'todo':
-      return 'To do';
+      return 'Next';
+  }
+}
+
+/**
+ * The text of a zone's tab in the list. A phone shows five tabs side by side,
+ * so the two long names are short. The tab keeps `zoneLabel` as its name.
+ */
+export function zoneTabLabel(zone: Zone): string {
+  switch (zone) {
+    case 'queued':
+      return 'Q';
+    case 'running':
+      return 'Run';
+    default:
+      return zoneLabel(zone);
   }
 }
 
@@ -106,6 +123,8 @@ export function emptyZoneWords(zone: Zone): string {
   switch (zone) {
     case 'done':
       return 'Nothing finished yet.';
+    case 'built':
+      return 'No PR waits on you to merge it.';
     case 'running':
       return 'Nothing is running.';
     case 'queued':
@@ -123,6 +142,7 @@ const DROP_STATUS: Record<Zone, StatusMove | null> = {
   queued: null,
   todo: 'todo',
   running: null,
+  built: 'built',
   done: 'done',
 };
 

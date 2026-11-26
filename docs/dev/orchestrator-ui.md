@@ -54,7 +54,7 @@ The ordinary run through them, in order:
 | Node reads | Task status | Agent | Zone |
 |---|---|---|---|
 | Queued | `todo` | none | queued |
-| Ready to launch | `todo`, actionable | none | to do |
+| Ready to launch | `todo`, actionable | none | next |
 | Working | `in-progress` | processing | running |
 | Subagents working | `in-progress` | delegating | running |
 | Background tasks working | `in-progress` | background | running |
@@ -64,12 +64,14 @@ The ordinary run through them, in order:
 | Idle | `in-progress` | idle, with no message | running |
 | Queued | `in-progress`, follows unfinished work | stopped, or none | queued |
 | Finalising | `built`, `merged` or `published` | still running | running |
+| Awaiting merge | `built` | idle, stopped, or none | built |
 | Done | **Done** (the `done` flag) | stopped, or none | done |
 
 `Finalising` is the step people miss. The task-completion flow pushes the PR, closes the task,
 then runs `watch-pr` to take CI green — so a `built` task with a live agent is the normal tail of
 the work, not a disagreement. It stays in the running zone, because the work is not settled
-until CI is, and it moves to the done zone when the agent stops.
+until CI is. When the agent stops, a `built` task reads `Awaiting merge` in the built zone, and a
+Done task moves to the done zone.
 
 Three branches leave that line. `cancelled` reads as itself. A task that is not **Actionable**,
 a **Parked task** included, reads `Queued` in the queued zone (a template reads `Template`), even
@@ -1035,7 +1037,7 @@ Operations also change what the board draws, in `deriveGraph`:
 |---|---|---|
 | Mid-delete | A running `dismiss` | The node it names keeps drawing after its agent stops and its desk entry goes, until the operation ends. Its zone does not move: a stopped agent stays in running. |
 | Mid-create | A running `launch`, `create` or `plan` with a `start_agent` step | The task node draws in the running zone, its final cell, before its agent exists. |
-| Opening node | A `start` or `plan`, running or **Unseen** | A node `op:<operationId>` in the operation's project lane, until its `agentId` or `taskId` names a node that draws. Its zone is running, or to do for a plan that does not launch. |
+| Opening node | A `start` or `plan`, running or **Unseen** | A node `op:<operationId>` in the operation's project lane, until its `agentId` or `taskId` names a node that draws. Its zone is running, or Next for a plan that does not launch. |
 
 The opening node's card shows the operation's words, its step meter and a Log link to the
 **Console**.
@@ -1414,8 +1416,8 @@ A node resolves its worktree from its agent first, then from the open worktree o
 which is what keeps a finished task showing its pull request. `selectors/graph.ts` holds both
 steps.
 
-The canvas draws one hairline lane per project. The board runs left to right in four progress
-zones — queued, to do, running, done — whose boundaries line up across every lane. One strip of labels names
+The canvas draws one hairline lane per project. The board runs left to right in five progress
+zones — queued, next, running, built, done — whose boundaries line up across every lane. One strip of labels names
 them above the board. `canvas/columns.ts` assigns the zone and the column; it is pure, it sees
 one lane at a time. `canvas/rows.ts` packs the rows, also pure and one lane at a time, and
 `canvas/layout.ts` aligns the zones, sets the row gaps and derives the boxes.
@@ -1802,11 +1804,11 @@ project, in the order and with the labels of `deriveGraph`'s groups. With fewer,
 The selector holds that rule; the list and the kanban only read `lanes`. The list draws a sticky
 project subheading above each lane's rows in the open tab.
 
-**The kanban** (`deck/DeskKanban.tsx`) draws the deck's four zones as columns of `DeckRow`s, with
+**The kanban** (`deck/DeskKanban.tsx`) draws the deck's five zones as columns of `DeckRow`s, with
 native HTML5 drag and no library. `dataTransfer` cannot be read during a drag over, so the
 component holds the dragged node itself. `dropStatus` in `selectors/deck.ts` decides each drop.
 With lanes, the board is one grid: the zone heads in a sticky row, then per lane a header and
-four cells. Each cell is a drop target, and it takes only a card of its own lane. The laned board
+five cells. Each cell is a drop target, and it takes only a card of its own lane. The laned board
 scrolls as a whole, so a frame round it holds the drop error in view.
 `shell/Desk.tsx` draws the `DeskModeSwitch`, then the mode. In kanban and list,
 `deck/SlotCard.tsx` draws the open card at the slot's right edge, round `NodeCardBody`.

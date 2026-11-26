@@ -1269,12 +1269,13 @@ the desk, or it has a live agent, so running work is always visible.
 _Avoid_: board
 
 **Zone**:
-One of the four stages of progress the desk lays out left to right: queued, to do, running,
-done. New work is on the left. Queued work waits on other work: it follows unfinished work. A
-**Parked task** is queued too, though an agent ran on it. To-do work is **Actionable** and waits on the operator. A node's zone comes from
+One of the five stages of progress the desk lays out left to right: queued, next, running,
+built, done. New work is on the left. Queued work waits on other work: it follows unfinished work. A
+**Parked task** is queued too, though an agent ran on it. Next work is **Actionable** and waits on the operator.
+Built work is **Awaiting merge**: no agent works on it, and its PR waits on the user. A node's zone comes from
 its state, not from its task status: the running zone means an agent has been launched and the
-task is not finished, so an agent that ran and stopped is still running work rather than
-history. Zone boundaries line up across every lane, so the canvas reads as four vertical
+task is not built yet, so an agent that ran and stopped is still running work rather than
+history. Zone boundaries line up across every lane, so the canvas reads as five vertical
 stripes. A zone is a stage of progress; a lane is one project's strip.
 _Avoid_: Band, column group, stage, phase
 
@@ -1306,15 +1307,15 @@ _Avoid_: Mobile canvas, card list, feed
 How the desk draws its nodes: graph (the **Canvas**), kanban, or list (the **Deck list**). Each
 mode has its own path, such as `/desk/kanban`, and all three use the same zones. Kanban draws
 one column of cards per zone, with no boxes or follows wires. When the drawn nodes come from two
-or more projects, one lane per project crosses the four columns. A drag of a card to another
-column sets the task status that puts the card in that column: To do sets `todo`, Done moves
+or more projects, one lane per project crosses the five columns. A drag of a card to another
+column sets the task status that puts the card in that column: Next sets `todo`, Built sets `built`, Done moves
 the task to its **Done** status. Only follows make a task wait, so the Queued column takes no drop. A drop never launches,
 so the Running column takes no drop. A drop
 stays in the card's own lane: it cannot move a task to another project.
 _Avoid_: Desk view, layout (a layout is narrow, medium or wide)
 
 **Swipe action**:
-A deck row's left swipe. A to-do row swipes to Launch. A row in the done,
+A deck row's left swipe. A row in the Next zone swipes to Launch. A row in the done,
 cancelled, stopped or exited state swipes to **Dismiss**, which runs the same chain as the node
 card's Dismiss. Other rows have no swipe action. `orchestrator-ui/DESIGN.md`, "The Swipe Reveal
 Rule", gives the threshold.

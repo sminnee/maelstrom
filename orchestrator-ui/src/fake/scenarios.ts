@@ -120,6 +120,16 @@ const NODES: NodeSpec[] = [
     worktree: { prState: 'ci-running' },
   },
   {
+    title: 'Awaiting merge',
+    task: { status: 'built' },
+    agent: {
+      state: 'idle',
+      lastMessage: 'The PR is pushed and CI is green.',
+      lastMessageAt: T(12),
+    },
+    worktree: { prState: 'ready' },
+  },
+  {
     title: 'Done',
     task: { status: 'merged' },
     worktree: { prState: 'merged', prMergedAt: T(600) },

@@ -532,7 +532,7 @@ describe('operations on the board', () => {
       { 'op:op1': 'running' },
     ],
     [
-      'a plan that does not launch draws one in the to-do zone',
+      'a plan that does not launch draws one in the next zone',
       op({ id: 'op1', kind: 'plan', steps: steps('read_issue', 'name_task', 'write_task') }),
       { 'op:op1': 'todo' },
     ],

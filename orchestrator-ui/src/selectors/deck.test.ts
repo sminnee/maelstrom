@@ -44,7 +44,13 @@ describe('deriveDeck', () => {
         makeTask({ id: 'T3', status: 'merged' }),
       ],
     });
-    expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 2, running: 0, done: 1 });
+    expect(deriveDeck(world, opts).counts).toEqual({
+      queued: 0,
+      todo: 2,
+      running: 0,
+      built: 0,
+      done: 1,
+    });
   });
 
   it('puts the nodes needing the user first in their zone, then the unanswered ones', () => {
@@ -70,7 +76,13 @@ describe('deriveDeck', () => {
       // A task the desk does not hold is not drawn, exactly as on the canvas.
       desk: [],
     });
-    expect(deriveDeck(world, opts).counts).toEqual({ queued: 0, todo: 0, running: 0, done: 0 });
+    expect(deriveDeck(world, opts).counts).toEqual({
+      queued: 0,
+      todo: 0,
+      running: 0,
+      built: 0,
+      done: 0,
+    });
   });
 });
 
@@ -100,13 +112,13 @@ describe('deriveDeck lanes', () => {
         id: 'aurora',
         label: 'Aurora',
         count: 1,
-        zones: { queued: [], todo: [], running: [], done: ['A1'] },
+        zones: { queued: [], todo: [], running: [], built: [], done: ['A1'] },
       },
       {
         id: 'northwind',
         label: 'Northwind',
         count: 2,
-        zones: { queued: [], todo: ['N1'], running: [], done: ['N2'] },
+        zones: { queued: [], todo: ['N1'], running: [], built: [], done: ['N2'] },
       },
     ]);
   });
@@ -200,7 +212,7 @@ describe('dropStatus', () => {
       null,
     ],
     [
-      'a parked task whose follows are not done would stay queued, so To do refuses it',
+      'a parked task whose follows are not done would stay queued, so Next refuses it',
       { tasks: [head('in-progress'), parked] },
       'T2',
       'todo',
@@ -214,7 +226,24 @@ describe('dropStatus', () => {
       null,
     ],
     [
-      'a task with a live agent stays running, so To do refuses it',
+      'an in-progress task with no agent dropped on Built becomes built',
+      { tasks: [makeTask({ id: 'T8', status: 'in-progress' })] },
+      'T8',
+      'built',
+      'built',
+    ],
+    [
+      'a task with a live agent would be finalising, so Built refuses it',
+      {
+        tasks: [makeTask({ id: 'T9', status: 'in-progress' })],
+        agents: [makeAgent({ taskId: 'T9', state: 'processing' })],
+      },
+      'T9',
+      'built',
+      null,
+    ],
+    [
+      'a task with a live agent stays running, so Next refuses it',
       {
         tasks: [makeTask({ id: 'T4', status: 'in-progress' })],
         agents: [makeAgent({ taskId: 'T4', state: 'processing' })],
