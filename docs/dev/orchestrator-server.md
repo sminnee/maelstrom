@@ -2207,6 +2207,7 @@ check being missing, both answer 400 `invalid`.
 | `PUT /api/tasks/{project}/{id}/pr` | `{number, url}` | `task.registerPr` | `{}`. A delegated agent's `gh-pr` link, from its remote host |
 | `DELETE /api/tasks/{project}/{id}/pr` | `{number}`, optional: the newest PR without it | `task.withdrawPr` | `{}` |
 | `POST /api/tasks/{project}/{id}/sessions` | `{sessionId}` | `task.addSession` | `{}`. A delegated agent's session after a `/clear`, from its remote host |
+| `PUT /api/tasks/{project}/{id}/session-logs/{session}` | a tar of `<session>.jsonl` and `<session>/` | — | `{stored: true}`. A **Remote host**'s `store_session_log`. A key that is not the task's **Delegate key** is `forbidden`. A session not on the task, or not the key's agent's session, is `unknown_id`. A tar with other files, or a body over 256 MiB, is `invalid`. A server that keeps no session logs is `not_implemented` |
 | `POST /api/comms` | `{title, content?, recipients?}` | `comm.create` | `{id, codename}` |
 | `PATCH /api/comms/{id}` | any of `{title, content, recipients, category, project, codename, closed}` | `comm.update` | `{}` |
 | `POST /api/comms/updates` | `{}` | `comm.draftUpdates` | `{ids}`, the updates written |

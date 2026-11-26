@@ -52,6 +52,7 @@ from mael_domain.protocol import (
     Worktree,
 )
 from mael_domain.session_discovery import LiveSessionSet
+from mael_domain.session_logs import SessionLogArchive, SessionRef
 from mael_domain.ssh_target import SshTarget
 from mael_domain.task_attachments import (
     InMemoryTaskAttachmentTable,
@@ -382,6 +383,12 @@ class TaskSource(Protocol):
         Raises:
             KeyError: If no task has ``task_id``.
         """
+        ...
+
+    async def store_session_log(
+        self, task_id: str, session: SessionRef, logs: SessionLogArchive
+    ) -> None:
+        """Copy ``session``'s files into ``logs``, as its **Task session log**."""
         ...
 
     async def withdraw_pr(self, task_id: str, number: int | None = None) -> None:
@@ -841,6 +848,13 @@ class NotebookTaskSource:
         project, notebook_id = split_task_key(task_id)
         await model.withdraw_pr(self.table, project, notebook_id, number)
 
+    async def store_session_log(
+        self, task_id: str, session: SessionRef, logs: SessionLogArchive
+    ) -> None:
+        """Copy ``session``'s files into ``logs``: the task is in this notebook."""
+        project, notebook_id = split_task_key(task_id)
+        await asyncio.to_thread(logs.archive, project, notebook_id, [session])
+
     async def store_document(
         self, presented: Presented, *, replay: bool, verdict: bool, now: str
     ) -> "StoredDocument | None | NeedsBody":
@@ -1015,6 +1029,15 @@ class TaskHome(Protocol):
 
     async def create(self, project: str, fields: dict[str, Any]) -> str: ...
 
+    async def store_session_log(
+        self, task_id: str, session: SessionRef, logs: SessionLogArchive
+    ) -> None:
+        """Store ``session``'s files, read through ``logs``, as its log on the task's server.
+
+        See ``docs/specs/tasks/CONTEXT.md``, "Task session log".
+        """
+        ...
+
     async def store_document(
         self, presented: Presented, *, replay: bool, verdict: bool, now: str
     ) -> "StoredDocument | None | NeedsBody":
@@ -1054,6 +1077,9 @@ PARENT_CALL_SECS = 30.0
 #: holds the agent's stream while it runs, so a parent that hangs must not
 #: hold it for long.
 DOCUMENT_CALL_SECS = 5.0
+#: How long one session log push to a parent may take. A log with its tool
+#: results can be tens of MB, and the push runs in the background.
+SESSION_LOG_CALL_SECS = 300.0
 
 
 class ParentSession:
@@ -1101,18 +1127,25 @@ class RemoteTaskSource:
         body: dict[str, Any] | None = None,
         *,
         timeout: float = PARENT_CALL_SECS,
+        data: bytes | None = None,
     ) -> dict[str, Any] | None:
         """The parent's JSON reply; ``None`` for a ``404``.
+
+        ``data`` is sent as a raw tar in place of a JSON ``body``.
 
         Raises:
             TaskSourceRemote: When the parent cannot be reached or refuses.
         """
+        headers = {"Authorization": f"Bearer {self.key}"} if self.key else {}
+        if data is not None:
+            headers["Content-Type"] = "application/x-tar"
         try:
             async with self.session().request(
                 method,
                 f"{self.base_url}{path}",
-                json=body,
-                headers={"Authorization": f"Bearer {self.key}"} if self.key else None,
+                json=body if data is None else None,
+                data=data,
+                headers=headers or None,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as response:
                 reply = await response.json()
@@ -1177,6 +1210,23 @@ class RemoteTaskSource:
         project, notebook_id = split_task_key(task_id)
         path = f"/api/tasks/{project}/{notebook_id}/sessions"
         if await self._call("POST", path, {"sessionId": session_id}) is None:
+            raise KeyError(task_id)
+
+    async def store_session_log(
+        self, task_id: str, session: SessionRef, logs: SessionLogArchive
+    ) -> None:
+        """Push ``session``'s files to the parent, which stores them as its log.
+
+        Raises:
+            KeyError: The parent has no such task, or the session is not on it.
+        """
+        data = await asyncio.to_thread(logs.pack, session)
+        if data is None:
+            return
+        project, notebook_id = split_task_key(task_id)
+        path = f"/api/tasks/{project}/{notebook_id}/session-logs/{session.id}"
+        reply = await self._call("PUT", path, timeout=SESSION_LOG_CALL_SECS, data=data)
+        if reply is None:
             raise KeyError(task_id)
 
     async def store_document(

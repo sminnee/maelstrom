@@ -161,6 +161,7 @@ from mael_domain.protocol import (
     World,
     group_members,
 )
+from mael_domain.session_logs import SessionLogArchive, SessionRef
 from mael_domain.shared_dir import (
     agent_prompt_file,
     core_plugin_dir,
@@ -294,6 +295,9 @@ TASK_POLL_SECS = 2.0
 WORKTREE_POLL_SECS = 60.0
 #: How often the agent host's ``list`` is reconciled against the world.
 AGENT_POLL_SECS = 2.0
+#: How often the sweep archives every task's session logs. Claude deletes a
+#: session file after 30 days, so once a day is well inside it.
+SESSION_LOG_SWEEP_SECS = 24 * 60 * 60.0
 #: The first wait before a failed gate watch starts again. It doubles on each
 #: failure in a row, up to ``GATE_BACKOFF_MAX_SECS``.
 GATE_BACKOFF_SECS = 5.0
@@ -737,8 +741,18 @@ class Orchestrator:
         own_name: str = "",
         audit: AuditLog | None = None,
         delegate_keys: AuthStore | None = None,
+        session_logs: SessionLogArchive | None = None,
+        session_log_sweep: float = SESSION_LOG_SWEEP_SECS,
     ) -> None:
         self.tasks = tasks
+        #: The archive of Task session logs. ``None`` archives nothing. See
+        #: ``docs/specs/tasks/CONTEXT.md``, "Task session log".
+        self.session_logs = session_logs
+        self._session_log_sweep = session_log_sweep
+        #: Per session of a **Delegated agent**, the source signature its last
+        #: push to the **Task home** carried. The sweep pushes a session again
+        #: only when its signature changed.
+        self._logs_pushed: dict[str, tuple[int, int]] = {}
         #: Where each **Delegate key** this server mints is kept. ``None``
         #: mints none: a delegated agent's calls then carry no key.
         self.delegate_keys = delegate_keys
@@ -1021,6 +1035,8 @@ class Orchestrator:
             self._remote_flipped()
         if self._read_machine is not None:
             self._pollers.append(asyncio.create_task(self._sample_metrics()))
+        if self.session_logs is not None:
+            self._pollers.append(asyncio.create_task(self._sweep_session_logs()))
 
     async def stop(self) -> None:
         # First: a shielded PR read outlives its cancelled caller, and must not
@@ -3287,6 +3303,12 @@ class Orchestrator:
         # poll loop run concurrently: closing the ledger before the flip would
         # let two of them through and write the closing row twice.
         await self._close_ledger(agent_id, totals)
+        if self.session_logs is not None and agent["taskId"]:
+            # In the background: a copy of a large log, or a parent that does
+            # not answer, must not hold the poll or the stream.
+            archive = asyncio.create_task(self._archive_agent(agent))
+            self._exit_syncs.add(archive)
+            archive.add_done_callback(self._exit_syncs.discard)
         if left:
             # In the background: a parent that does not answer must not hold
             # the poll or the stream that saw the exit.
@@ -3295,6 +3317,117 @@ class Orchestrator:
             sync.add_done_callback(self._exit_syncs.discard)
         if watch and watch.task and not from_stream:
             watch.task.cancel()
+
+    # -- session logs --
+
+    async def _sweep_session_logs(self) -> None:
+        """Archive the session logs of every task, at start and then once each period.
+
+        The exit archives most sessions. The sweep catches the rest: a server
+        restart, an agent that ran with no server, a session resumed and ended
+        in the TUI.
+        """
+        while True:
+            try:
+                await self.archive_all_session_logs()
+            except Exception:  # noqa: BLE001 — the sweep must outlive one bad pass
+                log.exception("the session log sweep failed")
+            await asyncio.sleep(self._session_log_sweep)
+
+    async def archive_all_session_logs(self) -> None:
+        """One pass of the sweep: each task's sessions, then each delegated agent's push."""
+        for task in list(self.world["tasks"].values()):
+            await self._archive_task_logs(task["id"])
+        for agent in list(self.world["agents"].values()):
+            if self._delegated(agent):
+                await self._push_session_log(agent, only_if_changed=True)
+
+    async def _archive_agent(self, agent: Agent) -> None:
+        """Archive the sessions of the task of an agent that exited."""
+        try:
+            if self._delegated(agent):
+                await self._push_session_log(agent, only_if_changed=False)
+            else:
+                await self._archive_task_logs(agent["taskId"])
+        except Exception:  # noqa: BLE001 — no agent is left to tell; the sweep retries
+            log.exception("archiving the session logs of %s failed", agent["id"])
+
+    async def _archive_task_logs(self, task_id: str) -> None:
+        """Copy each session of this server's task ``task_id`` whose copy is not current."""
+        task = self.world["tasks"].get(task_id)
+        if self.session_logs is None or task is None:
+            return
+        home = self.homes.for_parent("")
+        for entry in task["sessions"]:
+            session = SessionRef(entry["id"], entry["harness"])
+            await home.store_session_log(task_id, session, self.session_logs)
+
+    async def _push_session_log(self, agent: Agent, *, only_if_changed: bool) -> None:
+        """Send a **Delegated agent**'s session log to its **Task home**.
+
+        A parent that does not answer is tried again at the next sweep. A
+        refusal is final for that source: the sweep sends it again only after the
+        source changes. A refusal comes once the **Delegate key** is revoked, so
+        a log not pushed by then stays on this host.
+        """
+        logs, session_id = self.session_logs, agent["session"]
+        if logs is None or not session_id or not agent["taskId"]:
+            return
+        session = SessionRef(session_id, agent["harness"])
+        signature = await asyncio.to_thread(logs.signature, session)
+        if signature is None:
+            return
+        if only_if_changed and self._logs_pushed.get(session_id) == signature:
+            return
+        try:
+            await self._home(agent).store_session_log(agent["taskId"], session, logs)
+        except TaskSourceRemote as exc:
+            log.warning(
+                "agent %s: session log %s not pushed: %s", agent["id"], session_id, exc
+            )
+            return
+        except (KeyError, ValueError) as exc:
+            log.warning(
+                "agent %s: the parent refused session log %s of task %s: %s",
+                agent["id"],
+                session_id,
+                agent["taskId"],
+                exc,
+            )
+        self._logs_pushed[session_id] = signature
+
+    async def store_session_log(
+        self, task_id: str, session_id: str, data: bytes | bytearray, *, agent_id: str
+    ) -> None:
+        """Store a session log a **Remote host** pushed, as ``session_id``'s on ``task_id``.
+
+        ``agent_id`` is the agent the push's **Delegate key** names. Only that
+        agent's own session is taken, so one key cannot overwrite the log of
+        another session on the task.
+
+        Raises:
+            KeyError: No such task, the session is not on it, or it is not
+                ``agent_id``'s session.
+            BadSessionPack: ``data`` is not a pack of that session.
+        """
+        task = self.world["tasks"].get(task_id)
+        agent = self.world["agents"].get(agent_id)
+        if (
+            task is None
+            or session_id not in {s["id"] for s in task["sessions"]}
+            or agent is None
+            or agent["session"] != session_id
+        ):
+            raise KeyError(session_id)
+        if self.session_logs is None:
+            raise NotImplementedError("this server keeps no session logs")
+        await asyncio.to_thread(
+            self.session_logs.store_pack,
+            task["project"],
+            task["notebookId"],
+            session_id,
+            data,
+        )
 
     # -- commands --
 

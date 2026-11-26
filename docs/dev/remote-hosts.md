@@ -84,7 +84,7 @@ The remote host adds `MAEL_PARENT_URL` to the agent's env. The spec's `env` come
 parent's `plan_launch`, and already holds `MAEL_TASK_ID`, `MAEL_TASK_PARENT` and
 `MAEL_TASK_PROJECT`.
 
-On the remote host, a delegated agent differs from a direct agent in three ways:
+On the remote host, a delegated agent differs from a direct agent in these ways:
 
 - Its `taskId` comes from its record, not from the session join.
 - It does not join the remote host's desk, and the remote host's PR watch does not follow it.
@@ -92,6 +92,14 @@ On the remote host, a delegated agent differs from a direct agent in three ways:
 - Its documents are stored on the parent, through `store_document`. The remote host reads the
   files, and the parent writes its own store. A media ref becomes "could not be shown" prose: no
   media file crosses hosts yet.
+- Its **Task session log** is stored on the parent, through `store_session_log`. The remote
+  host packs the session's files as a tar and pushes it when the agent exits. Its daily sweep
+  pushes each delegated session whose source changed since its last push. The remote host keeps
+  that record in memory, so after a restart it pushes each session once more.
+- Only the launch's **Delegate key** may push a session log, and only for its own agent's
+  session. A parent that does not answer gets the push at the next sweep. A refusal is final
+  until the source changes. Once the key is revoked, a log not yet pushed stays on the remote
+  host.
 
 ## The task seam and `TaskHomes`
 
@@ -110,6 +118,7 @@ The calls the server makes for one agent go through a narrow `TaskHome` protocol
 | `add_session` | `_follow_session`, after a `/clear` | `POST /api/tasks/{project}/{id}/sessions` |
 | `create` | the reopen task of a Shelve | `POST /api/tasks` |
 | `store_document` | `_store_document` | `POST /api/tasks/{project}/{id}/documents/presented` |
+| `store_session_log` | the agent exit, the session log sweep | `PUT /api/tasks/{project}/{id}/session-logs/{session}` |
 
 `NotebookTaskSource` and `RemoteTaskSource` both satisfy `TaskHome`.
 `TaskHomes.for_parent(parent_url)` chooses one. An empty URL gives the local Task tracker. Any other
