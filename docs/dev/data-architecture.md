@@ -127,6 +127,13 @@ A **Task document** is canonical too. Its versions in `task_attachment_versions`
 no source can rebuild them once the worktree that held the file is closed. Its media are files in the
 task's **Bucket**, in the **Attachments directory**.
 
+A **Task session log** is canonical too, but it is a file, not a row. The server copies each
+session's harness files to `<notebook root>/session-logs/<project>/<task id>/` when the task's
+agent exits. A sweep at start, and then once each day, copies each session the exit missed. The
+harness deletes its own copy after 30 days, so no source can rebuild the log after that. The
+task's session list is the index, so no table records the logs. See
+`lib/domain/src/mael_domain/session_logs.py`.
+
 The `wiki_pages` table is canonical too. A row is one **Wiki** page: its page id and its whole
 markdown body. Only `mael wiki` reads it, so a write to it is not news for a client.
 

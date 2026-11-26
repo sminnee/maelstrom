@@ -217,6 +217,12 @@ by any of its ids, and an agent row reports one. Use the task session id to answ
 is this?".
 _Avoid_: Session id (for this concept)
 
+**Task session log**:
+The archived copy of one of a task's sessions: the harness's whole session file and its
+directory, kept raw. A reader of the log decides what in it is pertinent. A **Delegated
+agent**'s log is stored on its **Task home**.
+_Avoid_: Transcript (for this concept), intervention log
+
 **New session**:
 A launch of a task on a new **Task session id**, in place of a resume of the current one. The
 prompt names the earlier session ids, oldest first. A new session can reopen a done task. The
