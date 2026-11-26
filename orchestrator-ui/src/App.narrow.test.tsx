@@ -214,9 +214,12 @@ describe('the narrow layout', () => {
 
   it('links each row to its card', async () => {
     await renderApp({ viewport: 'narrow' });
-    expect(screen.getByRole('link', { name: /Migrate to Postgres 16/ })).toHaveAttribute(
-      'href',
-      '/desk/list/task/NORT-9',
+    // The narrow layout replaces the graph path with the list path after the first render.
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Migrate to Postgres 16/ })).toHaveAttribute(
+        'href',
+        '/desk/list/task/NORT-9',
+      ),
     );
   });
 
