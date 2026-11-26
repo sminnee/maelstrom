@@ -165,6 +165,8 @@ from mael_domain.session_logs import SessionLog, SessionLogArchive, SessionRef
 from mael_domain.shared_dir import (
     agent_prompt_file,
     core_plugin_dir,
+    foreman_dir,
+    foreman_prompt_file,
     investigation_prompt_file,
 )
 from mael_domain.ssh_target import SshTarget
@@ -272,6 +274,7 @@ from .world_build import (
     document_entity,
     gate_job_entity,
     host_usage,
+    is_foreman_row,
     link_agent,
     linked_tasks,
     merge_request_entity,
@@ -545,6 +548,8 @@ LAUNCH_STEPS = ("open_worktree", "write_env", "start_agent")
 #: The step of a launch on a **Remote host**: the host runs the open, the
 #: ``.env`` and the start as its own operation.
 REMOTE_LAUNCH_STEPS = ("start_on_host",)
+#: The **Foreman**'s first turn on a new start, so its pane opens on a reply.
+FOREMAN_FIRST_TURN = "Introduce yourself in one line, then list the tasks and agents that wait on the user."
 
 
 def launch_step_names(host: str) -> tuple[str, ...]:
@@ -1705,7 +1710,8 @@ class Orchestrator:
         await self._set_desk(self._pruned(stored))
 
     async def _restore_ended_agents(self) -> None:
-        """Put each ended agent of a task back in the world, as ``exited``.
+        """Put each ended agent of a task, and the newest ended **Foreman**, back
+        in the world, as ``exited``.
 
         A record has no subagents, so none come back. See
         ``docs/dev/orchestrator-server.md``, "Agents".
@@ -1718,12 +1724,19 @@ class Orchestrator:
             for entry in task["sessions"]
         }
         entities: list[Agent] = []
+        foreman: tuple[str, dict[str, Any]] | None = None
         for record in await self.agent_records.list():
             if record.get("status") != AGENT_ENDED or not record.get("id"):
                 continue
             if record["id"] in self.world["agents"]:
                 continue
             row = ended_agent_row(record)
+            if is_foreman_row(row):
+                # Only the newest: a start resumes it, and an older one is history.
+                ended = str(record.get("ended_at") or "")
+                if foreman is None or ended > foreman[0]:
+                    foreman = (ended, row)
+                continue
             if row.get(PARENT_KEY):
                 # A resume and a shelve of an ended agent still call its parent.
                 self._parent_keys[record["id"]] = str(row[PARENT_KEY])
@@ -1740,6 +1753,10 @@ class Orchestrator:
                     project=link.project,
                     worktree_id=link.worktree_id,
                 )
+            )
+        if foreman is not None and self._foreman() is None:
+            entities.append(
+                agent_entity(foreman[1], task_id="", project="", worktree_id="")
             )
         self._apply(
             [{"type": "upsert", "kind": "agent", "entity": e} for e in entities]
@@ -1817,6 +1834,8 @@ class Orchestrator:
             return
         if self._delegated(agent):
             # Its task is on its parent, whose desk shows it.
+            return
+        if agent.get("foreman"):
             return
         task_id = agent["taskId"]
         desk_id = desk_id_for_task(task_id) if task_id else desk_id_for_agent(agent_id)
@@ -3498,6 +3517,7 @@ class Orchestrator:
             "comm.updateUpdate": self._update_comm_update,
             "linear.plan": self._operate,
             "agent.start": self._operate,
+            "foreman.start": self._start_foreman,
             "project.add": self._operate,
             "document.approve": self._approve_document,
             "document.requestChanges": self._request_changes,
@@ -4721,6 +4741,8 @@ class Orchestrator:
             return self._linear_plan(command)
         if kind == "agent.start":
             return self._start_plan(command)
+        if kind == "foreman.start":
+            return self._foreman_plan()
         if kind == "project.add":
             return self._add_project_plan(command)
         return self._worktree_plan(command)
@@ -5353,6 +5375,69 @@ class Orchestrator:
             project=project,
             steps=(() if typed else ("name_branch",)) + LAUNCH_STEPS,
             replay=frozenset(LAUNCH_STEPS),
+        )
+
+    def _foreman(self) -> Agent | None:
+        """The **Foreman**: the live one, else the newest that has exited, else ``None``.
+
+        A **Remote host**'s foreman is that host's, so only this server's own count.
+        """
+        foremen = [
+            a
+            for a in self.world["agents"].values()
+            # ``get``: a remote host on an older build sends no ``foreman`` key.
+            if a.get("foreman") and self.ids.is_own(a["id"])
+        ]
+        live = [a for a in foremen if _is_live(a)]
+        return max(live or foremen, key=lambda a: a["startedAt"], default=None)
+
+    async def _start_foreman(self, command: dict[str, Any]) -> dict[str, Any]:
+        """Start the **Foreman**, resume the one that exited, or name the live one."""
+        # Also rewrites the joined file, so a resume reads the current rules.
+        if foreman_prompt_file() is None:
+            return _refused("invalid", "The foreman rules are missing")
+        foreman = self._foreman()
+        if foreman is None:
+            return await self._operate(command)
+        if _is_live(foreman):
+            return {"ok": True, "result": {"agentId": foreman["id"]}}
+        return await self._operate({"type": "agent.resume", "agentId": foreman["id"]})
+
+    def _foreman_plan(self) -> OperationPlan | dict[str, Any]:
+        """Start a new **Foreman** in its directory, as an operation of one step."""
+        # A retry of the operation comes here without ``_start_foreman``.
+        prompt_file = foreman_prompt_file()
+        if prompt_file is None:
+            return _refused("invalid", "The foreman rules are missing")
+
+        async def start_agent(hook: OperationHook) -> StepOutcome:
+            cwd = foreman_dir()
+            cwd.mkdir(parents=True, exist_ok=True)
+            spec = {"prompt": FOREMAN_FIRST_TURN, "mode": "auto"}
+            payload = self._start_payload(spec, cwd, prompt_file)
+            reply = await self.daemon.request(payload)
+            agent_id = reply.get("id") if "error" not in reply else None
+            if not agent_id:
+                return StepOutcome(
+                    blocked=reply.get("error") or "agent host sent no agent id"
+                )
+            hook.target(agent_id=agent_id)
+            await self._adopt(_started_row(agent_id, payload))
+            return StepOutcome(messages=[f"Started {agent_id}."])
+
+        async def work(hook: OperationHook) -> None:
+            step = Step(name="start_agent", run=functools.partial(start_agent, hook))
+            await _run_own_steps([step], hook)
+
+        return OperationPlan(
+            "start",
+            frozenset({"foreman"}),
+            "Starting the foreman",
+            "Started the foreman",
+            "Could not start the foreman",
+            work,
+            self.refresh_agents,
+            steps=("start_agent",),
         )
 
     def _agent_plan(self, command: dict[str, Any]) -> OperationPlan:

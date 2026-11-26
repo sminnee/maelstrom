@@ -44,6 +44,7 @@ from mael_domain.protocol import (
     WorktreeGate,
     WorktreeMergeRequest,
 )
+from mael_domain.shared_dir import foreman_dir
 from mael_domain.task_attachments import Link, TaskAttachment, Version
 from mael_domain.worktree_model import get_worktree_folder_name
 
@@ -330,7 +331,16 @@ def agent_entity(
         "harness": row.get("harness") or HARNESS_CLAUDE,
         "host": owner_of(str(row["id"])),
         "parentUrl": row.get("parentUrl") or "",
+        "foreman": is_foreman_row(row),
     }
+
+
+def is_foreman_row(row: dict[str, Any]) -> bool:
+    """Whether a host row is the **Foreman**'s: top-level, in the foreman directory.
+
+    A subagent shares its parent's cwd, so it is never the foreman.
+    """
+    return not row.get("parent") and row.get("cwd") == str(foreman_dir())
 
 
 class RowTotals(TypedDict):

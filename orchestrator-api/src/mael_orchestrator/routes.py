@@ -198,6 +198,7 @@ def build_app(
         "/api/tasks/{project}/{id}/merge-request/retry", _retry_merge_request
     )
     app.router.add_post("/api/agents", _start_free_agent)
+    app.router.add_post("/api/foreman", _start_foreman)
     app.router.add_post("/api/worktrees/refresh", _refresh_worktrees)
     app.router.add_post("/api/worktrees/{id}/close", _close_worktree)
     app.router.add_post("/api/worktrees/{id}/force-close", _force_close_worktree)
@@ -1461,6 +1462,15 @@ async def _start_free_agent(request: web.Request) -> web.StreamResponse:
     """
     return await _command(
         request, lambda body: {**body, "type": "agent.start"}, status=202
+    )
+
+
+async def _start_foreman(request: web.Request) -> web.StreamResponse:
+    """Start the **Foreman**, or resume it. ``200`` with its ``agentId`` when one is live."""
+    return await _command(
+        request,
+        lambda body: {"type": "foreman.start"},
+        status=lambda result: 202 if "operationId" in result else 200,
     )
 
 
