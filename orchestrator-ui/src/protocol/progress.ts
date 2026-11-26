@@ -15,6 +15,11 @@ export type Zone = 'queued' | 'todo' | 'running' | 'done';
 /** The zones in board order, leftmost first. */
 export const ZONES = ['queued', 'todo', 'running', 'done'] as const;
 
+/** A record with one value per zone, each made by `make`, so no site lists the zones. */
+export function zoneRecord<T>(make: (zone: Zone) => T): Record<Zone, T> {
+  return Object.fromEntries(ZONES.map((zone) => [zone, make(zone)])) as Record<Zone, T>;
+}
+
 /** How a node draws: the state axis, orthogonal to phase. */
 export type NodeState =
   | 'queued'

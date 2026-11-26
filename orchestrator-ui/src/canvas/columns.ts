@@ -1,4 +1,4 @@
-import type { Zone } from '../protocol/progress';
+import { zoneRecord, type Zone } from '../protocol/progress';
 
 /** One node as the engine sees it: an id, a zone, and what it follows. */
 export interface ColumnInput {
@@ -49,7 +49,7 @@ export function assignColumns(nodes: readonly ColumnInput[]): ColumnResult {
   );
 
   const byId = new Map<string, { zone: Zone; column: number }>();
-  const widths: Record<Zone, number> = { queued: 0, todo: 0, running: 0, done: 0 };
+  const widths = zoneRecord(() => 0);
   for (const node of nodes) {
     const column = depth.get(node.id) ?? 0;
     byId.set(node.id, { zone: node.zone, column });

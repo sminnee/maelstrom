@@ -1,16 +1,9 @@
 import type { NodeProps, Node } from '@xyflow/react';
+import { zoneLabel } from '../selectors/deck';
 import type { ZoneBand } from './layout';
 import styles from './ZonesNode.module.css';
 
 export type ZonesFlowNode = Node<{ zones: ZoneBand[] }, 'zones'>;
-
-/** What each zone is called, in the operator's words. */
-const ZONE_LABELS = {
-  queued: 'Queued',
-  todo: 'To do',
-  running: 'Running',
-  done: 'Done',
-} as const;
 
 /**
  * One strip of zone labels for the whole board, above every lane. A node
@@ -31,7 +24,7 @@ export function ZonesNode({ data }: NodeProps<ZonesFlowNode>) {
             data-zone={band.zone}
             style={{ left: `${band.x}px`, width: `${band.width}px` }}
           >
-            {ZONE_LABELS[band.zone]}
+            {zoneLabel(band.zone)}
           </span>
         ))}
     </div>
