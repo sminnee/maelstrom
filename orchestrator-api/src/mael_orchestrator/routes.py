@@ -179,6 +179,7 @@ def build_app(
     app.router.add_put("/api/tasks/{project}/{id}/pr", _register_pr)
     app.router.add_delete("/api/tasks/{project}/{id}/pr", _withdraw_pr)
     app.router.add_post("/api/tasks/{project}/{id}/sessions", _add_session)
+    app.router.add_get("/api/tasks/{project}/{id}/session-logs", _session_logs)
     app.router.add_put(
         "/api/tasks/{project}/{id}/session-logs/{session}", _store_session_log
     )
@@ -1312,6 +1313,16 @@ async def _add_session(request: web.Request) -> web.StreamResponse:
 #: The largest session log a **Remote host** may push: 256 MiB. The push is
 #: held in memory while it is stored, so this bounds what one push holds.
 SESSION_LOG_MAX_BYTES = 256 * 1024 * 1024
+
+
+async def _session_logs(request: web.Request) -> web.Response:
+    """``{sessionLogs}``: one entry per session on the task, oldest first."""
+    orch = await _ready_with_tasks(request)
+    task_id = _task_id(request)
+    logs = await orch.session_log_list(task_id)
+    if logs is None:
+        return error_response("unknown_id", f"No task {task_id}")
+    return web.json_response({"sessionLogs": logs})
 
 
 async def _store_session_log(request: web.Request) -> web.Response:

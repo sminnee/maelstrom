@@ -365,6 +365,7 @@ The Task tracker. See [tasks.md](../guide/tasks.md).
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
 | `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
 | `mael task read ID` | Print the task as markdown, rendered from its row. |
+| `mael task sessions [ID] [--json]` | List a task's **Task session logs**, oldest first: session id, harness, size, archive time and path. A session with no log shows `no`. Defaults to `$MAEL_TASK_ID`. |
 | `mael task edit ID` | Open the task in `$EDITOR` (default `vi`). Writes it back if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
 | `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until the build of each one ends (`built`, `merged` or `published`). An id in another project is `<project>/<id>`. |
