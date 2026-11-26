@@ -144,6 +144,21 @@ export function useResume() {
 }
 
 /**
+ * Start the **Foreman**, or resume it. A live one starts nothing: the server answers its id.
+ */
+export function useStartForeman() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<OperationStarted | { agentId: AgentId }>('/api/foreman', {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.operations.list() });
+      void queryClient.invalidateQueries({ queryKey: keys.agents.list() });
+    },
+  });
+}
+
+/**
  * Start an agent tied to no task. Resolves when the server takes it: opening
  * the worktree and starting the agent run on as an operation.
  */

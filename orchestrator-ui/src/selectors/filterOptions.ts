@@ -40,6 +40,9 @@ function originsOf(world: WorldView, view: View): Origin[] {
     case 'projects':
       // The view lists every project, filtered or not.
       return [];
+    case 'foreman':
+      // The foreman's conversation belongs to no project.
+      return [];
   }
 }
 

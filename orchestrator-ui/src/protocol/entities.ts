@@ -629,6 +629,8 @@ export interface Agent {
   host: string;
   /** The **Parent server** of a **Delegated agent**; `''` when its task is on the server that runs it. */
   parentUrl: string;
+  /** Whether the agent is the **Foreman**. */
+  foreman: boolean;
 }
 
 /** What runs an agent. */

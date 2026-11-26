@@ -318,9 +318,9 @@ export function deriveGraph(world: WorldView, opts: GraphOptions): Graph {
 
   // An agent with no task draws in its own right. One linked to a task drew
   // above, so nothing appears twice. A subagent never draws: it is reached
-  // through its parent's session tab.
+  // through its parent's session tab. Nor does the foreman: the Foreman pane shows it.
   for (const agent of Object.values(world.agents)) {
-    if (agent.taskId || agent.parent) continue;
+    if (agent.taskId || agent.parent || agent.foreman) continue;
     if (!isLive(agent) && !(deskIdForAgent(agent.id) in world.desk) && !midDelete.has(agent.id))
       continue;
     const worktree = world.worktrees[agent.worktreeId];

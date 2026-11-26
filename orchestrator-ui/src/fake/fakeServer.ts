@@ -2,6 +2,7 @@ import type { AgentCost, Stage } from '../api/milestones';
 import { groupMembers } from '../selectors/documents';
 import { fakeFragments } from './fragments';
 import { trackedAgents } from '../selectors/worktrees';
+import { foremanOf } from '../selectors/agents';
 import type { ApiClient } from '../api/http';
 import type { ClientBody } from '../api/client';
 import type { SystemBody } from '../api/system';
@@ -1173,6 +1174,21 @@ function command(
     server.change({ kind: 'agent', ids: [agentId] }, (w) => {
       w.agents[agentId] = { ...w.agents[agentId]!, state: 'idle', exitCode: null };
     });
+  const resume = (agent: Agent): Reply =>
+    operate({
+      kind: 'resume',
+      keys: [`agent:${agent.id}`],
+      project: agent.project,
+      worktreeId: agent.worktreeId || null,
+      taskId: agent.taskId || null,
+      agentId: agent.id,
+      doing: `Resuming ${agent.id}`,
+      done: `Resumed ${agent.id}`,
+      failing: 'Could not resume',
+      steps: [
+        { name: 'resume_agent', lines: [`Resumed ${agent.id}.`], run: () => revive(agent.id) },
+      ],
+    });
   // A live node draws with no desk entry, so there may be none to take.
   const offDesk = (deskId: string): FakeStep => ({
     name: 'off_desk',
@@ -1216,20 +1232,7 @@ function command(
     }
     if (action === 'resume') {
       if (agent.state !== 'exited') return error(400, 'invalid', `Agent ${agentId} is running`);
-      return operate({
-        kind: 'resume',
-        keys: [`agent:${agentId}`],
-        project: agent.project,
-        worktreeId: agent.worktreeId || null,
-        taskId: agent.taskId || null,
-        agentId,
-        doing: `Resuming ${agentId}`,
-        done: `Resumed ${agentId}`,
-        failing: 'Could not resume',
-        steps: [
-          { name: 'resume_agent', lines: [`Resumed ${agentId}.`], run: () => revive(agentId) },
-        ],
-      });
+      return resume(agent);
     }
     if (agent.state === 'exited') return error(409, 'agent_exited', `Agent ${agentId} has exited`);
     if (action === 'say') {
@@ -1822,6 +1825,36 @@ function command(
       ],
       rollback: b.launch ? launchRollback : undefined,
       replay: LAUNCH_STEPS,
+    });
+  }
+
+  // As `foreman.start`: name the live foreman, resume the one that exited, or start one.
+  if (pathname === '/api/foreman' && method === 'POST') {
+    const foreman = foremanOf(world.agents);
+    if (foreman && foreman.state !== 'exited') return ok({ agentId: foreman.id });
+    if (foreman) return resume(foreman);
+    return operate({
+      kind: 'start',
+      keys: ['foreman'],
+      project: '',
+      doing: 'Starting the foreman',
+      done: 'Started the foreman',
+      failing: 'Could not start the foreman',
+      steps: [
+        {
+          name: 'start_agent',
+          run: (target) => {
+            const agentId = `new${mint()}`;
+            world.agents[agentId] = {
+              ...makeNewAgent(agentId, { taskId: '', project: '', model: '', mode: 'auto' }),
+              cwd: FOREMAN_DIR,
+              foreman: true,
+            };
+            server.change({ kind: 'agent', ids: [agentId] });
+            target({ agentId });
+          },
+        },
+      ],
     });
   }
 
@@ -2484,6 +2517,9 @@ function makeNewTask(
   };
 }
 
+/** The foreman's directory, as the fake host names it. */
+const FOREMAN_DIR = '/home/fake/.maelstrom/foreman';
+
 /** An agent as the fake host starts one, for a task or for nobody. */
 function makeNewAgent(
   agentId: AgentId,
@@ -2519,6 +2555,7 @@ function makeNewAgent(
     harness: 'claude',
     host: '',
     parentUrl: '',
+    foreman: false,
   };
 }
 

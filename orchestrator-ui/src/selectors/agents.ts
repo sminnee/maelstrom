@@ -60,3 +60,18 @@ export function sessionMeta(agent: Agent, now: number): string {
     .filter(Boolean)
     .join(' · ');
 }
+
+/**
+ * The **Foreman**: the live one, else the newest that has exited, else `undefined`. The server's
+ * `foreman.start` picks the same one, so Start and Resume act on the agent this pane shows. A
+ * **Remote host**'s foreman is that host's, so only this server's own count.
+ */
+export function foremanOf(agents: WorldView['agents']): Agent | undefined {
+  const foremen = Object.values(agents).filter((a) => a.foreman && !a.parent && a.host === '');
+  const live = foremen.filter((a) => a.state !== 'exited');
+  const pool = live.length > 0 ? live : foremen;
+  return pool.reduce<Agent | undefined>(
+    (best, a) => (best === undefined || a.startedAt > best.startedAt ? a : best),
+    undefined,
+  );
+}

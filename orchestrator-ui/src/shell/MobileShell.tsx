@@ -4,6 +4,7 @@ import { useOwnHost } from '../api/host';
 import { DeckList } from '../deck/DeckList';
 import { ChangesTab } from '../changes/ChangesTab';
 import { CommList } from '../comms/CommList';
+import { ForemanPane } from '../foreman/ForemanPane';
 import { ProjectList } from '../projects/ProjectList';
 import { DocumentTab } from '../documents/DocumentTab';
 import { NodeCardBody } from '../canvas/NodeCardBody';
@@ -116,6 +117,8 @@ export function MobileShell() {
             <CommList />
           ) : view === 'projects' ? (
             <ProjectList />
+          ) : view === 'foreman' ? (
+            <ForemanPane />
           ) : (
             <TaskList />
           )}

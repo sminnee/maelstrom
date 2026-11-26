@@ -332,6 +332,24 @@ itself, such as a name the world holds, shows the same way.
 on every layout: the **Welcome dialog**, Add project and the Project dialog. They open each other,
 so one place draws all three.
 
+### The Foreman pane
+
+`foreman/ForemanPane.tsx` is the **Foreman pane**, at `/foreman`. It is a main view, anchored to
+the right slot by default, so it shares the screen with the desk. `foremanOf` in
+`selectors/agents.ts` picks the foreman as the server does: the live one, else the newest that
+exited.
+
+| The world holds | The pane draws |
+| --- | --- |
+| a live foreman | its `SessionTab`, with no `controls`: no Resume and no end-of-work control |
+| an exited foreman | **Resume the foreman** over its `SessionTab` |
+| no foreman | **Start the foreman** |
+
+Both buttons post `/api/foreman`. The canvas skips an agent whose `foreman` flag is set, as it skips
+a subagent. A live agent draws even off the desk, so the server keeping it off the desk is not
+enough. An attachment from the pane is refused: an upload needs a project, and the foreman has
+none.
+
 ### The Project dialog
 
 `projects/ProjectDetail.tsx` draws one project in two tabs. `?dtab=` holds the tab. A tab change
@@ -1762,13 +1780,13 @@ fails on a CSS file that writes a layout breakpoint or names undefined custom me
 that each query names the same layout as the hook. In the suite, `setViewport` in `test/setup.ts` sets the width, the height and the pointer
 kind that the `matchMedia` stub answers from.
 
-**Slots and anchors.** The top bar has five items: Desk, Tasks, Comms, Projects and Tabs. Each item has
+**Slots and anchors.** The top bar has six items: Desk, Tasks, Comms, Projects, Foreman and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
 `ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-Desk, Tasks, Comms and Projects are links to their view's path; Tabs is a button, because the panel is
+Desk, Tasks, Comms, Projects and Foreman are links to their view's path; Tabs is a button, because the panel is
 not a location. A click on a view that is not showing moves to its path, and the shell calls
 `showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
 location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,
