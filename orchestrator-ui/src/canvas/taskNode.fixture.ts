@@ -83,6 +83,7 @@ function agent(over: Partial<Agent> = {}): Agent {
     harness: 'claude',
     host: '',
     parentUrl: '',
+    foreman: false,
     ...over,
   };
 }

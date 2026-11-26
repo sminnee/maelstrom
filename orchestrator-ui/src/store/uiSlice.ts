@@ -12,13 +12,13 @@ export type PanelTab =
   | { key: string; kind: 'devenv'; worktreeId: WorktreeId; service: string };
 
 /** One item of the top bar's menu: a main view, or the panel, labelled `Tabs`. */
-export type Pane = 'desk' | 'list' | 'comms' | 'projects' | 'tabs';
+export type Pane = 'desk' | 'list' | 'comms' | 'projects' | 'foreman' | 'tabs';
 
 /** One of the two slots the body draws a pane in. */
 export type Side = 'left' | 'right';
 
 /**
- * A main view: the desk, every task, every comm, or every project.
+ * A main view: the desk, every task, every comm, every project, or the **Foreman pane**.
  *
  * Only `originsOf` in `selectors/filterOptions.ts` switches on this
  * exhaustively. Every other site must be edited by hand when it widens:
@@ -112,11 +112,13 @@ export function initialUiState(): UiState {
       list: 'left',
       comms: 'left',
       projects: 'left',
+      // Beside the desk, which it drives.
+      foreman: 'right',
       tabs: 'right',
     },
     slots: { left: 'desk', right: 'tabs' },
     // Every pane, so the left slot can reopen on one that was never selected.
-    paneRecency: ['desk', 'tabs', 'list', 'comms', 'projects'],
+    paneRecency: ['desk', 'tabs', 'list', 'comms', 'projects', 'foreman'],
     tabs: [],
     tabRecency: [],
     splitTabs: {},

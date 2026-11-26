@@ -232,6 +232,7 @@ function agent(id: string, t: Task, worktreeId: string, over: Partial<Agent> = {
     harness: 'claude',
     host: '',
     parentUrl: '',
+    foreman: false,
     ...over,
   };
 }
@@ -272,6 +273,7 @@ function freeAgent(
     harness: 'claude',
     host: '',
     parentUrl: '',
+    foreman: false,
     ...over,
   };
 }

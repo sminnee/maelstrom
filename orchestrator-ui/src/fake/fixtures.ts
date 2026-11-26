@@ -130,6 +130,7 @@ export function makeAgent(over: Partial<Agent> = {}): Agent {
     harness: 'claude',
     host: '',
     parentUrl: '',
+    foreman: false,
     ...over,
   };
 }

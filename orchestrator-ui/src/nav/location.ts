@@ -97,6 +97,7 @@ export const SCREENS: readonly Screen[] = [
   { path: '/tasks', view: 'list', mode: null, card: null },
   { path: '/comms', view: 'comms', mode: null, card: null },
   { path: '/projects', view: 'projects', mode: null, card: null },
+  { path: '/foreman', view: 'foreman', mode: null, card: null },
 ];
 
 /** The location the app opens on: the desk, with nothing open and no filter. */

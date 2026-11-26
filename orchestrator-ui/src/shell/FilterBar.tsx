@@ -49,9 +49,10 @@ export function FilterBar({ layout = 'bar' }: { layout?: 'bar' | 'stack' }) {
     if (stale) go({ filters: { branch: null } }, { replace: true });
   }, [stale, go]);
 
-  // The Comms and Projects views do not filter by project, so they have no use for this control.
+  // The Comms, Projects and Foreman views do not filter by project, so they have no use for this
+  // control.
   const projectApplies = !(
-    views.length > 0 && views.every((v) => v === 'comms' || v === 'projects')
+    views.length > 0 && views.every((v) => v === 'comms' || v === 'projects' || v === 'foreman')
   );
 
   return (

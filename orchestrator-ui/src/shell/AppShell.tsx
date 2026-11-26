@@ -3,6 +3,7 @@ import { ReactFlowProvider } from '@xyflow/react';
 import { useWorld } from '../api/useWorld';
 import { Desk } from './Desk';
 import { CommList } from '../comms/CommList';
+import { ForemanPane } from '../foreman/ForemanPane';
 import { ProjectList } from '../projects/ProjectList';
 import { Panel } from '../panel/Panel';
 import { NewWork } from '../newwork/NewWork';
@@ -35,7 +36,7 @@ const MIN_MAIN_STRIP = 48;
 const clamp = (width: number) =>
   Math.max(MIN_PANEL_WIDTH, Math.min(window.innerWidth - MIN_MAIN_STRIP, width));
 
-const MAIN_VIEWS: View[] = ['desk', 'list', 'comms', 'projects'];
+const MAIN_VIEWS: View[] = ['desk', 'list', 'comms', 'projects', 'foreman'];
 
 /**
  * The app under the top bar, in one of the three layouts of `LayoutMode`.
@@ -101,6 +102,8 @@ function SlotShell() {
                 <CommList />
               ) : view === 'projects' ? (
                 <ProjectList />
+              ) : view === 'foreman' ? (
+                <ForemanPane />
               ) : (
                 <TaskList />
               )}
