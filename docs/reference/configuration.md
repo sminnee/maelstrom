@@ -407,7 +407,7 @@ slack:
 
 `MAEL_NOTEBOOK_ROOT` names the notebook root: `~/.maelstrom/state` for production, and a
 directory such as `~/.maelstrom/playpen/kilo` for a dev environment. The root holds `state.db`, the
-`attachments/` directory and `audit.jsonl`. Production has one config file,
+`attachments/` directory, `audit.jsonl` and the `session-logs/` directory of **Task session logs**. Production has one config file,
 `~/.maelstrom/config.yaml`. A dev environment's root can hold a `config.yaml` that overlays the
 global file. Each key it sets replaces the global key, and the other keys stay.
 

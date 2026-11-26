@@ -25,10 +25,12 @@ from yarl import URL
 from mael_agent.host_ids import owner_of
 from mael_domain import task_documents
 from mael_domain.agent_cost import build_cost_report, empty_cost_report
+from mael_domain.auth.model import DELEGATE, hash_secret
 from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.live_feedback_key import verify
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
+from mael_domain.session_logs import BadSessionPack
 from mael_domain.system_info import system_reply
 from mael_domain.worktree_changes import (
     BadPath,
@@ -177,6 +179,9 @@ def build_app(
     app.router.add_put("/api/tasks/{project}/{id}/pr", _register_pr)
     app.router.add_delete("/api/tasks/{project}/{id}/pr", _withdraw_pr)
     app.router.add_post("/api/tasks/{project}/{id}/sessions", _add_session)
+    app.router.add_put(
+        "/api/tasks/{project}/{id}/session-logs/{session}", _store_session_log
+    )
     app.router.add_put("/api/tasks/{project}/{id}/merge-request", _submit_merge_request)
     app.router.add_get("/api/tasks/{project}/{id}/merge-request", _read_merge_request)
     app.router.add_delete(
@@ -1302,6 +1307,55 @@ async def _add_session(request: web.Request) -> web.StreamResponse:
             "sessionId": body.get("sessionId"),
         },
     )
+
+
+#: The largest session log a **Remote host** may push: 256 MiB. The push is
+#: held in memory while it is stored, so this bounds what one push holds.
+SESSION_LOG_MAX_BYTES = 256 * 1024 * 1024
+
+
+async def _store_session_log(request: web.Request) -> web.Response:
+    """Store a tar of a session's files as its log: a **Remote host**'s push for a **Delegated agent**.
+
+    Only the launch's **Delegate key** may push, and only its agent's session.
+    See "The per-launch parent" in ``docs/dev/remote-hosts.md``.
+    """
+    orch = await _ready_with_tasks(request)
+    task_id = _task_id(request)
+    agent_id = await _delegate_agent_of(request, task_id)
+    if agent_id is None:
+        return error_response(
+            "forbidden", f"Only the Delegate key of {task_id} may push its logs"
+        )
+    data = bytearray()
+    async for chunk in request.content.iter_any():
+        data += chunk
+        if len(data) > SESSION_LOG_MAX_BYTES:
+            return error_response("invalid", "The session log is too large")
+    try:
+        await orch.store_session_log(
+            task_id, request.match_info["session"], data, agent_id=agent_id
+        )
+    except KeyError:
+        return error_response(
+            "unknown_id", f"No session {request.match_info['session']} on {task_id}"
+        )
+    except BadSessionPack as exc:
+        return error_response("invalid", str(exc))
+    except NotImplementedError as exc:
+        return error_response("not_implemented", str(exc))
+    return web.json_response({"stored": True})
+
+
+async def _delegate_agent_of(request: web.Request, task_id: str) -> str | None:
+    """The agent of the **Delegate key** ``request`` carries for ``task_id``; else ``None``."""
+    bearer = request.headers.get("Authorization", "")
+    if not bearer.lower().startswith("bearer "):
+        return None
+    found = await request.app[AUTH].store.read_api_key(hash_secret(bearer[7:].strip()))
+    if found is None or found.scope != DELEGATE or found.task != task_id:
+        return None
+    return found.agent
 
 
 async def _withdraw_pr(request: web.Request) -> web.StreamResponse:
