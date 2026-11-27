@@ -138,6 +138,7 @@ def build_app(
     app.router.add_get("/api/worktrees/{id}/definition", _worktree_definition)
     app.router.add_get("/api/worktrees/{id}/raw", _worktree_raw)
     app.router.add_get("/api/tasks", _tasks)
+    app.router.add_get("/api/tasks/search", _search_tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
     app.router.add_get("/api/tasks/{project}/{id}/documents", _task_documents)
@@ -735,6 +736,20 @@ async def _tasks(request: web.Request) -> web.Response:
     )
     response.enable_compression()
     return response
+
+
+async def _search_tasks(request: web.Request) -> web.Response:
+    """The slim rows of the tasks, in every project, whose title or content holds ``q``."""
+    orch = await _ready_with_tasks(request)
+    text = request.query.get("q", "").strip().casefold()
+    if not text:
+        return error_response("invalid", "q is the text to search for")
+    rows = [
+        task_row(task)
+        for task in orch.world["tasks"].values()
+        if text in task["title"].casefold() or text in task["content"].casefold()
+    ]
+    return web.json_response({"tasks": rows})
 
 
 async def _task(request: web.Request) -> web.Response:

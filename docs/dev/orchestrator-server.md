@@ -1934,6 +1934,7 @@ without waiting for the poll.
 | `GET /api/worktrees/{id}/file?rev=&path=&oldPath=` | `FileVersions`: `{rev, path, old, new, truncated}`, one file whole on each side of a rev, for the **Rendered view**. Compressed |
 | `GET /api/worktrees/{id}/raw?rev=&path=&side=&oldPath=` | One side, `old` or `new`, of one file of a rev, as its bytes, with a `Content-Type` from the path. The reply is a sandbox (`Content-Security-Policy: sandbox`, `nosniff`), so an SVG opened on its own runs no script. A missing side is `unknown_id`; a side over 20 MB is `invalid` |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
+| `GET /api/tasks/search?q=` | `{tasks: [TaskRow]}`: the tasks, in every project, whose title or content holds `q`, ignoring case. A blank `q` is `invalid`. The rows carry no content, so the search runs on the server |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the Task tracker renders it, read from the Task tracker. `mael task read` prints it |
 | `GET /api/tasks/{project}/{id}/session-logs` | `{sessionLogs}`: one entry per session on the task, oldest first. Each is `{sessionId, harness, archived}`, and an archived one adds `path`, `size` and `archivedAt`. `mael task sessions` prints it |

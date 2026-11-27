@@ -1054,6 +1054,78 @@ class TestSessions:
         assert "Task not found: T-9" in result.output
 
 
+def list_row(project: str, notebook_id: str, **over) -> dict:
+    """One slim task row, as ``GET /api/tasks`` serves it."""
+    return {
+        "project": project,
+        "notebookId": notebook_id,
+        "status": "todo",
+        "parent": "",
+        "priority": "2",
+        "created": "2026-06-01T00:00:00+00:00",
+        "actionable": True,
+        "done": False,
+        "branch": "",
+        "title": f"{notebook_id} title",
+        **over,
+    }
+
+
+class TestListAcrossProjects:
+    """``mael task list --all-projects`` and ``--search`` over a fake server."""
+
+    ROWS = [
+        list_row("p", "T-1"),
+        list_row("acme", "A-1"),
+        list_row("acme", "A-2", status="in-progress"),
+    ]
+
+    @pytest.fixture
+    def server(self, monkeypatch):
+        client = MagicMock()
+        client.get.return_value = {"tasks": self.ROWS}
+        monkeypatch.setattr(task_cli.OrchestratorClient, "for_tasks", lambda: client)
+        monkeypatch.setattr(task_cli, "resolve_project", lambda project: project or "p")
+        return client
+
+    def test_all_projects_lists_every_project_with_a_project_column(
+        self, runner, server
+    ):
+        result = runner.invoke(task_cli.task, ["list", "--all-projects"])
+
+        assert result.exit_code == 0, result.output
+        rows = [line.split()[:2] for line in result.output.splitlines()]
+        assert rows[0] == ["PROJECT", "ID"]
+        assert rows[2:] == [["acme", "A-1"], ["acme", "A-2"], ["p", "T-1"]]
+
+    def test_all_projects_is_refused_with_a_project(self, runner, server):
+        result = runner.invoke(
+            task_cli.task, ["list", "--all-projects", "--project", "p"]
+        )
+
+        assert result.exit_code == 2
+        assert "--all-projects and --project cannot be used together" in result.output
+
+    def test_search_asks_the_server_and_keeps_the_other_filters(self, runner, server):
+        result = runner.invoke(
+            task_cli.task,
+            ["list", "--all-projects", "--search", "a b", "--status", "in-progress"],
+        )
+
+        assert result.exit_code == 0, result.output
+        server.get.assert_called_once_with("/api/tasks/search?q=a%20b")
+        [row] = [line.split()[:2] for line in result.output.splitlines()[2:]]
+        assert row == ["acme", "A-2"]
+
+    def test_a_refused_search_prints_the_server_s_message(self, runner, server):
+        server.get.side_effect = OrchestratorRefused("invalid", "q is blank", 400)
+
+        result = runner.invoke(task_cli.task, ["list", "--search", " "])
+
+        assert result.exit_code == 1
+        assert "q is blank" in result.output
+
+
 class TestPrompt:
     """``mael task prompt <id>`` prints exactly build_prompt(task)."""
 

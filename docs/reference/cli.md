@@ -360,7 +360,7 @@ The Task tracker. See [tasks.md](../guide/tasks.md).
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto `origin/main`. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
-| `mael task list` | List actionable tasks. |
+| `mael task list` | List actionable tasks. `--all-projects` lists the tasks of every project, with a `PROJECT` column; it is refused together with `--project`. `--search TEXT` keeps only the tasks whose title or content holds `TEXT`, ignoring case. Both keep the `--status`, `--parent`, `--all-todo` and `--all` filters. |
 | `mael task show ID` | Show a summary of a task. For a template, the `schedule:` line ends with the **Schedule zone**, as the orchestrator read it at start. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
 | `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
