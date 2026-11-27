@@ -334,7 +334,7 @@ so one place draws all three.
 
 ### The Foreman pane
 
-`foreman/ForemanPane.tsx` is the **Foreman pane**, at `/foreman`. It is a main view, anchored to
+`foreman/ForemanPane.tsx` is the **Foreman pane**, at `/foreman`. Its top bar item reads Chat. It is a main view, anchored to
 the right slot by default, so it shares the screen with the desk. `foremanOf` in
 `selectors/agents.ts` picks the foreman as the server does: the live one, else the newest that
 exited.
@@ -1780,13 +1780,13 @@ fails on a CSS file that writes a layout breakpoint or names undefined custom me
 that each query names the same layout as the hook. In the suite, `setViewport` in `test/setup.ts` sets the width, the height and the pointer
 kind that the `matchMedia` stub answers from.
 
-**Slots and anchors.** The top bar has six items: Desk, Tasks, Comms, Projects, Foreman and Tabs. Each item has
+**Slots and anchors.** The top bar has six items: Desk, Tasks, Comms, Projects, Chat and Tabs. Each item has
 an anchor, left or right, and shows in the slot of its anchor. `ui.anchors` holds the anchors and
 `ui.slots` holds the item in each slot. `ui.paneRecency` lists the items, most recently selected
 first. `selectors/slots.ts` holds the transitions as pure functions: `showPane`, `togglePane`,
 `moveAnchor` and `showing`.
 
-Desk, Tasks, Comms, Projects and Foreman are links to their view's path; Tabs is a button, because the panel is
+Desk, Tasks, Comms, Projects and Chat are links to their view's path; Tabs is a button, because the panel is
 not a location. A click on a view that is not showing moves to its path, and the shell calls
 `showPane`. On the wide layout a click on a showing view calls `togglePane` and leaves the
 location. A shift-click calls `moveAnchor` and moves to the view's path. The medium layout has one slot that cannot close,

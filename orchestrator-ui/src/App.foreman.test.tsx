@@ -18,7 +18,7 @@ describe('the Foreman pane', () => {
   it('starts the foreman, then shows its conversation and a message box, off the canvas', async () => {
     const user = userEvent.setup();
     const { server, router } = await renderApp();
-    await user.click(paneItem('Foreman'));
+    await user.click(paneItem('Chat'));
     expect(router.state.location.pathname).toBe('/foreman');
 
     await user.click(pane().getByRole('button', { name: 'Start the foreman' }));

@@ -19,7 +19,7 @@ const slotOf = (testId: string) =>
 describe('the medium layout: one slot', () => {
   it('draws one menu of six, with the desk in front', async () => {
     await renderApp({ viewport: 'medium' });
-    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Foreman', 'Tabs']);
+    expect(items('Views')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Chat', 'Tabs']);
     expect(isShowing('Desk')).toBe(true);
     expect(isShowing('Tabs')).toBe(false);
     expect(screen.getByTestId('canvas')).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe('the medium layout: one slot', () => {
     expect(screen.queryByTestId('task-list')).toBeNull();
     resizeTo('wide');
     expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects']);
-    expect(items('Right slot')).toEqual(['Foreman', 'Tabs']);
+    expect(items('Right slot')).toEqual(['Chat', 'Tabs']);
   });
 
   it('returns to the canvas for the attention chip pressed over the panel', async () => {
@@ -92,7 +92,7 @@ describe('the wide layout: two slots', () => {
   it('splits the menu by anchor: the main views left, Foreman and Tabs right', async () => {
     await renderApp();
     expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects']);
-    expect(items('Right slot')).toEqual(['Foreman', 'Tabs']);
+    expect(items('Right slot')).toEqual(['Chat', 'Tabs']);
     expect(slotOf('canvas')).toBe('left');
     expect(slotOf('panel')).toBe('right');
   });
@@ -145,7 +145,7 @@ describe('the wide layout: two slots', () => {
     await user.click(item('Tasks'));
     await user.keyboard('{/Shift}');
     expect(items('Left slot')).toEqual(['Desk', 'Comms', 'Projects']);
-    expect(items('Right slot')).toEqual(['Tasks', 'Foreman', 'Tabs']);
+    expect(items('Right slot')).toEqual(['Tasks', 'Chat', 'Tabs']);
     // Desk and Tasks now show together.
     expect(slotOf('canvas')).toBe('left');
     expect(slotOf('task-list')).toBe('right');
@@ -156,11 +156,11 @@ describe('the wide layout: two slots', () => {
     const user = userEvent.setup();
     await renderApp();
     await user.keyboard('{Shift>}');
-    await user.click(item('Foreman'));
+    await user.click(item('Chat'));
     await user.click(item('Tabs'));
     await user.keyboard('{/Shift}');
     expect(group('Right slot')).toBeNull();
-    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Foreman', 'Tabs']);
+    expect(items('Left slot')).toEqual(['Desk', 'Tasks', 'Comms', 'Projects', 'Chat', 'Tabs']);
   });
 
   it('keeps the panel mounted across an anchor move', async () => {

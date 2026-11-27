@@ -203,7 +203,7 @@ that is told not to change code. It reports what it finds, and writes only under
 The server names an empty title or branch from the prose you type, and the node draws hatched
 while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line
 otherwise.
-The top bar's Foreman pane is a chat with the **Foreman**: one long-lived agent that manages
+The top bar's **Chat** item opens a chat with the **Foreman**: one long-lived agent that manages
 your work. Ask it what is on the desk, or tell it to make a task, steer an agent or edit a comm.
 It uses the `mael` CLI to do these. It changes no code: it makes a task for the work. It asks you
 before it stops an agent, cancels or deletes a task, closes or removes a worktree, or closes a
