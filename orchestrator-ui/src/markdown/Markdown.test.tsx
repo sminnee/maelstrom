@@ -3,6 +3,16 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { QueryClient } from '@tanstack/react-query';
+import { createMemoryRouter } from 'react-router';
+import { ApiProvider } from '../api/ApiProvider';
+import { createFakeServer } from '../fake/fakeServer';
+import { makeAgent, makeDocument, makeTask, makeWorktree, worldWith } from '../fake/fixtures';
+import { comm } from '../fake/seedWorld';
+import { parseLocation, type Loc } from '../nav/location';
+import { NavRouter } from '../nav/NavRouter';
+import { routesFor } from '../nav/routes';
+import { setViewportWidth } from '../test/setup';
 import { HEADING_ID_PREFIX, Markdown, attentionSegments } from './Markdown';
 
 const SHOT = '![The failing dialog](/api/files/ag1-2-shot.png)';
@@ -230,5 +240,86 @@ describe('heading ids', () => {
   it('are off by default, so a page of messages repeats no id', () => {
     const { container } = render(<Markdown source="# Set up" />);
     expect(container.querySelector('h1')).not.toHaveAttribute('id');
+  });
+});
+
+describe('a mael: link in a message', () => {
+  const PR_URL = 'https://github.com/o/r/pull/118';
+  const TASK_ID = 'northwind/NORT-7';
+
+  function renderCards(source: string, viewport: 'wide' | 'narrow' = 'wide') {
+    setViewportWidth(viewport === 'wide' ? 1920 : 390);
+    const world = worldWith({
+      tasks: [makeTask({ id: TASK_ID, title: 'Add order export' })],
+      agents: [makeAgent({ id: 'ag1', taskId: TASK_ID, description: 'Order export' })],
+      worktrees: [makeWorktree({ prNumber: 118, prUrl: PR_URL, prState: 'ready' })],
+      documents: [makeDocument({ id: 'doc-1', title: 'Plan', status: 'awaiting-review' })],
+    });
+    world.comms.c1 = comm({ id: 'c1', title: 'Release notes', codename: 'brisk-otter' });
+    const server = createFakeServer({ world });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const router = createMemoryRouter(routesFor(<Markdown source={source} />), {
+      initialEntries: ['/desk/graph'],
+    });
+    render(
+      <ApiProvider api={server.api} queryClient={queryClient}>
+        <NavRouter router={router} />
+      </ApiProvider>,
+    );
+    const loc = () => parseLocation(router.state.location.pathname, router.state.location.search);
+    return { loc };
+  }
+
+  const card = () => screen.findByRole('link', { name: /Open|Review/ });
+
+  it.each<[string, string, (loc: Loc) => unknown, unknown]>([
+    ['a task', 'mael:task/northwind/NORT-7', (l) => l.card, { kind: 'task', id: TASK_ID }],
+    ['a session', 'mael:session/ag1', (l) => l.panel?.key, 'session:ag1'],
+    ['a document', 'mael:doc/doc-1', (l) => l.panel?.key, 'document:doc-1'],
+    ['a comm', 'mael:comm/brisk-otter', (l) => l.commDetail, 'c1'],
+    [
+      'a worktree',
+      'mael:worktree/northwind/alpha',
+      (l) => l.card,
+      { kind: 'worktree', id: 'northwind-alpha' },
+    ],
+  ])('opens %s on a tap', async (_case, uri, read, expected) => {
+    const user = userEvent.setup();
+    const { loc } = renderCards(`- [The item](${uri})`);
+    await user.click(await card());
+    expect(read(loc()!)).toEqual(expected);
+  });
+
+  it('opens a worktree’s changes on a narrow screen, which has no worktree card', async () => {
+    const user = userEvent.setup();
+    const { loc } = renderCards('[WT](mael:worktree/northwind/alpha)', 'narrow');
+    await user.click(await card());
+    expect(loc()!.panel?.key).toBe('changes:northwind-alpha');
+  });
+
+  it('opens a PR on GitHub', async () => {
+    renderCards('[PR](mael:pr/northwind/118)');
+    const link = await screen.findByRole('link', { name: /Open on GitHub/ });
+    expect(link).toHaveAttribute('href', PR_URL);
+  });
+
+  it('says a target the world does not hold cannot be found, with no action', async () => {
+    renderCards('[The lost task](mael:task/northwind/NORT-404)');
+    expect(await screen.findByText('The lost task cannot be found')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
+  it('keeps a footnote link’s own attributes', () => {
+    const { container } = render(<Markdown source={'Claim.[^1]\n\n[^1]: The source.'} />);
+    const back = container.querySelector('a[data-footnote-backref]');
+    expect(back).toHaveAttribute('href', expect.stringMatching(/^#/));
+    expect(back).toHaveAttribute('aria-label');
+  });
+
+  it('leaves an ordinary link an ordinary link', async () => {
+    renderCards('[Docs](https://example.com/docs)');
+    const link = await screen.findByRole('link', { name: 'Docs' });
+    expect(link).toHaveAttribute('href', 'https://example.com/docs');
+    expect(screen.queryByTestId('link-card')).not.toBeInTheDocument();
   });
 });
