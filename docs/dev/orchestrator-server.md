@@ -1934,6 +1934,7 @@ without waiting for the poll.
 | `GET /api/worktrees/{id}/file?rev=&path=&oldPath=` | `FileVersions`: `{rev, path, old, new, truncated}`, one file whole on each side of a rev, for the **Rendered view**. Compressed |
 | `GET /api/worktrees/{id}/raw?rev=&path=&side=&oldPath=` | One side, `old` or `new`, of one file of a rev, as its bytes, with a `Content-Type` from the path. The reply is a sandbox (`Content-Security-Policy: sandbox`, `nosniff`), so an SVG opened on its own runs no script. A missing side is `unknown_id`; a side over 20 MB is `invalid` |
 | `GET /api/tasks` | `{tasks: [TaskRow], version}`. A row is a task without `content` and `log`. The `ETag` changes with every task change; `If-None-Match` answers 304. Compressed |
+| `GET /api/tasks/search?q=` | `{tasks: [TaskRow]}`: the tasks, in every project, whose title or content holds `q`, ignoring case. A blank `q` is `invalid`. The rows carry no content, so the search runs on the server |
 | `GET /api/tasks/{project}/{id}` | `TaskDetail`: the whole `Task`, prose included, plus `displayContent`. See "Attachments" |
 | `GET /api/tasks/{project}/{id}/markdown` | `{markdown}`: the task as the Task tracker renders it, read from the Task tracker. `mael task read` prints it |
 | `GET /api/tasks/{project}/{id}/session-logs` | `{sessionLogs}`: one entry per session on the task, oldest first. Each is `{sessionId, harness, archived}`, and an archived one adds `path`, `size` and `archivedAt`. `mael task sessions` prints it |
@@ -1945,6 +1946,7 @@ without waiting for the poll.
 | `GET /api/agents/{id}` | The `Agent`, plus `pendingRequests`: the question, permission request and plan review items it waits on, oldest first, empty when it waits on none. A decision renders from this alone |
 | `GET /api/agents/{id}/milestones` | The agent's `AgentCost`: its totals, and a `stages` list saying what each stage cost. Served through `agent_cost.build_cost_report`, the report `mael agent cost` prints. An agent that reached no stage gets that report with `stages: []`, not a 404 |
 | `GET /api/attention?open=1` | `{attention: [Attention]}`; `open` keeps only items not yet cleared |
+| `GET /api/waiting` | `{attention, unanswered, awaitingMerge}`: what waits on the user, in every project, for `mael attention`. `attention` is each open item with its `project`, `taskTitle` and `documentTitle`. `unanswered` is each **Unanswered agent** as `{agentId, taskId, project, taskTitle, lastMessage, lastMessageAt}`. `awaitingMerge` is each task **Awaiting merge** as `{taskId, project, title, prs}`. The order and the rules are in `waiting.py` |
 | `GET /api/documents` | `{documents: [Document]}` without `markdown` |
 | `GET /api/documents/{id}` | The `Document`, `markdown` included. `?version=<n>` reads that stored version, with its media URLs and plan transform; an unknown version is `unknown_id`. A stored document adds `ref`, `versions` (no bodies) and `fragments`, the latest version's. A free agent's document has `ref: null`, no versions and no fragments. The id route forwards to a **Remote host**, which the `task-documents` routes do not |
 | `GET /api/desk` | `{desk: [DeskEntry]}` |

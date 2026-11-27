@@ -69,6 +69,7 @@ from mael_domain.worktree_model import (
 from mael_domain.worktree_trash import trash_worktree_fully
 
 from .agent_cli import agent as agent_cli
+from .attention_cli import attention
 from .auth_cli import auth as auth_cli
 from .comms_cli import comms
 from .doc_cli import doc
@@ -1374,6 +1375,7 @@ def cmd_tidy_branches(project):
 # --- Subcommand groups ---
 
 
+cli.add_command(attention)
 cli.add_command(comms)
 cli.add_command(doc)
 cli.add_command(env_cli)

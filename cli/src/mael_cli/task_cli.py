@@ -469,6 +469,16 @@ def _fetch_rows() -> list[TaskRow]:
     return OrchestratorClient.for_tasks().get("/api/tasks")["tasks"]
 
 
+def _search_rows(text: str) -> list[TaskRow]:
+    """The tasks, in every project, whose title or content holds ``text``."""
+    try:
+        return OrchestratorClient.for_tasks().get(
+            f"/api/tasks/search?q={quote(text, safe='')}"
+        )["tasks"]
+    except OrchestratorRefused as exc:
+        raise click.ClickException(exc.message) from exc
+
+
 def _sender() -> dict[str, str]:
     """The calling session, so the server does not tell its agent its own edit."""
     session = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
@@ -1352,12 +1362,25 @@ async def task_add_scheduled(
     is_flag=True,
     help="Show everything, including done and cancelled. Takes precedence over --all-todo.",
 )
+@click.option(
+    "--all-projects",
+    "all_projects",
+    is_flag=True,
+    help="List the tasks of every project, with a PROJECT column.",
+)
+@click.option(
+    "--search",
+    default=None,
+    help="Keep only the tasks whose title or content holds TEXT, ignoring case.",
+)
 async def task_list(
     project: str | None,
     status: str | None,
     parent: str | None,
     all_todo: bool,
     all_: bool,
+    all_projects: bool,
+    search: str | None,
 ) -> None:
     """List actionable tasks (those that can be started now).
 
@@ -1367,12 +1390,16 @@ async def task_list(
     first, so e.g. ``--status cancelled`` without ``--all`` shows nothing.
     ``--status done`` matches each task that is **Done**, whatever its stored
     status.
+
+    ``--all-projects`` and ``--search`` keep the other filters.
     """
-    proj = resolve_project(project)
+    if all_projects and project:
+        raise click.UsageError("--all-projects and --project cannot be used together.")
+    proj = None if all_projects else resolve_project(project)
     tasks = [
         t
-        for t in _fetch_rows()
-        if t["project"] == proj
+        for t in (_search_rows(search) if search is not None else _fetch_rows())
+        if (proj is None or t["project"] == proj)
         and (
             status is None or t["status"] == status or (status == "done" and t["done"])
         )
@@ -1387,9 +1414,12 @@ async def task_list(
     # but asking for the folder by name should list them.
     show_all_in_folder = status == model.STATUS_TEMPLATE
 
-    # The same order ``mael task next`` picks by.
+    # The same order ``mael task next`` picks by, within each project.
     tasks.sort(
-        key=lambda t: model.pick_order(t["priority"], t["created"], t["notebookId"])
+        key=lambda t: (
+            t["project"],
+            model.pick_order(t["priority"], t["created"], t["notebookId"]),
+        )
     )
 
     config = load_global_config()
@@ -1412,7 +1442,8 @@ async def task_list(
             visible = actionable
         if not visible:
             continue
-        row = {"ID": t["notebookId"], "STATUS": t["status"], "PRIORITY": t["priority"]}
+        row = {"PROJECT": t["project"]} if all_projects else {}
+        row |= {"ID": t["notebookId"], "STATUS": t["status"], "PRIORITY": t["priority"]}
         if all_ or all_todo:
             row["ACTIONABLE"] = "yes" if actionable else "no"
         if show_all_in_folder:
@@ -1441,6 +1472,8 @@ async def task_list(
         columns = ["ID", "STATUS", "PRIORITY", "ACTIONABLE", "BRANCH", "TITLE"]
     else:
         columns = ["ID", "STATUS", "PRIORITY", "BRANCH", "TITLE"]
+    if all_projects:
+        columns = ["PROJECT", *columns]
     draw_table(rows, columns)
     if show_all_in_folder:
         click.echo(f"Schedules read in {config.schedule_zone_label()}.")

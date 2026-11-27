@@ -3324,6 +3324,44 @@ def test_the_task_list_ships_slim_rows_and_the_detail_holds_the_prose(harness):
     assert missing.body["error"]["code"] == "unknown_id"
 
 
+def test_the_task_search_matches_title_or_content_in_every_project_ignoring_case(
+    harness_factory,
+):
+    harness = harness_factory(projects=(PROJECT, "acme"))
+    harness.add_task("NORT-7", title="Foreman pane")
+    harness.add_task("NORT-8", content="The FOREMAN reads it.")
+    harness.add_task("ACME-1", project="acme", title="The foreman's prompt")
+    harness.add_task("NORT-9", title="Unrelated")
+
+    async def scenario():
+        async with harness.client() as api:
+            found = await api.get_json("/api/tasks/search?q=foreman")
+            blank = await api.get("/api/tasks/search?q=%20")
+            return found, blank
+
+    found, blank = run(scenario())
+    assert sorted(t["id"] for t in found["tasks"]) == [
+        "acme/ACME-1",
+        "northwind/NORT-7",
+        "northwind/NORT-8",
+    ]
+    assert all("content" not in t for t in found["tasks"])
+    assert blank.status == 400
+    assert blank.body["error"]["code"] == "invalid"
+
+
+def test_the_waiting_route_serves_the_report_of_the_world(harness):
+    harness.add_task("NORT-7", status="built")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/waiting")
+
+    report = run(scenario())
+    assert report["attention"] == report["unanswered"] == []
+    assert [t["taskId"] for t in report["awaitingMerge"]] == ["northwind/NORT-7"]
+
+
 def test_the_task_list_answers_304_until_a_task_changes(harness):
     harness.add_task("NORT-7")
 

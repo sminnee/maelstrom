@@ -360,7 +360,7 @@ The Task tracker. See [tasks.md](../guide/tasks.md).
 | `mael task load-many FILE` | Create a chain of tasks from a marked plan file. `-` reads stdin. |
 | `mael task next` | Print the id of the next actionable task. |
 | `mael task run ID` | Launch a task as a Claude session. Creates its worktree first, and rebases the branch onto `origin/main`. A reused worktree is rebased without pushing. A failed rebase blocks the launch and leaves the task TODO. A recycled or reused worktree gets its `.env` rebuilt, as `mael add` does; a failed rebuild warns and does not block the launch. |
-| `mael task list` | List actionable tasks. |
+| `mael task list` | List actionable tasks. `--all-projects` lists the tasks of every project, with a `PROJECT` column; it is refused together with `--project`. `--search TEXT` keeps only the tasks whose title or content holds `TEXT`, ignoring case. Both keep the `--status`, `--parent`, `--all-todo` and `--all` filters. |
 | `mael task show ID` | Show a summary of a task. For a template, the `schedule:` line ends with the **Schedule zone**, as the orchestrator read it at start. |
 | `mael task get-status [ID]` | Print a task's status alone. Defaults to `$MAEL_TASK_ID`. |
 | `mael task current` | Print the session's task as `ID:STATUS`, for a shell prompt. Prints an empty line outside a task session. |
@@ -399,7 +399,7 @@ unless the edit makes the task follow unfinished work. `mael task update` and `m
 send no session, so the caller's agent hears its own edit.
 
 In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
-commands and every `mael doc` command call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
+commands and every `mael doc` command but the verdicts call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
 there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
 uses the local state database, and this agent's task is on <url>.":
 
@@ -1295,10 +1295,18 @@ the orchestrator server.
 | `mael doc unlink REF [TASK]` | Remove that link. |
 | `mael doc archive REF` | Archive the document. Inside a task session, only the owning task may: the session's task goes as the asking task. |
 | `mael doc unarchive REF` | Unarchive the document, with the same rule. |
+| `mael doc approve ID\|REF` | Approve a document awaiting review, as the UI's Approve does. The server settles the whole review group, promotes a task set's drafts, and tells the agent. |
+| `mael doc request-changes ID\|REF --summary TEXT` | Send a document awaiting review back, as the UI's Request changes does. The agent reads `TEXT`. |
 
 `TASK` defaults to `$MAEL_TASK_ID`. Every command takes `-p, --project`, which defaults to the
-current directory's project. When `MAEL_PARENT_URL` is set, every `mael doc` command goes to the
-parent server, which holds the task.
+current directory's project. When `MAEL_PARENT_URL` is set, `mael doc` goes to the parent server,
+which holds the task. The verdicts below do not.
+
+`approve` and `request-changes` take the document id that `mael attention` prints, or a reference.
+They call this host's own server, which holds the world documents. They act on the current
+version. `--version N`, or a reference's `@v<n>`, acts only when that is the current version, and
+refuses otherwise. A plan is
+refused: its review is answered on the agent, with `mael agent approve` or `mael agent deny`.
 
 ```bash
 mael doc add zap.sarif.json                       # prints maelstrom:bivs.1:zap.sarif.json@v1
@@ -1334,6 +1342,24 @@ once. A SARIF document does not show on the card.
 | Option | Description |
 |---|---|
 | `--body` | Print only the body of the selected version. |
+
+## Attention
+
+`mael attention` lists everything that waits on the user, in every project, in three sections:
+
+| Section | What waits | The command that answers it |
+|---|---|---|
+| Attention | Each open **Attention item**: a question, a plan review, a permission, a document review, an exited agent, a CI failure. Plan reviews come first, then document reviews, questions, permissions and the rest; the oldest comes first within a kind. An item on a Done or `cancelled` task with no live agent is left out. | `mael agent answer`, `mael agent approve` or `deny`, each with `--request`; `mael doc approve` or `request-changes <id>`; `mael agent resume`; else `mael agent show` |
+| Unanswered agents | Each **Unanswered agent**, with its last message, oldest message first. | `mael agent say` |
+| Awaiting merge | Each task that is **Awaiting merge**, with its newest Registered PR. | The PR URL |
+
+Each line names the project, and the task or the free agent. With nothing waiting, the command
+prints `Nothing waits on you.` `--json` prints the reply of `GET /api/waiting` as the server sent
+it. The command calls this host's own orchestrator server, whose world holds each **Remote host**'s
+attention items too.
+
+`mael agent list` reads the agent daemon, so its `waiting_on` column shows only questions, plan
+reviews and permissions.
 
 ## Comms
 

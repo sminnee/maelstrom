@@ -204,8 +204,9 @@ The server names an empty title or branch from the prose you type, and the node 
 while it does. It uses OpenAI when `OPENAI_API_KEY` is set, and a slug of the prose's first line
 otherwise.
 The top bar's **Chat** item opens a chat with the **Foreman**: one long-lived agent that manages
-your work. Ask it what is on the desk, or tell it to make a task, steer an agent or edit a comm.
-It uses the `mael` CLI to do these. It changes no code: it makes a task for the work. It asks you
+your work. Ask it what waits on you, or tell it to make a task, steer an agent, approve a
+document or edit a comm. It uses the `mael` CLI to do these: `mael attention` lists what waits on
+you, in every project. It changes no code: it makes a task for the work. It asks you
 before it stops an agent, cancels or deletes a task, closes or removes a worktree, or closes a
 comm. Click **Start the foreman** once; after a stop or a restart, **Resume the
 foreman** goes on with the same conversation. The foreman runs in `~/.maelstrom/foreman`, and

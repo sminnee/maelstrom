@@ -74,7 +74,7 @@ command works as a local one. See [remote-hosts.md](remote-hosts.md).
 
 | Class | Commands | Why |
 |---|---|---|
-| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch), `task add/promote/load-many` | The state is the server's. Both sides already call the same domain function. |
+| **A. Thin over REST: the routes exist** | `task show/read/list/status/rm/update`, `list`, `list-all`, `comms new/list/close/edit`, `close`, `rm`, `close --trash`, `agent cost`, `task run` (as a launch), `task add/promote/load-many`, `attention` (`GET /api/waiting`), `task list --search` (`GET /api/tasks/search`), `doc approve/request-changes` | The state is the server's. Both sides already call the same domain function. |
 | **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `wiki list/read/update` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
 | **C. Stays local** | `self *`, `project check`, `session info/list`, `task edit`, `comms edit` with no options, `task add --run --cli`, `task add --edit`, `agent attach/tail` | Bootstrap must work with the server down: `self setup` installs it, and `self restart orchestrator` restarts it. The rest use the TTY or `$EDITOR`, or exec into the caller's shell. |
 | **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
@@ -112,6 +112,29 @@ default branch.
 
 A rule the domain owns stays on the server. The status reply carries the follower that
 `mael task next --run` would start, so the CLI prints it and does not apply the rule itself.
+
+## UI actions with no CLI command
+
+The **Foreman** manages work through `mael`, so a UI action with no command is an action the
+Foreman cannot take. The table lists each one, and whether it needs a command.
+
+| Area | UI action | Route | Status |
+|---|---|---|---|
+| Desk | On desk, Off desk, Dismiss | `POST /api/desk`, `DELETE /api/desk/{id}`, `POST /api/desk/{id}/dismiss` | Gap: needs a command |
+| Worktrees | Merge the PR, toggle **Auto-merge** | `POST /api/worktrees/{id}/merge-pr`, `/auto-merge` | Gap: needs a command |
+| Merge | Rebase a **Merge request** | `POST .../merge-request/rebase` | Gap: needs a command |
+| Comms | Draft, edit and send updates; reopen | `POST /api/comms/updates`, `PATCH /api/comms/{id}/updates/{uid}`, `PATCH /api/comms/{id}` | Gap: needs a command |
+| Tasks | Launch with a model or a host | `POST /api/tasks/{p}/{id}/launch` | Gap: needs a command |
+| Changes review | Send diff comments to the agent | `POST /api/worktrees/{id}/comments` | No command: code review is not Foreman work |
+| Worktrees | Open a terminal; refresh | `POST .../terminal`, `POST /api/worktrees/refresh` | No command: a terminal needs the UI host, and the CLI refreshes after each write |
+| Live feedback | Set jig params | `POST .../live-feedback/{svc}/params` | No command: a dev-server page concern |
+| Agents | Start the Foreman; say with attachments | `POST /api/foreman`, `POST /api/attachments` | No command: the Foreman does not start itself |
+| Operations | Mark seen, retry | `POST /api/operations/{id}/seen`, `/retry` | No command: console view state |
+| Tasks | Infer title and branch | `POST /api/tasks/infer` | No command: a form helper |
+
+Some CLI writes go past the server: `task update/edit/rm/log`, `comms *`,
+`gh create-pr/link-pr/withdraw-pr`, and `agent *`, which goes to the agent daemon. The migration
+order below covers them.
 
 ## The package split
 

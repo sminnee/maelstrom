@@ -52,6 +52,7 @@ from .hubs import Lagging
 from .lsp_client import LspError
 from .remote_hosts import HostUnreachable
 from .server import Orchestrator, task_document_refusal
+from .waiting import waiting_on_user
 
 log = logging.getLogger(__name__)
 #: How often an idle notice stream sends a comment, so a proxy keeps it open.
@@ -137,6 +138,7 @@ def build_app(
     app.router.add_get("/api/worktrees/{id}/definition", _worktree_definition)
     app.router.add_get("/api/worktrees/{id}/raw", _worktree_raw)
     app.router.add_get("/api/tasks", _tasks)
+    app.router.add_get("/api/tasks/search", _search_tasks)
     app.router.add_get("/api/tasks/{project}/{id}", _task)
     app.router.add_get("/api/tasks/{project}/{id}/markdown", _task_markdown)
     app.router.add_get("/api/tasks/{project}/{id}/documents", _task_documents)
@@ -161,6 +163,7 @@ def build_app(
     app.router.add_get("/api/agents/{id}/milestones", _milestones)
     app.router.add_get("/api/agents/{id}/stream", _transcript_stream)
     app.router.add_get("/api/attention", _attention)
+    app.router.add_get("/api/waiting", _waiting)
     app.router.add_get("/api/documents", _documents)
     app.router.add_get("/api/documents/{id}", _document)
     app.router.add_get("/api/desk", _desk)
@@ -735,6 +738,20 @@ async def _tasks(request: web.Request) -> web.Response:
     return response
 
 
+async def _search_tasks(request: web.Request) -> web.Response:
+    """The slim rows of the tasks, in every project, whose title or content holds ``q``."""
+    orch = await _ready_with_tasks(request)
+    text = request.query.get("q", "").strip().casefold()
+    if not text:
+        return error_response("invalid", "q is the text to search for")
+    rows = [
+        task_row(task)
+        for task in orch.world["tasks"].values()
+        if text in task["title"].casefold() or text in task["content"].casefold()
+    ]
+    return web.json_response({"tasks": rows})
+
+
 async def _task(request: web.Request) -> web.Response:
     orch = await _ready_with_tasks(request)
     task_id = f"{request.match_info['project']}/{request.match_info['id']}"
@@ -895,6 +912,12 @@ async def _attention(request: web.Request) -> web.Response:
     if request.query.get("open"):
         items = [item for item in items if item["clearedAt"] is None]
     return web.json_response({"attention": items})
+
+
+async def _waiting(request: web.Request) -> web.Response:
+    """Everything that waits on the user, in every project. See ``waiting.py``."""
+    orch = await _ready(request)
+    return web.json_response(waiting_on_user(orch.world))
 
 
 async def _documents(request: web.Request) -> web.Response:

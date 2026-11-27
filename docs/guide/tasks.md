@@ -253,6 +253,7 @@ mael task list              # actionable now
 mael task list --all-todo   # include waiting and parked tasks
 mael task list --all        # include done and cancelled
 mael task list --parent linear.PROJ-123
+mael task list --all-projects --search foreman   # every project, title or content match
 mael task show <id>         # summary
 mael task read <id>         # the raw file
 mael task log <id> "note"   # append to the task's log

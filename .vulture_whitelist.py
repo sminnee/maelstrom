@@ -98,6 +98,9 @@ scheduleZone  # unused variable (lib/domain/src/mael_domain/protocol.py Task): t
 actionLines  # unused variable (lib/domain/src/mael_domain/protocol.py StatusMoved)
 cpuPercent  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
 rssBytes  # unused variable (lib/domain/src/mael_domain/protocol.py GateUsage)
+taskTitle  # unused variable (lib/domain/src/mael_domain/protocol.py WaitingAttention, UnansweredAgent): mael attention reads it by key
+documentTitle  # unused variable (lib/domain/src/mael_domain/protocol.py WaitingAttention): mael attention reads it by key
+awaitingMerge  # unused variable (lib/domain/src/mael_domain/protocol.py WaitingReport): mael attention reads it by key
 cpuCount  # unused variable (lib/domain/src/mael_domain/protocol.py MetricsSample)
 memoryUsedBytes  # unused variable (lib/domain/src/mael_domain/protocol.py MetricsSample)
 memoryTotalBytes  # unused variable (lib/domain/src/mael_domain/protocol.py MetricsSample)
