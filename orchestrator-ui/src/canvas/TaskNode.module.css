@@ -249,7 +249,7 @@
   background: var(--accent);
 }
 /* A wire being dragged needs every target lit, not just the one under it. */
-:global(.react-flow.connecting) .handle {
+:global(.react-flow:has(.react-flow__connectionline)) .handle {
   opacity: 1;
 }
 /* Without the pulse, a working node still reads as live. */
