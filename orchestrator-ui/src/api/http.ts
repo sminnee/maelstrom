@@ -47,6 +47,8 @@ export interface RequestOptions {
 export interface ApiClient {
   get<T>(path: string, opts?: RequestOptions): Promise<T>;
   post<T>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
+  /** A POST whose success is bytes, not JSON: synthesized speech. A refusal is JSON as ever. */
+  postBlob(path: string, body?: unknown, opts?: RequestOptions): Promise<Blob>;
   patch<T>(path: string, body?: unknown, opts?: RequestOptions): Promise<T>;
   delete<T>(path: string, opts?: RequestOptions): Promise<T>;
 }
@@ -74,6 +76,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
     path: string,
     body: unknown,
     options: RequestOptions,
+    asBlob = false,
   ): Promise<T> {
     const controller = new AbortController();
     let timedOut = false;
@@ -101,6 +104,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
       response = await fetchImpl(baseUrl + path, init);
       // The deadline covers the body too: a server that sends headers and
       // then stalls must not hold the query open forever.
+      if (asBlob && response.ok) return (await response.blob()) as T;
       text = await response.text();
     } catch (err) {
       // TanStack ignores the rejection of a fetch it cancelled, so the
@@ -136,6 +140,7 @@ export function createApiClient(opts: ApiClientOptions = {}): ApiClient {
   return {
     get: (path, opts = {}) => request('GET', path, undefined, opts),
     post: (path, body = {}, opts = {}) => request('POST', path, body, opts),
+    postBlob: (path, body = {}, opts = {}) => request<Blob>('POST', path, body, opts, true),
     patch: (path, body = {}, opts = {}) => request('PATCH', path, body, opts),
     delete: (path, opts = {}) => request('DELETE', path, undefined, opts),
   };

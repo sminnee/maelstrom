@@ -101,6 +101,7 @@ from .sources import (
     TaskHome,
     WorktreeOpener,
 )
+from .voice import OpenAIVoice
 
 DEFAULT_HOST = "127.0.0.1"
 # Bind addresses that take every interface, so no other listener fits beside.
@@ -583,7 +584,11 @@ def run_server(
             auth_store, user_name=user_name(), ui_origins=frozenset(ui_origins)
         )
         serving = asyncio.ensure_future(
-            serve_app(build_app(orchestrator, party, web_root=web_root), binds, port)
+            serve_app(
+                build_app(orchestrator, party, web_root=web_root, voice=OpenAIVoice()),
+                binds,
+                port,
+            )
         )
         # A supervisor stops the server with SIGTERM. Without a handler the
         # default terminates the process outright, so the app never cleans up

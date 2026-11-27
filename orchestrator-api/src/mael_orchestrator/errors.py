@@ -25,6 +25,9 @@ STATUS_FOR_CODE = {
     "auth_required": 401,
     "forbidden": 403,
     "passkey_pending": 403,
+    "voice_unavailable": 409,
+    "too_large": 413,
+    "upstream_failed": 502,
 }
 
 

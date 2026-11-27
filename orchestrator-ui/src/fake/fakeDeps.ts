@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import type { AppDeps } from '../App';
 import { createFakeServer, type FakeServer } from './fakeServer';
+import { createFakeVoiceDevices, type FakeVoiceDevices } from './fakeVoice';
 import type { Seed } from './seedWorld';
 
 /**
@@ -15,16 +16,20 @@ export function fakeDeps(
   server: FakeServer;
   queryClient: QueryClient;
   deps: AppDeps;
+  voice: FakeVoiceDevices;
 } {
   const server = createFakeServer({ ...seed, ...opts });
   // No retries: a refused request must fail now, not after backoff.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: 0 } },
   });
+  const voice = createFakeVoiceDevices();
   return {
     server,
     queryClient,
+    voice,
     deps: {
+      voiceDevices: voice,
       api: server.api,
       eventSourceFactory: server.eventSourceFactory,
       webSocketFactory: server.webSocketFactory,

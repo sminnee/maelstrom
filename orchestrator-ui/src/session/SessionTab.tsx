@@ -26,6 +26,7 @@ import { decisionCall } from './cards/decision';
 import { DECLINE_REASON } from './cards/QuestionPrompt';
 import { MessageInput } from './MessageInput';
 import { useSendMessage } from './useSendMessage';
+import { useVoice } from '../voice/useVoice';
 import { Transcript } from './Transcript';
 import styles from './SessionTab.module.css';
 
@@ -87,6 +88,7 @@ export function SessionTab({ agentId, controls }: { agentId: string; controls?: 
   const children = subagentsOf(world, agentId);
   const finished = finishedSubagentsOf(world, agentId);
   const transcript = useAgentStream(agentId);
+  const voice = useVoice(transcript.items, send.onSend);
   const bottom = useRef<HTMLDivElement>(null);
   // Whether the reader sits at the tail. Written by the scroll event rather
   // than read during render, where the new event is already in the layout and
@@ -369,6 +371,7 @@ export function SessionTab({ agentId, controls }: { agentId: string; controls?: 
           bucket={`agent-${agentId}`}
           agentId={agentId}
           disabled={agent.state === 'exited'}
+          voice={voice}
           {...send}
         />
       )}

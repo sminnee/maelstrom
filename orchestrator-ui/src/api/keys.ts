@@ -14,6 +14,8 @@ export const keys = {
   /** The browser's sign-in. Not part of the world: no notice names it. */
   auth: () => ['auth'] as const,
   gateJobs: () => ['gateJobs'] as const,
+  /** Whether voice mode can work. Not part of the world: no notice names it. */
+  voice: () => ['voice'] as const,
   attention: () => ['attention'] as const,
   tasks: {
     all: () => ['tasks'] as const,

@@ -52,6 +52,7 @@ from .hubs import Lagging
 from .lsp_client import LspError
 from .remote_hosts import HostUnreachable
 from .server import Orchestrator, task_document_refusal
+from .voice import Voice, VoiceRefused, VoiceUnavailable
 
 log = logging.getLogger(__name__)
 #: How often an idle notice stream sends a comment, so a proxy keeps it open.
@@ -76,6 +77,13 @@ CLOSE_LAGGING = 4409
 ORCH = web.AppKey("orch", Orchestrator)
 #: Every transcript socket open right now, so a shutdown can close each one.
 SOCKETS: web.AppKey[set] = web.AppKey("sockets", set)
+#: Where the app keeps its speech provider; ``None`` has none.
+VOICE: web.AppKey[Voice | None] = web.AppKey("voice")
+
+#: The largest clip a transcription takes, so a huge upload is not held in memory.
+MAX_VOICE_CLIP_BYTES = 25 * 1024 * 1024
+#: The longest text one speech request reads: the spend guard, under OpenAI's 4,096.
+MAX_SPEECH_CHARS = 4000
 
 
 #: The error code for an HTTP status aiohttp raises on its own.
@@ -85,7 +93,10 @@ Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
 def build_app(
-    orch: Orchestrator, auth: AuthParty, web_root: Path | None = None
+    orch: Orchestrator,
+    auth: AuthParty,
+    web_root: Path | None = None,
+    voice: Voice | None = None,
 ) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
@@ -93,7 +104,8 @@ def build_app(
     runs the app — the CLI, a test — gets a live world without wiring it.
 
     ``auth`` decides who may reach each ``/api`` route. ``web_root`` is the
-    built UI, served beside the API on one origin.
+    built UI, served beside the API on one origin. ``voice`` serves the
+    ``/api/voice`` routes; ``None`` makes them say voice is not available.
     """
     # The audit first, so it records the refusals and forwards of the rest.
     # Auth before the forward, so this server admits each request it forwards.
@@ -102,6 +114,7 @@ def build_app(
     )
     app[ORCH] = orch
     app[AUTH] = auth
+    app[VOICE] = voice
 
     app[SOCKETS] = set()
 
@@ -227,6 +240,9 @@ def build_app(
     app.router.add_get("/api/linear/issues", _linear_issues)
     app.router.add_post("/api/linear/tasks", _linear_plan)
     app.router.add_post("/api/attachments", _upload_attachment)
+    app.router.add_get("/api/voice", _voice)
+    app.router.add_post("/api/voice/transcription", _voice_transcription)
+    app.router.add_post("/api/voice/speech", _voice_speech)
     app.router.add_get("/api/attachments/{project}/{bucket}/{name}", _serve_attachment)
     app.router.add_get("/api/files/{id}", _serve_file)
     app.router.add_post("/api/desk", _desk_add)
@@ -1873,6 +1889,77 @@ async def _dismiss(request: web.Request) -> web.StreamResponse:
         },
         status=202,
     )
+
+
+# -- voice --
+
+
+async def _voice(request: web.Request) -> web.Response:
+    """Whether **Voice mode** can work: a speech provider is set up."""
+    voice = request.app[VOICE]
+    available = voice is not None and await asyncio.to_thread(voice.available)
+    return web.json_response({"available": available})
+
+
+async def _voice_transcription(request: web.Request) -> web.Response:
+    """Take one recorded clip as multipart ``file``; reply with its ``text``."""
+    voice = request.app[VOICE]
+    if voice is None:
+        return error_response("voice_unavailable", "Voice mode is not set up")
+    try:
+        reader = await request.multipart()
+    except (ValueError, AssertionError) as exc:
+        return error_response("invalid", f"Body is not multipart: {exc}")
+
+    data = b""
+    content_type = ""
+    while (part := await reader.next()) is not None:
+        if not isinstance(part, BodyPartReader) or part.name != "file":
+            continue
+        content_type = (part.headers.get("Content-Type") or "").split(";")[0].strip()
+        chunks = bytearray()
+        while chunk := await part.read_chunk():
+            chunks += chunk
+            if len(chunks) > MAX_VOICE_CLIP_BYTES:
+                return error_response(
+                    "too_large", f"clip is too large: limit {MAX_VOICE_CLIP_BYTES}"
+                )
+        data = bytes(chunks)
+    if not data:
+        return error_response("invalid", "A transcription needs a file")
+
+    try:
+        text = await asyncio.to_thread(voice.transcribe, data, content_type)
+    except VoiceUnavailable as exc:
+        return error_response("voice_unavailable", str(exc))
+    except VoiceRefused as exc:
+        return error_response("upstream_failed", str(exc))
+    return web.json_response({"text": text})
+
+
+async def _voice_speech(request: web.Request) -> web.Response:
+    """Read ``{text}`` aloud; reply with the speech as ``audio/mpeg`` bytes."""
+    voice = request.app[VOICE]
+    if voice is None:
+        return error_response("voice_unavailable", "Voice mode is not set up")
+    try:
+        body = await read_body(request)
+    except BadBody as exc:
+        return error_response("invalid", str(exc))
+    text = body.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return error_response("invalid", "Speech needs a text")
+    if len(text) > MAX_SPEECH_CHARS:
+        return error_response(
+            "invalid", f"text is too long: limit {MAX_SPEECH_CHARS} characters"
+        )
+    try:
+        audio = await asyncio.to_thread(voice.speak, text)
+    except VoiceUnavailable as exc:
+        return error_response("voice_unavailable", str(exc))
+    except VoiceRefused as exc:
+        return error_response("upstream_failed", str(exc))
+    return web.Response(body=audio, content_type="audio/mpeg")
 
 
 # -- operations --

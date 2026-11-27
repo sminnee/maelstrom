@@ -116,6 +116,7 @@ from mael_orchestrator.sources import (
     TaskSourceRemote,
     WorktreeOpener,
 )
+from mael_orchestrator.voice import VoiceRefused, VoiceUnavailable
 from mael_orchestrator.world_build import (
     agent_entity,
     project_entity,
@@ -238,6 +239,8 @@ class Harness:
         self.auth = InMemoryAuthStore([ApiKey(hash_secret(HOST_KEY), HOST, NOW)])
         self.orch.delegate_keys = self.auth
         self.party = AuthParty(self.auth, user_name="maelstrom (test)")
+        #: The speech provider the app serves; ``None`` has none.
+        self.voice = None
 
     def add_task(self, task_id: str, *, project: str = PROJECT, **fields) -> None:
         """Seed one task, from outside a running loop.
@@ -265,7 +268,7 @@ class Harness:
         self.version += 1
 
     def app(self, web_root: Path | None = None):
-        return build_app(self.orch, self.party, web_root=web_root)
+        return build_app(self.orch, self.party, web_root=web_root, voice=self.voice)
 
     def serving(self, web_root: Path | None = None):
         """Serve the orchestrator on a free port for the length of the block."""
@@ -16395,3 +16398,191 @@ def test_a_notebook_write_the_poll_publishes_tells_once(harness):
 
     [told] = run(edit_task(harness, edit))
     assert told.attrs["fields"] == "title"
+
+
+# -- voice --
+
+
+class FakeVoice:
+    """A speech provider that records each call and replies as scripted."""
+
+    def __init__(self, *, available=True, text="ship it", audio=b"ID3fake", fails=None):
+        self._available = available
+        self.text = text
+        self.audio = audio
+        #: The exception each call raises, if any.
+        self.fails = fails
+        self.clips: list[tuple[bytes, str]] = []
+        self.spoken: list[str] = []
+
+    def available(self) -> bool:
+        return self._available
+
+    def transcribe(self, audio: bytes, content_type: str) -> str:
+        self.clips.append((audio, content_type))
+        if self.fails:
+            raise self.fails
+        return self.text
+
+    def speak(self, text: str) -> bytes:
+        self.spoken.append(text)
+        if self.fails:
+            raise self.fails
+        return self.audio
+
+
+def _clip(data: bytes = b"\x1aE\xdf\xa3voice", content_type="audio/webm"):
+    form = aiohttp.FormData()
+    form.add_field("file", data, filename="anything.bin", content_type=content_type)
+    return form
+
+
+@pytest.mark.parametrize(
+    ("voice", "available"),
+    [
+        (FakeVoice(), True),
+        (FakeVoice(available=False), False),
+        (None, False),
+    ],
+    ids=["key-resolves", "no-key", "no-provider"],
+)
+def test_voice_says_whether_a_provider_is_set_up(harness, voice, available):
+    harness.voice = voice
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/voice")
+
+    assert run(scenario()) == {"available": available}
+
+
+def test_a_transcription_replies_with_the_clips_text(harness):
+    harness.voice = voice = FakeVoice(text="add a test")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post(
+                "/api/voice/transcription", data=_clip(content_type="audio/mp4")
+            ) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 200, reply.body
+    assert reply.body == {"text": "add a test"}
+    # The format travels as the part's type; the client's own name does not.
+    assert voice.clips == [(b"\x1aE\xdf\xa3voice", "audio/mp4")]
+
+
+def test_a_transcription_over_the_size_cap_is_refused(harness, monkeypatch):
+    harness.voice = voice = FakeVoice()
+    monkeypatch.setattr("mael_orchestrator.routes.MAX_VOICE_CLIP_BYTES", 8)
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post(
+                "/api/voice/transcription", data=_clip(b"123456789")
+            ) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 413
+    assert reply.body["error"]["code"] == "too_large"
+    assert voice.clips == []
+
+
+def test_a_transcription_with_no_file_is_refused(harness):
+    harness.voice = voice = FakeVoice()
+    form = aiohttp.FormData()
+    form.add_field("note", "no clip here")
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post("/api/voice/transcription", data=form) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == 400
+    assert reply.body["error"]["code"] == "invalid"
+    assert voice.clips == []
+
+
+@pytest.mark.parametrize(
+    ("voice", "code", "status"),
+    [
+        (None, "voice_unavailable", 409),
+        (FakeVoice(fails=VoiceUnavailable("no key")), "voice_unavailable", 409),
+        (FakeVoice(fails=VoiceRefused("HTTP Error 401")), "upstream_failed", 502),
+    ],
+    ids=["no-provider", "no-key", "upstream-refused"],
+)
+def test_a_refused_transcription_says_why(harness, voice, code, status):
+    harness.voice = voice
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post(
+                "/api/voice/transcription", data=_clip()
+            ) as raw:
+                return await _reply(raw)
+
+    reply = run(scenario())
+
+    assert reply.status == status
+    assert reply.body["error"]["code"] == code
+
+
+def test_speech_replies_with_the_audio(harness):
+    harness.voice = voice = FakeVoice(audio=b"ID3spoken")
+    text = "x" * 4000
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.session.post(
+                "/api/voice/speech", json={"text": text}
+            ) as raw:
+                return raw.status, raw.headers["Content-Type"], await raw.read()
+
+    status, content_type, body = run(scenario())
+
+    assert status == 200
+    assert content_type == "audio/mpeg"
+    assert body == b"ID3spoken"
+    assert voice.spoken == [text]
+
+
+@pytest.mark.parametrize(
+    ("voice", "text", "code", "status"),
+    [
+        (FakeVoice(), "", "invalid", 400),
+        (FakeVoice(), "   ", "invalid", 400),
+        (FakeVoice(), "x" * 4001, "invalid", 400),
+        (None, "hello", "voice_unavailable", 409),
+        (
+            FakeVoice(fails=VoiceUnavailable("no key")),
+            "hello",
+            "voice_unavailable",
+            409,
+        ),
+        (
+            FakeVoice(fails=VoiceRefused("HTTP Error 429")),
+            "hello",
+            "upstream_failed",
+            502,
+        ),
+    ],
+    ids=["empty", "blank", "over-cap", "no-provider", "no-key", "upstream-refused"],
+)
+def test_refused_speech_says_why(harness, voice, text, code, status):
+    harness.voice = voice
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.post("/api/voice/speech", {"text": text})
+
+    reply = run(scenario())
+
+    assert reply.status == status
+    assert reply.body["error"]["code"] == code

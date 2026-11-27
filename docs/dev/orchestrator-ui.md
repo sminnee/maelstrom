@@ -350,6 +350,39 @@ a subagent. A live agent draws even off the desk, so the server keeping it off t
 enough. An attachment from the pane is refused: an upload needs a project, and the foreman has
 none.
 
+### Voice mode
+
+`SessionTab` calls `voice/useVoice.ts`, so every session view has **Voice mode**: the Foreman
+pane, a session in the panel, and a session in the narrow layout. `MessageInput` draws the Voice
+toggle beside Send, and the mic while voice is on. It draws them only when `GET /api/voice` says
+available. The UI reads that once per page load, so a new key shows its toggle after a reload. A
+subagent has no message box, so it has no toggle. An exited agent's toggle is disabled, unless
+voice is on, so the user can still turn it off.
+
+`voice/VoiceProvider.tsx` holds which session view has voice, app-wide, by a token per view.
+It is not keyed by agent, because one agent can show in two views at once. There is one mic and
+one speaker, so voice on in one view turns it off in the others. A view that unmounts with voice on
+turns it off, so no hidden view speaks.
+
+| The user | The view |
+|---|---|
+| turns Voice on | unlocks the audio element, then takes the finished replies as read |
+| taps **Talk** | stops the reply that plays, drops the queue, and records |
+| taps **Stop and send** | uploads the clip, and sends a non-empty transcript through `useSendMessage` |
+| waits | reads each assistant message that finishes, in transcript order |
+
+A reply is read by its `speakableText` (`markdown/speakable.ts`), cut to the server's
+4,000-character cap. It keeps the `high` segments
+of `attentionSegments`, as plain prose. Code, tables, images and HTML drop out, and a link keeps
+its text. A message with nothing left is skipped.
+
+iOS plays audio only from a user gesture. So the toggle's click plays a short silence on the one
+`<audio>` element, and every later reply reuses that element.
+
+`voice/devices.ts` puts `MediaRecorder` and the audio element behind `VoiceDevices`. `AppDeps`
+takes a `voiceDevices`, as it takes a socket factory, so the suite drives `fake/fakeVoice.ts`.
+The fake server's speech holds the text it read, so a test asserts what the user heard.
+
 ### The Project dialog
 
 `projects/ProjectDetail.tsx` draws one project in two tabs. `?dtab=` holds the tab. A tab change

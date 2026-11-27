@@ -7,6 +7,7 @@ import { AttachField } from '../ui/AttachField';
 import { retainedKey } from '../ui/retained';
 import { TextArea } from '../ui/TextArea';
 import { useRetained } from '../ui/useRetained';
+import type { VoiceControls } from '../voice/useVoice';
 import styles from './MessageInput.module.css';
 
 /** An unsent reply, held so switching panel tabs does not lose it. */
@@ -25,6 +26,7 @@ export function MessageInput({
   onRun,
   disabled,
   inline,
+  voice,
 }: {
   project: string;
   /** Groups this agent's images in the task repo. */
@@ -45,6 +47,8 @@ export function MessageInput({
    * holds its own text, so the two can be on the page at once.
    */
   inline?: boolean;
+  /** **Voice mode**: the Voice toggle and the mic beside Send. Unset draws neither. */
+  voice?: VoiceControls;
 }) {
   // The text and its attachments move together: an image's ref lives in the
   // text, so holding one without the other would restore a ref to an image the
@@ -103,14 +107,17 @@ export function MessageInput({
     <div className={styles.form} data-inline={inline ? '' : undefined}>
       <AttachField
         actions={
-          <AppButton
-            icon={actionIcon('send')}
-            ref={sendButton}
-            disabled={disabled || !canSend}
-            onClick={send}
-          >
-            Send
-          </AppButton>
+          <>
+            {voice?.available && <VoiceButtons voice={voice} disabled={disabled} />}
+            <AppButton
+              icon={actionIcon('send')}
+              ref={sendButton}
+              disabled={disabled || !canSend}
+              onClick={send}
+            >
+              Send
+            </AppButton>
+          </>
         }
         className={styles.attach}
         project={project}
@@ -154,6 +161,48 @@ export function MessageInput({
           }}
         />
       </AttachField>
+      {voice?.on && voice.error && (
+        <p className={styles.voiceError} role="alert">
+          {voice.error}
+        </p>
+      )}
     </div>
+  );
+}
+
+/** The Voice toggle and, while voice is on, the mic. */
+function VoiceButtons({ voice, disabled }: { voice: VoiceControls; disabled?: boolean }) {
+  const micLabel =
+    voice.mic === 'recording' ? 'Stop and send' : voice.speaking ? 'Stop reply and talk' : 'Talk';
+  return (
+    <>
+      <AppButton
+        icon={actionIcon('voice')}
+        variant="quiet"
+        aria-pressed={voice.on}
+        // An agent that exits while voice is on can still be turned off.
+        disabled={disabled && !voice.on}
+        title={
+          voice.on
+            ? 'Voice is on: replies are read aloud.'
+            : 'Talk to the agent, and hear its replies.'
+        }
+        onClick={voice.toggle}
+      >
+        Voice
+      </AppButton>
+      {voice.on && (
+        <AppButton
+          icon={actionIcon('talk')}
+          variant={voice.mic === 'recording' ? 'danger' : 'plain'}
+          className={styles.mic}
+          data-mic={voice.mic}
+          disabled={disabled || voice.mic === 'sending'}
+          onClick={voice.tapMic}
+        >
+          {voice.mic === 'sending' ? 'Sending…' : micLabel}
+        </AppButton>
+      )}
+    </>
   );
 }

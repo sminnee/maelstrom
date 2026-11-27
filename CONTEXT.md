@@ -1278,6 +1278,13 @@ The top bar's pane that holds the **Foreman**'s conversation and message box. It
 reads Chat. With no foreman, it holds a Start button. With a foreman that stopped, it holds a
 Resume button over the conversation, so the conversation goes on.
 
+**Voice mode**:
+A way to talk to an agent in a session view, and hear its replies. The user records a clip, and
+its transcript goes to the agent as the user's message. Each reply that finishes after voice went
+on is read aloud: its high prose (see **User attention**), less what a listener cannot follow.
+Voice is on in at most one session view, and off on each page load. It needs `openai.api_key`.
+_Avoid_: Dictation, speech mode
+
 **Canvas**:
 The desk in its graph **Desk mode**: one lane per project, with a **Worktree box** round the nodes of
 each worktree. It draws one node per task and one per free agent. A node is drawn when it is on

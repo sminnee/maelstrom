@@ -1,11 +1,13 @@
 """Tests for the shared urllib request wrapper."""
 
 import urllib.error
+from email.parser import BytesParser
+from email.policy import default
 from unittest.mock import patch
 
 import pytest
 
-from mael_domain.integrations._http import request_bytes
+from mael_domain.integrations._http import multipart_body, request_bytes
 from mael_domain.integrations.errors import IntegrationHTTPError
 
 
@@ -38,3 +40,28 @@ class TestRequestBytes:
 
         assert exc.value.code == 401
         assert str(exc.value).startswith("HTTP Error 401: ")
+
+
+class TestMultipartBody:
+    def test_a_standard_parser_reads_back_each_field_and_file(self):
+        body, content_type = multipart_body(
+            {"model": "gpt-4o-mini-transcribe"},
+            {"file": ("clip.webm", b"\x1aE\xdf\xa3\r\n--bytes", "audio/webm")},
+        )
+
+        message = BytesParser(policy=default).parsebytes(
+            f"Content-Type: {content_type}\r\n\r\n".encode() + body
+        )
+        parts = {
+            part.get_param("name", header="content-disposition"): part
+            for part in message.iter_parts()
+        }
+        assert parts["model"].get_content() == "gpt-4o-mini-transcribe"
+        assert parts["file"].get_filename() == "clip.webm"
+        assert parts["file"].get_content_type() == "audio/webm"
+        assert parts["file"].get_content() == b"\x1aE\xdf\xa3\r\n--bytes"
+
+    @pytest.mark.parametrize("name", ['a"b', "a\r\nb"], ids=["quote", "crlf"])
+    def test_a_name_that_breaks_the_header_is_refused(self, name):
+        with pytest.raises(ValueError):
+            multipart_body({}, {"file": (name, b"x", "audio/webm")})
