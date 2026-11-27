@@ -55,3 +55,28 @@ describe('the Foreman pane', () => {
     );
   });
 });
+
+describe('voice in the Foreman pane', () => {
+  it('shows the Voice toggle, and voice in a session tab turns the foreman voice off', async () => {
+    const user = userEvent.setup();
+    // The Foreman pane on the left, and a task agent's session in the panel
+    // beside it: both views on screen at once.
+    await renderApp({ url: '/foreman?panel=session/d9a4c7f1' });
+    await user.keyboard('{Shift>}');
+    await user.click(paneItem('Chat'));
+    await user.keyboard('{/Shift}');
+    await user.click(paneItem('Tabs'));
+    const pane = () => within(screen.getByTestId('foreman-pane'));
+    await user.click(await pane().findByRole('button', { name: 'Start the foreman' }));
+    const foremanVoice = await pane().findByRole('button', { name: 'Voice' });
+    await user.click(foremanVoice);
+    expect(foremanVoice).toHaveAttribute('aria-pressed', 'true');
+
+    // One mic and one speaker: a second session view takes voice over.
+    const tab = within(screen.getByTestId('panel'));
+    await user.click(await tab.findByRole('button', { name: 'Voice' }));
+    expect(tab.getByRole('button', { name: 'Voice' })).toHaveAttribute('aria-pressed', 'true');
+    expect(foremanVoice.isConnected).toBe(true);
+    expect(foremanVoice).toHaveAttribute('aria-pressed', 'false');
+  });
+});

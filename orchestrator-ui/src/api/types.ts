@@ -76,6 +76,9 @@ export const ERROR_CODES = [
   'auth_required',
   'forbidden',
   'passkey_pending',
+  'voice_unavailable',
+  'too_large',
+  'upstream_failed',
   'timeout',
   'transport',
 ] as const;

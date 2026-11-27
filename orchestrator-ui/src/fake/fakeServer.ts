@@ -269,6 +269,11 @@ export interface FakeServer {
   dropSockets(agentId?: AgentId): void;
   /** How long each step of an operation takes. */
   stepMs: number;
+  /**
+   * **Voice mode**: whether a speech provider is set up, and what the next
+   * clip transcribes to. The speech of a text is the text's own bytes.
+   */
+  voice: { available: boolean; transcript: string };
 }
 
 export interface FakeServerOptions {
@@ -323,6 +328,17 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
       const { status, code, message, ...detail } = refusal.error;
       return json(status, { error: { code, message: message ?? code, ...detail } });
     }
+    // Speech is bytes, not JSON: the audio of a text is the text, so a fake
+    // player can say what it read.
+    if (method === 'POST' && path === '/api/voice/speech' && server.voice.available) {
+      const text = String((body as { text?: unknown } | undefined)?.text ?? '');
+      if (!text.trim())
+        return json(400, { error: { code: 'invalid', message: 'Speech needs a text' } });
+      // The real route's spend guard, so a client that sends more is caught here too.
+      if (text.length > 4000)
+        return json(400, { error: { code: 'invalid', message: 'text is too long' } });
+      return new Response(text, { status: 200, headers: { 'Content-Type': 'audio/mpeg' } });
+    }
     const reply =
       method === 'GET' ? read(path, server) : command(method, path, body, server, () => nextId++);
     return json(reply.status, reply.body);
@@ -341,6 +357,7 @@ export function createFakeServer(opts: FakeServerOptions = {}): FakeServer {
     world,
     transcripts: opts.transcripts ?? {},
     stepMs: opts.stepMs ?? 1000,
+    voice: { available: true, transcript: '' },
     requests,
     hostRefuses: {},
     sources,
@@ -648,6 +665,7 @@ function read(path: string, server: FakeServer): Reply {
   const [pathname, query = ''] = path.split('?') as [string, string?];
   const params = new URLSearchParams(query);
   if (pathname === '/api/projects') return ok({ projects: Object.values(world.projects) });
+  if (pathname === '/api/voice') return ok({ available: server.voice.available });
   if (pathname === '/api/worktrees') return ok({ worktrees: Object.values(world.worktrees) });
   if (pathname === '/api/operations') {
     const limit = Number(params.get('limit') ?? 0);
@@ -1927,6 +1945,14 @@ function command(
         },
       ],
     });
+  }
+
+  if (pathname.startsWith('/api/voice/') && method === 'POST' && !server.voice.available) {
+    return error(409, 'voice_unavailable', 'Voice mode is not set up');
+  }
+  if (pathname === '/api/voice/transcription' && method === 'POST') {
+    if (!b.file) return error(400, 'invalid', 'A transcription needs a file');
+    return ok({ text: server.voice.transcript });
   }
 
   if (pathname === '/api/attachments' && method === 'POST') {

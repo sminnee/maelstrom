@@ -1,6 +1,7 @@
 import { createElement, type ReactElement } from 'react';
 import {
   Archive,
+  AudioLines,
   Ban,
   ArrowLeft,
   ArrowRight,
@@ -27,6 +28,7 @@ import {
   Link2Off,
   MessageCircleQuestionMark,
   MessageSquarePlus,
+  Mic,
   OctagonX,
   PanelRight,
   Pencil,
@@ -97,12 +99,14 @@ const ICONS = {
   start: Play,
   stop: Square,
   suggest: Sparkles,
+  talk: Mic,
   sync: RefreshCw,
   terminal: SquareTerminal,
   terminate: OctagonX,
   update: CircleArrowDown,
   unlink: Link2Off,
   view: Eye,
+  voice: AudioLines,
 } satisfies Record<string, LucideIcon>;
 
 export type ActionVerb = keyof typeof ICONS;

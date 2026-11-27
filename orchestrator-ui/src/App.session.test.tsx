@@ -352,3 +352,206 @@ describe('the session tab', () => {
     expect(await screen.findByRole('button', { name: 'plan' })).toBeInTheDocument();
   });
 });
+
+describe('voice mode in the session tab', () => {
+  const AGENT = 'd9a4c7f1';
+  const open = async (user: ReturnType<typeof userEvent.setup>) => {
+    clickNode('NORT-9');
+    await user.click(within(expanded()).getByRole('link', { name: 'Session' }));
+    return screen.findByRole('button', { name: 'Voice' });
+  };
+  const turnOn = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.click(await open(user));
+    return screen.getByRole('button', { name: 'Talk' });
+  };
+  const reply = (id: string, markdown: string, partial = false) => ({
+    id,
+    ts: '',
+    type: 'message' as const,
+    role: 'assistant' as const,
+    markdown,
+    partial,
+  });
+  const says = (server: Awaited<ReturnType<typeof renderApp>>['server']) =>
+    server.requests
+      .filter((r) => r.path === `/api/agents/${AGENT}/say`)
+      .map((r) => (r.body as { text: string }).text);
+
+  it('turns voice off on each page load', async () => {
+    const user = userEvent.setup();
+    const { reload } = await renderApp();
+    const toggle = await open(user);
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: 'Talk' })).toBeNull();
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // A reload keeps the session tab, and turns voice off.
+    await reload();
+    expect(await screen.findByRole('button', { name: 'Voice' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+  });
+
+  it('draws no Voice toggle when the server has no speech provider', async () => {
+    const user = userEvent.setup();
+    const { server, reload } = await renderApp();
+    await open(user);
+    server.voice.available = false;
+    await reload();
+    await screen.findByRole('textbox', { name: 'Message to agent' });
+    expect(screen.queryByRole('button', { name: 'Voice' })).toBeNull();
+  });
+
+  it('disables the toggle for an exited agent', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    const toggle = await open(user);
+    server.change({ kind: 'agent', ids: [AGENT] }, (w) => {
+      w.agents[AGENT]!.state = 'exited';
+    });
+    await waitFor(() => expect(toggle).toBeDisabled());
+  });
+
+  it('records on a tap, and a second tap sends the transcript as the user message', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    server.voice.transcript = '  Prefer the ICU collation. ';
+    const mic = await turnOn(user);
+
+    await user.click(mic);
+    expect(voice.recording).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Stop and send' }));
+
+    expect(await screen.findByText('Prefer the ICU collation.')).toBeInTheDocument();
+    expect(voice.recording).toBe(false);
+    expect(says(server)).toEqual(['Prefer the ICU collation.']);
+    const upload = server.requests.find((r) => r.path === '/api/voice/transcription');
+    expect((upload!.body as { file: Blob }).file.type).toBe('audio/webm');
+  });
+
+  it('sends nothing for an empty transcript', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.voice.transcript = '   ';
+    const mic = await turnOn(user);
+
+    await user.click(mic);
+    await user.click(screen.getByRole('button', { name: 'Stop and send' }));
+    await screen.findByRole('button', { name: 'Talk' });
+    expect(server.requests.some((r) => r.path === '/api/voice/transcription')).toBe(true);
+    expect(says(server)).toEqual([]);
+  });
+
+  it('shows a refused upload in the view', async () => {
+    const user = userEvent.setup();
+    const { server } = await renderApp();
+    server.refuse(/^POST \/api\/voice\/transcription$/, {
+      status: 502,
+      code: 'upstream_failed',
+      message: 'OpenAI transcription failed: HTTP Error 429',
+    });
+    const mic = await turnOn(user);
+
+    await user.click(mic);
+    await user.click(screen.getByRole('button', { name: 'Stop and send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'OpenAI transcription failed: HTTP Error 429',
+    );
+    expect(says(server)).toEqual([]);
+  });
+
+  it('reads each reply that finishes after the toggle, in order, and skips one with nothing to say', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    await turnOn(user);
+
+    // A partial is not read until it finishes.
+    server.append(AGENT, reply('r1', 'The index', true));
+    server.append(AGENT, reply('r2', '<user-attention low>\nRan the suite.'));
+    server.append(AGENT, reply('r3', 'See [the PR](https://example.com/pr/1).'));
+    await waitFor(() => expect(voice.played).toEqual(['See the PR.']));
+
+    server.patch(AGENT, 'r1', { markdown: 'The index is **built**.', partial: false });
+    voice.finishPlaying();
+    await waitFor(() => expect(voice.played).toEqual(['See the PR.', 'The index is built.']));
+    voice.finishPlaying();
+    // The seeded transcript was there before the toggle, so none of it is read,
+    // and the reply with nothing to say asks for no speech.
+    await waitFor(() => expect(voice.playing).toBe(false));
+    expect(voice.played).toHaveLength(2);
+    expect(server.requests.filter((r) => r.path === '/api/voice/speech')).toHaveLength(2);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('reads the start of a reply longer than the speech cap', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    await turnOn(user);
+
+    server.append(AGENT, reply('r1', 'word '.repeat(1000)));
+    await waitFor(() => expect(voice.played).toHaveLength(1));
+    expect(voice.played[0]!.length).toBe(4000);
+  });
+
+  it('shows a refused microphone in the view', async () => {
+    const user = userEvent.setup();
+    const { voice } = await renderApp();
+    voice.refuseMicrophone = new Error('Permission denied');
+    const mic = await turnOn(user);
+
+    await user.click(mic);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The microphone is not available: Permission denied',
+    );
+    expect(voice.recording).toBe(false);
+  });
+
+  it('stops the reply when its view closes, so no hidden view speaks', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    await turnOn(user);
+    server.append(AGENT, reply('r1', 'First.'));
+    await waitFor(() => expect(voice.played).toEqual(['First.']));
+
+    await user.click(within(tabStrip()).getByRole('button', { name: /^Close/ }));
+    await waitFor(() => expect(screen.queryByTestId('session-tab')).toBeNull());
+    expect(voice.stops).toBe(1);
+    expect(voice.playing).toBe(false);
+  });
+
+  it('stops the reply on a mic tap, and drops the queued ones', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    await turnOn(user);
+
+    server.append(AGENT, reply('r1', 'First.'));
+    server.append(AGENT, reply('r2', 'Second.'));
+    await waitFor(() => expect(voice.played).toEqual(['First.']));
+
+    await user.click(screen.getByRole('button', { name: 'Stop reply and talk' }));
+    expect(voice.stops).toBe(1);
+    expect(voice.recording).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Stop and send' }));
+    await screen.findByRole('button', { name: 'Talk' });
+    expect(voice.played).toEqual(['First.']);
+  });
+
+  it('stops the reply when voice goes off', async () => {
+    const user = userEvent.setup();
+    const { server, voice } = await renderApp();
+    await turnOn(user);
+
+    server.append(AGENT, reply('r1', 'First.'));
+    server.append(AGENT, reply('r2', 'Second.'));
+    await waitFor(() => expect(voice.played).toEqual(['First.']));
+
+    await user.click(screen.getByRole('button', { name: 'Voice' }));
+    expect(voice.stops).toBe(1);
+    server.append(AGENT, reply('r3', 'Third.'));
+    await screen.findByText('Third.');
+    expect(voice.played).toEqual(['First.']);
+  });
+});

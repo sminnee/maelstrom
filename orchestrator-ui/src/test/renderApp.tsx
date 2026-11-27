@@ -9,6 +9,7 @@ import { keys } from '../api/keys';
 import { resetToPageLoad } from '../store/store';
 import { fakeDeps } from '../fake/fakeDeps';
 import type { FakeServer, FakeServerOptions, Refusal } from '../fake/fakeServer';
+import type { FakeVoiceDevices } from '../fake/fakeVoice';
 import { SCENARIOS, type ScenarioName } from '../fake/scenarios';
 import { setViewportWidth } from './setup';
 
@@ -69,6 +70,8 @@ export async function renderApp(
     queryClient: QueryClient;
     router: AppRouter;
     reload: () => Promise<void>;
+    /** The microphone and speaker of **Voice mode**. */
+    voice: FakeVoiceDevices;
   }
 > {
   // Before the render: the layout is read on the first pass, not in an effect.
@@ -79,7 +82,7 @@ export async function renderApp(
   // so only a second mount in one test finds any.
   resetToPageLoad();
   const seed = SCENARIOS[opts.scenario ?? 'desk'].build();
-  const { server, queryClient, deps } = fakeDeps(
+  const { server, queryClient, deps, voice } = fakeDeps(
     { ...seed, transcripts: opts.transcripts ?? seed.transcripts },
     // Short, so an operation ends inside a `waitFor`; long enough that a
     // test can still see one running.
@@ -118,15 +121,15 @@ export async function renderApp(
   };
   // A browser with no sign-in draws the Sign-in screen and reads no world.
   if (seed.world.auth.state !== 'signed_in') {
-    return { server, queryClient, router, reload, ...utils };
+    return { server, queryClient, router, reload, voice, ...utils };
   }
   // The app mounts once the sign-in is read; a held server still answers it.
   await waitFor(() => {
     if (queryClient.getQueryState(keys.auth())?.status === 'pending') throw new Error('gated');
   });
-  if (opts.ready === false) return { server, queryClient, router, reload, ...utils };
+  if (opts.ready === false) return { server, queryClient, router, reload, voice, ...utils };
   await loaded(queryClient);
-  return { server, queryClient, router, reload, ...utils };
+  return { server, queryClient, router, reload, voice, ...utils };
 }
 
 /** Resize the window of a mounted app, as a drag of its edge or a turn of a phone does. */

@@ -12,6 +12,8 @@ import { NavRouter } from './nav/NavRouter';
 import type { AppRouter } from './nav/router';
 import { routes } from './nav/routes';
 import { eventsUrl } from './eventsUrl';
+import type { VoiceDevices } from './voice/devices';
+import { VoiceProvider } from './voice/VoiceProvider';
 
 /** What the app reaches the server through. A test injects fakes for each. */
 export interface AppDeps {
@@ -24,6 +26,8 @@ export interface AppDeps {
   queryClient?: QueryClient;
   /** What reads and moves the location. A browser router on the window's URL when left out. */
   router?: AppRouter;
+  /** The microphone and the speaker of **Voice mode**. The browser's when left out. */
+  voiceDevices?: VoiceDevices;
 }
 
 /** Where the change stream is — see `eventsUrl`. */
@@ -42,7 +46,9 @@ export function App({ deps }: { deps: AppDeps }) {
           socketFactory={deps.webSocketFactory}
           reconnectMs={deps.streamReconnectMs}
         >
-          <NavRouter router={router} />
+          <VoiceProvider devices={deps.voiceDevices}>
+            <NavRouter router={router} />
+          </VoiceProvider>
         </LiveProvider>
       </AuthGate>
     </ApiProvider>

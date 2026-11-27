@@ -43,3 +43,27 @@
     max-height: calc(var(--vvh, 100dvh) - var(--control) * 4);
   }
 }
+/* Why the last voice turn failed: a line of its own under the field. */
+.form:has(.voiceError) {
+  flex-wrap: wrap;
+}
+.voiceError {
+  flex-basis: 100%;
+  margin: var(--u) 0 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+/* Recording: the mic pulses, so the user sees it listens. */
+.mic[data-mic='recording'] {
+  animation: listening 1.2s ease-in-out infinite;
+}
+@keyframes listening {
+  50% {
+    opacity: 0.6;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mic[data-mic='recording'] {
+    animation: none;
+  }
+}
