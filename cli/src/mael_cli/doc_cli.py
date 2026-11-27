@@ -1,4 +1,4 @@
-"""``mael doc``: add, list, show, link and archive Task documents.
+"""``mael doc``: add, list, show, link and archive Task documents, and give a verdict.
 
 A thin client over the orchestrator server. See ``docs/specs/tasks/CONTEXT.md``, "Task document",
 and ``docs/adr/0001-task-documents.md``. A task argument defaults to
@@ -65,9 +65,18 @@ def _ref(text: str, project: str | None) -> str:
     return str(parsed)
 
 
-def _call(method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-    """Call the server that holds the task: the parent, for a **Delegated agent**."""
-    client = OrchestratorClient.for_tasks()
+def _call(
+    method: str,
+    path: str,
+    body: dict[str, Any] | None = None,
+    *,
+    client: OrchestratorClient | None = None,
+) -> Any:
+    """Call ``client``, by default the server that holds the task.
+
+    That is the parent, for a **Delegated agent**.
+    """
+    client = client or OrchestratorClient.for_tasks()
     try:
         return client.post(path, body) if method == "POST" else client.get(path)
     except OrchestratorRefused as exc:
@@ -257,3 +266,97 @@ def archive(ref: str, project: str | None) -> None:
 def unarchive(ref: str, project: str | None) -> None:
     """Unarchive the document. Inside a task session, only its owner may."""
     _archive("unarchive", ref, project)
+
+
+def _world_document(
+    target: str, project: str | None, client: OrchestratorClient
+) -> tuple[dict[str, Any], int | None]:
+    """The world document ``target`` names, and the version a ref names, if any.
+
+    ``target`` is a world document id, else a ref to a task's document, as
+    ``mael doc show`` takes it. A ref matches by task and source name.
+    """
+    rows = _call("GET", "/api/documents", client=client)["documents"]
+    for row in rows:
+        if row["id"] == target:
+            return row, None
+    try:
+        ref = parse_ref(
+            target,
+            project=lambda: _project(project),
+            task_id=os.environ.get("MAEL_TASK_ID"),
+        )
+    except TaskDocumentError as exc:
+        raise click.ClickException(f"No document {target}: {exc}") from exc
+    for row in rows:
+        source = row["source"]
+        name = source.get("name") or source.get("filename")
+        if (
+            row["taskId"] == ref.task_key
+            and name == ref.name
+            and row["status"] != "superseded"
+        ):
+            return row, ref.version
+    raise click.ClickException(f"No document {target}")
+
+
+def _verdict(
+    action: str, target: str, version: int | None, project: str | None, **body: Any
+) -> dict[str, Any]:
+    """Give the verdict ``action`` on the document, at ``version`` or its current one.
+
+    The world documents are on this host's own server, never on a parent.
+    """
+    client = OrchestratorClient.from_config()
+    found, named = _world_document(target, project, client)
+    if found["kind"] == "plan":
+        raise click.ClickException(
+            "A plan review is answered on the agent: "
+            f"mael agent approve {found['agentId']}, or mael agent deny."
+        )
+    if version is None:
+        version = found["version"] if named is None else named
+    _call(
+        "POST",
+        f"/api/documents/{quote(found['id'], safe='')}/{action}",
+        {"version": version, **body},
+        client=client,
+    )
+    return found
+
+
+_version_option = click.option(
+    "--version",
+    type=int,
+    help="Act only when N is the current version. Defaults to the version a REF "
+    "names, else the current version.",
+)
+
+
+@doc.command("approve")
+@click.argument("target", metavar="ID|REF")
+@_version_option
+@_project_option
+def approve(target: str, version: int | None, project: str | None) -> None:
+    """Approve a document awaiting review, as the UI's Approve does.
+
+    ID is the document id that `mael attention` prints. REF is a task
+    document's reference, as `mael doc show` takes it.
+    """
+    found = _verdict("approve", target, version, project)
+    click.echo(f"Approved {found['title']}.")
+
+
+@doc.command("request-changes")
+@click.argument("target", metavar="ID|REF")
+@click.option(
+    "--summary", required=True, help="What should change. The agent reads it."
+)
+@_version_option
+@_project_option
+def request_changes(
+    target: str, summary: str, version: int | None, project: str | None
+) -> None:
+    """Send a document awaiting review back, as the UI's Request changes does."""
+    found = _verdict("request-changes", target, version, project, summary=summary)
+    click.echo(f"Requested changes to {found['title']}.")

@@ -14,7 +14,8 @@ from click.testing import CliRunner
 from served_orchestrator import PROJECT, point_config_at, seed
 
 from mael_cli.doc_cli import doc
-from mael_domain import sarif
+from mael_cli.orchestrator_client import OrchestratorClient
+from mael_domain import sarif, task_documents
 from mael_domain.auth.model import DELEGATE, ApiKey, hash_secret
 
 pytestmark = pytest.mark.binds_socket
@@ -204,3 +205,80 @@ def test_a_delegated_agent_s_doc_commands_reach_its_parent(
     assert added.output == f"{PROJECT}:NORT-7:notes.md@v1\n"
     assert f"{PROJECT}:NORT-7:notes.md" in listed.output
     assert shown.exit_code == 0, shown.output
+
+
+def present(name: str, role: str = "other", title: str = "A", body: str = "") -> dict:
+    """Store ``name`` on NORT-7 as an agent presents it for review, and return its row."""
+    wire = task_documents.Presented(
+        PROJECT,
+        "NORT-7",
+        name,
+        role,
+        title,
+        "awaiting-review",
+        None,
+        agent_id="ag1",
+        body=f"# {title}\n{body}",
+        digest=f"{name}:{body}",
+    ).to_json()
+    client = OrchestratorClient.from_config()
+    client.post(f"/api/tasks/{PROJECT}/NORT-7/documents/presented", wire)
+    return next(d for d in documents() if d["source"].get("name") == name)
+
+
+def documents() -> list[dict]:
+    return OrchestratorClient.from_config().get("/api/documents")["documents"]
+
+
+def test_approve_by_ref_settles_the_current_version(served):
+    present("tasks.md", title="Task set")
+    present("tasks.md", title="Task set", body="Second.\n")
+
+    result = mael_doc("approve", "tasks.md")
+
+    assert result.output == "Approved Task set.\n"
+    assert [(d["version"], d["status"]) for d in documents()] == [(2, "approved")]
+
+
+def test_a_ref_s_version_is_the_version_the_verdict_names(served):
+    present("notes.md")
+    present("notes.md", body="Second.\n")
+
+    result = mael_doc("approve", "notes.md@v1")
+
+    assert result.exit_code == 1
+    assert "Document is at v2, not v1" in result.output
+
+
+def test_a_ref_that_names_no_document_is_refused(served):
+    result = mael_doc("approve", "missing.md")
+
+    assert result.exit_code == 1
+    assert "No document missing.md" in result.output
+
+
+def test_request_changes_by_id_settles_the_document(served):
+    found = present("notes.md")
+
+    result = mael_doc("request-changes", found["id"], "--summary", "Split it.")
+
+    assert result.exit_code == 0, result.output
+    assert [d["status"] for d in documents()] == ["changes-requested"]
+
+
+def test_a_verdict_on_a_version_not_current_prints_the_server_s_refusal(served):
+    present("notes.md")
+
+    result = mael_doc("approve", "notes.md", "--version", "2")
+
+    assert result.exit_code == 1
+    assert "Document is at v1, not v2" in result.output
+
+
+def test_a_plan_is_refused_with_the_agent_command_that_answers_it(served):
+    present("plan", role="plan", title="Plan")
+
+    result = mael_doc("approve", "plan")
+
+    assert result.exit_code == 1
+    assert "mael agent approve ag1" in result.output

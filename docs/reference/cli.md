@@ -399,7 +399,7 @@ unless the edit makes the task follow unfinished work. `mael task update` and `m
 send no session, so the caller's agent hears its own edit.
 
 In a delegated agent, `MAEL_PARENT_URL` is set, and the task is on the parent server. These task
-commands and every `mael doc` command call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
+commands and every `mael doc` command but the verdicts call the parent in place of `orchestrator_url:`, `mael merge` submits there, and `mael gh create-pr` registers its PR
 there. The commands below still use the local state database, so they refuse with "`mael <cmd>`
 uses the local state database, and this agent's task is on <url>.":
 
@@ -1295,10 +1295,18 @@ the orchestrator server.
 | `mael doc unlink REF [TASK]` | Remove that link. |
 | `mael doc archive REF` | Archive the document. Inside a task session, only the owning task may: the session's task goes as the asking task. |
 | `mael doc unarchive REF` | Unarchive the document, with the same rule. |
+| `mael doc approve ID\|REF` | Approve a document awaiting review, as the UI's Approve does. The server settles the whole review group, promotes a task set's drafts, and tells the agent. |
+| `mael doc request-changes ID\|REF --summary TEXT` | Send a document awaiting review back, as the UI's Request changes does. The agent reads `TEXT`. |
 
 `TASK` defaults to `$MAEL_TASK_ID`. Every command takes `-p, --project`, which defaults to the
-current directory's project. When `MAEL_PARENT_URL` is set, every `mael doc` command goes to the
-parent server, which holds the task.
+current directory's project. When `MAEL_PARENT_URL` is set, `mael doc` goes to the parent server,
+which holds the task. The verdicts below do not.
+
+`approve` and `request-changes` take the document id that `mael attention` prints, or a reference.
+They call this host's own server, which holds the world documents. They act on the current
+version. `--version N`, or a reference's `@v<n>`, acts only when that is the current version, and
+refuses otherwise. A plan is
+refused: its review is answered on the agent, with `mael agent approve` or `mael agent deny`.
 
 ```bash
 mael doc add zap.sarif.json                       # prints maelstrom:bivs.1:zap.sarif.json@v1
