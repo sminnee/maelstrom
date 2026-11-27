@@ -933,6 +933,7 @@ every PR merged, and a deploy step needs every PR landed there.
 - A project with no `deploy:` block stops at `merged`.
 - The server records each landing step the first time a task reaches it, with the time it
   recorded it.
+- When a `built` task's landing reaches `merged`, the server moves the task to Status `merged`.
 - A landing belongs to one task. There is no chain landing.
 _Avoid_: Follow-through (it clashes with Follows), ladder, pipeline, stage, phase, milestone
 

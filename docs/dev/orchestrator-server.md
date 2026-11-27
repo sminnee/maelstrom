@@ -1141,7 +1141,7 @@ snapshot and its first live one.
 | Tasks | Poll the task table's revision. On change, read every project's tasks and diff | 2 s |
 | Worktrees and projects | Re-read `build_list_all_data`, one read in flight at a time, and only while a client is watching or an agent waits on PR news | 60 s |
 | Agents | Reconcile the host's `list` against the world | 2 s |
-| Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached. Each done tracked task is then read again, and the ones whose landing moved are pushed | with the worktree read |
+| Landings | Inside the worktree read, under the same lock: refresh each tracked task's PR, then record each **Landing** step it reached, and move each merged `built` task to `merged`. Each done tracked task is then read again, and the ones whose landing moved are pushed | with the worktree read |
 | Comms | Read the `comms` rows written since the last read. A comm's `taskIds` are derived from the world's tasks | 2 s, on the task tick |
 | Desk | Read once at start, pruned on every task refresh, joined by every live agent, and written through on change | — |
 | Host | One entity, `agent-host`, saying whether the agent host answers. Set by every agent poll; published only when it changes | with the agent poll |
@@ -1333,7 +1333,11 @@ GitHub. `status` is the highest step reached, through the same rule as `mael com
 `envs` names each deploy step the project deploys to, with its state. A task with no
 Registered PR has empty `envs`, because it has nothing to land.
 
-A landing change writes no task row, so the task poll would never see it. So after each sync
+The sync moves each `built` task whose landing has reached `merged` to Status `merged`, through
+`move_with_actions`. The check reads the state, as the step recording does, so a task that merged
+during a missed poll moves on the next one. A failed move is logged, and the other tasks still sync.
+
+A landing step that moves no Status writes no task row, so the task poll would never see it. So after each sync
 `refresh_worktrees` reads every done tracked task again through `TaskSource.read_some`, and
 pushes the ones whose entity moved. That covers an env state that changes with no new step, such
 as `unknown` to `not_yet`. The read is the table and the cached PR rows; it asks GitHub nothing.
