@@ -364,7 +364,7 @@ uptimerobot:
 | `linear.api_key` | string | — | Linear API key. |
 | `sentry.api_key` | string | — | Sentry API key. |
 | `uptimerobot.api_key` | string | — | UptimeRobot API key. |
-| `openai.api_key` | string | — | OpenAI API key for task naming. With no key, names are a slug of the prose. |
+| `openai.api_key` | string | — | OpenAI API key for task naming and **Voice mode**. With no key, names are a slug of the prose, and session views draw no Voice toggle. |
 | `github.orchestrator_token` | string | — | GitHub token the orchestrator uses for UI actions that write to GitHub. Read from this file only. See [API keys](#api-keys). |
 | `slack.webhooks` | map | `{}` | Named Slack webhook URLs. The first entry is the default channel for `mael slack post`. |
 | `hosts` | map | `{}` | Each remote host this orchestrator server can delegate a launch to: its name and the base URL of its orchestrator server, as `name: <url>` or `name: {url: <url>, token: <host key>}`. `token` is the remote host's **Host key**: without it, the remote host refuses each call. The name must be the remote host's own `host_name:`. A name is lower-case letters, digits and `-`. An entry with a bad name or a URL that is not `http://` or `https://` is ignored. See [Remote hosts](#remote-hosts). |

@@ -2339,6 +2339,34 @@ rather than a half-written task, and all four UI surfaces share one path.
 The size cap is 5 MB, and the bytes must sniff as PNG, JPEG, GIF or WEBP. Both refusals answer
 400 `invalid`.
 
+## Voice
+
+Three routes serve **Voice mode**. They proxy OpenAI, so the key never reaches the browser.
+None is a command: nothing about the world changes.
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/voice` | | `{available}`: `true` when an OpenAI key resolves |
+| `POST /api/voice/transcription` | multipart: `file`, one recorded clip | `{text}`, the transcript |
+| `POST /api/voice/speech` | `{text}` | the speech, as `audio/mpeg` bytes |
+
+The routes speak to the `Voice` port in `voice.py`. `cli.py` builds `OpenAIVoice` for it, and
+the harness passes a fake. `OpenAIVoice` reads the key at each call, so a new key works without a
+restart. The models are `gpt-4o-mini-transcribe` and `gpt-4o-mini-tts`.
+
+The route passes the clip's part type to the port. `OpenAIVoice` turns it into the file
+extension OpenAI reads the format from: `audio/mp4` on iOS Safari, `audio/webm` elsewhere. An
+unknown type is sent as WebM. The client's file name is not used.
+
+| Refusal | Status | When |
+|---|---|---|
+| `voice_unavailable` | 409 | no OpenAI key resolves |
+| `too_large` | 413 | a clip over 25 MB |
+| `invalid` | 400 | a transcription body that is not multipart or has no `file`; empty text, or text over 4,000 characters |
+| `upstream_failed` | 502 | OpenAI refused, or could not be reached |
+
+The 4,000-character cap is the only spend guard. It sits under OpenAI's limit of 4,096.
+
 `agent.setMode` is a pure relay. The child announces its new mode in its own `system`/`status`
 event, so the world changes when that arrives, and a mode the child refuses never reaches the
 world at all.
@@ -2454,6 +2482,9 @@ The world is validated before the host is asked.
 | `stale_request` | The request id is not the pending one |
 | `wrong_wait_kind` | An answer to a permission, or an approve of a question. A deny suits every kind |
 | `stale_version` | The document version is not current |
+| `voice_unavailable` | No OpenAI key resolves for **Voice mode**. 409. See "Voice" |
+| `too_large` | A voice clip over 25 MB. 413. An attachment over its cap is still `invalid` |
+| `upstream_failed` | OpenAI refused a voice call, or could not be reached. 502 |
 | `cannot_update` | `self.update` on a development build, or `mael self update --detach` refused; the message carries its stderr. 409 |
 | `language_server_failed` | A worktree's **Language server** did not start, crashed or did not answer. The status is 502 |
 | `unreachable` | A **Remote host** is offline or did not answer, or a delegated agent's **Parent server** did not answer. 502 |

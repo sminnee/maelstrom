@@ -210,6 +210,12 @@ before it stops an agent, cancels or deletes a task, closes or removes a worktre
 comm. Click **Start the foreman** once; after a stop or a restart, **Resume the
 foreman** goes on with the same conversation. The foreman runs in `~/.maelstrom/foreman`, and
 the canvas draws no node for it.
+With `openai.api_key` set, each session view has a **Voice** toggle beside Send: the foreman's
+chat, a session in the panel, and a session on a phone. With voice on, tap **Talk**, speak, and
+tap **Stop and send**. The words go to the agent as your message. Each reply that finishes after
+that is read aloud: its high prose only, less code, tables and link URLs, and only its first
+4,000 characters. A tap on the mic stops a reply. Voice is on in one view at a time,
+and off after a reload.
 A browser signs in to the UI with a **Passkey**. A new passkey has no access until you run
 `mael auth verify <code>` on the host.
 `uv run mael-orchestrator serve` runs the orchestrator server behind the UI, which builds that world
