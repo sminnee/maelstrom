@@ -36,7 +36,7 @@ Each subsystem owns its sections. The file as a whole is in the Platform subdoma
 
 - **Task tracker** — holds each task, its status and its order. Code: `D/task.py`, `D/task_table.py`, `D/task_actions.py`, `D/task_metadata_generator.py`, `D/schedule.py`, `D/zone.py`, `C/task_cli.py`, `U/tasklist/`, `U/newwork/`, `S/planning/`, `S/plan-task/`, `S/plan-next-step/`. Specs: `docs/specs/tasks/task-tracker/`
 - **Task runs** — launches a task on an agent, and reads the task against that agent. Code: `D/task_launch.py`, `D/session_discovery.py`, `D/session_logs.py`. Specs: none yet
-- **Task documents** — keeps what an agent shows the user, and the user's verdict. Code: `D/task_documents.py`, `D/task_attachments.py`, `D/document_tags.py`, `D/attachments.py`, `D/file_registry.py`, `D/sarif.py`, `C/doc_cli.py`, `U/documents/`, `U/decisions/`. Specs: none yet
+- **Task documents** — keeps what an agent shows the user, and the user's verdict. Code: `D/task_documents.py`, `D/task_attachments.py`, `D/document_tags.py`, `D/link_cards.py`, `D/attachments.py`, `D/file_registry.py`, `D/sarif.py`, `C/doc_cli.py`, `U/documents/`, `U/decisions/`, `U/markdown/LinkCard.tsx`. Specs: none yet
 - **Comms** — tells people outside the team when work lands. Code: `D/comms.py`, `D/comm_store.py`, `D/comm_codename.py`, `C/comms_cli.py`, `U/comms/`. Specs: none yet
 
 ### Code

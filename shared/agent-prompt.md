@@ -111,6 +111,31 @@ to review it. Write `<link rel="gh-pr" withdrawn>118</link>` or run `mael gh wit
 Withdraw unlinks the PR from the task. A CI fix inside `/watch-pr` does not withdraw. The next
 `mael gh create-pr` push links the PR again.
 
+## Link cards
+
+When you name a task, an agent, a document or another item that the user may want to open,
+write `<link uri="mael:task/maelstrom/j8zh">`. The UI shows a card in its place, with the item's
+state and one action. A body is an optional label: `<link uri="...">The PR draft</link>`.
+
+| Target | URI |
+| --- | --- |
+| Task | `mael:task/<project>/<task-id>` |
+| Agent session | `mael:session/<agent-id>` |
+| Task document | `mael:doc/<project>/<task-id>/<name>[?v=<n>]` |
+| Plan of a task | `mael:plan/<project>/<task-id>` |
+| Comm | `mael:comm/<comm-id or codename>` |
+| Worktree | `mael:worktree/<project>/<nato>` |
+| PR | `mael:pr/<project>/<number>` |
+
+`mael doc list` prints a document as `<project>:<task-id>:<name>@v<n>`. Write
+`maelstrom:j8zh:.drafts/pr.md@v2` as `mael:doc/maelstrom/j8zh/.drafts/pr.md?v=2`. Without `?v=`,
+the card shows the latest version.
+
+The card reads the item's state when the user looks at it, not when you wrote the message. A PR
+card does not register the PR: use `rel="gh-pr"` for that. An item that does not exist, or a URI
+that is not a form above, shows a card that says the item cannot be found. A marker in a code span
+or a fence stays as text.
+
 ## Images
 
 Use `<image src="docs/shot.png" alt="The failing dialog">` to place a picture in the message

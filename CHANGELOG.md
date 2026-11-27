@@ -30,6 +30,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **An agent can link you to a task, an agent, a document or another item.** It writes
+  `<link uri="mael:task/maelstrom/j8zh">` in a message, and a card appears where it wrote it,
+  with the item's state now and one action. The Foreman uses it to list what waits on you. See
+  "Link cards" in `docs/dev/orchestrator-ui.md`.
 - **The orchestrator server and the agent daemon keep an audit log.** Each state-changing
   `/api/` request appends one JSON line to `<notebook root>/audit.jsonl`, with the caller's IP,
   status and route. Each agent daemon command that changes an agent appends one to
