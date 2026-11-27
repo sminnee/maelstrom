@@ -30,6 +30,10 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Added
 
+- **Create a linked task from a task node.** A hovered task node shows a (+) below each anchor.
+  The left (+) opens New work on a task that follows this one. The right (+) opens it on a task
+  that this one follows. New work's Advanced now has Follows and Followed by, and a folded
+  Advanced shows each field that is not a new task's default.
 - **The orchestrator server and the agent daemon keep an audit log.** Each state-changing
   `/api/` request appends one JSON line to `<notebook root>/audit.jsonl`, with the caller's IP,
   status and route. Each agent daemon command that changes an agent appends one to

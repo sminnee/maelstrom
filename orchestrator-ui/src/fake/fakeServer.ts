@@ -1729,6 +1729,11 @@ function command(
       const unknown = b.comms.find((id) => !world.comms[id]);
       if (unknown) return notFound(`comm ${unknown}`);
     }
+    if (b.follows !== undefined) {
+      if (!isStrings(b.follows)) return error(400, 'invalid', 'follows must be a list');
+      const unknown = b.follows.find((id) => !world.tasks[id]);
+      if (unknown) return notFound(`task ${unknown}`);
+    }
     const refused = launchHostRefusal();
     if (refused) return refused;
     const taskId = `${project}/NEW-${mint()}`;
@@ -1739,7 +1744,9 @@ function command(
       ...makeNewTask(taskId, project, title || content.split('\n')[0]!.slice(0, 60).trimEnd(), b),
       branch: str('branch')?.trim() || `task/${taskId.split('/')[1]}`,
       comms: b.comms ? [...new Set(b.comms as string[])] : [],
+      follows: b.follows ? [...new Set(b.follows as string[])] : [],
     };
+    refreshActionable(world, taskId);
     const relinked = deriveComms(world);
     if (relinked.length > 0) server.change({ kind: 'comm', ids: relinked });
     world.desk[`task:${taskId}`] = { id: `task:${taskId}`, addedAt: now() };

@@ -1,4 +1,4 @@
-import type { AgentId, DocumentId, OperationId, WorktreeId } from '../protocol/ids';
+import type { AgentId, DocumentId, OperationId, TaskId, WorktreeId } from '../protocol/ids';
 
 /**
  * One tab in the panel: a session, a document, a worktree's changes, or one of its running web
@@ -29,13 +29,16 @@ export type View = Exclude<Pane, 'tabs'>;
 
 /**
  * What a surface opens the new-work form on: a free agent in one worktree, which a **Worktree
- * card** starts, or a task made from a comm and linked to it.
+ * card** starts, a task made from a comm and linked to it, or a task linked to a task node by its
+ * (+) button.
  */
 export type NewWorkSeed =
   | { kind: 'agent'; project: string; branch: string }
   | { kind: 'task'; project: string; title: string; draft: string; comms: string[] }
   /** The filters in force. An empty string names none. See `filterSeed` in `selectors/filters.ts`. */
-  | { kind: 'filters'; project: string; branch: string; comms: string[] };
+  | { kind: 'filters'; project: string; branch: string; comms: string[] }
+  /** A task that follows the tasks in `follows`, and that the tasks in `followedBy` follow. */
+  | { kind: 'link'; project: string; follows: TaskId[]; followedBy: TaskId[] };
 
 export interface UiState {
   /** The side each pane shows on. Shift-click on a top bar item moves it. */

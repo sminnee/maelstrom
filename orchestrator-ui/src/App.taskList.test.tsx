@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import { act } from 'react';
 import userEvent from '@testing-library/user-event';
-import { chipCount, nodeState, tabStrip, paneItem, isShowing } from './test/appHelpers';
+import { chipCount, listChips, nodeState, tabStrip, paneItem, isShowing } from './test/appHelpers';
 import { renderApp } from './test/renderApp';
 import { seedWorld } from './fake/seedWorld';
 
@@ -379,9 +379,19 @@ describe('the task list', () => {
     await goToList(user);
 
     const editor = await openForEditing(user, 'NORT-9', 'Migrate to Postgres 16');
-    expect(within(editor).queryByLabelText('Command')).not.toBeVisible();
+    expect(within(editor).queryByLabelText('Command')).not.toBeInTheDocument();
     await user.click(within(editor).getByText('Advanced'));
     expect(within(editor).getByLabelText('Command')).toBeVisible();
+  });
+
+  it('shows the task it follows while Advanced is folded', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await goToList(user);
+
+    const editor = await openForEditing(user, 'NORT-9.1', 'Watch the migration PR');
+    expect(listChips(editor, 'Follows')).toEqual(['Migrate to Postgres 16']);
+    expect(within(editor).queryByLabelText('Priority')).toBeNull();
   });
 
   it('sends the fields the user changed, not those the world changed under them', async () => {

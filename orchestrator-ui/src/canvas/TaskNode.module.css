@@ -249,8 +249,49 @@
   background: var(--accent);
 }
 /* A wire being dragged needs every target lit, not just the one under it. */
-:global(.react-flow.connecting) .handle {
+:global(.react-flow:has(.react-flow__connectionline)) .handle {
   opacity: 1;
+}
+/* The (+) below each anchor. Outside `.node`, which clips; hidden mid-drag so it covers no target. */
+.plus {
+  position: absolute;
+  top: calc(50% + 7px);
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast);
+}
+.plusAfter {
+  left: 0;
+  transform: translateX(-50%);
+}
+.plusBefore {
+  right: 0;
+  transform: translateX(50%);
+}
+:global(.react-flow__node):hover .plus,
+.plus:focus-visible {
+  opacity: 1;
+}
+.plus:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+:global(.react-flow:has(.react-flow__connectionline)) .plus {
+  opacity: 0;
+  pointer-events: none;
 }
 /* Without the pulse, a working node still reads as live. */
 @media (prefers-reduced-motion: reduce) {

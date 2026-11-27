@@ -535,6 +535,14 @@ the one field the canvas writes that the task editor does not, so it is not part
 draft. Hovering a wire draws it thicker and darker, and offers the button that cuts it, which
 writes the target's `follows` without the id.
 
+A task node also shows a (+) below each anchor, lit with the anchors and hidden while a wire is
+dragged. A click opens New work on a `link` seed, in the node's project. The (+) of the left
+anchor, the source end, makes a task that follows this one: it sets Follows. The (+) of the right
+anchor, the target end, makes a task that this one follows: it sets Followed by. So a (+) and a
+drag from the same anchor make the same link. The (+) buttons are siblings of `.node`, inside
+React Flow's node wrapper, because `.node` clips what overflows it. A free agent's node has no
+(+).
+
 The board draws fewer wires than the Task tracker holds. `canvas/reduce.ts` drops an edge that a path
 of unfinished work already implies: when C follows both A and B, and B follows A and has still to
 finish, B gates C on A's behalf and A→C says nothing new. As in `is_actionable`, only a task whose
@@ -1509,6 +1517,18 @@ moves. The form is one step: everything the work needs is on one surface.
   the task's content unchanged, so the surface shows no second content field. Advanced's Model and
   Execute Model sit side by side. Execute Model defaults to "(Same as plan)" — unset, which keeps
   the session on its plan's model.
+- **Follows and Followed by**, in a task's Advanced, link the new task to others. Follows is sent
+  as the new task's `follows`. Followed by is a field of the dialog only: after the create, the
+  dialog adds the new task's id to the `follows` of each task it names, with
+  `followsAfterConnect`, as a wire drag does. When that update is refused, the task exists, so the
+  dialog releases the held draft, stays open, and says the task was created. A second Save then
+  cannot write a copy. A task node's (+) seeds both fields with a `link` seed, which replaces the
+  two lists and keeps the prose.
+- **Advanced, folded**, still shows each field whose value is not a new task's default: Follows
+  and Followed by when not empty, Model and Execute Model when set, and Priority when not
+  `medium`. Command and Mode stay folded, because the planning-level radios show them. Open, it
+  draws every field in its usual order, so a field does not move while the user edits it. The
+  task editor's Advanced follows the same rule.
 - **"Suggest"**, beside Branch, calls `useInferTask`. On a task it fills the title and branch from
   the reply; on a free agent, the branch only. It never changes the planning level or the mode:
   the user picks those, so the UI does not read the reply's command and mode. It is a button

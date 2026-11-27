@@ -5,7 +5,9 @@ import { useStartAgent } from '../api/agents';
 import { useProjects } from '../api/projects';
 import { useCreateLinearTask } from '../api/linear';
 import { useComms } from '../api/comms';
-import { useCreateTask, useInferTask } from '../api/tasks';
+import { useCreateTask, useInferTask, useUpdateTask } from '../api/tasks';
+import { followsAfterConnect } from '../canvas/connect';
+import type { TaskId } from '../protocol/ids';
 import { useWorld } from '../api/useWorld';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
@@ -100,6 +102,13 @@ interface Captured {
   taskExecuteModel: string;
   /** The comms a task is linked to as it is written: set by a comm's New task. */
   comms: string[];
+  /** The tasks the new task follows: set by a task node's (+), or picked in Advanced. */
+  follows: TaskId[];
+  /**
+   * The tasks that will follow the new task. A field of the dialog only: once the task is
+   * written, each of these gets the new task's id added to its own `follows`.
+   */
+  followedBy: TaskId[];
   /**
    * A Linear issue's planning level. Apart from the task's, because the two
    * kinds start at different levels.
@@ -135,6 +144,8 @@ const initialCaptured: Captured = {
   taskModel: UNSET_MODEL,
   taskExecuteModel: UNSET_MODEL,
   comms: [],
+  follows: [],
+  followedBy: [],
   linearCommand: LINEAR_LEVEL_FIELDS.command,
   linearMode: LINEAR_LEVEL_FIELDS.mode,
   seededDraft: '',
@@ -159,6 +170,7 @@ export function NewWork() {
   const worktrees = useWorktrees();
   const infer = useInferTask();
   const create = useCreateTask();
+  const update = useUpdateTask();
   const start = useStartAgent();
   const plan = useCreateLinearTask();
   // The canvas view, read the way every other view reads it, so the project
@@ -174,6 +186,8 @@ export function NewWork() {
   // embeds the bucket, so a re-minted bucket would make removing a thumbnail a
   // silent no-op and send the agent a link to an image it never got.
   const [captured, setCaptured, release] = useRetained(retainedKey.newWork(), initialCaptured);
+  // A Followed by update the server refused, after the task itself was written.
+  const [linkFailure, setLinkFailure] = useState<Error | null>(null);
   // What a surface opened the form on, laid over the held value and then
   // dropped. The rest of the draft stays: the prose typed earlier is still the
   // user's, whichever worktree the form was opened from.
@@ -181,11 +195,21 @@ export function NewWork() {
   const clearSeed = useAppStore((s) => s.clearNewWorkSeed);
   // A comm's seed keeps prose the user typed; prose another comm seeded, untouched, goes. A comm
   // with no project keeps the held project. A filter seed sets only where the work goes. A new
-  // project drops a held branch the seed does not name: it was another project's branch.
+  // project drops a held branch the seed does not name: it was another project's branch. A link
+  // seed makes a task, and replaces both link lists: the prose stays.
   useEffect(() => {
     if (!seed) return;
     setCaptured((was) => {
       if (seed.kind === 'agent') return { ...was, ...seed };
+      if (seed.kind === 'link')
+        return {
+          ...was,
+          kind: 'task',
+          project: seed.project,
+          branch: seed.project !== was.project ? '' : was.branch,
+          follows: seed.follows,
+          followedBy: seed.followedBy,
+        };
       if (seed.kind === 'filters')
         return {
           ...was,
@@ -227,11 +251,13 @@ export function NewWork() {
   // A project change can take the chosen kind off the board, so the form falls
   // back to the one every project has rather than sitting on a dead kind.
   const showing: Kind = kind === 'linear' && !hasLinear ? 'task' : kind;
-  const setDraft = (next: string | ((was: string) => string)) =>
+  const setDraft = (next: string | ((was: string) => string)) => {
+    setLinkFailure(null);
     setCaptured((was) => ({
       ...was,
       draft: typeof next === 'function' ? next(was.draft) : next,
     }));
+  };
 
   /**
    * The task as the fields hold it. The prose is the content: it is what the
@@ -249,7 +275,7 @@ export function NewWork() {
     priority,
     model: taskModel,
     executeModel: taskExecuteModel,
-    follows: [],
+    follows: captured.follows,
   };
   const patchTask = (fields: Partial<TaskDraft>) =>
     setCaptured((was) => ({
@@ -262,6 +288,7 @@ export function NewWork() {
       ...(fields.priority !== undefined ? { priority: fields.priority } : {}),
       ...(fields.model !== undefined ? { taskModel: fields.model } : {}),
       ...(fields.executeModel !== undefined ? { taskExecuteModel: fields.executeModel } : {}),
+      ...(fields.follows !== undefined ? { follows: fields.follows } : {}),
     }));
 
   // The branches on offer are those with a worktree already open in the
@@ -283,7 +310,7 @@ export function NewWork() {
   // The submits, not Suggest: Suggest is an `AppButton` and shows its own wait.
   // A submit waits only for the server to take the work: the naming and the
   // launch run on as an operation, which the board and the console show.
-  const busy = create.isPending || start.isPending || plan.isPending;
+  const busy = create.isPending || update.isPending || start.isPending || plan.isPending;
   // The error of the kind that is showing. React Query holds a mutation's
   // error until that same mutation runs again, so a fixed precedence would
   // let a refused start outlive the surface that raised it. Suggest's
@@ -293,7 +320,7 @@ export function NewWork() {
       ? start.error
       : showing === 'linear'
         ? plan.error
-        : create.error;
+        : (create.error ?? linkFailure);
 
   /**
    * Name the work from its prose: a task's title and branch, or a free agent's
@@ -361,7 +388,8 @@ export function NewWork() {
   };
 
   const writeTask = async (launch: boolean, host?: string) => {
-    await create.mutateAsync({
+    setLinkFailure(null);
+    const created = await create.mutateAsync({
       project: chosen,
       title: task.title.trim(),
       branch: task.branch.trim(),
@@ -371,12 +399,32 @@ export function NewWork() {
       priority: task.priority,
       model: task.model,
       executeModel: task.executeModel,
-      // `follows` is left out: a new task has nothing to follow yet, and an
-      // explicit empty list would be a needless field on the wire.
+      ...(task.follows.length > 0 ? { follows: task.follows } : {}),
       ...(captured.comms.length > 0 ? { comms: captured.comms } : {}),
       ...(launch ? { launch } : {}),
       ...(host ? { host } : {}),
     });
+    // The task exists from here, so a refused link must not leave the draft for a second Save
+    // to write again.
+    // The updates run in order and are not rolled back, so the message names the links made.
+    const linked: TaskId[] = [];
+    for (const id of captured.followedBy) {
+      try {
+        await update.mutateAsync({
+          taskId: id,
+          fields: { follows: followsAfterConnect(world.tasks[id]?.follows ?? [], created.taskId) },
+        });
+      } catch (e) {
+        release();
+        const made = linked.length > 0 ? ` It now comes before ${linked.join(', ')}.` : '';
+        const why = e instanceof Error ? e.message : String(e);
+        setLinkFailure(
+          new Error(`Created ${created.taskId}, but ${id} could not follow it: ${why}.${made}`),
+        );
+        return;
+      }
+      linked.push(id);
+    }
     release();
     close();
   };
@@ -432,6 +480,8 @@ export function NewWork() {
         }
         task={task}
         patchTask={patchTask}
+        followedBy={captured.followedBy}
+        setFollowedBy={(next) => patch({ followedBy: next })}
         onSuggest={suggest}
         busy={busy}
         comms={captured.comms}
@@ -540,6 +590,8 @@ function Capture({
   onRemoved,
   task,
   patchTask,
+  followedBy,
+  setFollowedBy,
   onSuggest,
   busy,
   comms,
@@ -579,6 +631,8 @@ function Capture({
   /** The task the fields below write, for the `task` kind. */
   task: TaskDraft;
   patchTask: (fields: Partial<TaskDraft>) => void;
+  followedBy: TaskId[];
+  setFollowedBy: (followedBy: TaskId[]) => void;
   /** Returns its promise, so the button it sits on can show the wait. */
   onSuggest: () => Promise<void>;
   busy: boolean;
@@ -741,7 +795,12 @@ function Capture({
             mode={task.mode}
             onChange={(fields) => patchTask(fields)}
           />
-          <TaskAdvancedFields draft={task} onChange={patchTask} />
+          <TaskAdvancedFields
+            draft={task}
+            onChange={patchTask}
+            project={project}
+            followedBy={{ value: followedBy, onChange: setFollowedBy }}
+          />
         </>
       )}
     </>

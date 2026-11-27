@@ -1,4 +1,4 @@
-import { paneItem } from './test/appHelpers';
+import { listChips, nodePlus, paneItem } from './test/appHelpers';
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -890,6 +890,103 @@ describe('new work', () => {
       expect(within(form).getByLabelText('Command')).toHaveValue('plan-task');
       expect(within(form).getByLabelText('Mode')).toHaveValue('normal');
     });
+  });
+
+  describe('links to other tasks', () => {
+    /** Open the form from a node's (+), and type the prose a task needs. */
+    async function openFromPlus(
+      user: ReturnType<typeof userEvent.setup>,
+      taskId: string,
+      side: 'after' | 'before',
+    ) {
+      await screen.findAllByTestId('task-node');
+      await user.click(nodePlus(taskId, side)!);
+      const form = screen.getByRole('dialog', { name: 'New work' });
+      await user.type(within(form).getByLabelText('What needs doing?'), 'Check the indexes');
+      return form;
+    }
+
+    it('sends the tasks in Follows as the new task follows', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      const form = await openFromPlus(user, 'NORT-9', 'after');
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+      const sent = server.requests.find((r) => r.method === 'POST' && r.path === '/api/tasks');
+      expect(sent?.body).toMatchObject({ follows: ['NORT-9'] });
+    });
+
+    it('adds the new task to the follows of each task in Followed by, and keeps what each had', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      // NORT-9.1 already follows NORT-9.
+      const form = await openFromPlus(user, 'NORT-9.1', 'before');
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'New work' })).toBeNull());
+      const { id } = createdTask(server);
+      const sent = server.requests.find((r) => r.method === 'POST' && r.path === '/api/tasks');
+      expect(sent?.body).not.toHaveProperty('follows');
+      const linked = server.requests.find(
+        (r) => r.method === 'PATCH' && r.path === '/api/tasks/NORT-9.1',
+      );
+      expect(linked?.body).toEqual({ follows: ['NORT-9', id] });
+    });
+
+    it('says the task was created when a Followed by link is refused, and does not create it twice', async () => {
+      const user = userEvent.setup();
+      const { server } = await renderApp();
+      server.refuse(/^PATCH \/api\/tasks\/NORT-12$/, {
+        status: 400,
+        code: 'invalid',
+        message: 'That would make a cycle',
+      });
+      const form = await openFromPlus(user, 'NORT-9.1', 'before');
+      await user.click(within(form).getByText('Advanced'));
+      // A task in Followed by is not offered in Follows: it would make a cycle.
+      await user.click(within(form).getByRole('combobox', { name: 'Follows' }));
+      expect(within(form).queryByRole('option', { name: /Watch the migration PR/ })).toBeNull();
+      await user.click(within(form).getByRole('combobox', { name: 'Followed by' }));
+      await user.click(within(form).getByRole('option', { name: /Rotate auth tokens/ }));
+      await user.click(within(form).getByRole('button', { name: 'Save' }));
+
+      const error = await within(form).findByTestId('new-work-error');
+      const { id } = createdTask(server);
+      // The first link landed before the second was refused, and stays.
+      const linked = server.requests.find(
+        (r) => r.method === 'PATCH' && r.path === '/api/tasks/NORT-9.1',
+      );
+      expect(linked?.body).toEqual({ follows: ['NORT-9', id] });
+      expect(error).toHaveTextContent(`Created ${id}, but NORT-12 could not follow it`);
+      expect(error).toHaveTextContent('That would make a cycle');
+      expect(error).toHaveTextContent('It now comes before NORT-9.1');
+      expect(screen.getByRole('dialog', { name: 'New work' })).toBeVisible();
+      // The draft is released, so there is nothing left to Save again.
+      expect(within(form).getByLabelText('What needs doing?')).toHaveValue('');
+      expect(within(form).getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+  });
+
+  it.each([
+    ['Priority', 'high'],
+    ['Model', 'claude:opus'],
+    ['Execute Model', 'claude:sonnet'],
+  ])('shows %s while Advanced is folded, once it is not the default', async (label, value) => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    expect(within(form).queryByLabelText(label)).toBeNull();
+    await user.click(within(form).getByText('Advanced'));
+    await user.selectOptions(within(form).getByLabelText(label), value);
+    await user.click(within(form).getByText('Advanced'));
+
+    expect(within(form).getByLabelText(label)).toHaveValue(value);
+    // The planning-level radios show Command and Mode, so those stay folded. So does an empty
+    // link list.
+    expect(within(form).queryByLabelText('Command')).toBeNull();
+    expect(listChips(form, 'Follows')).toBeNull();
+    expect(listChips(form, 'Followed by')).toBeNull();
   });
 
   it('starts a free agent with an attached image in its prompt', async () => {
