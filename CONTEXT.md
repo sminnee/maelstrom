@@ -1274,9 +1274,9 @@ foreman.
 _Avoid_: Head agent, concierge, assistant
 
 **Foreman pane**:
-The top bar's pane that holds the **Foreman**'s conversation and message box. With no foreman,
-it holds a Start button. With a foreman that stopped, it holds a Resume button over the
-conversation, so the conversation goes on.
+The top bar's pane that holds the **Foreman**'s conversation and message box. Its top bar item
+reads Chat. With no foreman, it holds a Start button. With a foreman that stopped, it holds a
+Resume button over the conversation, so the conversation goes on.
 
 **Canvas**:
 The desk in its graph **Desk mode**: one lane per project, with a **Worktree box** round the nodes of
