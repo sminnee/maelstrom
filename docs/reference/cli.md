@@ -1343,6 +1343,24 @@ once. A SARIF document does not show on the card.
 |---|---|
 | `--body` | Print only the body of the selected version. |
 
+## Attention
+
+`mael attention` lists everything that waits on the user, in every project, in three sections:
+
+| Section | What waits | The command that answers it |
+|---|---|---|
+| Attention | Each open **Attention item**: a question, a plan review, a permission, a document review, an exited agent, a CI failure. Plan reviews come first, then document reviews, questions, permissions and the rest; the oldest comes first within a kind. An item on a Done or `cancelled` task with no live agent is left out. | `mael agent answer`, `mael agent approve` or `deny`, each with `--request`; `mael doc approve` or `request-changes <id>`; `mael agent resume`; else `mael agent show` |
+| Unanswered agents | Each **Unanswered agent**, with its last message, oldest message first. | `mael agent say` |
+| Awaiting merge | Each task that is **Awaiting merge**, with its newest Registered PR. | The PR URL |
+
+Each line names the project, and the task or the free agent. With nothing waiting, the command
+prints `Nothing waits on you.` `--json` prints the reply of `GET /api/waiting` as the server sent
+it. The command calls this host's own orchestrator server, whose world holds each **Remote host**'s
+attention items too.
+
+`mael agent list` reads the agent daemon, so its `waiting_on` column shows only questions, plan
+reviews and permissions.
+
 ## Comms
 
 A **Comm** is something to tell people outside the team when work lands. These commands let an
