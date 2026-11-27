@@ -401,13 +401,24 @@ def _task(**over: Any) -> Any:
     return {**task, **over}
 
 
-#: The followed tasks that are done, by wire id. ``northwind/NORT-9`` is
-#: unknown, ``NORT-4`` is cancelled and ``NORT-5`` is built: neither is done.
-DONE = {"northwind/NORT-1"}
+#: The Status of each followed task the world holds, by wire id.
+#: ``northwind/NORT-9`` is unknown. Any other id is ``in-progress``.
+STATUSES = {
+    "northwind/NORT-1": "merged",
+    "northwind/NORT-4": "cancelled",
+    "northwind/NORT-5": "built",
+    "northwind/NORT-6": "published",
+}
+
+
+def _status_of(key: str) -> str | None:
+    if key == "northwind/NORT-9":
+        return None
+    return STATUSES.get(key, "in-progress")
 
 
 def _edit(old: Any, new: Any) -> ExternalEvent | None:
-    return task_edit_event(old, new, DONE.__contains__)
+    return task_edit_event(old, new, _status_of)
 
 
 class TestTaskEditEvent:
@@ -455,9 +466,8 @@ class TestTaskEditEvent:
         ("follows", "queued"),
         [
             (["northwind/NORT-2", "northwind/NORT-3"], "NORT-2,NORT-3"),
-            # As `is_actionable`: only a done task is finished.
+            # As `is_actionable`: a cancelled task has not ended its build.
             (["northwind/NORT-4"], "NORT-4"),
-            (["northwind/NORT-5"], "NORT-5"),
             (["northwind/NORT-9"], "NORT-9"),
             (["northwind/NORT-1", "northwind/NORT-2"], "NORT-2"),
             # Another project's task keeps its project.
@@ -466,7 +476,6 @@ class TestTaskEditEvent:
         ids=[
             "open",
             "cancelled",
-            "built",
             "unknown",
             "only-the-unfinished",
             "other-project",
@@ -477,6 +486,12 @@ class TestTaskEditEvent:
         assert event is not None
         assert event.type == TASK_QUEUED
         assert event.attrs == {"task": "northwind/NORT-7", "follows": queued}
+
+    @pytest.mark.parametrize("followed", ["NORT-1", "NORT-5", "NORT-6"])
+    def test_a_new_follow_on_an_ended_build_does_not_queue(self, followed):
+        event = _edit(_task(), _task(follows=[f"northwind/{followed}"]))
+        assert event is not None
+        assert event.type == TASK_UPDATED
 
     def test_a_follow_held_before_the_edit_does_not_queue(self):
         old = _task(follows=["northwind/NORT-2"])
@@ -489,7 +504,8 @@ class TestTaskEditEvent:
         event = _edit(_task(), _task(follows=["northwind/NORT-2"]))
         assert event is not None
         assert event.body == (
-            "Task NORT-7 now follows unfinished work: NORT-2. Commit your work, "
+            "Task NORT-7 now follows a task whose build has not ended: NORT-2. "
+            "Commit your work, "
             "write `<end-session>`, and end your turn. The user resumes the task "
-            "when that work is done."
+            "when that build ends."
         )

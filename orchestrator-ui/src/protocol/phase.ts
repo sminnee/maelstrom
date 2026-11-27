@@ -1,4 +1,5 @@
 import type { Agent, Phase, Task } from './entities';
+import { buildEnded } from './entities';
 import type { TaskId } from './ids';
 
 /**
@@ -92,8 +93,8 @@ export function phaseLabel(phase: Phase): string {
 /** May maelstrom launch this task now. Same rule as the notebook. */
 export function isActionable(
   task: Pick<Task, 'status' | 'done' | 'follows'>,
-  tasks: Record<TaskId, Pick<Task, 'done'>>,
+  tasks: Record<TaskId, Pick<Task, 'status'>>,
 ): boolean {
   if (task.done || task.status === 'cancelled' || task.status === 'template') return false;
-  return task.follows.every((id) => tasks[id]?.done === true);
+  return task.follows.every((id) => buildEnded(tasks[id]));
 }

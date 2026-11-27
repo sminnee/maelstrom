@@ -714,6 +714,13 @@ describe('startsNewSession', () => {
       true,
     ],
     [
+      'a done task whose follow is built',
+      makeTask({ id: 'T1', status: 'merged', actionable: false, follows: ['T0'] }),
+      [follow('built')],
+      [ended],
+      true,
+    ],
+    [
       'a done task with an unfinished follow',
       makeTask({ id: 'T1', status: 'merged', actionable: false, follows: ['T0'] }),
       [follow('in-progress')],

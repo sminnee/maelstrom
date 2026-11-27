@@ -12,7 +12,7 @@ import type { EventSourceLike } from '../live/changeStream';
 import type { PermissionMode } from '../protocol/modes';
 import { MODES } from '../protocol/modes';
 import { isActionable } from '../protocol/phase';
-import { doneStatuses, isTerminal } from '../protocol/entities';
+import { buildEnded, doneStatuses, isTerminal } from '../protocol/entities';
 import type { SocketLike } from '../live/socketLike';
 import type { TranscriptEvent } from '../live/transcriptReducer';
 import type { Attention } from '../protocol/attention';
@@ -1550,11 +1550,9 @@ function command(
   if (m && method === 'POST') {
     const task = world.tasks[m[1]!];
     if (!task) return notFound(`task ${m[1]}`);
-    // A **New session** may reopen a done task whose follows are done, as `validate.py` allows.
+    // A **New session** may reopen a done task whose followed builds ended, as `validate.py` allows.
     const reopens =
-      b.newSession === true &&
-      task.done &&
-      task.follows.every((f) => world.tasks[f]?.done === true);
+      b.newSession === true && task.done && task.follows.every((f) => buildEnded(world.tasks[f]));
     if (!task.actionable && !reopens) {
       return error(400, 'invalid', `Task ${task.id} is not actionable`);
     }

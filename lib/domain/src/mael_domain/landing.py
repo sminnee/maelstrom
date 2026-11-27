@@ -26,7 +26,7 @@ from .landing_store import (
 from .merge_request import task_key
 from .merge_request_store import MergeRequestStore
 from .protocol import EnvLandingState, TaskLanding
-from .task import STATUS_BUILT, STATUS_MERGED, STATUS_PUBLISHED, Task
+from .task import BUILD_ENDED_STATUSES, STATUS_BUILT, STATUS_MERGED, Task
 from .task_actions import move_with_actions
 from .task_table import TaskTable
 
@@ -35,9 +35,6 @@ log = logging.getLogger(__name__)
 LANDED = "landed"
 NOT_YET = "not_yet"
 UNKNOWN = "unknown"
-
-#: The statuses a landing starts at: the build is pushed.
-LANDING_STATUSES = (STATUS_BUILT, STATUS_MERGED, STATUS_PUBLISHED)
 
 
 @dataclass(frozen=True)
@@ -136,7 +133,7 @@ def _reached(
     ``merged``. An ``unknown`` environment is not reached. A task with no PR
     but a merged Merge request stops at ``merged``: a deploy check needs a PR.
     """
-    if task.status not in LANDING_STATUSES:
+    if task.status not in BUILD_ENDED_STATUSES:
         return []
     reached = ["done"]
     merged = [pr for pr in prs if pr is not None and pr.merged_at]
@@ -455,7 +452,7 @@ class Landings:
 
     async def landing_of(self, task: Task) -> TaskLanding | None:
         """``task``'s landing as the wire carries it, or ``None`` until built. Reads nothing from GitHub."""
-        if task.status not in LANDING_STATUSES:
+        if task.status not in BUILD_ENDED_STATUSES:
             return None
         config = self.config_for(task.project)
         tracked = _tracked(task, await self._merged_at(task))

@@ -98,6 +98,10 @@ Advance the chain with:
 mael task next --run
 ```
 
+The next task is actionable as soon as the task before it is `built`: it does not wait for the
+merge. It adds its commits to the same branch. When the PR merges, the orchestrator server moves
+each `built` task of it to `merged`.
+
 A task whose plan finds more than one session's work drafts the rest as tasks and promotes
 them. They splice in after it, so the chain grows in the middle. A `plan-next-step` tail, when
 the plan has one, drafts the next tasks once the earlier ones are done.

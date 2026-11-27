@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 from .github_model import PrStatus
-from .task import STATUS_CANCELLED, follow_ref, split_follow_ref
+from .task import STATUS_CANCELLED, ends_build, follow_ref, split_follow_ref
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -368,13 +368,13 @@ def rebase_event(mr: "MergeRequest") -> ExternalEvent:
 
 
 def task_edit_event(
-    old: "Task", new: "Task", done_of: "Callable[[str], bool]"
+    old: "Task", new: "Task", status_of: "Callable[[str], str | None]"
 ) -> ExternalEvent | None:
     """The event that tells a task's agent of its edit from ``old`` to ``new``, or ``None``.
 
-    ``done_of`` says whether a followed task is done, by wire id; a task it
-    does not hold is not done. A move to done or ``cancelled`` ends the work,
-    so it sends nothing. A new follow on a task that is not done parks the
+    ``status_of`` gives a followed task's Status by wire id, or ``None`` for a
+    task it does not hold. A move to done or ``cancelled`` ends the work, so it
+    sends nothing. A new follow on a task whose build has not ended parks the
     task, as ``is_actionable`` counts it.
     """
     if new["done"] or new["status"] == STATUS_CANCELLED:
@@ -387,16 +387,17 @@ def task_edit_event(
     unfinished = [
         follow_ref(project, *split_follow_ref(project, dep))
         for dep in new["follows"]
-        if dep not in old["follows"] and not done_of(dep)
+        if dep not in old["follows"] and not ends_build(status_of(dep))
     ]
     if unfinished:
         return ExternalEvent(
             ORCHESTRATOR,
             TASK_QUEUED,
             {"task": task_key, "follows": ",".join(unfinished)},
-            f"Task {task_id} now follows unfinished work: {', '.join(unfinished)}. "
+            f"Task {task_id} now follows a task whose build has not ended: "
+            f"{', '.join(unfinished)}. "
             "Commit your work, write `<end-session>`, and end your turn. The user "
-            "resumes the task when that work is done.",
+            "resumes the task when that build ends.",
         )
     fields = ", ".join(changed)
     body = f"The {fields} of task {task_id} changed."

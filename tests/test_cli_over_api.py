@@ -384,13 +384,13 @@ def test_status_done_names_a_parked_follower_that_still_waits(table, start_serve
 def test_each_status_verb_moves_the_row_and_says_only_that(
     table, start_server, verb, status
 ):
-    """Only a done status names a follower, and here none has one."""
+    """Only a build-ended status names a follower, and here none has one."""
     seed(table, title="First", id="NORT-1", branch="b")
     seed(table, title="Second", id="NORT-2", follows=["NORT-1"], branch="b")
     seed(table, title="Alone", id="NORT-3", status=model.STATUS_IN_PROGRESS, branch="c")
     start_server()
-    done = verb in ("done", "merged", "published")
-    moved = "NORT-3" if done else "NORT-1"
+    ended = verb in ("built", "done", "merged", "published")
+    moved = "NORT-3" if ended else "NORT-1"
 
     result = mael_task("status", verb, moved, "--project", PROJECT)
 

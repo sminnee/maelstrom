@@ -16247,6 +16247,15 @@ def test_a_follow_on_unfinished_work_queues_the_task_even_for_its_sender(harness
     assert told.attrs == {"task": "northwind/NORT-7", "follows": "NORT-2"}
 
 
+def test_a_follow_on_a_built_task_does_not_queue_the_task(harness):
+    """The server reads each followed task's Status from the world."""
+    harness.add_task("NORT-3", status="built")
+    an_agent_on_an_edited_task(harness)
+    edit = patch_task({"follows": ["northwind/NORT-3"]})
+    [told] = run(edit_task(harness, edit))
+    assert told.type == "task.updated"
+
+
 def test_a_notebook_write_the_poll_publishes_tells_once(harness):
     """``mael task update`` writes the notebook; the poll sees the edit."""
     an_agent_on_an_edited_task(harness)

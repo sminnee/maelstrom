@@ -367,7 +367,7 @@ The Task tracker. See [tasks.md](../guide/tasks.md).
 | `mael task read ID` | Print the task as markdown, rendered from its row. |
 | `mael task edit ID` | Open the task in `$EDITOR` (default `vi`). Writes it back if it changed. |
 | `mael task update ID [TITLE]` | Update a task's fields. |
-| `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until each one is done. An id in another project is `<project>/<id>`. |
+| `mael task follow IDS...` | Make a task follow each of `IDS`, so it waits until the build of each one ends (`built`, `merged` or `published`). An id in another project is `<project>/<id>`. |
 | `mael task unfollow IDS...` | Make a task stop following each of `IDS`. |
 | `mael task rm ID` | Delete a task and strip it from any dependents' `follows` lists. |
 | `mael task log ID MSG` | Append a line to a task's log. |
@@ -561,7 +561,7 @@ prefers a task on the current git branch, then falls back to the global next tas
 | Option | Description |
 |---|---|
 | `--cli`, `--daemon` | Mutually exclusive harness transports. Default: `--cli`, which runs in this shell, in the task's worktree. |
-| `--new-session` | Start a **New session**: a new session id in place of the current one. The prompt names the task's earlier sessions. A done task reopens. A cancelled or template task, or one that follows unfinished work, is refused. |
+| `--new-session` | Start a **New session**: a new session id in place of the current one. The prompt names the task's earlier sessions. A done task reopens. A cancelled or template task, or one that follows a task whose build has not ended, is refused. |
 
 **`mael task load-many`**
 
@@ -627,7 +627,10 @@ warning on stderr. The task stays in `todo`, and the command still exits 0.
 | `mael task status template [ID]` | `template` |
 
 `ID` defaults to `$MAEL_TASK_ID`, so a session can close its own task with
-`mael task status done`. The command prints the status the task moved to.
+`mael task status done`. The command prints the status the task moved to. After a move to
+`built`, `merged` or `published`, it also names the next task that follows this one, and where
+that task stands. The orchestrator server moves a `built` task to `merged` by itself when its
+PRs merge.
 
 **`mael task follow` and `mael task unfollow`**
 

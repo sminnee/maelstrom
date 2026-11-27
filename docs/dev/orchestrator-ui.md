@@ -62,7 +62,7 @@ The ordinary run through them, in order:
 | Needs you · … | `in-progress` | awaiting, with an open attention item | running |
 | Unanswered | `in-progress` | idle, with a last message | running |
 | Idle | `in-progress` | idle, with no message | running |
-| Queued | `in-progress`, follows unfinished work | stopped, or none | queued |
+| Queued | `in-progress`, follows a task whose build has not ended | stopped, or none | queued |
 | Finalising | `built`, `merged` or `published` | still running | running |
 | Awaiting merge | `built` | idle, stopped, or none | built |
 | Done | **Done** (the `done` flag) | stopped, or none | done |
@@ -519,9 +519,9 @@ writes the target's `follows` without the id.
 
 The board draws fewer wires than the Task tracker holds. `canvas/reduce.ts` drops an edge that a path
 of unfinished work already implies: when C follows both A and B, and B follows A and has still to
-finish, B gates C on A's behalf and A→C says nothing new. Only a **Done** task releases a follower, the
-rule `is_actionable` applies, so a cancelled intermediate still hides the edge and a done one
-brings it back. The reduction is display-only — `layoutSwimlanes` takes the full edge set, so no
+finish, B gates C on A's behalf and A→C says nothing new. As in `is_actionable`, only a task whose
+**Build ended** releases a follower. So a cancelled intermediate still hides the edge, and an
+ended one brings it back. The reduction is display-only — `layoutSwimlanes` takes the full edge set, so no
 column moves, and `follows` on disk keeps every id. A hidden wire cannot be cut from the board,
 which is the accepted cost.
 

@@ -11,6 +11,7 @@ import type {
   TaskStatus,
   Worktree,
 } from '../protocol/entities';
+import { buildEnded } from '../protocol/entities';
 import type { WorldView } from './world';
 import type { DeskId, TaskId } from '../protocol/ids';
 import { phaseForTask } from '../protocol/phase';
@@ -156,17 +157,17 @@ export function agentsOfTask(world: WorldView): Map<TaskId, Agent[]> {
 
 /**
  * Whether a **New session** of the task can start: no agent of it is live, and
- * it is actionable, or done with every follow done. The server's `_reopens`
+ * it is actionable, or done with the build of every followed task ended. The server's `_reopens`
  * in `validate.py` holds the same rule.
  */
 export function startsNewSession(
   task: Pick<Task, 'id' | 'done' | 'actionable' | 'follows'>,
-  tasks: Readonly<Record<TaskId, Pick<Task, 'done'>>>,
+  tasks: Readonly<Record<TaskId, Pick<Task, 'status'>>>,
   agents: readonly Agent[],
 ): boolean {
   if (agents.some((a) => a.taskId === task.id && !a.parent && isLive(a))) return false;
   if (task.actionable) return true;
-  return task.done && task.follows.every((f) => tasks[f]?.done === true);
+  return task.done && task.follows.every((f) => buildEnded(tasks[f]));
 }
 
 /** The open attention items, oldest first, keyed by task id and by agent id. */

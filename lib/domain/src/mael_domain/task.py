@@ -637,6 +637,23 @@ def is_done(task: Task) -> bool:
     return task.status in done_statuses(task.post_merge)
 
 
+#: The statuses at which a task's build has ended. See docs/specs/tasks/CONTEXT.md, "Build ended".
+BUILD_ENDED_STATUSES = (STATUS_BUILT, STATUS_MERGED, STATUS_PUBLISHED)
+
+
+def ends_build(status: str | None) -> bool:
+    """Whether a task at ``status`` has ended its build: it frees the tasks that follow it.
+
+    Takes a bare status, so a wire task or a missing one (``None``) reads the same rule.
+    """
+    return status in BUILD_ENDED_STATUSES
+
+
+def build_ended(task: Task) -> bool:
+    """Whether ``task``'s build has ended."""
+    return ends_build(task.status)
+
+
 def is_terminal(task: Task) -> bool:
     """Whether ``task`` is done or cancelled: nothing it follows gates it now."""
     return task.status == STATUS_CANCELLED or is_done(task)
@@ -647,7 +664,7 @@ async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
 
     As :func:`is_actionable`, but a done task is accepted too: a new session
     reopens it. A cancelled or template task stays refused, and so
-    does a task that follows unfinished work.
+    does a task that follows a task whose build has not ended.
     """
     if is_done(task):
         return await is_actionable(replace(task, status=STATUS_TODO), table)
@@ -657,8 +674,9 @@ async def can_start_new_session(task: Task, table: "TaskTable") -> bool:
 async def is_actionable(task: Task, table: "TaskTable") -> bool:
     """Return whether ``task`` can be started now.
 
-    A task is actionable when it is not terminal, not a ``template``, and every
-    id it follows is done. A ``template`` task is a recipe to duplicate from,
+    A task is actionable when it is not terminal, not a ``template``, and the
+    build of every id it follows has ended. A cancelled or missing followed
+    task keeps it waiting. A ``template`` task is a recipe to duplicate from,
     never something to launch directly, so it stays out of the default
     ``task list``/``task next`` views.
 
@@ -669,7 +687,7 @@ async def is_actionable(task: Task, table: "TaskTable") -> bool:
         return False
     for dep in task.follows:
         found = await table.load(*split_follow_ref(task.project, dep))
-        if found is None or not is_done(found):
+        if found is None or not build_ended(found):
             return False
     return True
 
@@ -2165,21 +2183,21 @@ async def next_task(
 async def next_follower(
     table: "TaskTable",
     project: str,
-    done_id: str,
+    followed_id: str,
 ) -> Task | None:
-    """Return the next actionable task that directly follows ``done_id``.
+    """Return the next actionable task that directly follows ``followed_id``.
 
     A *direct follower* is a todo task whose ``follows`` list contains
-    ``done_id`` and that is now actionable (all of its dependencies are done).
+    ``followed_id`` and that is now actionable (the build of each task it follows has ended).
     Returns the oldest such task, or ``None`` when nothing actionable
-    directly follows ``done_id``. Unlike :func:`next_task`, this is scoped to the
-    completed task's own successors — it never falls back to unrelated global work.
+    directly follows ``followed_id``. Unlike :func:`next_task`, this is scoped to the
+    followed task's own successors — it never falls back to unrelated global work.
     Followers are matched across all parents: a ``follows`` edge is not constrained
     to a single parent, so no ``parent`` filter is applied.
     """
     candidates = [
         t
-        for t in await table.followers(project, {done_id})
+        for t in await table.followers(project, {followed_id})
         if t.project == project and t.status == STATUS_TODO
     ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))
@@ -2192,11 +2210,11 @@ async def next_follower(
 async def running_follower(
     table: "TaskTable",
     project: str,
-    done_id: str,
+    followed_id: str,
 ) -> Task | None:
-    """Return an in-progress task that directly follows ``done_id``.
+    """Return an in-progress task that directly follows ``followed_id``.
 
-    A *direct follower* whose ``follows`` list contains ``done_id`` and which is
+    A *direct follower* whose ``follows`` list contains ``followed_id`` and which is
     already ``in-progress``, so a new session should **not** be launched. Its
     session may be live, or it may be a **Parked task**: the table cannot tell
     which. Returns the oldest such task, or ``None`` when no direct follower is
@@ -2204,7 +2222,7 @@ async def running_follower(
     """
     candidates = [
         t
-        for t in await table.followers(project, {done_id})
+        for t in await table.followers(project, {followed_id})
         if t.project == project and t.status == STATUS_IN_PROGRESS
     ]
     candidates.sort(key=lambda t: pick_order(t.priority, *creation_order(t)))

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { reduceEdges, type ReduceEdge, type ReduceNode } from './reduce';
 
-/** A node the reducer can read: an id and whether it is done. */
-function n(id: string, state: 'done' | 'open' = 'open'): ReduceNode {
-  return { id, done: state === 'done' };
+/** A node the reducer can read: an id and whether its build has ended. */
+function n(id: string, state: 'ended' | 'open' = 'open'): ReduceNode {
+  return { id, buildEnded: state === 'ended' };
 }
 
 /** An edge in the reducer's own shape: followed -> follower. */
@@ -28,17 +28,17 @@ describe('reduceEdges', () => {
     expect(kept(edges, [n('A'), n('B'), n('C')])).toEqual(['A->B', 'B->C']);
   });
 
-  // `is_actionable` in task.py gates on done alone, so a done intermediate
+  // `is_actionable` in task.py gates on the end of the build, so a build-ended intermediate
   // holds nothing up and the direct edge is the only one still gating.
-  it('keeps the edge when the intermediate is done', () => {
+  it('keeps the edge when the build of the intermediate has ended', () => {
     const edges = [e('A', 'B'), e('B', 'C'), e('A', 'C')];
-    expect(kept(edges, [n('A'), n('B', 'done'), n('C')])).toEqual(['A->B', 'B->C', 'A->C']);
+    expect(kept(edges, [n('A'), n('B', 'ended'), n('C')])).toEqual(['A->B', 'B->C', 'A->C']);
   });
 
   it('brings the edge back when the intermediate finishes', () => {
     const edges = [e('A', 'B'), e('B', 'C'), e('A', 'C')];
     expect(kept(edges, [n('A'), n('B'), n('C')])).not.toContain('A->C');
-    expect(kept(edges, [n('A'), n('B', 'done'), n('C')])).toContain('A->C');
+    expect(kept(edges, [n('A'), n('B', 'ended'), n('C')])).toContain('A->C');
   });
 
   // A node standing for no task has no status, so it gates like unfinished work.
@@ -47,9 +47,9 @@ describe('reduceEdges', () => {
     expect(kept(edges, [n('A'), n('B', undefined), n('C')])).toEqual(['A->B', 'B->C']);
   });
 
-  it('keeps every edge out of a done head', () => {
+  it('keeps every edge out of a build-ended head', () => {
     const edges = [e('A', 'B'), e('B', 'C'), e('A', 'C')];
-    expect(kept(edges, [n('A', 'done'), n('B'), n('C')])).toEqual(['A->B', 'B->C', 'A->C']);
+    expect(kept(edges, [n('A', 'ended'), n('B'), n('C')])).toEqual(['A->B', 'B->C', 'A->C']);
   });
 
   it('reduces through a longer chain of incomplete tasks', () => {

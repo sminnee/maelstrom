@@ -789,20 +789,22 @@ class NotebookTaskSource:
         moved: StatusMoved = {"status": task.status}
         if lines:
             moved["actionLines"] = lines
-        if model.is_done(task):
+        if model.build_ended(task):
             follower = await self._follower(project, notebook_id)
             if follower is not None:
                 moved["follower"] = follower
         return moved
 
-    async def _follower(self, project: str, done_id: str) -> TaskFollower | None:
+    async def _follower(self, project: str, followed_id: str) -> TaskFollower | None:
         """The follower ``mael task next --run`` would start, unless one is in progress.
 
         An in-progress follower is ``running`` here: the source cannot see
         agents, so the server tells a live one from a parked one.
         """
-        running = await model.running_follower(self.table, project, done_id)
-        follower = running or await model.next_follower(self.table, project, done_id)
+        running = await model.running_follower(self.table, project, followed_id)
+        follower = running or await model.next_follower(
+            self.table, project, followed_id
+        )
         if follower is None:
             return None
         return {

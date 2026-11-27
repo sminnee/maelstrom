@@ -103,7 +103,7 @@ from mael_domain.feedback import (
 from mael_domain.file_registry import FileRegistry
 from mael_domain.github_model import PrStatus, RateLimited, parse_pr_ref
 from mael_domain.integrations.errors import IntegrationError
-from mael_domain.landing import LANDING_STATUSES, Landings
+from mael_domain.landing import Landings
 from mael_domain.landing_store import StepEvent
 from mael_domain.list_all import project_repo_url
 from mael_domain.merge_request import (
@@ -171,6 +171,7 @@ from mael_domain.system_info import SystemPaths, can_update
 from mael_domain.task import (
     CODEX_PLAN_FILE,
     default_branch,
+    ends_build,
     expand_task_dir,
     mode_for_command,
 )
@@ -1278,13 +1279,13 @@ class Orchestrator:
         """
         tasks = self.world["tasks"]
 
-        def done_of(key: str) -> bool:
+        def status_of(key: str) -> str | None:
             followed = tasks.get(key)
-            return followed is not None and followed["done"]
+            return followed["status"] if followed is not None else None
 
         for key, old in edits:
             new = tasks.get(key)
-            event = task_edit_event(old, new, done_of) if new is not None else None
+            event = task_edit_event(old, new, status_of) if new is not None else None
             if event is None:
                 continue
             agents = self._task_agents(key)
@@ -1564,7 +1565,7 @@ class Orchestrator:
             {
                 wire_task_key(t.project, t.task_id)
                 for t in tracked
-                if t.status in LANDING_STATUSES
+                if ends_build(t.status)
             }
         )
 
