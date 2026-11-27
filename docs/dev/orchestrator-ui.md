@@ -1509,6 +1509,11 @@ moves. The form is one step: everything the work needs is on one surface.
   the task's content unchanged, so the surface shows no second content field. Advanced's Model and
   Execute Model sit side by side. Execute Model defaults to "(Same as plan)" — unset, which keeps
   the session on its plan's model.
+- **Advanced, folded**, still shows each field whose value is not a new task's default: Follows
+  when not empty, Model and Execute Model when set, and Priority when not
+  `medium`. Command and Mode stay folded, because the planning-level radios show them. Open, it
+  draws every field in its usual order, so a field does not move while the user edits it. The
+  task editor's Advanced follows the same rule.
 - **"Suggest"**, beside Branch, calls `useInferTask`. On a task it fills the title and branch from
   the reply; on a free agent, the branch only. It never changes the planning level or the mode:
   the user picks those, so the UI does not read the reply's command and mode. It is a button

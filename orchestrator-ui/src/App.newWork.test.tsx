@@ -1,4 +1,4 @@
-import { paneItem } from './test/appHelpers';
+import { listChips, paneItem } from './test/appHelpers';
 import { describe, expect, it } from 'vitest';
 import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -890,6 +890,27 @@ describe('new work', () => {
       expect(within(form).getByLabelText('Command')).toHaveValue('plan-task');
       expect(within(form).getByLabelText('Mode')).toHaveValue('normal');
     });
+  });
+
+  it.each([
+    ['Priority', 'high'],
+    ['Model', 'claude:opus'],
+    ['Execute Model', 'claude:sonnet'],
+  ])('shows %s while Advanced is folded, once it is not the default', async (label, value) => {
+    const user = userEvent.setup();
+    await renderApp();
+    const form = await openNewWork(user);
+    expect(within(form).queryByLabelText(label)).toBeNull();
+    await user.click(within(form).getByText('Advanced'));
+    await user.selectOptions(within(form).getByLabelText(label), value);
+    await user.click(within(form).getByText('Advanced'));
+
+    expect(within(form).getByLabelText(label)).toHaveValue(value);
+    // The planning-level radios show Command and Mode, so those stay folded. So does an empty
+    // link list.
+    expect(within(form).queryByLabelText('Command')).toBeNull();
+    expect(listChips(form, 'Follows')).toBeNull();
+    expect(listChips(form, 'Followed by')).toBeNull();
   });
 
   it('starts a free agent with an attached image in its prompt', async () => {

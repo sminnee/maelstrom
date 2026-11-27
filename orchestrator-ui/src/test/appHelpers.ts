@@ -168,3 +168,15 @@ export function touchDrag(
     clock.mockRestore();
   }
 }
+
+/**
+ * The chips of a task-list field of a form, such as Follows, by their labels. `null` when the
+ * form does not draw the field, as a folded Advanced does not draw an empty one.
+ */
+export function listChips(form: HTMLElement, label: string): string[] | null {
+  const field = within(form).queryByText(label, { selector: 'label' })?.parentElement;
+  if (!field) return null;
+  return within(field)
+    .queryAllByRole('button', { name: /^Remove / })
+    .map((b) => b.getAttribute('aria-label')!.replace(/^Remove /, ''));
+}

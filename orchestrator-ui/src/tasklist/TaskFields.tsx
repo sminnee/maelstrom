@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { Fragment, useId, useState, type ReactNode } from 'react';
 import type { TaskEdit } from '../api/types';
 import { useWorld } from '../api/useWorld';
 import { isTerminal, TASK_STATUSES, type TaskStatus } from '../protocol/entities';
@@ -18,6 +18,9 @@ import { PlanningLevelField } from './PlanningLevelField';
 
 /** From `task.PRIORITIES`, highest first. */
 const PRIORITIES = ['critical', 'high', 'medium', 'low'];
+
+/** A new task's priority, as the notebook writes it. */
+const DEFAULT_PRIORITY = 'medium';
 
 /**
  * Every editable field of a task, as a form holds them. New work has no
@@ -203,10 +206,12 @@ export function TaskContentField({
 /**
  * The fields folded into Advanced: command, mode, priority, model and follows.
  *
- * New work renders this below its planning-level radios, which read the same
- * command and mode two ways — so editing either here re-derives the level.
- * New work has no existing task, so it passes no `taskId` and the follows
- * control does not render.
+ * New work renders this below its planning-level radios, which read the same command and mode
+ * two ways, so editing either here re-derives the level. New work has no existing task, so it
+ * passes no `taskId` and the follows control does not render.
+ *
+ * A field that is not a new task's default shows while Advanced is folded: see "Advanced,
+ * folded" in `docs/dev/orchestrator-ui.md`.
  */
 export function TaskAdvancedFields({
   draft,
@@ -221,40 +226,66 @@ export function TaskAdvancedFields({
   taskId?: TaskId;
   readOnly?: boolean;
 }) {
-  return (
-    <details className={styles.advanced}>
-      <summary>Advanced</summary>
-      <label className={styles.field}>
-        <span>Command</span>
-        {/* Free-form in the notebook, so this offers the known ones and
-            keeps anything else typed. Empty runs the task itself. */}
-        <ComboBox
-          value={draft.command}
-          options={COMMAND_OPTIONS}
-          readOnly={readOnly}
-          onChange={(command) => onChange({ command })}
-        />
-      </label>
-      <label className={styles.field}>
-        <span>Mode</span>
-        <ModeSelect mode={draft.mode} onChange={(mode) => onChange({ mode })} readOnly={readOnly} />
-      </label>
-      <label className={styles.field}>
-        <span>Priority</span>
-        {/* `readOnly` is not a thing on a select, so a locked one is disabled. */}
-        <select
-          value={draft.priority}
-          disabled={readOnly}
-          onChange={(e) => onChange({ priority: e.target.value })}
-        >
-          {PRIORITIES.map((p) => (
-            <option key={p} value={p}>
-              {p}
-            </option>
-          ))}
-        </select>
-      </label>
-      <div className={styles.row}>
+  const [open, setOpen] = useState(false);
+  // `row`: the field shares one row with the other `row` fields while Advanced is open.
+  const fields: { key: string; showsFolded: boolean; row?: true; node: ReactNode }[] = [
+    {
+      key: 'command',
+      showsFolded: false,
+      node: (
+        <label className={styles.field}>
+          <span>Command</span>
+          {/* Free-form in the notebook, so this offers the known ones and
+              keeps anything else typed. Empty runs the task itself. */}
+          <ComboBox
+            value={draft.command}
+            options={COMMAND_OPTIONS}
+            readOnly={readOnly}
+            onChange={(command) => onChange({ command })}
+          />
+        </label>
+      ),
+    },
+    {
+      key: 'mode',
+      showsFolded: false,
+      node: (
+        <label className={styles.field}>
+          <span>Mode</span>
+          <ModeSelect
+            mode={draft.mode}
+            onChange={(mode) => onChange({ mode })}
+            readOnly={readOnly}
+          />
+        </label>
+      ),
+    },
+    {
+      key: 'priority',
+      showsFolded: draft.priority !== DEFAULT_PRIORITY,
+      node: (
+        <label className={styles.field}>
+          <span>Priority</span>
+          {/* `readOnly` is not a thing on a select, so a locked one is disabled. */}
+          <select
+            value={draft.priority}
+            disabled={readOnly}
+            onChange={(e) => onChange({ priority: e.target.value })}
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+      ),
+    },
+    {
+      key: 'model',
+      showsFolded: draft.model !== UNSET_MODEL,
+      row: true,
+      node: (
         <label className={styles.field}>
           <span>Model</span>
           <ModelSelect
@@ -263,6 +294,13 @@ export function TaskAdvancedFields({
             readOnly={readOnly}
           />
         </label>
+      ),
+    },
+    {
+      key: 'executeModel',
+      showsFolded: draft.executeModel !== UNSET_MODEL,
+      row: true,
+      node: (
         <label className={styles.field}>
           <span>Execute Model</span>
           <ExecuteModelSelect
@@ -271,18 +309,50 @@ export function TaskAdvancedFields({
             readOnly={readOnly}
           />
         </label>
-      </div>
-      {/* New work passes no `taskId`. */}
-      {taskId && (
-        <TaskFollowsField
-          follows={draft.follows}
-          onChange={(follows) => onChange({ follows })}
-          project={project ?? ''}
-          taskId={taskId}
-          readOnly={readOnly}
-        />
-      )}
-    </details>
+      ),
+    },
+    // New work passes no `taskId`.
+    ...(taskId
+      ? [
+          {
+            key: 'follows',
+            showsFolded: draft.follows.length > 0,
+            node: (
+              <TaskFollowsField
+                follows={draft.follows}
+                onChange={(follows) => onChange({ follows })}
+                project={project ?? ''}
+                taskId={taskId}
+                readOnly={readOnly}
+              />
+            ),
+          },
+        ]
+      : []),
+  ];
+  const plain = (f: (typeof fields)[number]) => <Fragment key={f.key}>{f.node}</Fragment>;
+  const rowed = fields.filter((f) => f.row);
+  return (
+    <>
+      <details
+        className={styles.advanced}
+        open={open}
+        onToggle={(e) => setOpen(e.currentTarget.open)}
+      >
+        <summary>Advanced</summary>
+        {open &&
+          fields.map((f) =>
+            !f.row ? (
+              plain(f)
+            ) : f === rowed[0] ? (
+              <div key="row" className={styles.row}>
+                {rowed.map(plain)}
+              </div>
+            ) : null,
+          )}
+      </details>
+      {!open && fields.filter((f) => f.showsFolded).map(plain)}
+    </>
   );
 }
 
