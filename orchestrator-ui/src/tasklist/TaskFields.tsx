@@ -22,11 +22,7 @@ const PRIORITIES = ['critical', 'high', 'medium', 'low'];
 /** A new task's priority, as the notebook writes it. */
 const DEFAULT_PRIORITY = 'medium';
 
-/**
- * Every editable field of a task, as a form holds them. New work has no
- * existing task to follow anything, so it seeds `follows` to `[]` and never
- * renders the control that would patch it — inert there, live in the editor.
- */
+/** Every editable field of a task, as a form holds them. */
 export type TaskDraft = Required<TaskEdit>;
 
 /** The known commands, plus the empty one that means "run the task itself". */
@@ -204,11 +200,12 @@ export function TaskContentField({
 }
 
 /**
- * The fields folded into Advanced: command, mode, priority, model and follows.
+ * The fields folded into Advanced: command, mode, priority, model, follows and, for New work,
+ * followed by.
  *
  * New work renders this below its planning-level radios, which read the same command and mode
- * two ways, so editing either here re-derives the level. New work has no existing task, so it
- * passes no `taskId` and the follows control does not render.
+ * two ways, so editing either here re-derives the level. New work passes no `taskId`, so no
+ * task is left out of the follows options. Only New work passes `followedBy`.
  *
  * A field that is not a new task's default shows while Advanced is folded: see "Advanced,
  * folded" in `docs/dev/orchestrator-ui.md`.
@@ -219,12 +216,15 @@ export function TaskAdvancedFields({
   project,
   taskId,
   readOnly,
+  followedBy,
 }: {
   draft: TaskDraft;
   onChange: (patch: Partial<TaskDraft>) => void;
   project?: string;
   taskId?: TaskId;
   readOnly?: boolean;
+  /** The tasks that will follow the new task. Only New work passes it. */
+  followedBy?: { value: TaskId[]; onChange: (followedBy: TaskId[]) => void };
 }) {
   const [open, setOpen] = useState(false);
   // `row`: the field shares one row with the other `row` fields while Advanced is open.
@@ -311,18 +311,32 @@ export function TaskAdvancedFields({
         </label>
       ),
     },
-    // New work passes no `taskId`.
-    ...(taskId
+    {
+      key: 'follows',
+      showsFolded: draft.follows.length > 0,
+      node: (
+        <TaskFollowsField
+          follows={draft.follows}
+          onChange={(follows) => onChange({ follows })}
+          project={project ?? ''}
+          taskId={taskId}
+          exclude={followedBy?.value}
+          readOnly={readOnly}
+        />
+      ),
+    },
+    ...(followedBy
       ? [
           {
-            key: 'follows',
-            showsFolded: draft.follows.length > 0,
+            key: 'followedBy',
+            showsFolded: followedBy.value.length > 0,
             node: (
               <TaskFollowsField
-                follows={draft.follows}
-                onChange={(follows) => onChange({ follows })}
+                label="Followed by"
+                follows={followedBy.value}
+                onChange={followedBy.onChange}
                 project={project ?? ''}
-                taskId={taskId}
+                exclude={draft.follows}
                 readOnly={readOnly}
               />
             ),
@@ -357,35 +371,41 @@ export function TaskAdvancedFields({
 }
 
 /**
- * Every task the task may follow, as a multi-select: the tasks of its own
- * project first, then the open tasks of every other project, by project. A
- * task already followed stays listed, so its chip keeps its label. Excludes the
- * task's own id, mirroring `canConnect`'s no-self-edge rule (see
- * `canvas/connect.ts`).
+ * Every task a task list may name, as a multi-select: the tasks of its own project first, then
+ * the open tasks of every other project, by project. A task already named stays listed, so its
+ * chip keeps its label. Excludes `taskId`, when given, mirroring `canConnect`'s no-self-edge
+ * rule (see `canvas/connect.ts`), and each id in `exclude`: a task in both of New work's lists
+ * would make a cycle.
  *
- * Uses the same write semantics as the canvas wire — `followsAfterConnect` /
- * `followsAfterDisconnect` — so picking an option here and dragging a wire
- * there agree on what the write replaces.
+ * Follows and New work's Followed by both use it. It uses the same write semantics as the
+ * canvas wire, `followsAfterConnect` / `followsAfterDisconnect`, so picking an option here and
+ * dragging a wire there agree on what the write replaces.
  */
 export function TaskFollowsField({
   follows,
   onChange,
   project,
   taskId,
+  exclude = [],
   readOnly,
+  label = 'Follows',
 }: {
   follows: TaskId[];
   onChange: (follows: TaskId[]) => void;
   project: string;
-  taskId: TaskId;
+  /** The task being edited, left out of the options. New work has none. */
+  taskId?: TaskId;
+  /** Ids the other list of New work names. */
+  exclude?: TaskId[];
   readOnly?: boolean;
+  label?: string;
 }) {
   // Explicit id, not a wrapping label: the chips sit between the label and
   // the field, the way `AttachField` does above, so an implicit association
   // would fold their text into the field's accessible name.
   const followsId = useId();
   const { world } = useWorld();
-  const all = Object.values(world.tasks).filter((t) => t.id !== taskId);
+  const all = Object.values(world.tasks).filter((t) => t.id !== taskId && !exclude.includes(t.id));
   const siblings = all.filter((t) => t.project === project);
   const elsewhere = all
     .filter((t) => t.project !== project && (!isTerminal(t) || follows.includes(t.id)))
@@ -408,7 +428,7 @@ export function TaskFollowsField({
 
   return (
     <div className={styles.field}>
-      <label htmlFor={followsId}>Follows</label>
+      <label htmlFor={followsId}>{label}</label>
       <MultiComboBox
         id={followsId}
         value={follows}

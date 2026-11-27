@@ -12,6 +12,8 @@ import {
   exitAgent,
   expanded,
   isShowing,
+  listChips,
+  nodePlus,
   nodeState,
   openSession,
   paneItem,
@@ -88,6 +90,51 @@ describe('App', () => {
       .map((n) => n.getAttribute('data-task-id'))
       .sort();
     expect(rendered).toEqual([...tasks, ...free].sort());
+  });
+
+  it('opens New work on a task that follows the node from the (+) below its left anchor', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await screen.findAllByTestId('task-node');
+    await user.click(nodePlus('NORT-9', 'after')!);
+
+    const form = screen.getByRole('dialog', { name: 'New work' });
+    expect(within(form).getByRole('radio', { name: 'Task' })).toBeChecked();
+    expect(within(form).getByRole('radio', { name: 'northwind' })).toBeChecked();
+    // A filled-in link shows with Advanced folded.
+    expect(listChips(form, 'Follows')).toEqual(['Migrate to Postgres 16']);
+    expect(listChips(form, 'Followed by')).toBeNull();
+  });
+
+  it('replaces the links the form holds from the (+) below the right anchor, and keeps the prose', async () => {
+    const user = userEvent.setup();
+    await renderApp();
+    await screen.findAllByTestId('task-node');
+    await user.click(nodePlus('NORT-9', 'after')!);
+    const form = screen.getByRole('dialog', { name: 'New work' });
+    await user.type(within(form).getByLabelText('What needs doing?'), 'Check the indexes');
+    // A free agent in another project, on a branch of that project.
+    await user.click(within(form).getByRole('radio', { name: 'maelstrom' }));
+    await user.click(within(form).getByRole('radio', { name: 'Free agent' }));
+    await user.type(within(form).getByLabelText('Branch'), 'feat/elsewhere');
+    await user.click(within(form).getByRole('button', { name: 'Cancel' }));
+
+    await user.click(nodePlus('NORT-9.1', 'before')!);
+    const again = screen.getByRole('dialog', { name: 'New work' });
+    expect(within(again).getByRole('radio', { name: 'Task' })).toBeChecked();
+    expect(within(again).getByRole('radio', { name: 'northwind' })).toBeChecked();
+    expect(within(again).getByLabelText('Branch')).toHaveValue('');
+    expect(listChips(again, 'Follows')).toBeNull();
+    expect(listChips(again, 'Followed by')).toEqual(['Watch the migration PR']);
+    expect(within(again).getByLabelText('What needs doing?')).toHaveValue('Check the indexes');
+  });
+
+  it('draws no (+) on a free agent', async () => {
+    await renderApp();
+    await screen.findAllByTestId('task-node');
+    expect(nodePlus('NORT-9', 'after')).toBeInTheDocument();
+    expect(nodePlus('f2c6a9d4', 'after')).toBeNull();
+    expect(nodePlus('f2c6a9d4', 'before')).toBeNull();
   });
 
   // The wire itself never draws in jsdom, but a Handle does: this is what

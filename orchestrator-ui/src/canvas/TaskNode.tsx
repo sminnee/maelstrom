@@ -11,6 +11,7 @@ import { GateLozenge } from '../shell/GateLozenge';
 import { PrChip } from '../shell/PrChip';
 import { MergeRequestChip } from '../shell/MergeRequestChip';
 import { cardOf, useCard } from '../nav/useCard';
+import { useNewWork } from '../nav/useOverlays';
 import { useUnitOperation } from '../console/useConsole';
 import { endedBadly, nodeUnit, unitWords } from '../selectors/operations';
 import { StepMeter } from '../ui/StepMeter';
@@ -33,85 +34,131 @@ export function TaskNode({ data }: NodeProps<TaskFlowNode>) {
     ? documents.data?.documents.find((d) => d.id === documentId)?.title
     : undefined;
   const op = useUnitOperation(nodeUnit(node));
+  const newWork = useNewWork();
+  const task = node.task;
   return (
-    <div
-      className={styles.node}
-      data-testid="task-node"
-      data-task-id={node.id}
-      data-phase={node.phase ?? undefined}
-      data-state={node.progress.state}
-      data-focused={focused || undefined}
-      data-expanded={expanded || undefined}
-      data-selected={selected || undefined}
-      data-operation={op?.state}
-    >
-      <Handle type="target" position={Position.Right} className={styles.handle} />
-      <div className={styles.head}>
-        <span className={`${styles.title} truncate`} title={title}>
-          {title}
-        </span>
-        {node.progress.state === 'needs-attention' &&
-          (documentId ? (
-            <PanelLink
-              tab={documentTab(documentId)}
-              className={styles.badge}
-              aria-label={`needs attention: open ${documentTitle ?? 'the document'}`}
-              icon={false}
+    <>
+      <div
+        className={styles.node}
+        data-testid="task-node"
+        data-task-id={node.id}
+        data-phase={node.phase ?? undefined}
+        data-state={node.progress.state}
+        data-focused={focused || undefined}
+        data-expanded={expanded || undefined}
+        data-selected={selected || undefined}
+        data-operation={op?.state}
+      >
+        <Handle type="target" position={Position.Right} className={styles.handle} />
+        <div className={styles.head}>
+          <span className={`${styles.title} truncate`} title={title}>
+            {title}
+          </span>
+          {node.progress.state === 'needs-attention' &&
+            (documentId ? (
+              <PanelLink
+                tab={documentTab(documentId)}
+                className={styles.badge}
+                aria-label={`needs attention: open ${documentTitle ?? 'the document'}`}
+                icon={false}
+              >
+                !
+              </PanelLink>
+            ) : (
+              <button
+                type="button"
+                className={styles.badge}
+                aria-label="needs attention: expand"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  open(cardOf(node), false);
+                }}
+              >
+                !
+              </button>
+            ))}
+          {node.progress.state === 'done' && <span className={styles.tick}>✓</span>}
+        </div>
+        <div className={styles.status}>
+          <span className={styles.dot} aria-hidden="true" />
+          {op ? (
+            <span
+              className={`${endedBadly(op) ? styles.ended : ''} truncate`}
+              title={unitWords(op)}
             >
-              !
-            </PanelLink>
+              {unitWords(op)}
+            </span>
+          ) : node.reason ? (
+            <span className={`${styles.reason} truncate`} title={node.reason}>
+              {node.reason}
+            </span>
           ) : (
-            <button
-              type="button"
-              className={styles.badge}
-              aria-label="needs attention: expand"
-              onClick={(e) => {
-                e.stopPropagation();
-                open(cardOf(node), false);
-              }}
+            <span className="truncate" title={node.progress.words}>
+              {node.progress.words}
+            </span>
+          )}
+          {node.progress.drift && (
+            <span
+              className={styles.drift}
+              role="img"
+              aria-label={driftLabel(node.progress)}
+              data-drift={node.progress.drift}
             >
-              !
-            </button>
-          ))}
-        {node.progress.state === 'done' && <span className={styles.tick}>✓</span>}
+              ▲
+            </span>
+          )}
+        </div>
+        <div className={styles.meta}>
+          <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
+            {nodeIdLine(node)}
+          </span>
+          <PrChip pr={cardPr(node)} className={styles.pr} />
+          <MergeRequestChip mr={node.worktree?.mergeRequest} className="nodrag nopan" />
+          {node.worktree?.gate && (
+            <GateLozenge gate={node.worktree.gate} className="nodrag nopan" />
+          )}
+          <CommChips ids={node.task?.comms ?? []} />
+        </div>
+        {op && <StepMeter op={op} variant="edge" />}
+        <Handle type="source" position={Position.Left} className={styles.handle} />
       </div>
-      <div className={styles.status}>
-        <span className={styles.dot} aria-hidden="true" />
-        {op ? (
-          <span className={`${endedBadly(op) ? styles.ended : ''} truncate`} title={unitWords(op)}>
-            {unitWords(op)}
-          </span>
-        ) : node.reason ? (
-          <span className={`${styles.reason} truncate`} title={node.reason}>
-            {node.reason}
-          </span>
-        ) : (
-          <span className="truncate" title={node.progress.words}>
-            {node.progress.words}
-          </span>
-        )}
-        {node.progress.drift && (
-          <span
-            className={styles.drift}
-            role="img"
-            aria-label={driftLabel(node.progress)}
-            data-drift={node.progress.drift}
+      {/* Siblings of the node, not children: `.node` clips what overflows it. */}
+      {task && (
+        <>
+          <button
+            type="button"
+            className={`${styles.plus} ${styles.plusAfter} nodrag nopan`}
+            aria-label={`New task after ${title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              newWork.open({
+                kind: 'link',
+                project: task.project,
+                follows: [task.id],
+                followedBy: [],
+              });
+            }}
           >
-            ▲
-          </span>
-        )}
-      </div>
-      <div className={styles.meta}>
-        <span className={`${styles.id} truncate`} title={nodeIdLine(node)}>
-          {nodeIdLine(node)}
-        </span>
-        <PrChip pr={cardPr(node)} className={styles.pr} />
-        <MergeRequestChip mr={node.worktree?.mergeRequest} className="nodrag nopan" />
-        {node.worktree?.gate && <GateLozenge gate={node.worktree.gate} className="nodrag nopan" />}
-        <CommChips ids={node.task?.comms ?? []} />
-      </div>
-      {op && <StepMeter op={op} variant="edge" />}
-      <Handle type="source" position={Position.Left} className={styles.handle} />
-    </div>
+            +
+          </button>
+          <button
+            type="button"
+            className={`${styles.plus} ${styles.plusBefore} nodrag nopan`}
+            aria-label={`New task before ${title}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              newWork.open({
+                kind: 'link',
+                project: task.project,
+                follows: [],
+                followedBy: [task.id],
+              });
+            }}
+          >
+            +
+          </button>
+        </>
+      )}
+    </>
   );
 }

@@ -170,6 +170,17 @@ export function touchDrag(
 }
 
 /**
+ * The (+) of a node on the board, by its task id: `after` sits below the left anchor, `before`
+ * below the right one.
+ */
+export function nodePlus(taskId: string, side: 'after' | 'before'): HTMLElement | null {
+  const node = document.querySelector<HTMLElement>(`[data-task-id="${taskId}"]`);
+  const wrapper = node?.closest<HTMLElement>('.react-flow__node');
+  if (!wrapper) return null;
+  return within(wrapper).queryByRole('button', { name: new RegExp(`^New task ${side} `) });
+}
+
+/**
  * The chips of a task-list field of a form, such as Follows, by their labels. `null` when the
  * form does not draw the field, as a folded Advanced does not draw an empty one.
  */
