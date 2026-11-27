@@ -9,6 +9,8 @@ run of a task on an agent, the documents of a task, and the comms that a task fe
 **Status**:
 Where a task is in its life: `todo`, `in-progress`, `built`, `merged`, `published` or
 `cancelled`. `built` means the work is pushed. `merged` means every **Registered PR** is merged.
+The orchestrator server's landing sync moves a `built` task to `merged` when its **Landing** reaches
+`merged`. It moves no task at another status.
 `published` means the merge is in the `live` deploy, or the **Post-merge work** is finished. No
 status means "waiting": see **Follows**. The code has one more value, `template`, which marks a
 **Template**.

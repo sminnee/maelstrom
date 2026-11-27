@@ -126,6 +126,9 @@ release while that section is empty, and retitles it to the version it is releas
 
 ### Changed
 
+- **A merge moves the task to `merged`.** When the orchestrator server sees that every Registered
+  PR of a `built` task is merged, or its Merge request is merged, it moves the task to `merged`.
+  You no longer run `mael task status merged`.
 - **The skills give one map of a project's glossary, decisions and contracts.** The
   `domain-modeling` skill names four documents and the job of each:
   - The glossary, `CONTEXT.md`. A project lists its subdomains and their subsystems in

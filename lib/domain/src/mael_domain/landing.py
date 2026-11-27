@@ -27,6 +27,7 @@ from .merge_request import task_key
 from .merge_request_store import MergeRequestStore
 from .protocol import EnvLandingState, TaskLanding
 from .task import STATUS_BUILT, STATUS_MERGED, STATUS_PUBLISHED, Task
+from .task_actions import move_with_actions
 from .task_table import TaskTable
 
 log = logging.getLogger(__name__)
@@ -163,12 +164,16 @@ async def sync(
     tracked: Iterable[TrackedTask],
     config_for: Callable[[str], MaelstromConfig],
     now: str,
+    tasks: TaskTable | None = None,
 ) -> list[StepEvent]:
     """Refresh each tracked task's pull request, then record the steps it reached.
 
     Recording is state-based: each step a task has reached and has no row for
     is written. So a server that was down catches up on its next tick, and no
     step is written twice. Returns the steps written.
+
+    With ``tasks``, a ``built`` task whose landing has reached ``merged`` also
+    moves to Status ``merged``.
 
     Raises:
         RateLimited: If the GraphQL budget is spent.
@@ -204,7 +209,28 @@ async def sync(
             )
             await steps.add(event)
             written.append(event)
+        if tasks is not None and task.status == STATUS_BUILT:
+            if "merged" in _reached(task, task_prs, configs[task.project]):
+                await _move_merged(tasks, task)
     return written
+
+
+async def _move_merged(tasks: TaskTable, task: TrackedTask) -> None:
+    """Move ``task`` to Status ``merged``, and log a failure.
+
+    The tracked status was read before the GitHub calls. A user can move the
+    task in that time, so the move reads the row again and keeps a task that is
+    no longer ``built``.
+    """
+    try:
+        current = await tasks.load(task.project, task.task_id)
+        if current is None or current.status != STATUS_BUILT:
+            return
+        await move_with_actions(
+            tasks, task.project, task.task_id, STATUS_MERGED, warn=log.warning
+        )
+    except Exception:
+        log.exception("cannot move %s/%s to merged", task.project, task.task_id)
 
 
 async def _read_all(
@@ -408,6 +434,8 @@ class Landings:
     config_for: Callable[[str], MaelstromConfig] = lambda project: MaelstromConfig()
     #: The Merge requests, for the ``merged`` step of a ``merge: local`` task.
     merges: MergeRequestStore | None = None
+    #: The Task tracker, to move a merged ``built`` task to ``merged``. ``None`` only reads.
+    tasks: TaskTable | None = None
 
     async def sync(self, now: str) -> list[StepEvent]:
         """One :func:`sync` over the tasks followed now.
@@ -422,6 +450,7 @@ class Landings:
             await self.tracked(),
             self.config_for,
             now,
+            self.tasks,
         )
 
     async def landing_of(self, task: Task) -> TaskLanding | None:

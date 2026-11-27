@@ -368,6 +368,7 @@ def build_orchestrator(
         tracked=lambda: tracked_tasks(table, list_projects(), merge_requests),
         config_for=_config_reader(projects_dir),
         merges=merge_requests,
+        tasks=table,
     )
     tasks = NotebookTaskSource(
         table,

@@ -368,6 +368,116 @@ class TestSync:
         ]
 
 
+class RefusesT1Table(InMemoryTaskTable):
+    """A task table that refuses to write ``t1`` once it holds it."""
+
+    async def save(self, task) -> None:
+        if task.id == "t1" and await self.load(task.project, task.id) is not None:
+            raise OSError("disk full")
+        await super().save(task)
+
+
+class TestStatusFollowsTheMerge:
+    """With the Task tracker, the sync moves a ``built`` task whose landing reached ``merged``."""
+
+    async def table_of(self, *rows: tuple[str, str, tuple[int, ...]], table=None):
+        table = table if table is not None else InMemoryTaskTable()
+        for task_id, status, numbers in rows:
+            await table.save(
+                task_model.Task(
+                    id=task_id,
+                    title=task_id,
+                    project="p",
+                    status=status,
+                    prs=[task_model.LinkedPr(n) for n in numbers],
+                    # Post-merge work does not stop the move: merged is not Done for it.
+                    post_merge="Check the deploy." if task_id == "t3" else "",
+                )
+            )
+        return table
+
+    async def statuses(self, table) -> dict[str, str]:
+        return {t.id: t.status for t in await table.list("p")}
+
+    def landings(self, table, signals, merges=None) -> Landings:
+        return Landings(
+            signals=signals,
+            tracked=lambda: tracked_tasks(table, ["p"], merges),
+            merges=merges,
+            tasks=table,
+        )
+
+    async def test_a_merged_pr_moves_built_to_merged_and_an_open_one_stays(self):
+        table = await self.table_of(
+            ("t1", "built", (7,)), ("t2", "built", (8,)), ("t3", "built", (7,))
+        )
+        signals = FakeSignals()
+        signals.merged[7] = MERGE
+        await self.landings(table, signals).sync("T1")
+        assert await self.statuses(table) == {
+            "t1": "merged",
+            "t2": "built",
+            "t3": "merged",
+        }
+
+    async def test_a_task_moved_off_built_during_the_sync_keeps_its_status(self):
+        table = await self.table_of(("t1", "built", (7,)))
+        signals = FakeSignals()
+        signals.merged[7] = MERGE
+        tracked = await tracked_tasks(table, ["p"])
+        await task_model.move(table, "p", "t1", "in-progress")
+
+        async def stale() -> list[TrackedTask]:
+            return tracked
+
+        await replace(self.landings(table, signals), tracked=stale).sync("T1")
+        assert await self.statuses(table) == {"t1": "in-progress"}
+
+    async def test_a_failed_move_leaves_the_other_tasks_to_move(self):
+        table = await self.table_of(
+            ("t1", "built", (7,)), ("t2", "built", (7,)), table=RefusesT1Table()
+        )
+        signals = FakeSignals()
+        signals.merged[7] = MERGE
+        landings = self.landings(table, signals)
+        await landings.sync("T1")
+        assert await self.statuses(table) == {"t1": "built", "t2": "merged"}
+        assert {(e.task_id, e.step) for e in await landings.steps.list()} == {
+            ("t1", "done"),
+            ("t1", "merged"),
+            ("t2", "done"),
+            ("t2", "merged"),
+        }
+
+    async def test_a_task_not_built_keeps_its_status(self):
+        table = await self.table_of(
+            ("t1", "published", (7,)), ("t2", "cancelled", (7,))
+        )
+        signals = FakeSignals()
+        signals.merged[7] = MERGE
+        await self.landings(table, signals).sync("T1")
+        assert await self.statuses(table) == {"t1": "published", "t2": "cancelled"}
+
+    async def test_a_merge_recorded_before_moves_on_the_next_sync(self):
+        table = await self.table_of(("t1", "built", (7,)))
+        signals = FakeSignals()
+        signals.merged[7] = MERGE
+        landings = self.landings(table, signals)
+        # A sync with no Task tracker records the step, and moves nothing.
+        await replace(landings, tasks=None).sync("T1")
+        assert await self.statuses(table) == {"t1": "built"}
+        assert [e.step for e in await landings.steps.list()] == ["done", "merged"]
+        await landings.sync("T2")
+        assert await self.statuses(table) == {"t1": "merged"}
+
+    async def test_a_merged_request_moves_a_task_with_no_pr(self):
+        table = await self.table_of(("t1", "built", ()))
+        merges = InMemoryMergeRequestStore()
+        await merges.save(merged_request("t1"))
+        await self.landings(table, FakeSignals(), merges).sync("T1")
+        assert await self.statuses(table) == {"t1": "merged"}
+
+
 MERGED_AT = "2026-11-12T08:00:00Z"
 
 
