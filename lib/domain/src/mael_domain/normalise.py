@@ -34,6 +34,7 @@ from .attachments import markdown_ref
 from .document_tags import (
     DRAFT_KIND,
     MILESTONES,
+    CardLink,
     CompactRequest,
     DocumentTag,
     ImageTag,
@@ -49,6 +50,7 @@ from .document_tags import (
 )
 from .external_event import parse as parse_external_event
 from .file_registry import FileRegistry
+from .link_cards import card_labels, card_markdown
 from .protocol import (
     Agent,
     Attention,
@@ -691,7 +693,11 @@ def _assistant_text(
     """
     # A subagent writes no document and shows no picture, so its
     # tags stay as text.
-    tagged = read_tags(raw_text, out.show_image) if not out.message_only else None
+    tagged = (
+        read_tags(raw_text, out.show_image, out.show_link)
+        if not out.message_only
+        else None
+    )
     text = tagged.text if tagged else raw_text
     partial = out.ctx.partial
     if partial and partial.item_id and partial.message_id == message_id:
@@ -716,7 +722,9 @@ def _assistant_text(
     out.ctx = replace(out.ctx, last_assistant_text=text)
     out.agent(
         {
-            "lastMessage": _one_line(_USER_ATTENTION_TAG.sub("", text).strip()),
+            "lastMessage": _one_line(
+                card_labels(_USER_ATTENTION_TAG.sub("", text)).strip()
+            ),
             "lastMessageAt": out.event_ts or out.now,
         }
     )
@@ -1706,6 +1714,14 @@ class _Emitter:
         if file_id is None:
             return None
         return markdown_ref(image.alt, f"/api/files/{file_id}")
+
+    def show_link(self, link: CardLink) -> str:
+        """The markdown link that shows one link card.
+
+        A document card's id takes the agent's prefix, as a tagged document's
+        does, so the card finds the entry the world holds.
+        """
+        return card_markdown(link, self._task_document_id)
 
     def _shown_media(self, ref: MediaRef) -> str:
         """One media ref of a document body, pointed at the route that serves it.

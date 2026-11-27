@@ -3366,3 +3366,33 @@ def test_a_handover_that_fails_before_the_agent_speaks_ends_idle():
     out = normalise_stream_event(state.state, state.ctx, {"type": "result"}, NOW)
     state.take(out.events)
     assert agent_of(state)["state"] == "idle"
+
+
+@pytest.mark.parametrize(
+    ("agent_id", "prefix"), [("ag1", ""), ("west:ag1", "west:")], ids=["local", "owned"]
+)
+def test_a_document_card_names_the_document_id_with_the_agent_s_prefix(
+    agent_id, prefix
+):
+    """The client cannot compute a document id, so the transcript holds it."""
+    doc = attachment_id("maelstrom/j8zh", ".drafts/pr.md")
+    plan = attachment_id("maelstrom/j8zh", "plan")
+    state = seed([make_agent(id=agent_id, state="idle")])
+    replayed = Replayed(state)
+    out = normalise_stream_event(
+        state,
+        context_for_agent(agent_id),
+        tag_message(
+            '- <link uri="mael:doc/maelstrom/j8zh/.drafts/pr.md?v=2">PR</link>\n'
+            '- <link uri="mael:plan/maelstrom/j8zh">Plan</link>'
+        ),
+        NOW,
+        read_file=fake_reader(),
+    )
+    replayed.take(out.events)
+    [message] = replayed.transcripts[agent_id]["items"]
+    # The desk shows the last message as text, so a card reads as its label.
+    assert replayed.state["world"]["agents"][agent_id]["lastMessage"] == "- PR - Plan"
+    assert message["markdown"] == (
+        f"- [PR](mael:doc/{prefix}{doc}?v=2)\n- [Plan](mael:doc/{prefix}{plan})"
+    )
