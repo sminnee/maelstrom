@@ -31,6 +31,15 @@ is done::
 
     <link rel="gh-pr" withdrawn>118</link>
 
+A **Link card** names a task, an agent, a document or another item by one
+``mael:`` URI, with an optional label. It registers nothing: it is replaced
+where it was written with a markdown link, which the UI renders as a card. A
+``<link>`` whose ``uri`` is not ``mael:`` stays as text. ``link_cards`` holds
+the URI forms::
+
+    <link uri="mael:task/maelstrom/j8zh">
+    <link uri="mael:pr/maelstrom/118">The release PR</link>
+
 The live feedback marker sets a **Live feedback param** on the dev servers of
 the agent's worktree. ``service`` names one dev server; with none, the param is
 set on each one that exposes it::
@@ -72,6 +81,9 @@ from .task import parse_draft
 #: file may not be shown. The registry is what decides, so the decision is
 #: injected rather than made here.
 ShowImage = Callable[["ImageTag"], str | None]
+#: Turns one link card into the markdown that replaces it. A document card
+#: needs the agent's Id prefix, so the caller supplies the target.
+ShowLink = Callable[["CardLink"], str]
 
 #: The kinds a ``<doc-file>`` may name. Anything else reads as ``other``, so a
 #: typo shows a document rather than dropping it. ``plan`` is not one: a task's
@@ -98,6 +110,13 @@ _PR_LINK_OPENING = r'<link\b[^>]*\brel\s*=\s*"gh-pr"[^>]*>'
 _LINK_TAG = re.compile(
     rf"({_PR_LINK_OPENING})\s*((?:(?!<link\b).)*?)\s*</link>", re.DOTALL
 )
+#: A link card: a ``<link`` with a ``mael:`` ``uri``, self-closing or with a
+#: label for a body. The body may not cross another ``<link``, as a PR link's
+#: may not, so two bare cards and a later close do not read as one.
+_CARD_LINK = re.compile(
+    rf"<link\b{ATTRIBUTES}>(?:((?:(?!<link\b).)*?)</link>)?", re.DOTALL
+)
+_CARD_URI = re.compile(r'(?<![\w-])uri\s*=\s*"(mael:[^"]*)"')
 #: The attribute that marks the PR as withdrawn, read from the opening with its
 #: quoted values cut out. Present means withdrawn, whatever its value, as an
 #: HTML boolean attribute does. See docs/specs/tasks/CONTEXT.md, "Registered PR".
@@ -173,6 +192,20 @@ class ImageTag:
 
 
 @dataclass(frozen=True)
+class CardLink:
+    """One link card an agent wrote, and where in the text it sits.
+
+    ``label`` is the body, or the URI when the card has none. Like an image, a
+    card is shown where it was written, so the caller replaces its span.
+    """
+
+    uri: str
+    label: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True)
 class ParamSet:
     """One live feedback param an agent set: on one service, or with ``None`` on each."""
 
@@ -234,7 +267,7 @@ class TaggedMessage:
     end_refused: str = ""
 
 
-def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
+def read_tags(text: str, show_image: ShowImage, show_link: ShowLink) -> TaggedMessage:
     """Split ``text`` into what the user reads and the documents it asks for.
 
     The tags come out in the order they were written, and the text keeps the
@@ -245,6 +278,9 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
     same pass that cuts the document tags out, because an offset taken before
     that cut would not survive it. It is required: a default would quietly
     rewrite every image to "could not be shown".
+
+    ``show_link`` turns one :class:`CardLink` into the markdown that replaces
+    it, in the same pass.
     """
     tags: list[DocumentTag] = []
     spans: list[tuple[int, int]] = []
@@ -349,6 +385,19 @@ def read_tags(text: str, show_image: ShowImage) -> TaggedMessage:
         )
         shown = show_image(image)
         replacements.append((match.start(), match.end(), shown or not_shown(src)))
+    # A card in code is a prompt example, and must not turn into a card.
+    for match in _unquoted(_CARD_LINK, text, spans):
+        uri = _CARD_URI.search(match.group(1))
+        if uri is None:
+            continue
+        label = (match.group(2) or "").strip()
+        link = CardLink(
+            uri=uri.group(1),
+            label=label or uri.group(1),
+            start=match.start(),
+            end=match.end(),
+        )
+        replacements.append((match.start(), match.end(), show_link(link)))
 
     return TaggedMessage(
         text=_rewritten(text, spans, replacements),
@@ -474,8 +523,17 @@ def partial_text(text: str) -> str:
         ):
             cut = opening.start()
             break
-    shown = read_tags(text[:cut], lambda _image: _NO_IMAGE).text
+    shown = read_tags(text[:cut], lambda _image: _NO_IMAGE, _partial_card).text
     return shown.replace(_NO_IMAGE, "")
+
+
+def _partial_card(link: CardLink) -> str:
+    """What a partial message shows for a card: its label, or nothing for a bare one.
+
+    A card is drawn when the message is whole. Until then, an opening whose body
+    has not arrived reads as a bare card, and must not show its URI.
+    """
+    return "" if link.label == link.uri else link.label
 
 
 def _code_spans(text: str) -> list[tuple[int, int]]:

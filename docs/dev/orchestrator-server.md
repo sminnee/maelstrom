@@ -937,6 +937,38 @@ not depend on the registry: its media are served from the Task tracker.
 The lookup is the whole authorisation step: the handler parses no path and joins no string. A file
 since deleted reads as `unknown_id` too — the id was real, the bytes are not.
 
+## A link card
+
+A **Link card** is a marker that the server replaces in place, as it does an `<image>`:
+
+```
+<link uri="mael:task/maelstrom/j8zh">
+<link uri="mael:doc/maelstrom/j8zh/.drafts/pr.md?v=2">The PR draft</link>
+```
+
+`read_tags` replaces it with a markdown link, in the same pass that replaces an `<image>`. The
+label is the body, or the URI when there is no body. The card stays where the agent wrote it, for
+example in a list item. An agent's `lastMessage` holds the label, not the link, because the desk
+shows it as text. The protocol has no new field.
+
+`link_cards.card_href` gives the link's target. It changes the URI in three cases only:
+
+| Written | Held |
+| --- | --- |
+| `mael:doc/<project>/<task>/<name>[?v=<n>]` | `mael:doc/<docId>[?v=<n>]` |
+| `mael:plan/<project>/<task>` | `mael:doc/<docId>` of the task's plan |
+| A `mael:` URI that is not a form | `mael:missing?uri=<encoded>` |
+
+The client cannot compute a document id from a name, so the server does it. The id has the
+agent's **Id prefix**, as a tagged document's id does. The other forms pass through, and the
+client resolves each one against its live world. A card in an old message then shows the item as
+it is now.
+
+A card registers nothing, even for a PR URI: registration writes to the task store, and stays with
+`rel="gh-pr"`. A card in a code span or a fence stays as text, so a prompt example does not turn
+into a card. A `<link>` whose `uri` is not `mael:` stays as text too. A partial message shows a
+card's label alone, and a bare card not at all, until the message is whole.
+
 ## Media in a document
 
 A document body names an image or a video as a markdown image ref with a worktree-relative

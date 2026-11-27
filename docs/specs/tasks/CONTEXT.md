@@ -141,8 +141,8 @@ _Avoid_: Linked PR, task PR, withdrawn PR
 The marker an agent writes in the text of an ordinary message to register a PR on its task:
 `<link rel="gh-pr">118</link>`, with a PR number, `#118` or a GitHub PR URL. The server cuts it
 from the message and adds the PR to the task's **Registered PRs**. With a bare `withdrawn`
-attribute, `<link rel="gh-pr" withdrawn>118</link>`, it unlinks that PR instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text. One of the
-markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone** and `<live-feedback>`.
+attribute, `<link rel="gh-pr" withdrawn>118</link>`, it unlinks that PR instead. A **Free agent** registers nothing, and a subagent writes none. A `<link>` of any other `rel` stays as text, and a **Link card** with a PR URI registers nothing. One of the
+markers, with the **Document tag**, the **Image tag**, the **Note**, the **Milestone**, the **Link card** and `<live-feedback>`.
 _Avoid_: PR tag, link tag
 
 **Phase**:
@@ -336,7 +336,7 @@ directory and nothing outside it. Each file becomes one document, and the files 
 A tag opens its documents at `draft`; `review="true"` opens them awaiting review instead, which is
 what raises an attention item.
 One of the markers, with the **Image tag**, the **Note**, the **Milestone**, the **PR link
-tag** and `<live-feedback>`. The names carry
+tag**, the **Link card** and `<live-feedback>`. The names carry
 nothing maelstrom-specific, so another frontend may render them its own way.
 _Avoid_: Directive, macro, shortcode
 
@@ -346,7 +346,7 @@ The marker an agent writes in the text of an ordinary message to show the user a
 written, so an image is read in the flow of the message and is not a document. `src` names a file
 in the agent's worktree; `alt` describes the picture and defaults to the filename. A file the agent
 may not show, or one that is not there, leaves prose saying so, never a broken picture. One of the
-markers, with the **Document tag**, the **Note**, the **Milestone**, the **PR link tag** and `<live-feedback>`.
+markers, with the **Document tag**, the **Note**, the **Milestone**, the **PR link tag**, the **Link card** and `<live-feedback>`.
 _Avoid_: Screenshot tag, figure, embed
 
 **Review group**:

@@ -40,3 +40,7 @@ task.
 
 Keep each reply short. Lead with the answer. Use a short list for more than two items. Name tasks
 and agents by their ids, so the user can find them on the desk.
+
+When you list items that need the user, write a link card for each, as "Link cards" above
+says: `<link uri="mael:task/<project>/<task-id>">`. Get document names from
+`mael doc list <task-id> --project <name>`, and agent ids from `mael agent list`.

@@ -1,5 +1,7 @@
 """The media a document body names: which refs are files in the worktree."""
 
+from urllib.parse import quote
+
 import pytest
 
 from mael_domain.document_tags import (
@@ -10,6 +12,16 @@ from mael_domain.document_tags import (
     read_tags,
     replace_media,
 )
+from mael_domain.link_cards import card_markdown
+from mael_domain.task_attachments import attachment_id
+
+
+def show_card(link):
+    return card_markdown(link, attachment_id)
+
+
+def tagged(text: str):
+    return read_tags(text, show_image=lambda _image: None, show_link=show_card)
 
 
 def targets(markdown: str) -> list[str]:
@@ -134,6 +146,11 @@ def test_replace_media_leaves_a_fenced_ref_as_written():
         ("```\n<note>\nstill in the fence", "```\n<note>\nstill in the fence"),
         # A quoted name earlier in the text does not hide a real half tag later.
         ('Use `<note` to open, then <image src="a', "Use `<note` to open, then"),
+        # A card is drawn when the message is whole: until then, its label alone.
+        ('See <link uri="mael:task/m/t">The task</link> now', "See The task now"),
+        ('See <link uri="mael:task/m/t"> now', "See  now"),
+        ('See <link uri="mael:task/m/t">The ta', "See The ta"),
+        ('See <link uri="mael:task/m/t">The task</lin', "See The task"),
     ],
 )
 def test_a_partial_message_shows_no_marker_and_no_half_tag(so_far, shown):
@@ -144,7 +161,7 @@ def test_a_partial_message_shows_no_marker_and_no_half_tag(so_far, shown):
 
 
 def feedback_params(text: str) -> tuple[ParamSet, ...]:
-    return read_tags(text, show_image=lambda _image: None).feedback_params
+    return tagged(text).feedback_params
 
 
 @pytest.mark.parametrize(
@@ -193,16 +210,16 @@ def test_a_live_feedback_marker_sets_each_param_it_names(text, sets):
     ],
 )
 def test_a_live_feedback_marker_with_no_good_param_stays_as_text(text):
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert tagged.feedback_params == ()
-    assert tagged.text == text
+    out = tagged(text)
+    assert out.feedback_params == ()
+    assert out.text == text
 
 
 # --- the compaction request: the agent asks for its session to compact ------
 
 
 def compact(text: str) -> CompactRequest | None:
-    return read_tags(text, show_image=lambda _image: None).compact
+    return tagged(text).compact
 
 
 @pytest.mark.parametrize(
@@ -232,11 +249,10 @@ def test_a_compaction_request_reads_its_threshold_and_focus(text, asked):
 
 
 def test_a_compaction_request_is_cut_from_the_text():
-    tagged = read_tags(
-        'Gates pass.\n\n<compact-session min-tokens="200k">Keep it</compact-session>',
-        show_image=lambda _image: None,
+    out = tagged(
+        'Gates pass.\n\n<compact-session min-tokens="200k">Keep it</compact-session>'
     )
-    assert tagged.text == "Gates pass."
+    assert out.text == "Gates pass."
 
 
 @pytest.mark.parametrize(
@@ -248,9 +264,9 @@ def test_a_compaction_request_is_cut_from_the_text():
     ids=["inline", "fenced"],
 )
 def test_a_compaction_request_quoted_in_code_is_text(text):
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert tagged.compact is None
-    assert tagged.text == text
+    out = tagged(text)
+    assert out.compact is None
+    assert out.text == text
 
 
 def test_a_message_with_no_compaction_request_reports_none():
@@ -263,9 +279,9 @@ def test_a_message_with_no_compaction_request_reports_none():
     ids=["bare", "self-closing", "spaced"],
 )
 def test_an_end_session_request_is_read_and_cut_from_the_text(text):
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert tagged.end_session is True
-    assert tagged.text == "Done."
+    out = tagged(text)
+    assert out.end_session is True
+    assert out.text == "Done."
 
 
 @pytest.mark.parametrize(
@@ -274,17 +290,15 @@ def test_an_end_session_request_is_read_and_cut_from_the_text(text):
     ids=["inline", "fenced"],
 )
 def test_an_end_session_request_quoted_in_code_is_text(text):
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert tagged.end_session is False
-    assert tagged.text == text
+    out = tagged(text)
+    assert out.end_session is False
+    assert out.text == text
 
 
 def test_a_conditional_end_names_its_event_and_does_not_end_now():
-    tagged = read_tags(
-        'Pushed.\n\n<end-session on="pr.merged">', show_image=lambda _image: None
-    )
-    assert (tagged.end_session, tagged.end_on) == (False, "pr.merged")
-    assert tagged.text == "Pushed."
+    out = tagged('Pushed.\n\n<end-session on="pr.merged">')
+    assert (out.end_session, out.end_on) == (False, "pr.merged")
+    assert out.text == "Pushed."
 
 
 @pytest.mark.parametrize(
@@ -296,31 +310,25 @@ def test_a_conditional_end_names_its_event_and_does_not_end_now():
     ids=["plain-last", "plain-first"],
 )
 def test_a_plain_end_wins_over_a_conditional_one(text):
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert (tagged.end_session, tagged.end_on) == (True, None)
+    out = tagged(text)
+    assert (out.end_session, out.end_on) == (True, None)
 
 
 def test_a_conditional_end_on_an_unknown_event_is_cut_and_ignored():
     """A misspelt condition must not end the agent at once."""
-    tagged = read_tags(
-        'Pushed.\n\n<end-session on="pr.merge">', show_image=lambda _image: None
-    )
-    assert (tagged.end_session, tagged.end_on) == (False, None)
-    assert tagged.text == "Pushed."
+    out = tagged('Pushed.\n\n<end-session on="pr.merge">')
+    assert (out.end_session, out.end_on) == (False, None)
+    assert out.text == "Pushed."
 
 
 def test_a_conditional_end_quoted_in_code_is_text():
     text = 'Write `<end-session on="pr.merged">` after the push.'
-    tagged = read_tags(text, show_image=lambda _image: None)
-    assert tagged.end_on is None
-    assert tagged.text == text
+    out = tagged(text)
+    assert out.end_on is None
+    assert out.text == text
 
 
 # --- the milestone: the agent marks a stage of the work ---------------------
-
-
-def tagged(text: str):
-    return read_tags(text, show_image=lambda _image: None)
 
 
 def test_a_milestone_is_read_and_cut_from_the_text():
@@ -389,3 +397,99 @@ def test_an_unclosed_html_link_does_not_swallow_a_pr_link():
 def test_a_link_of_another_rel_is_left_as_text():
     out = tagged('<link rel="stylesheet">x</link>')
     assert (out.pr_link, out.text) == ("", '<link rel="stylesheet">x</link>')
+
+
+# --- the link card: an agent names an item by one mael: URI -----------------
+
+
+@pytest.mark.parametrize(
+    ("marker", "shown"),
+    [
+        (
+            '<link uri="mael:task/maelstrom/j8zh">',
+            "[mael:task/maelstrom/j8zh](mael:task/maelstrom/j8zh)",
+        ),
+        (
+            '<link uri="mael:task/maelstrom/j8zh">The task</link>',
+            "[The task](mael:task/maelstrom/j8zh)",
+        ),
+        ('<link uri="mael:session/ag1"/>', "[mael:session/ag1](mael:session/ag1)"),
+        ('<link uri="mael:session/west:ag1">A</link>', "[A](mael:session/west:ag1)"),
+        ('<link uri="mael:comm/a%20b">C</link>', "[C](mael:comm/a%20b)"),
+        (
+            '<link uri="mael:comm/brisk-otter">Comm</link>',
+            "[Comm](mael:comm/brisk-otter)",
+        ),
+        (
+            '<link uri="mael:worktree/maelstrom/alpha">WT</link>',
+            "[WT](mael:worktree/maelstrom/alpha)",
+        ),
+        ('<link uri="mael:pr/maelstrom/118">PR</link>', "[PR](mael:pr/maelstrom/118)"),
+    ],
+    ids=[
+        "bare",
+        "labelled",
+        "self-closing",
+        "owned-agent",
+        "encoded",
+        "comm",
+        "worktree",
+        "pr",
+    ],
+)
+def test_a_link_card_is_replaced_in_place_by_a_markdown_link(marker, shown):
+    out = tagged(f"- Waiting: {marker} now")
+    assert out.text == f"- Waiting: {shown} now"
+
+
+def test_a_label_is_escaped_so_it_cannot_end_the_link():
+    out = tagged('<link uri="mael:task/m/t">a](x) [b</link>')
+    assert out.text == "[a\\]\\(x\\) \\[b](mael:task/m/t)"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "mael:nonsense/x",
+        "mael:task/only-one",
+        "mael:pr/maelstrom/abc",
+        "mael:task/m/t?v=2",
+        "mael:doc/m/t",
+        "mael:session/",
+        "mael:task/m/t x",
+        "mael:doc/m/t/x?v=two",
+        "mael:plan/m/t?v=2",
+    ],
+    ids=[
+        "kind",
+        "arity",
+        "pr-number",
+        "query",
+        "doc-name",
+        "empty",
+        "space",
+        "bad-version",
+        "plan-version",
+    ],
+)
+def test_an_unknown_mael_uri_becomes_a_missing_card(uri):
+    out = tagged(f'<link uri="{uri}">Lost</link>')
+    assert out.text == f"[Lost](mael:missing?uri={quote(uri, safe='')})"
+
+
+def test_a_link_card_registers_nothing_even_for_a_pr():
+    out = tagged('<link uri="mael:pr/maelstrom/118">PR</link>')
+    assert out.pr_link == ""
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'Write `<link uri="mael:task/m/t">` for a card.',
+        'Write:\n\n```\n<link uri="mael:task/m/t">The task</link>\n```',
+        '<link uri="https://example.com">x</link>',
+    ],
+    ids=["code-span", "fence", "not-mael"],
+)
+def test_a_card_in_code_or_with_another_scheme_stays_as_text(text):
+    assert tagged(text).text == text

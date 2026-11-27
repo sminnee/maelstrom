@@ -1760,6 +1760,37 @@ arrives with the URL already in it. See "Attachments" in `docs/dev/orchestrator-
 The height cap, the portal to the body, and the `Dialog` `className` each carry their reason at
 their own site.
 
+## Link cards
+
+`Markdown` draws each `mael:` link as a `markdown/LinkCard.tsx`, in every surface that renders
+markdown. An agent writes a **Link card** marker, and the server turns it into such a link: see
+"A link card" in `docs/dev/orchestrator-server.md`. `Markdown`'s `urlTransform` keeps the `mael:`
+scheme.
+
+`selectors/linkTargets.ts` `resolveLinkTarget` reads the target from the live world: the title,
+the state words, the `data-state` and `data-phase` of the deck row, and one action.
+
+| Target | Action | A tap opens |
+| --- | --- | --- |
+| Task | Open | The task card |
+| Agent session | Open | The session tab |
+| Task document | Review when `awaiting-review`, else Open | The document tab, at the version |
+| Comm | Open | The comm editor |
+| Worktree | Open | The worktree card; the Changes tab when narrow |
+| PR | Open on GitHub | The PR on GitHub |
+
+A narrow layout has no worktree card, so a worktree card opens the Changes tab there. There is no
+in-app PR view, so a PR card links out. A card has no approve: Review opens the document, and the
+user reads it before the verdict.
+
+The whole card is one real link, so cmd-click and long-press work, and its tap target is at least
+44px high. A target the world does not hold, and a `mael:missing` URI, draw a card that says
+"`<label>` cannot be found", with no action. While the world loads, a card shows its label alone.
+A document version past the latest is missing too: the document tab cannot open it.
+
+`protocol/linkUri.ts` parses a `mael:` URI. It is a hand-kept mirror of
+`link_cards.parse_link_uri`.
+
 ## The three layouts
 
 The app draws one of three layouts, chosen by the viewport.

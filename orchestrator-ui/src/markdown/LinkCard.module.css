@@ -1,0 +1,141 @@
+/* A **Link card**: one block in the prose, the height of a touch target, with the deck row's state channel. */
+.card {
+  display: flex;
+  margin-block: var(--u);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--card-rule);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  max-width: 100%;
+  /* A card with no phase must not take the phase of the pane around it. */
+  --card-rule: var(--border);
+  --card-mark: var(--accent);
+}
+.card[data-phase] {
+  --card-rule: var(--phase);
+  --card-mark: var(--phase);
+}
+
+.link {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--u);
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--u) var(--u-2);
+  color: var(--fg);
+  text-decoration: none;
+}
+.link:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--u-half);
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--u);
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  flex: none;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  color: var(--fg-faint);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--u);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+}
+
+.action {
+  margin-left: auto;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.dot {
+  flex: none;
+  align-self: center;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--mark-neutral);
+}
+
+/* The state channel: the deck row's readings, from the same attribute. */
+.card[data-state='working'] .dot {
+  background: var(--card-mark);
+}
+.card[data-state='ready'] .dot,
+.card[data-state='awaiting-merge'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--card-mark);
+}
+.card[data-state='done'] .dot {
+  background: var(--ok);
+}
+.card[data-state='finalising'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--ok);
+}
+.card[data-state='exited'] .dot {
+  background: var(--danger);
+}
+.card[data-state='stopped'] .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--tone-dormant);
+}
+.card[data-state='needs-attention'] {
+  background: color-mix(in srgb, var(--attention) 8%, var(--bg-raised));
+  border-color: color-mix(in srgb, var(--attention) 40%, var(--border));
+}
+.card[data-state='needs-attention'] .dot {
+  background: var(--attention);
+}
+.card[data-state='needs-attention'] .words {
+  color: var(--attention);
+  font-weight: 500;
+}
+.card[data-state='unanswered'] {
+  background: color-mix(in srgb, var(--unanswered) 8%, var(--bg-raised));
+  border-color: color-mix(in srgb, var(--unanswered) 40%, var(--border));
+}
+.card[data-state='unanswered'] .dot {
+  background: var(--unanswered);
+}
+
+.card[data-missing] {
+  border-style: dashed;
+  border-left-width: 1px;
+  background: transparent;
+}
+.missing {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: var(--u) var(--u-2);
+  color: var(--fg-faint);
+}

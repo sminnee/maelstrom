@@ -1,8 +1,10 @@
 import { memo } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown';
 import type { PluggableList } from 'unified';
 import rehypeSlug from 'rehype-slug';
 import remarkGfm from 'remark-gfm';
+import { isLinkUri } from '../protocol/linkUri';
+import { LinkCard } from './LinkCard';
 import { ImageLightbox } from '../ui/ImageLightbox';
 import { TableScroll } from '../ui/TableScroll';
 import { QuietBlock } from './QuietBlock';
@@ -69,6 +71,26 @@ function isVideo(src: string): boolean {
   return VIDEO_PATH.test(src.split(/[?#]/, 1)[0] ?? '');
 }
 
+/**
+ * Keeps a `mael:` link, which react-markdown's default drops as an unknown
+ * scheme. Every other URL takes the default's rule.
+ */
+function urlTransform(url: string): string {
+  return isLinkUri(url) ? url : defaultUrlTransform(url);
+}
+
+/** A `mael:` link is a **Link card**. Every other link stays an ordinary one. */
+const linkComponent: Components['a'] = ({ node, ...anchor }) => {
+  // The hast node is not an attribute. Every other prop is: a footnote's link carries
+  // its id and its label.
+  void node;
+  return isLinkUri(anchor.href) ? (
+    <LinkCard uri={anchor.href} label={anchor.children} />
+  ) : (
+    <a {...anchor} />
+  );
+};
+
 /** Maps an image ref in the source to the URL to load it from. */
 export type ResolveSrc = (src: string) => string;
 
@@ -89,7 +111,9 @@ const MarkdownContent = memo(function MarkdownContent({
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={headingIds ? REHYPE_SLUG : undefined}
+      urlTransform={urlTransform}
       components={{
+        a: linkComponent,
         img: ({ src: ref, alt }) => {
           if (typeof ref !== 'string') return null;
           const src = resolveSrc ? resolveSrc(ref) : ref;

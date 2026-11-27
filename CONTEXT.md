@@ -676,6 +676,16 @@ worktrees are on disk. Its Worktrees tab holds the worktree table, the one surfa
 closed worktree. Add project opens it when a clone ends.
 _Avoid_: Project detail, project page, Worktrees view
 
+**Link card**:
+The marker an agent writes in the text of an ordinary message to name one item:
+`<link uri="mael:task/maelstrom/j8zh">`, with an optional label for a body. The one `mael:` URI
+names a task, an agent session, a Task document, a task's plan, a comm, a worktree or a PR. The
+UI draws a card in its place, with the item's title, its state now and one action. A target the
+world does not hold draws a card that says it cannot be found. A Link card registers nothing,
+even for a PR. One of the markers, with the **Document tag**, the **Image tag**, the **Note**,
+the **Milestone**, the **PR link tag** and `<live-feedback>`.
+_Avoid_: Link tag, deep link, mention
+
 ## Dev environments
 
 **Environment**:
@@ -1004,7 +1014,7 @@ replaces the one before it. The expanded card shows it in place of the agent's l
 is whatever prose happened to end a turn. A message carrying no note leaves the standing one
 alone, and a subagent writes none. The card still dates its block from the last message, because
 silence means the agent said nothing, and a note is not speech. One of the markers, with the
-**Document tag**, the **Image tag**, the **Milestone**, the **PR link tag** and `<live-feedback>`.
+**Document tag**, the **Image tag**, the **Milestone**, the **PR link tag**, the **Link card** and `<live-feedback>`.
 _Avoid_: Status, Progress (that is a node's state), Activity
 
 **Milestone**:
@@ -1015,7 +1025,7 @@ and flagged, never dropped. The marker is cut from the message and writes a **mi
 snapshot**; the latest one in a message wins, as a note does. `planned` is Maelstrom's own: it is
 written when the user approves a plan, because the approval clears the agent before it could
 write one. One of the markers, with the
-**Document tag**, the **Image tag**, the **Note**, the **PR link tag** and `<live-feedback>`. A subagent writes none.
+**Document tag**, the **Image tag**, the **Note**, the **PR link tag**, the **Link card** and `<live-feedback>`. A subagent writes none.
 _Avoid_: Checkpoint, phase, stage marker. A **phase** is a task's own, and a checkpoint is where
 a document awaits review.
 
