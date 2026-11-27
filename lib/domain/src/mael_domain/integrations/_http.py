@@ -6,6 +6,7 @@ raises ``IntegrationHTTPError``, whose message is ``HTTP Error <code>: <body>``.
 """
 
 import json
+import secrets
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -23,13 +24,15 @@ def _read_bytes(
     form_body: dict | None,
     params: dict | None,
     timeout: float | None = None,
+    raw_body: bytes | None = None,
 ) -> bytes:
     """Build and send the request, returning the raw response body as bytes.
 
     The shared request-building core. Exactly one of ``json_body`` / ``form_body``
     should be supplied (or neither for a bodyless request). ``json_body`` sets
     ``Content-Type: application/json`` automatically; ``form_body`` is urlencoded
-    and the caller is responsible for the form content-type header. ``params`` is
+    and the caller is responsible for the form content-type header. ``raw_body``
+    is sent as it is, under the caller's content-type header. ``params`` is
     urlencoded onto the URL. ``timeout`` bounds the wait in seconds; ``None``
     waits as long as the socket default allows.
 
@@ -46,6 +49,8 @@ def _read_bytes(
         request_headers.setdefault("Content-Type", "application/json")
     elif form_body is not None:
         data = urllib.parse.urlencode(form_body).encode("utf-8")
+    elif raw_body is not None:
+        data = raw_body
 
     req = urllib.request.Request(url, data=data, method=method, headers=request_headers)
 
@@ -149,11 +154,16 @@ def request_bytes(
     *,
     method: str = "GET",
     headers: dict[str, str] | None = None,
+    json_body: Any = None,
+    raw_body: bytes | None = None,
+    timeout: float | None = None,
 ) -> bytes:
     """Make an HTTP request and return the raw response body as bytes.
 
     Like :func:`request_text` but skips the UTF-8 decode — for binary assets
-    (e.g. downloading an image) that must not be mangled into text.
+    (e.g. downloading an image, or synthesized speech) that must not be mangled
+    into text. ``raw_body`` carries a body already encoded, such as the output
+    of :func:`multipart_body`.
 
     Raises:
         IntegrationHTTPError: On an HTTP error, with the response body inlined.
@@ -162,7 +172,38 @@ def request_bytes(
         url,
         method=method,
         headers=headers,
-        json_body=None,
+        json_body=json_body,
         form_body=None,
         params=None,
+        timeout=timeout,
+        raw_body=raw_body,
     )
+
+
+def multipart_body(
+    fields: dict[str, str], files: dict[str, tuple[str, bytes, str]]
+) -> tuple[bytes, str]:
+    """A ``multipart/form-data`` body and its content-type header value.
+
+    ``files`` maps each field name to ``(filename, data, content_type)``.
+
+    Raises:
+        ValueError: A name holds ``"``, CR or LF, which would break the part header.
+    """
+    for name in [*fields, *files, *(f[0] for f in files.values())]:
+        if any(c in name for c in '"\r\n'):
+            raise ValueError(f"multipart name holds a quote or a line break: {name!r}")
+    boundary = f"mael-{secrets.token_hex(16)}"
+    out = bytearray()
+    for name, value in fields.items():
+        out += f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        out += value.encode("utf-8") + b"\r\n"
+    for name, (filename, data, content_type) in files.items():
+        out += (
+            f"--{boundary}\r\n"
+            f'Content-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
+            f"Content-Type: {content_type}\r\n\r\n"
+        ).encode()
+        out += data + b"\r\n"
+    out += f"--{boundary}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={boundary}"
