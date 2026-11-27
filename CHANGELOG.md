@@ -52,9 +52,9 @@ release while that section is empty, and retitles it to the version it is releas
   commits and ends its session, and the task is a **Parked task**. See
   [Task edits](docs/dev/orchestrator-server.md#task-edits).
 - **`mael task follow` and `mael task unfollow` change an existing task's follows.** An
-  `in-progress` task that follows unfinished work is a **Parked task**: its agent ends its
-  session, and the task keeps its status and its session. Its node waits in the queued zone
-  until every followed task is done, then you resume it. See [Tasks](docs/guide/tasks.md).
+  `in-progress` task that follows a task whose build has not ended is a **Parked task**: its
+  agent ends its session, and the task keeps its status and its session. Its node waits in the
+  queued zone until the build of every followed task has ended, then you resume it. See [Tasks](docs/guide/tasks.md).
 - **Attach any file, or a text note, to a task or an agent message.** **Attach image** is now
   **Attach file**, and it takes any file up to 50 MB. **Attach text note** turns a block of text
   into a file. An image is embedded as before. Any other file is linked, with its size, and the
@@ -129,6 +129,9 @@ release while that section is empty, and retitles it to the version it is releas
 - **A merge moves the task to `merged`.** When the orchestrator server sees that every Registered
   PR of a `built` task is merged, or its Merge request is merged, it moves the task to `merged`.
   You no longer run `mael task status merged`.
+- **The next task of a chain starts when the build before it ends, not at the merge.** A task is
+  actionable once every task it follows is `built`, `merged` or `published`. A `cancelled` task
+  still holds its followers. `mael task status built` names the next task.
 - **The skills give one map of a project's glossary, decisions and contracts.** The
   `domain-modeling` skill names four documents and the job of each:
   - The glossary, `CONTEXT.md`. A project lists its subdomains and their subsystems in

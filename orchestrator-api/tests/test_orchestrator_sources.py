@@ -568,6 +568,17 @@ async def test_a_claim_moves_the_task_in_progress_and_a_rollback_moves_it_back(
     ]
 
 
+@pytest.mark.parametrize(("status", "named"), [("built", True), ("in-progress", False)])
+async def test_set_status_names_the_follower_once_the_build_ends(table, status, named):
+    await model.create(table, project=PROJECT, title="a", id="NORT-6")
+    await model.create(
+        table, project=PROJECT, title="b", id="NORT-7", follows=["NORT-6"]
+    )
+    moved = await a_source(table).set_status(f"{PROJECT}/NORT-6", status)
+    follower = {"id": f"{PROJECT}/NORT-7", "title": "b", "state": "next"}
+    assert moved.get("follower") == (follower if named else None)
+
+
 async def test_an_opener_with_no_worktree_opener_refuses_to_open_one():
     with pytest.raises(LaunchBlocked, match="cannot open worktrees"):
         await WorktreeOpener().open(PROJECT, "feat/x")

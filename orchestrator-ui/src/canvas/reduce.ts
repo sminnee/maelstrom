@@ -5,16 +5,16 @@ export interface ReduceEdge {
   target: string;
 }
 
-/** One node as the reducer sees it: an id, and whether it is done. */
+/** One node as the reducer sees it: an id, and whether its build has ended. */
 export interface ReduceNode {
   id: string;
   /**
-   * Whether the node's task is done, the server's `done` flag. Mirrors
-   * `is_done` in `task.py`, which `is_actionable` gates on: done alone
-   * releases, so a cancelled task still gates. Whether it should is an open
-   * question in `CONTEXT.md`. False for a node that stands for no task.
+   * Whether the node's task's build has ended: `buildEnded` in
+   * `protocol/entities.ts`. Mirrors `build_ended` in `task.py`, which
+   * `is_actionable` gates on, so a cancelled task still gates. False for a
+   * node that stands for no task.
    */
-  done: boolean;
+  buildEnded: boolean;
 }
 
 /**
@@ -22,24 +22,24 @@ export interface ReduceNode {
  *
  * Display only: the caller keeps the full edge list for layout. See "The board
  * draws fewer wires than the notebook holds" in `docs/dev/orchestrator-ui.md`
- * for the rule, and why `done` is the only status that releases a follower.
+ * for the rule.
  */
 export function reduceEdges(
   edges: readonly ReduceEdge[],
   nodes: readonly ReduceNode[],
 ): ReduceEdge[] {
-  const doneById = new Map(nodes.map((n) => [n.id, n.done]));
-  // Forward adjacency over gating edges only: a done source cannot carry an
+  const endedById = new Map(nodes.map((n) => [n.id, n.buildEnded]));
+  // Forward adjacency over gating edges only: a build-ended source cannot carry an
   // implication, so it never joins a path that hides anything.
   const outOf = new Map<string, string[]>();
   for (const edge of edges) {
-    if (doneById.get(edge.source) === true) continue;
+    if (endedById.get(edge.source) === true) continue;
     const from = outOf.get(edge.source);
     if (from) from.push(edge.target);
     else outOf.set(edge.source, [edge.target]);
   }
 
-  return edges.filter((edge) => !impliedByDetour(edge, outOf, doneById));
+  return edges.filter((edge) => !impliedByDetour(edge, outOf, endedById));
 }
 
 /**
@@ -50,16 +50,16 @@ export function reduceEdges(
 function impliedByDetour(
   edge: ReduceEdge,
   outOf: ReadonlyMap<string, string[]>,
-  doneById: ReadonlyMap<string, boolean>,
+  endedById: ReadonlyMap<string, boolean>,
 ): boolean {
   const seen = new Set<string>([edge.source]);
   const queue = (outOf.get(edge.source) ?? []).filter((id) => id !== edge.target);
   while (queue.length > 0) {
     const id = queue.shift()!;
     if (id === edge.target) return true;
-    // The walk stops at a done node: it releases its followers, so no
+    // The walk stops at a build-ended node: it releases its followers, so no
     // implication runs through it. The visited set ends a cycle.
-    if (seen.has(id) || doneById.get(id) === true) continue;
+    if (seen.has(id) || endedById.get(id) === true) continue;
     seen.add(id);
     queue.push(...(outOf.get(id) ?? []));
   }

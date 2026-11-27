@@ -35,13 +35,13 @@ Task documents:
 
 ## Waiting on other work
 
-When the current task cannot go on until another task is done:
+When the current task cannot go on until the build of another task has ended:
 
 1. Run `mael task follow <id>...`. It acts on the current task. A task in another project is `<project>/<id>`.
 2. Commit the work in progress.
 3. End the session. When the system prompt teaches `<end-session>`, write it and end your turn.
 
-The task stays `in-progress`. The user resumes it when every followed task is done. Use `--task <id>` only to change another task's follows. Do not wait with a status, a note in the content, or a poll loop.
+The task stays `in-progress`. The user resumes it when the build of every followed task has ended. Use `--task <id>` only to change another task's follows. Do not wait with a status, a note in the content, or a poll loop.
 
 ## Build and commit
 

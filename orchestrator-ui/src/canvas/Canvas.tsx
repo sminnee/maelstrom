@@ -13,6 +13,7 @@ import { useOwnHost } from '../api/host';
 import { useWorld } from '../api/useWorld';
 import { usedByParent, worktreeName } from '../selectors/worktrees';
 import type { TaskId } from '../protocol/ids';
+import { buildEnded } from '../protocol/entities';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { deriveGraph, type GraphNode } from '../selectors/graph';
@@ -168,7 +169,7 @@ export function Canvas() {
     // redundant wire moves no column and changes nothing on disk.
     const drawn = reduceEdges(
       graph.edges,
-      graph.nodes.map((node) => ({ id: node.id, done: node.task?.done ?? false })),
+      graph.nodes.map((node) => ({ id: node.id, buildEnded: buildEnded(node.task) })),
     );
     // The edge carries the target's whole `follows`, so cutting one wire can
     // rewrite the list without re-reading it: a stale read here would clear

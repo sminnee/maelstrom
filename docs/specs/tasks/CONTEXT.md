@@ -22,6 +22,12 @@ A derived word, not a stored status. A task with no **Post-merge work** is done 
 moves a task to the first of its done statuses. The task entity on the wire carries a `done` flag.
 _Avoid_: Finished, complete, closed
 
+**Build ended**:
+A derived word, not a stored status: the task's Status is `built`, `merged` or `published`. It is
+the end of the build that **Status action** names. A task whose build has ended frees the tasks
+that follow it.
+_Avoid_: Finished build, pushed
+
 **Post-merge work**:
 The work an agent does on a task after the merge, such as a check of the deploy. The
 `post_merge` field holds its text. Empty means none. The field sets which statuses count as
@@ -47,14 +53,16 @@ _Avoid_: History, journal, notes
 
 **Parent**:
 The grouping key that puts a task in a chain sharing one branch. The siblings share the branch,
-not a PR: the first sibling's PR often merges before the next sibling starts. A task with an
+not a PR. A follower starts when the build before it ends, so its commits can join that
+sibling's open PR. A task with an
 empty parent roots its own chain. A parent is often virtual, such
 as `linear.NORT-123`, and is never checked against a real task.
 _Avoid_: Epic, group
 
 **Follows**:
-The ordering relationship. A task becomes actionable only once every id it follows is
-**Done**. Follows is the one way to make a task wait, and it is independent of parent.
+The ordering relationship. A task becomes actionable only once the build of every id it follows
+has ended: see **Build ended**. The next task of a **Chain** thus starts when the build before it
+is pushed, not when it merges. Follows is the one way to make a task wait, and it is independent of parent.
 `mael task follow` adds follows to a task that already exists. A task can follow a task in
 another project by its **Qualified id**.
 _Avoid_: Depends-on, blocked-by
@@ -91,8 +99,8 @@ something else on screen already names the project, such as a node in its lane o
 under the panel sidebar.
 
 **Actionable**:
-A task maelstrom may launch now: not **Done**, not `cancelled`, not a template, and every
-followed id is **Done**.
+A task maelstrom may launch now: not **Done**, not `cancelled`, not a template, and the build of
+every followed id has ended. A `cancelled` or missing followed task keeps it waiting.
 _Avoid_: Ready, unblocked
 
 **Cross-project task**:
@@ -226,9 +234,9 @@ Resume menu of a task's agent offers it, and `mael task run --new-session` start
 _Avoid_: Fresh session, restart
 
 **Parked task**:
-An `in-progress` task that follows unfinished work. Its agent ended its session to wait, and the
+An `in-progress` task that follows a task whose build has not ended. Its agent ended its session to wait, and the
 task keeps its status and its session. Its node is in the queued zone, with the queued styling.
-When every followed task is **Done**, the node is a stopped node in the running zone again, and the
+When the build of every followed task has ended, the node is a stopped node in the running zone again, and the
 user resumes it. A parked task is not drift: `mael task reconcile --fix` leaves it.
 _Avoid_: Blocked task, paused task
 

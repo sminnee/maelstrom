@@ -35,6 +35,15 @@ export function doneStatuses(postMerge: string): readonly TaskStatus[] {
   return postMerge.trim() ? ['published'] : ['merged', 'published'];
 }
 
+/**
+ * Whether the task's build has ended: `built`, `merged` or `published`. It
+ * frees the tasks that follow it. Mirrors `build_ended` in `task.py`. See
+ * docs/specs/tasks/CONTEXT.md, "Build ended".
+ */
+export const buildEnded = (task: Pick<Task, 'status'> | undefined): boolean =>
+  task !== undefined &&
+  (task.status === 'built' || task.status === 'merged' || task.status === 'published');
+
 /** Whether the task is done or cancelled: nothing it follows gates it now. */
 export const isTerminal = (task: Pick<Task, 'status' | 'done'>) =>
   task.done || task.status === 'cancelled';

@@ -90,7 +90,18 @@ describe('isActionable', () => {
     expect(isActionable(task, { A: done, B: open, C: task })).toBe(true);
   });
 
-  it('is false while a followed task is not done', () => {
+  it.each([
+    ['built', true],
+    ['published', true],
+    ['in-progress', false],
+    ['cancelled', false],
+  ] as const)('frees a follower of a %s task: %s', (status, expected) => {
+    const followed = makeTask({ id: 'A', status });
+    const task = makeTask({ id: 'C', status: 'todo', follows: ['A'] });
+    expect(isActionable(task, { A: followed, C: task })).toBe(expected);
+  });
+
+  it('is false while the build of a followed task has not ended', () => {
     const task = makeTask({ id: 'C', status: 'todo', follows: ['A', 'B'] });
     expect(isActionable(task, { A: done, B: open, C: task })).toBe(false);
   });

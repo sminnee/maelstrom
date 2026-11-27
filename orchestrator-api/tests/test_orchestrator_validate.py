@@ -250,7 +250,7 @@ def test_invalid_for_launching_a_task_that_is_not_actionable():
         ("merged", "published", True, True),
         ("published", None, True, True),
         ("merged", "in-progress", True, False),
-        ("merged", "built", True, False),
+        ("merged", "built", True, True),
         ("merged", "missing", True, False),
         ("built", None, True, False),
         ("cancelled", None, True, False),
@@ -258,7 +258,7 @@ def test_invalid_for_launching_a_task_that_is_not_actionable():
         ("merged", None, "yes", False),
     ],
 )
-def test_a_new_session_may_reopen_a_done_task_whose_follows_are_done(
+def test_a_new_session_may_reopen_a_done_task_whose_followed_builds_ended(
     status, follow_status, new_session, accepted
 ):
     follows = [] if follow_status is None else ["northwind/NORT-6"]

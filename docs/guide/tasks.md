@@ -80,11 +80,11 @@ quote the `*`: unquoted it is a YAML alias, and `"\*"` is a bad escape. Both fai
 promotion](#drafts-and-promotion).
 
 `mael task follow` adds follows to a task that already exists. With no `--task`, it changes
-the current task. An `in-progress` task that now follows unfinished work is **parked**: its
-agent ends the session, and the task keeps its status. The node waits in the queued zone. When
-every followed task is done, the node is back in the running zone, and you resume it.
-`mael task status done` on the last followed task names it: "The following task can resume
-now".
+the current task. An `in-progress` task that now follows a task whose build has not ended is **parked**:
+its agent ends the session, and the task keeps its status. The node waits in the queued zone.
+When the build of every followed task has ended, the node is back in the running zone, and you
+resume it. `mael task status built` (or `merged`, `published`) on the last followed task names
+it: "The following task can resume now".
 
 ```bash
 mael task follow <id>...                  # the current task waits on each id

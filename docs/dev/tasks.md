@@ -27,9 +27,11 @@ that count as done for a task:
 | Empty | `merged`, `published` | `merged` |
 | Set | `published` | `published` |
 
-`is_done`, `is_terminal` and `is_actionable` read this rule. So does the `done` flag on the
-wire task, which the UI and the server's validator use. A follower waits for its followed
-task's done status, so a task with post-merge work holds its followers at `merged`.
+`is_done` and `is_terminal` read this rule. So does the `done` flag on the wire task. A follower
+does not wait for Done. `is_actionable` frees it when the followed task's build has ended:
+`build_ended` is true at `built`, `merged` and `published`. The UI reads the same rule from the
+wire `status` with `buildEnded` in `protocol/entities.ts`, and the server's validator with
+`BUILD_ENDED_STATUSES`.
 
 `move()` resolves the `done` verb. `task_actions.move_with_actions` fires `post_action` when
 the build ends: on the move to `built`, or on a move from `todo` or `in-progress` straight to a
@@ -104,7 +106,7 @@ therefore sorts by the time it was created, not next to its parent.
 They are orthogonal:
 
 - **`follows`** controls *execution order* — a task is actionable only once
-  everything it follows is done. `follow-end:"*"` means "append after my
+  the build of everything it follows has ended (see **Build ended**). `follow-end:"*"` means "append after my
   parent-chain's current leaf."
 - **`parent`** controls *branch grouping* — which chain (and therefore which
   branch) the task belongs to.
@@ -113,7 +115,7 @@ A chain is typically a `follows` line-up of siblings that all share one `parent`
 
 ## Parking a task
 
-An `in-progress` task that follows unfinished work is a **Parked task** (see
+An `in-progress` task that follows a task whose build has not ended is a **Parked task** (see
 `docs/specs/tasks/CONTEXT.md`). `mael task follow` makes one:
 
 ```bash

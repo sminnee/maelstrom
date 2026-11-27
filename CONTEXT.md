@@ -1271,7 +1271,7 @@ _Avoid_: board
 
 **Zone**:
 One of the five stages of progress the desk lays out left to right: queued, next, running,
-built, done. New work is on the left. Queued work waits on other work: it follows unfinished work. A
+built, done. New work is on the left. Queued work waits on other work: it follows a task whose build has not ended. A
 **Parked task** is queued too, though an agent ran on it. Next work is **Actionable** and waits on the operator.
 Built work is **Awaiting merge**: no agent works on it, and its PR waits on the user. A node's zone comes from
 its state, not from its task status: the running zone means an agent has been launched and the

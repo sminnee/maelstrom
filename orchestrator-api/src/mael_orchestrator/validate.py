@@ -19,7 +19,12 @@ from mael_domain.build_runs import parse_trigger
 from mael_domain.feedback import SCOPES
 from mael_domain.github_model import AUTO_MERGE_WAITING_STATES
 from mael_domain.protocol import HOST_ID, Agent, RemoteHostState, Task, Worktree, World
-from mael_domain.task import PROMOTABLE_FIELDS, STATUS_DONE, VALID_STATUSES
+from mael_domain.task import (
+    PROMOTABLE_FIELDS,
+    STATUS_DONE,
+    VALID_STATUSES,
+    ends_build,
+)
 from mael_domain.worktree_model import extract_project_name, is_worktree_closable
 
 from .desk import split_desk_id
@@ -1257,12 +1262,12 @@ def _reopens(world: World, task: Task) -> bool:
     """Whether a **New session** may reopen ``task``.
 
     The world's form of ``can_start_new_session`` in ``mael_domain.task``: a done
-    task whose follows are all done. ``actionable`` already says no for it,
-    because a done task is terminal.
+    task whose followed builds have all ended. ``actionable`` already says no
+    for it, because a done task is terminal.
     """
     tasks = world["tasks"]
     return task["done"] and all(
-        f in tasks and tasks[f]["done"] for f in task["follows"]
+        f in tasks and ends_build(tasks[f]["status"]) for f in task["follows"]
     )
 
 

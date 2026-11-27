@@ -735,21 +735,21 @@ class TestActionable:
         assert await model.is_actionable(await model.load(store, "p", b.id), store)
 
     @pytest.mark.parametrize(
-        ("post_merge", "status", "released"),
+        ("status", "released"),
         [
-            ("", "built", False),
-            ("", "merged", True),
-            ("", "published", True),
-            ("Check the deploy.", "built", False),
-            ("Check the deploy.", "merged", False),
-            ("Check the deploy.", "published", True),
+            ("in-progress", False),
+            ("built", True),
+            ("merged", True),
+            ("published", True),
+            ("cancelled", False),
         ],
     )
-    async def test_a_follower_waits_for_the_dep_s_done_status(
-        self, store, post_merge, status, released
+    async def test_a_follower_waits_until_the_dep_s_build_ends(
+        self, store, status, released
     ):
+        # Post-merge work does not matter: the build ends at built.
         a = await model.create(
-            store, project="p", title="a", post_merge=post_merge, now=NOW
+            store, project="p", title="a", post_merge="Check the deploy.", now=NOW
         )
         b = await model.create(store, project="p", title="b", follows=[a.id], now=NOW)
         await model.move(store, "p", a.id, status, now=NOW)

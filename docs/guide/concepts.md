@@ -126,8 +126,8 @@ idea in the system** — each one can vary without the other two:
 
 - **`parent` groups a chain that shares one branch.** Siblings under a parent run in order
   on that branch, and each links its own PRs.
-- **`follows` orders execution.** A task becomes actionable only once everything it follows
-  is done.
+- **`follows` orders execution.** A task becomes actionable only once the build of everything
+  it follows has ended: `built`, `merged` or `published`.
 - **Dots in an id express lineage.** `PROJ-12.3` is a child of `PROJ-12`;
   `maintenance.2026-07-02` is a scheduled run of the `maintenance` template.
 

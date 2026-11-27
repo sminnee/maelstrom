@@ -1539,7 +1539,7 @@ async def task_run(
         raise click.ClickException(f"Task not found: {id}")
     if new_session and not await model.can_start_new_session(t, table):
         raise click.ClickException(
-            f"Task {id} is {t.status}, or follows unfinished work: "
+            f"Task {id} is {t.status}, or follows a task whose build has not ended: "
             "a new session cannot start on it."
         )
     await _run_task(table, proj, t, new_session=new_session, harness=resolved)
@@ -1884,7 +1884,7 @@ def _change_follows(
 async def task_follow(
     ids: tuple[str, ...], task_id: str | None, project: str | None
 ) -> None:
-    """Make a task follow IDS, so it waits until each one is done.
+    """Make a task follow IDS, so it waits until the build of each one ends.
 
     The task is the current task, or the one --task names.
     """
@@ -2070,7 +2070,7 @@ async def task_rm(id: str, project: str | None) -> None:
 
 
 def _echo_follower(follower: TaskFollower) -> None:
-    """Name the task that follows the one just done, and where it stands."""
+    """Name the task that follows the one whose build just ended, and where it stands."""
     title = f" - {follower['title']}" if follower["title"] else ""
     click.echo()
     click.echo(_FOLLOWER_WORDS[follower["state"]])
