@@ -3324,6 +3324,18 @@ def test_the_task_list_ships_slim_rows_and_the_detail_holds_the_prose(harness):
     assert missing.body["error"]["code"] == "unknown_id"
 
 
+def test_the_waiting_route_serves_the_report_of_the_world(harness):
+    harness.add_task("NORT-7", status="built")
+
+    async def scenario():
+        async with harness.client() as api:
+            return await api.get_json("/api/waiting")
+
+    report = run(scenario())
+    assert report["attention"] == report["unanswered"] == []
+    assert [t["taskId"] for t in report["awaitingMerge"]] == ["northwind/NORT-7"]
+
+
 def test_the_task_list_answers_304_until_a_task_changes(harness):
     harness.add_task("NORT-7")
 

@@ -463,7 +463,8 @@ _Avoid_: Stale (a stale prompt is a different thing), stalled, hung
 An idle agent on a task that is not **Done** or `cancelled`, where the agent has a last message.
 The agent ended its turn on unfinished work, so the message is usually for the user. The node
 draws as a node with an **Attention item** does, in yellow in place of amber, and the attention
-chip counts it apart. Its expanded card takes a reply. The UI derives this state; no attention item exists for it. A free agent, and an agent
+chip counts it apart. Its expanded card takes a reply. The UI and the server derive this state
+with one rule; no attention item exists for it. A free agent, and an agent
 that has said nothing, stay idle. An idle agent whose worktree has a **Gate job** is working, not
 unanswered: it ended its turn to wait on the gate.
 _Avoid_: Comment, Waiting, Blocked

@@ -691,6 +691,45 @@ class Attention(TypedDict):
     clearedAt: str | None
 
 
+class WaitingAttention(Attention):
+    """An open **Attention item**, with the names a reader needs to act on it."""
+
+    #: The project of the item's task, else of its agent; ``""`` for neither.
+    project: str
+    #: ``""`` for an item of a free agent.
+    taskTitle: str
+    #: ``""`` for an item that names no document.
+    documentTitle: str
+
+
+class UnansweredAgent(TypedDict):
+    """An **Unanswered agent**, and the message it left."""
+
+    agentId: str
+    taskId: str
+    project: str
+    taskTitle: str
+    lastMessage: str
+    lastMessageAt: str
+
+
+class AwaitingMergeTask(TypedDict):
+    """A task that is **Awaiting merge**, and its Registered PRs."""
+
+    taskId: str
+    project: str
+    title: str
+    prs: list[LinkedPr]
+
+
+class WaitingReport(TypedDict):
+    """``GET /api/waiting``: everything that waits on the user, in every project."""
+
+    attention: list[WaitingAttention]
+    unanswered: list[UnansweredAgent]
+    awaitingMerge: list[AwaitingMergeTask]
+
+
 class DocumentGroup(TypedDict):
     """The review group a document is a member of — see ``docs/specs/tasks/CONTEXT.md``, "Review group".
 
