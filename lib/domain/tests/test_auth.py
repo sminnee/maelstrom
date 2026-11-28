@@ -54,6 +54,9 @@ class TestModel:
             (DELEGATE, "POST", "/api/operations/op1", False),
             (DELEGATE, "GET", "/api/agents", False),
             (DELEGATE, "POST", "/api/auth/verify", False),
+            (DELEGATE, "GET", "/api/secrets", False),
+            (DELEGATE, "PUT", "/api/secrets/API_KEY", False),
+            (DELEGATE, "POST", "/api/secret-store/unlock", False),
             (DELEGATE, "GET", "/api/tasksx", False),
         ],
     )

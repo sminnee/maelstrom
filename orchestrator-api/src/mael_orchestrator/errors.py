@@ -25,6 +25,8 @@ STATUS_FOR_CODE = {
     "auth_required": 401,
     "forbidden": 403,
     "passkey_pending": 403,
+    "secret_store_locked": 409,
+    "wrong_passphrase": 403,
 }
 
 
