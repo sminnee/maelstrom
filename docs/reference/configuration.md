@@ -438,7 +438,8 @@ host_name: cobalt
 
 Name the remote host under `hosts:` on the parent. The key must equal the remote host's
 `host_name:`. A mismatch keeps the host offline, and the parent logs it once. Restart the
-parent's server after a change.
+parent's server after a change. The Hosts row of the Welcome dialog shows each host: online or
+offline, and the cause of the last failure.
 
 Copy the remote host's **Host key** into the entry as `token`. The remote host refuses a call
 with no key. The key is in `<notebook root>/auth/host.key` on the remote host, which is
@@ -480,6 +481,9 @@ another machine gets it only when that machine is a remote host of the server:
    server runs as.
 4. Let the laptop's user SSH to that user on the server. SSH keys and host-key trust are yours to
    set up.
+
+The Hosts row of the Welcome dialog helps check steps 1 to 3. It says whether cmux answers on
+each host, whether each host has `dev_host:` set, and which host the browser is on.
 
 Then open the server's UI on the laptop, and click **cmux** on a worktree. A workspace such as
 `maelstrom-alpha@monolith` opens in the laptop's cmux, with an SSH shell in the worktree. A

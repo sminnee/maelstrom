@@ -208,6 +208,9 @@ describe('the projects view', () => {
   });
 });
 
+/** The text of each line of the Welcome dialog's Hosts row. */
+const lines = (row: HTMLElement) => [...row.querySelectorAll('span')].map((l) => l.textContent);
+
 describe('the Welcome dialog', () => {
   const welcome = () => screen.queryByRole('dialog', { name: 'Welcome to maelstrom' });
 
@@ -223,6 +226,11 @@ describe('the Welcome dialog', () => {
     expect(dialog.getByText('~/.maelstrom')).toBeInTheDocument();
     expect(dialog.getByTestId('welcome-version')).toHaveTextContent('v0.9.0 (3f2a9c1e7b4d)');
     expect(dialog.getByTestId('welcome-host')).toHaveTextContent('reachable');
+    // No `hosts:`: only this server's line. No worktree read yet: no cmux word.
+    expect(lines(dialog.getByTestId('welcome-hosts'))).toEqual([
+      'monolith (this server) · no SSH: set dev_host',
+      'This browser is on monolith',
+    ]);
     expect(dialog.getByTestId('welcome-machine')).toHaveTextContent('No samples yet');
 
     await user.click(dialog.getAllByRole('button', { name: 'Close' }).at(-1)!);
@@ -265,6 +273,28 @@ describe('the Welcome dialog', () => {
     fireEvent.pointerLeave(cpuPlot);
     expect(chart('CPU').getByText('47%')).toBeInTheDocument();
     expect(dialog.getByText('· last 15 min')).toBeInTheDocument();
+  });
+
+  it.each([
+    { client: { local: false, host: 'cobalt' }, said: 'This browser is on cobalt' },
+    {
+      client: { local: false, host: '' },
+      said: 'This browser is on no known host, so no cmux links show',
+    },
+  ])('shows each remote host, and $said', async ({ client, said }) => {
+    const user = userEvent.setup();
+    const { server } = await renderApp({ scenario: 'remote-host' });
+    server.world.client = client;
+
+    await user.click(screen.getByRole('button', { name: 'About maelstrom' }));
+    const dialog = within(await screen.findByRole('dialog', { name: 'Welcome to maelstrom' }));
+    expect(lines(await dialog.findByTestId('welcome-hosts'))).toEqual([
+      'monolith (this server) · cmux · SSH',
+      expect.stringMatching(/^cobalt · online since .+ · cmux · no SSH: set dev_host$/),
+      expect.stringMatching(/^zinc · offline since .+ — Cannot connect to host zinc.ts.net:2772$/),
+      'tin · connecting…',
+      said,
+    ]);
   });
 
   it('adds the first project, then opens its Project dialog on its paths', async () => {
