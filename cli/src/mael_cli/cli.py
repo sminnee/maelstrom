@@ -90,6 +90,7 @@ from .json_flag import wants_json
 from .merge_cli import merge as merge_cli
 from .orchestrator_client import OrchestratorClient, tell_pr_changed
 from .project_cli import project as project_cli
+from .secret_cli import secret as secret_cli
 from .self.self_cli import self_group
 from .session_cli import session as session_cli
 from .table_cli import draw_table
@@ -1384,6 +1385,7 @@ cli.add_command(linear_group)
 cli.add_command(sentry_group)
 cli.add_command(slack_group)
 cli.add_command(uptimerobot_group)
+cli.add_command(secret_cli)
 cli.add_command(session_cli)
 cli.add_command(task_cli)
 cli.add_command(wiki_cli)
