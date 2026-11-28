@@ -99,6 +99,8 @@ describe('the agent host', () => {
           usage: null,
           codexUsage: null,
           remoteHosts: [],
+          cmux: null,
+          ssh: false,
         };
       });
     });

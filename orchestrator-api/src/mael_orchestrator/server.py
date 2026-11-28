@@ -745,6 +745,7 @@ class Orchestrator:
         ids: IdSpace | None = None,
         own_url: str = "",
         own_name: str = "",
+        ssh: bool = False,
         audit: AuditLog | None = None,
         delegate_keys: AuthStore | None = None,
         session_logs: SessionLogArchive | None = None,
@@ -782,6 +783,9 @@ class Orchestrator:
         self.own_url = own_url
         #: The name a user reads for this server, on the ``host`` entity.
         self.own_name = own_name
+        #: Whether this server's worktrees have an **SSH target**, on the
+        #: ``host`` entity.
+        self.ssh = ssh
         #: Each **Remote host** in ``hosts:``, by name: the link, the merged
         #: slices, and the session a delegated launch and a forward use.
         self.remote_hosts: Mapping[str, RemoteHost] = remote_hosts or {}
@@ -1672,6 +1676,9 @@ class Orchestrator:
             )
             # Applied before the landing sync, so its reads do not delay the rows.
             self._apply(events)
+            # No host entity before the agent host's first answer.
+            if self.world["host"]:
+                self._set_host()
             if every_branch:
                 self._every_branch_read_at = asyncio.get_running_loop().time()
             if not self.worktrees.rate_limited:
@@ -2201,12 +2208,14 @@ class Orchestrator:
             if remote_hosts is None
             else remote_hosts
         )
+        next_cmux = self.worktrees.cmux
         if (
             current is not None
             and current["reachable"] == next_reachable
             and current.get("usage") == next_usage
             and current.get("codexUsage") == next_codex_usage
             and current.get("remoteHosts", []) == next_remote_hosts
+            and current.get("cmux") == next_cmux
         ):
             return
         entity: Host = {
@@ -2221,6 +2230,8 @@ class Orchestrator:
             "usage": next_usage,
             "codexUsage": next_codex_usage,
             "remoteHosts": next_remote_hosts,
+            "cmux": next_cmux,
+            "ssh": self.ssh,
         }
         self._apply(diff_kind("host", old, {HOST_ID: entity}))
 

@@ -100,6 +100,9 @@ server call a machine outside `hosts:`. `RemoteHost.addresses` keeps each resolv
 so a changed tailnet IP is seen without a restart. `GET /api/client` answers
 `{"local": bool, "host": str}`, with `host` the client host, `""` for none.
 
+`host.cmux` comes from the worktree read: the `TerminalUrls` port returns `None` when no cmux
+answers. The Welcome dialog's Hosts row shows it, with `host.ssh` and the client host.
+
 `POST /api/worktrees/{id}/terminal` is never forwarded to the worktree's owner, because the owner
 would see the server as the client. The route puts `clientHost` and `worktreeHost` in the
 `worktree.createTerminal` command:

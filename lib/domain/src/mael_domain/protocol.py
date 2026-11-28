@@ -864,6 +864,12 @@ class Host(TypedDict):
     codexUsage: HostUsage | None
     #: Each **Remote host** in ``hosts:``, and whether its link is up.
     remoteHosts: list["RemoteHostState"]
+    #: Whether a cmux app answers on this machine, as of the last worktree
+    #: read. ``None`` before the first read.
+    cmux: bool | None
+    #: Whether this server's worktrees have an **SSH target**: ``dev_host:``
+    #: is set.
+    ssh: bool
 
 
 class RemoteHostState(TypedDict):

@@ -197,6 +197,8 @@ export function emptyFakeWorld(): FakeWorld {
       usage: null,
       codexUsage: null,
       remoteHosts: [],
+      cmux: null,
+      ssh: false,
     },
   };
 }

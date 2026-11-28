@@ -694,6 +694,10 @@ export interface Host {
   codexUsage: HostUsage | null;
   /** Each **Remote host** the server names, and whether its link is up. */
   remoteHosts: RemoteHostState[];
+  /** Whether a cmux app answers on this machine, as of the last worktree read. `null` before it. */
+  cmux: boolean | null;
+  /** Whether this server's worktrees have an **SSH target**: `dev_host:` is set. */
+  ssh: boolean;
 }
 
 /** One **Remote host**, as the server's link to it last saw it. */
