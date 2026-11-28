@@ -374,6 +374,26 @@ mael env reset
 
 `mael env reset` always restarts running services.
 
+## Secrets
+
+A value in `.env` is plaintext, and each worktree has a copy of it. The **Secret store** holds
+one encrypted copy of each **Secret** for the host.
+
+```bash
+mael secret unlock                    # the first run sets the passphrase
+mael secret set STRIPE_KEY            # for this project; prompts for the value
+mael secret set SENTRY_DSN --global   # for every project
+mael secret list                      # names, scopes and dates: never a value
+```
+
+The store is locked each time the orchestrator server starts, for example after
+`mael self update`. Run `mael secret unlock` again. A lost passphrase loses the store: delete
+`~/.maelstrom/state/secrets/` and set each Secret again.
+
+A Service does not get these values yet. The `secrets:` list of a Service, and
+`mael secret import` for the values in `.env`, come later. See
+[ADR 0007](../adr/0007-dev-env-secrets-in-a-brokered-store.md) for the design and its rollout.
+
 ## Open an environment from another device
 
 By default, maelstrom reports each dev environment at `http://localhost:<port>`. A phone or a second

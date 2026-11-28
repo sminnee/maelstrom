@@ -726,6 +726,7 @@ name = "mael-domain"
 version = "0.2.0"
 source = { editable = "lib/domain" }
 dependencies = [
+    { name = "cryptography" },
     { name = "mael-agent" },
     { name = "mael-common" },
     { name = "markdown-to-mrkdwn" },
@@ -735,6 +736,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=43" },
     { name = "mael-agent", editable = "lib/agent" },
     { name = "mael-common", editable = "lib/common" },
     { name = "markdown-to-mrkdwn", specifier = ">=0.3" },

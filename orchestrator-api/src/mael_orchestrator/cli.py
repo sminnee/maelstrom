@@ -7,6 +7,7 @@ an :class:`~mael_orchestrator.server.Orchestrator` and serves it. See
 """
 
 import asyncio
+import ctypes
 import functools
 import getpass
 import ipaddress
@@ -547,6 +548,28 @@ def user_name() -> str:
     return f"maelstrom ({notebook_root().name})"
 
 
+#: ``prctl`` option 4 of ``linux/prctl.h``.
+_PR_SET_DUMPABLE = 4
+
+
+def deny_memory_reads() -> None:
+    """Mark this process not dumpable, so the unlocked store key stays in it.
+
+    A process of the same user then cannot read ``/proc/<pid>/mem`` or attach
+    a debugger, and a crash writes no core file. Linux only.
+    """
+    if sys.platform != "linux":
+        log.info("no guard on the server's memory: %s has none", sys.platform)
+        return
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(_PR_SET_DUMPABLE, 0, 0, 0, 0) != 0:
+        log.warning(
+            "the server's memory is open to this user's other processes: "
+            "prctl failed with errno %d",
+            ctypes.get_errno(),
+        )
+
+
 def run_server(
     binds: Sequence[Bind],
     port: int,
@@ -565,6 +588,8 @@ def run_server(
     a read in flight past the point the server has stopped.
     """
     setup_logging(log_level)
+    # Before the first unlock can put the store key in this process.
+    deny_memory_reads()
 
     async def serve() -> None:
         loop = asyncio.get_running_loop()

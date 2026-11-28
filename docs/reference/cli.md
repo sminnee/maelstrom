@@ -727,6 +727,32 @@ mael auth revoke 3q2-7wEXr…   # an id from the list
 
 ---
 
+## Secrets
+
+Manage the **Secrets** that dev environments use. Each command calls the orchestrator server,
+which alone opens the **Secret store**. With no server that answers, a command fails and names
+the server. No command prints a value. See
+[dev-environments.md](../guide/dev-environments.md#secrets).
+
+| Command | Description |
+|---|---|
+| `mael secret unlock` | Unlock the store until the orchestrator server stops. The first run creates the store and sets its passphrase. The passphrase comes from a prompt with no echo, or from stdin when it is piped. |
+| `mael secret set NAME` | Store the Secret `NAME` for the cwd's project. `-p PROJECT` names another project, and `--global` stores it for every project. The value comes from a prompt with no echo, or from stdin when it is piped, never from an argument. A second `set` replaces the value. Needs an unlocked store. |
+| `mael secret list` | Print each Secret's name, scope and set date. Works on a locked store. |
+| `mael secret rm NAME` | Remove the Secret `NAME`. Takes `-p PROJECT` and `--global` as `set` does. An unknown name is an error. Needs an unlocked store. |
+
+`NAME` is the environment variable that carries the Secret: letters, digits and `_`.
+
+```bash
+mael secret unlock                              # once per server start
+printf '%s' "$KEY" | mael secret set STRIPE_KEY # this project
+mael secret set OPENAI_API_KEY --global         # prompts for the value
+mael secret list
+mael secret rm STRIPE_KEY
+```
+
+---
+
 ## Agents
 
 Drive Claude agents over a stream-json pipe, and answer them from outside the terminal they run
@@ -1613,8 +1639,8 @@ The check runs these steps in order:
    `pyright-langserver` and `typescript-language-server`. For a missing tool, it prints the
    install command, and runs it after a yes. `agent-browser`, Codex and the TypeScript server
    install through npm, so a yes to any of them without Node installs Node first.
-3. **Secret files.** It tightens `~/.maelstrom` to 0700, and `config.yaml`, the port allocations
-   and each spawn record to 0600.
+3. **Secret files.** It tightens `~/.maelstrom` and the Secret store's folders to 0700, and
+   `config.yaml`, the port allocations, each spawn record and the Secret store's files to 0600.
 4. **Sign-ins.** `gh`, `claude` and, when installed, `codex`. For a signed-out tool, it offers the
    login. When gh is signed in but git does not sign in to GitHub through gh, it offers
    `gh auth setup-git`. Without it, an HTTPS clone from the UI's Add project can fail with

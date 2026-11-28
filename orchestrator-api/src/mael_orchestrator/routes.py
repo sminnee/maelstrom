@@ -30,6 +30,8 @@ from mael_domain.diff_groups import group_files, read_diff_groups
 from mael_domain.live_feedback_key import verify
 from mael_domain.operation_store import operation_number
 from mael_domain.protocol import HOST_ID, TaskDetail, document_row, task_row
+from mael_domain.secret_store import FileSecretStore, secrets_dir
+from mael_domain.secrets import SecretVault
 from mael_domain.session_logs import BadSessionPack
 from mael_domain.system_info import system_reply
 from mael_domain.worktree_changes import (
@@ -51,6 +53,7 @@ from .errors import BadBody, error_response, read_body
 from .hubs import Lagging
 from .lsp_client import LspError
 from .remote_hosts import HostUnreachable
+from .secret_routes import add_secret_routes
 from .server import Orchestrator, task_document_refusal
 
 log = logging.getLogger(__name__)
@@ -85,7 +88,11 @@ Handler = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
 def build_app(
-    orch: Orchestrator, auth: AuthParty, web_root: Path | None = None
+    orch: Orchestrator,
+    auth: AuthParty,
+    web_root: Path | None = None,
+    *,
+    vault: SecretVault | None = None,
 ) -> web.Application:
     """The app that serves ``orch``: its routes, and its start and stop.
 
@@ -93,7 +100,8 @@ def build_app(
     runs the app — the CLI, a test — gets a live world without wiring it.
 
     ``auth`` decides who may reach each ``/api`` route. ``web_root`` is the
-    built UI, served beside the API on one origin.
+    built UI, served beside the API on one origin. ``vault`` is the **Secret
+    store**: by default a new, locked vault over the notebook root's files.
     """
     # The audit first, so it records the refusals and forwards of the rest.
     # Auth before the forward, so this server admits each request it forwards.
@@ -127,6 +135,9 @@ def build_app(
     app.on_shutdown.append(on_shutdown)
     app.on_cleanup.append(on_cleanup)
     add_auth_routes(app)
+    add_secret_routes(
+        app, vault if vault is not None else SecretVault(FileSecretStore(secrets_dir()))
+    )
     app.router.add_get("/api/projects", _projects)
     app.router.add_get("/api/worktrees", _worktrees)
     app.router.add_get("/api/worktrees/{id}/changes", _worktree_changes)
