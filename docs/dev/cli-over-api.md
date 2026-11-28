@@ -43,6 +43,10 @@ same shape: a wire contract and a client surface, so the CLI never imports `mael
 There is no fallback to the database. For a write, a fallback brings back the second writer. For
 a read, it answers from a different copy than the next write goes to.
 
+`mael secret` has no local path. Only the server may hold the unlocked key of the
+**Secret store**, because an agent runs the CLI. See
+[ADR 0007](../adr/0007-dev-env-secrets-in-a-brokered-store.md).
+
 `tell_orchestrator` is the one best-effort call. `mael gh create-pr` uses it after the push, so it
 raises nothing.
 
@@ -78,7 +82,7 @@ command works as a local one. See [remote-hosts.md](remote-hosts.md).
 | **B. Thin after API work** | `task next/log/reconcile`, `comms link/landings`, `sync`, `env start/stop/restart/reset/status`, `gh create-pr`, `gh link-pr`, `wiki list/read/update` | Each needs a new route or field. `sync`, `create-pr` and `env start` also need a streamed long command. |
 | **C. Stays local** | `self *`, `project check`, `session info/list`, `task edit`, `comms edit` with no options, `task add --run --cli`, `task add --edit`, `agent attach/tail` | Bootstrap must work with the server down: `self setup` installs it, and `self restart orchestrator` restarts it. The rest use the TTY or `$EDITOR`, or exec into the caller's shell. |
 | **D. Not state: no reason to move** | `gh read-pr/check-log/download-artifact/show-code/has-pr/wait-for-pr`, `git status/squash-branch/uncommit-branch/merge`, `linear *` but `plan`, `sentry *`, `uptimerobot *`, `slack *` | They call git or a third-party API. The server holds none of that state, so a hop gains nothing. |
-| **E. Already a thin client** | `agent show/say/run/approve/…` | They speak the agent daemon's wire contract. |
+| **E. Already a thin client** | `agent show/say/run/approve/…`, `auth *`, `secret *` | They speak the agent daemon's wire contract, or call routes that have no local path. |
 
 ## Done
 

@@ -43,6 +43,7 @@ Each subsystem owns its sections. The file as a whole is in the Platform subdoma
 
 - **Projects and worktrees** — gives each piece of work an isolated checkout. Code: `D/worktree.py`, `D/worktree_model.py`, `D/worktree_ops.py`, `D/worktree_steps.py`, `D/worktree_close.py`, `D/worktree_trash.py`, `D/worktree_config.py`, `D/ports.py`, `D/mv_project.py`, `D/git_status.py`, `D/project_scaffold.py`, `D/rebase_repair.py`, `D/list_all.py`, `D/cmux/`, `C/project_cli.py`, `C/mv_project_cli.py`, `C/git_cli.py`, `C/project_check.py`, `C/worktree_launcher.py`, `U/worktrees/`, `U/projects/`, `S/reopen-branch/`, `S/resolve-rebase-conflicts/`, `S/cmux/`, `S/setup-project/`. Specs: none yet
 - **Dev environments** — runs the services of a worktree. Code: `D/env.py`, `D/env_store.py`, `D/services.py`, `D/dev_cert.py`, `C/env_cli.py`, `U/devenv/`. Specs: none yet
+- **Secrets** — keeps each dev-env secret in one encrypted store on the host. Code: `D/secrets.py`, `D/secret_store.py`, `O/secret_routes.py`, `C/secret_cli.py`. Specs: none yet
 - **Changes review** — lets the user read and answer a worktree's diff. Code: `D/worktree_changes.py`, `D/diff_groups.py`, `D/language_servers.py`, `O/language_servers.py`, `O/lsp_client.py`, `U/changes/`, `U/rendered/`. Specs: none yet
 - **Live feedback** — carries visual feedback between a dev-server page and the agents. Code: `vite-plugin-mael-jig/`, `D/feedback.py`, `D/live_feedback_key.py`, `O/live_feedback.py`. Specs: none yet
 

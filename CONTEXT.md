@@ -754,6 +754,20 @@ The environment of `_main`, on a reserved base — the one instance that is alwa
 address, whatever a NATO worktree happens to be running. A project opts in by declaring the
 reserved base; a project that declares none gives `_main` no ports and no environment.
 
+## Secrets
+
+**Secret**:
+A named value that a **Service** needs and that must stay private, such as an API key. Its name
+is the environment variable that carries it. A Secret has a project scope or the global scope,
+and a project's value wins over a global one.
+_Avoid_: Credential (alone), env secret
+
+**Secret store**:
+The one encrypted copy of each **Secret** on a host, under `<notebook root>/secrets/`. Only the
+orchestrator server opens it. It is locked at each server start, until `mael secret unlock` gives
+its passphrase.
+_Avoid_: Keyring, secrets file
+
 ## Quality checks
 
 **Gate**:

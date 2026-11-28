@@ -37,7 +37,9 @@ carries and nothing maps between a dataclass and the wire.
 | `mael_domain/desk_store.py` | storage | `DeskStore`: the desk, as a canonical table in the state database or in memory. Each backend subclasses it. The server runs the first; see [data-architecture.md](data-architecture.md) |
 | `server.py` | service | `Orchestrator`: the world, the pollers, one watch per agent, the transcript logs, the commands, and the hubs it tells |
 | `auth.py` | adapter | `AuthParty`, the auth middleware, and the passkey routes. See "Authentication" |
-| `errors.py` | adapter | `error_response`, the one error shape, and `read_body`. Both `routes.py` and `auth.py` use them |
+| `errors.py` | adapter | `error_response`, the one error shape, and `read_body`. `routes.py`, `auth.py` and `secret_routes.py` use them |
+| `secret_routes.py` | adapter | The **Secret store** routes. See "The Secret store" |
+| `mael_domain/secrets.py`, `mael_domain/secret_store.py` | pure, storage | `SecretVault`: the Secrets, the lock and the cipher. `SecretStore` and its two backends keep the sealed documents |
 | `mael_domain/auth/` | pure, storage | The **Passkey**, **API key** and **Sign-in** records, `AuthStore` and its two backends, and the key files |
 | `routes.py` | adapter | `build_app`: the aiohttp app that puts an `Orchestrator` on the network — every route, the error mapping — and `serving` / `serve_app` to run it |
 | `cli.py` | CLI | `mael-orchestrator serve`, the composition root `build_orchestrator`, and the logging the server runs under |
@@ -136,6 +138,47 @@ progress.
 process on the host: each dev service gets the cookie of every port, and can read the key
 files. Authorisation is checked when a stream opens, so a revoked passkey keeps its open
 streams until they reconnect.
+
+## The Secret store
+
+The server is the only process that opens the **Secret store**.
+[ADR 0007](../adr/0007-dev-env-secrets-in-a-brokered-store.md) gives the reasons. `build_app`
+makes one `SecretVault` over `<notebook root>/secrets/`. The vault holds the unlocked store key
+in memory, and writes it to no file. A new vault is locked, so each server start locks the store.
+
+| Route | Body | Returns |
+|---|---|---|
+| `GET /api/secret-store` | | `{exists, locked}` |
+| `POST /api/secret-store/unlock` | `{passphrase, create?}` | `{exists, locked}`. `create` makes the store and sets its passphrase. Without it, a server with no store refuses |
+| `GET /api/secrets` | | `{locked, secrets: [{name, project, setAt}]}`. `project` is `null` for the global scope. Works on a locked store |
+| `PUT /api/secrets/{name}` | `{value, project?}` | `{name, project, setAt}` |
+| `DELETE /api/secrets/{name}?project=` | | `{}` |
+
+**No route returns a value.** Do not add one. A **Delegate key** opens none of these routes:
+`scope_permits` lists what it opens, and they are not in the list.
+
+| Refusal | Status | When |
+|---|---|---|
+| `secret_store_locked` | 409 | A set or a remove on a locked store. The message names `mael secret unlock` |
+| `wrong_passphrase` | 403 | The passphrase does not open the store |
+| `unknown_id` | 404 | A remove of a Secret that the scope does not hold |
+| `invalid` | 400 | A bad name, an empty value, an unlock with no store, a create over a store, or a header that this build cannot read |
+
+**The files.** `store.json` holds the scrypt salt and cost, and the store key wrapped by the key
+that scrypt makes from the passphrase. `global.json` and `projects/<project>.json` hold the
+sealed values of one scope each, with each name and set date in plaintext. AES-256-GCM seals a
+value with its scope and name as associated data. A sealed value that someone moves to another
+name does not open. Each file is mode 0600, in a directory of mode 0700. A write goes to a
+temporary file, synced to disk, that then replaces the old one.
+
+**The calls run on a worker thread.** scrypt is slow by design, and must not stop the event
+loop. One unlock runs at a time, so a caller that guesses cannot fill the worker pool.
+
+**The server's memory.** `run_server` calls `deny_memory_reads` before the first unlock. On macOS
+it does nothing, and the server logs that.
+
+**The audit log holds no value.** An **Audit record** has the path and the route parameters,
+never the body. A Secret's name is in the path, and names are not secret.
 
 ## The normaliser and its goldens
 
@@ -2460,6 +2503,8 @@ The world is validated before the host is asked.
 | `forbidden` | A state-changing `/api` request whose `Origin` is not this server's, a key whose scope does not permit the route, or a cookie from an origin that is not a **UI origin**. 403 |
 | `auth_required` | No credential, an unknown key, or no live **Sign-in**. 401. See "Authentication" |
 | `passkey_pending` | The sign-in names a **Pending passkey**. 403 |
+| `secret_store_locked` | A write to the locked **Secret store**. 409. See "The Secret store" |
+| `wrong_passphrase` | An unlock that does not open the **Secret store**. 403 |
 | `invalid` | Anything else: an empty reason, a task that is not actionable, an out-of-scope command, or a driving command on a subagent (`X.1 is a subagent of X; drive X`) |
 
 `wrong_wait_kind` reads the kind off the request the reply names, never off the agent's state —
