@@ -1352,7 +1352,7 @@ function delegatedAgent(): Seed {
   return seed;
 }
 
-/** NORT-7.1 can launch; the remote host `cobalt` is online and `zinc` is not. */
+/** NORT-7.1 can launch; the remote host `cobalt` is online, `zinc` is not, and `tin` is not tried yet. */
 function remoteHost(): Seed {
   const seed = seedWorld();
   const { world } = seed;
@@ -1378,8 +1378,17 @@ function remoteHost(): Seed {
   world.host = {
     ...world.host!,
     remoteHosts: [
-      { name: 'cobalt', online: true, since: T(9) },
-      { name: 'zinc', online: false, since: T(9) },
+      { name: 'cobalt', online: true, since: T(9), reason: '', cmux: true, ssh: false },
+      {
+        name: 'zinc',
+        online: false,
+        since: T(9),
+        reason: 'Cannot connect to host zinc.ts.net:2772',
+        cmux: true,
+        ssh: true,
+      },
+      // Not tried yet.
+      { name: 'tin', online: false, since: '', reason: '', cmux: null, ssh: null },
     ],
   };
   return seed;

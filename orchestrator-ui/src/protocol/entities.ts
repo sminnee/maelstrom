@@ -694,6 +694,10 @@ export interface Host {
   codexUsage: HostUsage | null;
   /** Each **Remote host** the server names, and whether its link is up. */
   remoteHosts: RemoteHostState[];
+  /** Whether a cmux app answers on this machine, as of the last worktree read. `null` before it. */
+  cmux: boolean | null;
+  /** Whether this server's worktrees have an **SSH target**: `dev_host:` is set. */
+  ssh: boolean;
 }
 
 /** One **Remote host**, as the server's link to it last saw it. */
@@ -702,6 +706,12 @@ export interface RemoteHostState {
   online: boolean;
   /** When `online` last changed; `''` before the first change. */
   since: string;
+  /** Why the last try failed, while offline. `''` while online, and before the first try. */
+  reason: string;
+  /** The host's own `Host.cmux`. `null` until the first read; an offline host keeps the last value. */
+  cmux: boolean | null;
+  /** The host's own `Host.ssh`. `null` until the first read; an offline host keeps the last value. */
+  ssh: boolean | null;
 }
 
 /** One gate inside a gate job, as tangier reports it. */

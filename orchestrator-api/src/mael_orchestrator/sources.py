@@ -196,12 +196,15 @@ AddProject = Callable[[str], None]
 
 #: The terminal's ``cmux://`` link, by ``(project, nato)``, for the open
 #: worktrees it is given: ``pairs -> {(project, nato): url}``. A worktree with
-#: no terminal is absent. Blocking: cmux is asked over a subprocess.
-TerminalUrls = Callable[[list[tuple[str, str]]], dict[tuple[str, str], str]]
+#: no terminal is absent. ``None`` when no cmux app answers. Blocking: cmux is
+#: asked over a subprocess.
+TerminalUrls = Callable[[list[tuple[str, str]]], dict[tuple[str, str], str] | None]
 
 
-def _no_terminal_urls(_pairs: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
-    return {}
+def _no_terminal_urls(
+    _pairs: list[tuple[str, str]],
+) -> dict[tuple[str, str], str] | None:
+    return None
 
 
 class CloseBlocked(Exception):
@@ -542,6 +545,9 @@ class WorktreeSource(Protocol):
 
     #: Clones a new project, or ``None`` on a source that cannot.
     add_project: AddProject | None
+
+    #: Whether a cmux app answered on the last read. ``None`` before it.
+    cmux: bool | None
 
     @property
     def rate_limited(self) -> bool:
@@ -1551,6 +1557,8 @@ class InMemoryWorktreeSource:
         self.env = env
         self.ensure_terminal = ensure_terminal
         self.ssh_terminal = ssh_terminal
+        #: Whether a cmux app answers, as a test sets it.
+        self.cmux: bool | None = None
         #: How many times the source has been read, so a test can check that a
         #: poll did *not* run. The real source's reads cost GitHub quota, and
         #: an unwanted one is invisible in the world it produces.
@@ -1642,6 +1650,7 @@ class ListAllWorktreeSource:
         self._ssh_login = ssh_login
         self.add_project = add_project
         self.terminal_urls = terminal_urls
+        self.cmux: bool | None = None
         self.prs = prs or PrStateCache()
         self.close = close
         self.force_close = force_close
@@ -1781,7 +1790,9 @@ class ListAllWorktreeSource:
             for row in p["worktrees"]
             if not row.get("is_closed")
         ]
-        terminal_urls = await asyncio.to_thread(self.terminal_urls, open_rows)
+        answered = await asyncio.to_thread(self.terminal_urls, open_rows)
+        self.cmux = answered is not None
+        terminal_urls = answered or {}
         worktrees = [
             worktree_entity(
                 p["name"],

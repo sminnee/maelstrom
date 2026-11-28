@@ -332,6 +332,20 @@ itself, such as a name the world holds, shows the same way.
 on every layout: the **Welcome dialog**, Add project and the Project dialog. They open each other,
 so one place draws all three.
 
+The Welcome dialog's Hosts row, `welcome/Hosts.tsx`, reads `GET /api/host` and `GET /api/client`.
+It has one line for this server and one for each **Remote host**:
+
+```
+monolith (this server) · cmux · SSH
+cobalt · online since 10:42 · cmux · no SSH: set dev_host
+zinc · offline since 10:40 — Cannot connect to host zinc.ts.net:2772
+This browser is on monolith
+```
+
+An offline host with no reason yet reads `connecting…`. A fact not yet read shows no word. The
+last line says `This browser is on no known host, so no cmux links show` when the browser is on
+no host the server knows.
+
 ### The Foreman pane
 
 `foreman/ForemanPane.tsx` is the **Foreman pane**, at `/foreman`. Its top bar item reads Chat. It is a main view, anchored to

@@ -19,6 +19,7 @@ import { useAddProjectDialog, useWelcome } from '../nav/useOverlays';
 import { actionIcon } from '../ui/actionIcons';
 import { AppButton } from '../ui/AppButton';
 import { Dialog, DialogFooter, DialogHeader } from '../ui/Dialog';
+import { Hosts } from './Hosts';
 import { MachineMetrics } from './MachineMetrics';
 import { UpdateRow } from './UpdateRow';
 import styles from './WelcomeDialog.module.css';
@@ -92,6 +93,10 @@ export function WelcomeDialog() {
             <dt>Agent host</dt>
             <dd data-testid="welcome-host">
               {reachable === undefined ? '…' : reachable ? 'reachable' : 'not reachable'}
+            </dd>
+            <dt>Hosts</dt>
+            <dd data-testid="welcome-hosts">
+              <Hosts />
             </dd>
             {/* The narrow bar has room for the agent count only. */}
             {narrow && (

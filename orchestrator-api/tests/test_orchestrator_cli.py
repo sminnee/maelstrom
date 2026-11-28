@@ -305,12 +305,20 @@ def test_a_failed_env_refresh_is_a_warning_line_not_a_fault(tmp_path, monkeypatc
 
 def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource:
     """The worktree source ``build_orchestrator`` wires, over ``table``."""
+    worktrees = _orchestrator(tmp_path, monkeypatch, table).worktrees
+    assert isinstance(worktrees, ListAllWorktreeSource)
+    assert worktrees.ensure_terminal is not None
+    return worktrees
+
+
+def _orchestrator(tmp_path, monkeypatch, table=None, **config):
+    """What ``build_orchestrator`` wires, over ``table`` and a config of ``config``."""
     monkeypatch.setenv("MAEL_AGENT_ROOT", str(tmp_path / "root"))
 
     with (
         patch(
             "mael_orchestrator.cli.load_global_config",
-            return_value=GlobalConfig(projects_dir=tmp_path),
+            return_value=GlobalConfig(projects_dir=tmp_path, **config),
         ),
         patch(
             "mael_orchestrator.cli.SqliteTaskTable",
@@ -318,10 +326,14 @@ def _worktree_source(tmp_path, monkeypatch, table=None) -> ListAllWorktreeSource
         ),
         patch("mael_orchestrator.cli.open_state_db"),
     ):
-        worktrees = build_orchestrator().worktrees
-    assert isinstance(worktrees, ListAllWorktreeSource)
-    assert worktrees.ensure_terminal is not None
-    return worktrees
+        return build_orchestrator()
+
+
+@pytest.mark.parametrize(
+    ("dev_host", "ssh"), [("monolith.ts.net", True), (None, False)]
+)
+def test_the_host_has_ssh_when_dev_host_is_set(tmp_path, monkeypatch, dev_host, ssh):
+    assert _orchestrator(tmp_path, monkeypatch, dev_host=dev_host).ssh is ssh
 
 
 def test_the_terminal_ports_ask_the_running_cmux(tmp_path, monkeypatch, fake_cmux):
@@ -340,7 +352,7 @@ def test_the_terminal_ports_outside_cmux(tmp_path, monkeypatch):
     # No terminal, and the user reads why.
     with pytest.raises(CloseBlocked, match="cmux could not make the terminal"):
         worktrees.ensure_terminal("northwind", "alpha", "/p")
-    assert worktrees.terminal_urls([("northwind", "alpha")]) == {}
+    assert worktrees.terminal_urls([("northwind", "alpha")]) is None
 
 
 def _force_close(

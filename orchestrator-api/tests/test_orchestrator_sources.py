@@ -863,6 +863,22 @@ async def test_a_worktree_row_carries_its_shell_url(monkeypatch):
     assert asked == [[(PROJECT, "alpha"), (PROJECT, "bravo")]]
 
 
+@pytest.mark.parametrize(("answer", "cmux"), [(None, False), ({}, True)])
+async def test_a_read_says_whether_cmux_answered(monkeypatch, answer, cmux):
+    """No cmux is ``None`` from the port. A cmux with no links answered."""
+
+    async def list_all(*_args, **_kwargs):
+        rows = [{"name": "alpha", "path": "/p/alpha"}]
+        return {"projects": [{"name": PROJECT, "worktrees": rows}]}
+
+    monkeypatch.setattr(sources, "build_list_all_data", list_all)
+    source = sources.ListAllWorktreeSource(Path("/p"), terminal_urls=lambda _: answer)
+    before = source.cmux
+    _, worktrees = await source.read()
+
+    assert (before, source.cmux, worktrees[0]["shellUrl"]) == (None, cmux, "")
+
+
 @pytest.mark.parametrize(
     ("login", "expected"),
     [

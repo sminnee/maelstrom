@@ -357,9 +357,11 @@ def build_orchestrator(
             raise CloseBlocked("cmux could not make the terminal")
         return url
 
-    def terminal_urls(worktrees: list[tuple[str, str]]) -> dict[tuple[str, str], str]:
+    def terminal_urls(
+        worktrees: list[tuple[str, str]],
+    ) -> dict[tuple[str, str], str] | None:
         cmux = MaelCmux.current()
-        return cmux.terminal_urls(worktrees) if cmux else {}
+        return cmux.terminal_urls(worktrees) if cmux else None
 
     agent_store = SqliteAgentStore(state_db)
 
@@ -448,6 +450,8 @@ def build_orchestrator(
         ids=ids,
         own_url=config.orchestrator_url or "",
         own_name=config.server_name(),
+        # Read at start, as the worktree source's ssh_login is.
+        ssh=bool(config.dev_host),
         audit=AuditLog(notebook_root() / "audit.jsonl"),
         session_logs=SessionLogArchive(session_log_root(), get_transcript_root()),
     )

@@ -237,6 +237,26 @@ An offline host keeps its slices. Its agents and worktrees keep their last state
 `offline` mark on the host. The parent exits none of them. A host that sleeps must not lose its
 agents. When the link comes back, the `reset` reads every kind again.
 
+`RemoteHost.state()` is the host's `remoteHosts` entry. It adds three facts to `online` and
+`since`:
+
+| Field | What it holds |
+|---|---|
+| `reason` | The cause of the last failed try, while offline: the client error's words, or `names itself 'zinc': set its host_name to cobalt`. `""` while online. |
+| `cmux` | The host's own `host.cmux`: whether a cmux app answers there. |
+| `ssh` | The host's own `host.ssh`: whether its worktrees have an **SSH target**. |
+
+The parent reads `cmux` and `ssh` from the host's `GET /api/host`, on each `reset` and each
+`host` notice. Both are `null` until the first read, and an offline host keeps the last values.
+`on_state` runs when `online`, `reason`, `cmux` or `ssh` changes. The Welcome dialog shows them.
+A reset waits up to 5 s for the `/api/host` read before the host goes online, so the state
+publishes once.
+
+A misnamed host keeps its own reason. The stream end that follows does not replace it.
+
+There is no manual reconnect. The backoff caps at 30 s, so a button saves 30 s at most. It
+cannot fix a wrong config, a refused key or a network fault, and `reason` names those.
+
 ### Dispatch
 
 One aiohttp middleware in `routes.py`, `_host_owned`, sends each request for a host-owned id to

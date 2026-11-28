@@ -36,6 +36,11 @@
   flex-direction: column;
   gap: var(--u);
 }
+.hosts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--u-half);
+}
 .actions {
   display: flex;
   flex-wrap: wrap;

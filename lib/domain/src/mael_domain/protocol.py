@@ -864,6 +864,12 @@ class Host(TypedDict):
     codexUsage: HostUsage | None
     #: Each **Remote host** in ``hosts:``, and whether its link is up.
     remoteHosts: list["RemoteHostState"]
+    #: Whether a cmux app answers on this machine, as of the last worktree
+    #: read. ``None`` before the first read.
+    cmux: bool | None
+    #: Whether this server's worktrees have an **SSH target**: ``dev_host:``
+    #: is set.
+    ssh: bool
 
 
 class RemoteHostState(TypedDict):
@@ -873,6 +879,15 @@ class RemoteHostState(TypedDict):
     online: bool
     #: When ``online`` last changed; ``""`` before the first change.
     since: str
+    #: Why the last try failed, while offline. ``""`` while online, and
+    #: before the first try.
+    reason: str
+    #: The host's own ``Host.cmux``. ``None`` until the first read; an
+    #: offline host keeps the last value.
+    cmux: bool | None
+    #: The host's own ``Host.ssh``. ``None`` until the first read; an
+    #: offline host keeps the last value.
+    ssh: bool | None
 
 
 class GateState(TypedDict):

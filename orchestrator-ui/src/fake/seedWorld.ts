@@ -744,6 +744,8 @@ body rather than the query builder.
       usage: null,
       codexUsage: null,
       remoteHosts: [],
+      cmux: true,
+      ssh: true,
     },
     // Every worktree reads as clean; a test that needs changes seeds them.
     changes: {},

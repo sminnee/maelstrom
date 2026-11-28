@@ -2614,6 +2614,40 @@ def test_the_host_names_this_server_and_its_id_prefix(store):
     assert (host["name"], host["idPrefix"]) == ("cobalt", "cobalt")
 
 
+@pytest.mark.parametrize(("cmux", "ssh"), [(True, False), (False, True)])
+def test_the_host_says_whether_cmux_answers_and_its_worktrees_have_an_ssh_target(
+    store, cmux, ssh
+):
+    """``cmux`` is the last worktree read's."""
+    harness = Harness(store, ssh=ssh)
+    harness.daemon.rows["ag1"] = agent_row()
+
+    async def scenario():
+        async with harness.client() as api:
+            async with api.events() as stream:
+                await stream.next("reset")
+                await harness.orch.refresh_agents()
+                harness.worktrees.cmux = cmux
+                await harness.orch.refresh_worktrees(force=True)
+                return (await api.get_json("/api/host"))["host"]
+
+    host = run(scenario())
+    assert (host["cmux"], host["ssh"]) == (cmux, ssh)
+
+
+def test_a_worktree_read_before_the_agent_hosts_first_answer_publishes_no_host(
+    harness,
+):
+    """A host entity made then would read ``reachable: false``."""
+    harness.worktrees.cmux = True
+
+    async def scenario():
+        await harness.orch.refresh_worktrees(force=True)
+        return harness.orch.world["host"]
+
+    assert run(scenario()) == {}
+
+
 def test_one_failed_poll_raises_no_host_notice(harness):
     harness.daemon.rows["ag1"] = agent_row()
 
