@@ -512,11 +512,24 @@ def test_it_tightens_the_secret_files(home):
     record.parent.mkdir(parents=True)
     record.write_text("{}")
     os.chmod(record, 0o644)
+    sealed = mael / "state" / "secrets" / "projects" / "northwind.json"
+    sealed.parent.mkdir(parents=True)
+    sealed.write_text("{}")
+    for folder in (sealed.parent, sealed.parent.parent):
+        os.chmod(folder, 0o755)
+    os.chmod(sealed, 0o644)
     host = FakeHost(home, interactive=False)
 
     host.check()
 
-    for path, mode in ((mael, 0o700), (config, 0o600), (record, 0o600)):
+    for path, mode in (
+        (mael, 0o700),
+        (config, 0o600),
+        (record, 0o600),
+        (sealed.parent.parent, 0o700),
+        (sealed.parent, 0o700),
+        (sealed, 0o600),
+    ):
         assert stat.S_IMODE(path.stat().st_mode) == mode
     assert "agents/a1.json" in host.text
 

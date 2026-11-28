@@ -18,6 +18,7 @@ from mael_domain.context import read_config_key, remove_config_key, set_config_k
 from mael_domain.dev_cert import DevCertError, ensure_dev_cert
 from mael_domain.language_servers import LANGUAGE_SERVERS
 from mael_domain.ports import ALLOCATIONS_FILENAME
+from mael_domain.secret_store import secrets_dir
 from mael_domain.shared_dir import get_shared_dir
 from mael_domain.worktree import HostCheckOutcome, find_all_projects, run_check_host_cmd
 from mael_domain.worktree_model import MAIN_WORKTREE_FOLDER
@@ -187,7 +188,8 @@ class SecretFiles(HostCheckItem):
     """The files under ``~/.maelstrom`` that hold secrets are private.
 
     The config holds API keys, and each spawn record holds the env its agent was
-    started with. The fix only narrows a mode, so it runs without a question.
+    started with. The Secret store's files are sealed, and private all the same.
+    The fix only narrows a mode, so it runs without a question.
     """
 
     section = "Secret files"
@@ -203,6 +205,11 @@ class SecretFiles(HostCheckItem):
         for agents in (mael / "agents", DaemonPaths(host.prod.daemon_root).spec_dir):
             targets.append((agents, 0o700))
             targets += [(r, 0o600) for r in sorted(agents.glob("*.json"))]
+        secrets = secrets_dir(host.prod.state)
+        targets.append((secrets, 0o700))
+        targets += [
+            (p, 0o700 if p.is_dir() else 0o600) for p in sorted(secrets.rglob("*"))
+        ]
         return [(p, m) for p, m in targets if p.exists()]
 
     def loose(self, host: "HostCheck") -> list[tuple[Path, int]]:
