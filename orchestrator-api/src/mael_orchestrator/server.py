@@ -1038,11 +1038,11 @@ class Orchestrator:
         for host in self.remote_hosts.values():
             self._pollers.append(
                 asyncio.create_task(
-                    host.run(self._remote_flipped, self._remote_changed)
+                    host.run(self._remote_state_changed, self._remote_changed)
                 )
             )
         if self.remote_hosts:
-            self._remote_flipped()
+            self._remote_state_changed()
         if self._read_machine is not None:
             self._pollers.append(asyncio.create_task(self._sample_metrics()))
         if self.session_logs is not None:
@@ -2050,8 +2050,8 @@ class Orchestrator:
         if usage is not None or codex_usage is not None:
             self._set_host(usage=usage, codex_usage=codex_usage)
 
-    def _remote_flipped(self) -> None:
-        """Publish the remote hosts' online state after a link went up or down.
+    def _remote_state_changed(self) -> None:
+        """Publish the remote hosts' state after one of them changed.
 
         A remote host's agents are never exited for it: see "Offline is not
         dead" in ``docs/dev/remote-hosts.md``.

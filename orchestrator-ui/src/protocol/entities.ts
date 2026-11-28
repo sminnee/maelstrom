@@ -706,6 +706,12 @@ export interface RemoteHostState {
   online: boolean;
   /** When `online` last changed; `''` before the first change. */
   since: string;
+  /** Why the last try failed, while offline. `''` while online, and before the first try. */
+  reason: string;
+  /** The host's own `Host.cmux`. `null` until the first read; an offline host keeps the last value. */
+  cmux: boolean | null;
+  /** The host's own `Host.ssh`. `null` until the first read; an offline host keeps the last value. */
+  ssh: boolean | null;
 }
 
 /** One gate inside a gate job, as tangier reports it. */

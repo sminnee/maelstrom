@@ -31,6 +31,9 @@ class StubHost:
         self.changes: asyncio.Queue[str] = asyncio.Queue()
         #: What the operations list answers with.
         self.operations: list[dict] = []
+        #: What ``GET /api/host`` answers with, and its status.
+        self.host: object = {"host": {"cmux": True, "ssh": False}}
+        self.host_status = 200
 
     async def events(self, request: web.Request) -> web.StreamResponse:
         if not self.up:
@@ -58,6 +61,9 @@ class StubHost:
     async def empty(self, request: web.Request) -> web.Response:
         _route, key = MERGED_ROUTES[request.path]
         return web.json_response({key: self.operations if key == "operations" else []})
+
+    async def own_host(self, _request: web.Request) -> web.Response:
+        return web.json_response(self.host, status=self.host_status)
 
     async def forwarded(self, request: web.Request) -> web.Response:
         """Answer with the ``X-Forwarded-For`` the request arrived with.
@@ -87,6 +93,7 @@ async def served(stub: StubHost):
     app = web.Application()
     app.router.add_get("/api/events", stub.events)
     app.router.add_post("/api/forwarded", stub.forwarded)
+    app.router.add_get("/api/host", stub.own_host)
     for path in MERGED_ROUTES:
         app.router.add_get(path, stub.empty)
     runner = web.AppRunner(app, shutdown_timeout=0.1)
@@ -112,17 +119,29 @@ async def noop_change(_host, _kinds) -> None:
     return None
 
 
+#: A reported state: ``(online, reason, cmux, ssh)``.
+State = tuple[bool, str, bool | None, bool | None]
+
+#: The state of a host that answered with the stub's own facts.
+ONLINE: State = (True, "", True, False)
+
+
+def reported(host: RemoteHost) -> State:
+    """``host``'s state, with the stub's port cut from a refusal's words."""
+    return (host.online, host.reason.split(", url=")[0], host.cmux, host.ssh)
+
+
 @asynccontextmanager
 async def linked(stub: StubHost, on_change=noop_change, token: str = ""):
-    """Run a link named ``cobalt`` to ``stub``; yield it and its flips."""
-    flips: list[bool] = []
+    """Run a link named ``cobalt`` to ``stub``; yield it and each state it reported."""
+    states: list[State] = []
     async with served(stub) as url:
         host = RemoteHost("cobalt", url, token=token, backoff=0.02)
         task = asyncio.create_task(
-            host.run(lambda: flips.append(host.online), on_change)
+            host.run(lambda: states.append(reported(host)), on_change)
         )
         try:
-            yield host, flips
+            yield host, states
         finally:
             task.cancel()
             with suppress(asyncio.CancelledError):
@@ -143,8 +162,8 @@ async def until(predicate, timeout: float = 5.0) -> None:
 def test_a_forward_appends_the_callers_ip_to_x_forwarded_for(sent, arrived):
     async def scenario():
         stub = StubHost()
-        async with linked(stub) as (host, flips):
-            await until(lambda: flips == [True])
+        async with linked(stub) as (host, states):
+            await until(lambda: states == [ONLINE])
             front = web.Application()
             front.router.add_post("/api/forwarded", host.forward)
             async with serving(front, [("127.0.0.1", None)], 0) as port:
@@ -161,8 +180,8 @@ def test_a_forward_carries_the_hosts_key_in_place_of_the_browsers_credentials():
 
     async def scenario():
         stub = StubHost()
-        async with linked(stub, token="mael_cobalt") as (host, flips):
-            await until(lambda: flips == [True])
+        async with linked(stub, token="mael_cobalt") as (host, states):
+            await until(lambda: states == [ONLINE])
             front = web.Application()
             front.router.add_post("/api/forwarded", host.forward)
             async with serving(front, [("127.0.0.1", None)], 0) as port:
@@ -183,19 +202,28 @@ def test_a_forward_carries_the_hosts_key_in_place_of_the_browsers_credentials():
 
 
 def test_a_host_goes_offline_on_a_drop_and_online_again_when_it_answers():
+    """While down, the reason is the last failed try; up again, it is cleared.
+
+    A refused retry with the same words is not reported again.
+    """
+
     async def scenario():
         stub = StubHost()
-        async with linked(stub) as (_host, flips):
-            await until(lambda: flips == [True])
+        async with linked(stub) as (host, states):
+            await until(lambda: states == [ONLINE])
             stub.go_down()
-            await until(lambda: flips == [True, False])
-            # Several refused retries pass; none flips the host.
+            await until(lambda: "Service Unavailable" in host.reason)
             await asyncio.sleep(0.1)
             stub.come_up()
-            await until(lambda: flips == [True, False, True])
-        return flips
+            await until(lambda: host.online)
+            return states
 
-    assert asyncio.run(scenario()) == [True, False, True]
+    assert asyncio.run(scenario()) == [
+        ONLINE,
+        (False, "the event stream ended", True, False),
+        (False, "503, message='Service Unavailable'", True, False),
+        ONLINE,
+    ]
 
 
 @pytest.mark.parametrize(
@@ -217,8 +245,8 @@ def test_a_wait_for_a_hosts_operation_that_cannot_end_raises(
     async def scenario():
         stub = StubHost()
         stub.operations = operations
-        async with linked(stub) as (host, flips):
-            await until(lambda: flips == [True])
+        async with linked(stub) as (host, states):
+            await until(lambda: states == [ONLINE])
             with pytest.raises(HostUnreachable) as raised:
                 await host.await_operation("cobalt:op1")
             return str(raised.value)
@@ -228,22 +256,68 @@ def test_a_wait_for_a_hosts_operation_that_cannot_end_raises(
 
 def test_a_stream_that_never_resets_leaves_the_host_offline():
     async def scenario():
-        async with linked(StubHost(reset=False)) as (host, flips):
+        async with linked(StubHost(reset=False)) as (host, states):
             await asyncio.sleep(0.2)
-            return host.online, flips
+            return host.online, states
 
     assert asyncio.run(scenario()) == (False, [])
 
 
 def test_a_host_whose_prefix_is_not_its_name_stays_offline():
-    """Its ids would not route back to it: ``hosts:`` names it wrongly."""
+    """Its ids would not route back to it: ``hosts:`` names it wrongly.
+
+    The reason says so, not that the stream ended.
+    """
 
     async def scenario():
-        async with linked(StubHost(prefix="zinc")) as (host, flips):
+        async with linked(StubHost(prefix="zinc")) as (host, states):
             await asyncio.sleep(0.2)
-            return host.online, flips
+            return states
 
-    assert asyncio.run(scenario()) == (False, [])
+    assert asyncio.run(scenario()) == [
+        (False, "names itself 'zinc': set its host_name to cobalt", None, None)
+    ]
+
+
+def test_a_hosts_cmux_and_ssh_are_read_on_a_reset_and_on_a_host_notice():
+    """An offline host keeps the last values. Each new value is reported."""
+
+    async def scenario():
+        stub = StubHost()
+        async with linked(stub) as (host, states):
+            await until(lambda: states == [ONLINE])
+            stub.host = {"host": {"cmux": False, "ssh": True}}
+            stub.send("host")
+            await until(lambda: len(states) == 2)
+            stub.go_down()
+            await until(lambda: not host.online)
+            return states[1:]
+
+    assert asyncio.run(scenario()) == [
+        (True, "", False, True),
+        (False, "the event stream ended", False, True),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (500, {"error": {"message": "boom"}}),
+        # A host on an older version: no facts on its host entity.
+        (200, {"host": {}}),
+        (200, []),
+    ],
+    ids=["refused", "old-host", "not-an-object"],
+)
+def test_a_host_whose_facts_cannot_be_read_still_comes_online(status, body):
+    async def scenario():
+        stub = StubHost()
+        stub.host, stub.host_status = body, status
+        async with linked(stub) as (_host, states):
+            await until(lambda: len(states) == 1)
+            return states
+
+    assert asyncio.run(scenario()) == [(True, "", None, None)]
 
 
 def test_a_reset_reports_every_kind_and_a_change_reports_its_own():
@@ -281,13 +355,13 @@ def test_an_on_change_error_is_logged_and_the_link_keeps_running(caplog):
             if len(reports) == 1:
                 raise ValueError("a bad row")
 
-        async with linked(stub, on_change) as (host, flips):
+        async with linked(stub, on_change) as (host, states):
             await until(lambda: len(reports) == 1)
             stub.send("agent")
             await until(lambda: len(reports) == 2)
-            return reports[1], host.online, flips
+            return reports[1], states
 
-    assert asyncio.run(scenario()) == ({"agent"}, True, [True])
+    assert asyncio.run(scenario()) == ({"agent"}, [ONLINE])
     assert "a bad row" in caplog.text
 
 

@@ -879,6 +879,15 @@ class RemoteHostState(TypedDict):
     online: bool
     #: When ``online`` last changed; ``""`` before the first change.
     since: str
+    #: Why the last try failed, while offline. ``""`` while online, and
+    #: before the first try.
+    reason: str
+    #: The host's own ``Host.cmux``. ``None`` until the first read; an
+    #: offline host keeps the last value.
+    cmux: bool | None
+    #: The host's own ``Host.ssh``. ``None`` until the first read; an
+    #: offline host keeps the last value.
+    ssh: bool | None
 
 
 class GateState(TypedDict):
